@@ -14,6 +14,7 @@ import type { Mock } from 'vitest'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import LegalEntityForm from './LegalEntityForm'
+import { accessibleDescription } from './ProtectedChangeList.testkit'
 import { LegalEntityApiError, checkLegalEntity, getVersion, saveLegalEntity } from '../lib/legalEntitiesApi'
 import type { ProtectedChange, SaveCheck, SaveResult } from '../lib/legalEntitiesApi'
 import { entityFixture } from '../pages/LegalEntitiesPage.fixtures'
@@ -219,8 +220,27 @@ describe('the confirmation (S12, AC-9.1, 9.6)', () => {
     expect(document.getElementById(box.getAttribute('aria-labelledby') ?? '')?.textContent).toBe(
       'Save these changes to WellD CH?',
     )
-    // The list is a real list, labelled.
-    expect(within(box).getByRole('list', { name: 'Details that change' })).toBeTruthy()
+    // The list is a real list; its words are content (not an aria-label, which would replace the items, D3).
+    expect(within(box).getByRole('list')).toBeTruthy()
+    expect(description).toContain('Details that change')
+  })
+
+  it('has an accessible description, as accname computes it, holding each detail with its Old and New values (D-T68-2)', async () => {
+    const { user } = open()
+    await pressSave(user, [{ field: 'legalName', before: 'wellD AG', after: 'wellD SA' }, VAT_FILLED, IBAN_CHANGE])
+    const description = accessibleDescription(await screen.findByRole('alertdialog'))
+    for (const value of [
+      'Legal name',
+      'Old',
+      'New',
+      'wellD AG',
+      'wellD SA',
+      'None',
+      'CHE-123.456.788 MWST',
+      'IT60 X054 2811 1010 0000 0123 456',
+      'CH93 0076 2011 6238 5295 7',
+    ])
+      expect(description).toContain(value)
   })
 
   it('has no accessibility violations open and busy', async () => {
@@ -532,5 +552,67 @@ describe('the entity moves while the confirmation is open', () => {
     expect(await screen.findByRole('alertdialog')).toBeTruthy()
     expect(check).toHaveBeenCalledTimes(2)
     expect(check.mock.calls[1]?.[1].baseVersion).toBe(4)
+  })
+})
+
+describe('Confirm saves, and the dialog is not inside the form (D3, AC-9.3)', () => {
+  /** Every submit the document sees, with whether the page's own handler prevented the browser's default navigation. */
+  const submits: Event[] = []
+  const record = (event: Event) => {
+    // Bubble phase on the document: React's handlers (on the root) have run, so `defaultPrevented` is final.
+    submits.push(event)
+  }
+  beforeEach(() => {
+    submits.length = 0
+    document.addEventListener('submit', record)
+  })
+  afterEach(() => document.removeEventListener('submit', record))
+
+  it('has no form inside a form with the confirmation open, and the dialog is not a descendant of the page form', async () => {
+    const { user, container } = open()
+    expect(container.querySelectorAll('form form')).toHaveLength(0)
+    await pressSave(user)
+    await screen.findByRole('alertdialog')
+    expect(document.querySelectorAll('form form')).toHaveLength(0)
+    expect(dialog().closest('form')).toBeNull()
+    expect(screen.getByTestId('admin-legal-form').contains(dialog())).toBe(false)
+  })
+
+  it.each([
+    ['pressing Confirm', async (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByTestId('admin-legal-protected-confirm'))],
+    [
+      'Enter on Confirm',
+      async (user: ReturnType<typeof userEvent.setup>) => {
+        screen.getByTestId('admin-legal-protected-confirm').focus()
+        await user.keyboard('{Enter}')
+      },
+    ],
+    [
+      'a requestSubmit of the dialog form',
+      async () => {
+        const form = screen.getByTestId('admin-legal-protected-confirm').closest('form')
+        if (form === null) throw new Error('Confirm is in no form')
+        form.requestSubmit()
+      },
+    ],
+  ])('saves exactly once and never lets the browser submit (%s)', async (_name, confirm) => {
+    save.mockResolvedValue(saved())
+    const { user } = open()
+    await pressSave(user)
+    await screen.findByRole('alertdialog')
+    expect(save).not.toHaveBeenCalled()
+    submits.length = 0
+
+    await act(async () => {
+      await confirm(user)
+    })
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    expect(save.mock.calls[0]?.[1].baseVersion).toBe(3)
+    expect(submits.length).toBeGreaterThan(0)
+    for (const event of submits) expect(event.defaultPrevented).toBe(true)
+    expect(check).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(save).toHaveBeenCalledTimes(1)
   })
 })

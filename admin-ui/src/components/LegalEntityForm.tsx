@@ -634,141 +634,145 @@ export default function LegalEntityForm({
   const contactsHintId = `${idOf('contacts')}-hint`
 
   return (
-    <form
-      ref={formRef}
-      noValidate
-      className="flex flex-col gap-4"
-      onSubmit={(event) => {
-        event.preventDefault()
-        save()
-      }}
-      data-testid="admin-legal-form"
-    >
-      {conflict !== null && (
-        <ConflictBanner
-          read={conflict}
-          onReapply={reapply}
-          onDiscard={discard}
-          onRetry={() => readNewer(conflictTarget.current)}
-          reapplyRef={reapplyRef}
-        />
-      )}
-      {reviewing !== null && (flaggedNow.length > 0 || (reviewing.flagged.length === 0 && dirty)) && (
-        <Banner tone="success" data-testid="admin-legal-applied">
-          {flaggedNow.length > 0
-            ? t.conflict.applied(reviewing.version, t.conflict.flagged(flaggedNow.length), entity.version + 1)
-            : t.conflict.appliedClean(reviewing.version, entity.version + 1)}
-        </Banner>
-      )}
+    <>
+      <form
+        ref={formRef}
+        noValidate
+        className="flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault()
+          save()
+        }}
+        data-testid="admin-legal-form"
+      >
+        {conflict !== null && (
+          <ConflictBanner
+            read={conflict}
+            onReapply={reapply}
+            onDiscard={discard}
+            onRetry={() => readNewer(conflictTarget.current)}
+            reapplyRef={reapplyRef}
+          />
+        )}
+        {reviewing !== null && (flaggedNow.length > 0 || (reviewing.flagged.length === 0 && dirty)) && (
+          <Banner tone="success" data-testid="admin-legal-applied">
+            {flaggedNow.length > 0
+              ? t.conflict.applied(reviewing.version, t.conflict.flagged(flaggedNow.length), entity.version + 1)
+              : t.conflict.appliedClean(reviewing.version, entity.version + 1)}
+          </Banner>
+        )}
 
-      {summary.length > 0 && (
-        <ErrorSummary
-          title={t.refused.title(summary.length)}
-          hint={t.refused.hint}
-          items={summary}
-          onGo={focusControl}
-          testId="admin-legal-summary"
-        />
-      )}
+        {summary.length > 0 && (
+          <ErrorSummary
+            title={t.refused.title(summary.length)}
+            hint={t.refused.hint}
+            items={summary}
+            onGo={focusControl}
+            testId="admin-legal-summary"
+          />
+        )}
 
-      <Card title={t.form.group.company} headingLevel={4}>
-        <div className="grid gap-4 md:grid-cols-2">
-          {text('legalName', t.value.legalName, shown.legalName, { required: true })}
-          {text('vatNumber', t.value.vat, shown.vatNumber, { required: true })}
-        </div>
-        <Field
-          id={idOf('iban')}
-          label={t.value.iban}
-          hint={
-            reviewNote('iban') === null ? (
-              t.form.ibanHint
-            ) : (
-              <>
-                {t.form.ibanHint}
-                <br />
-                {reviewNote('iban')}
-              </>
-            )
-          }
-          error={errorList(errorsOf('iban'))}
-          className={flagClass('iban')}
-        >
-          {(control) => (
-            <input
-              {...control}
-              type="text"
-              spellCheck={false}
-              autoComplete="off"
-              className="scroll-mb-28 font-mono"
-              value={shown.iban}
-              onChange={(event) => edit('iban', event.target.value, 'iban')}
-              // Grouped on blur only, never while typing (the caret and a screen reader's echo would jump), and
-              // only when something was typed: an untouched form makes no draft.
-              onBlur={() => {
-                if (draft === undefined) return
-                const grouped = groupIban(draft.iban)
-                if (grouped !== draft.iban) onDraftChange(setFieldValue(draft, 'iban', grouped))
-              }}
-              data-testid="admin-legal-input-iban"
-            />
-          )}
-        </Field>
-      </Card>
-
-      <Card title={t.form.group.address} headingLevel={4}>
-        <div className="grid gap-6 md:grid-cols-2">
-          {(['it', 'en'] as const).map((language) => {
-            const field = language === 'it' ? 'address.it' : 'address.en'
-            const stored = detailsOf(entity).address[language]
-            const movedHint = stored.length > LIMITS.addressLines ? t.address.movedHint(stored.length) : null
-            const words = reviewText(field)
-            const note =
-              movedHint !== null && words !== null ? (
-                <>
-                  {movedHint} {words}
-                </>
+        <Card title={t.form.group.company} headingLevel={4}>
+          <div className="grid gap-4 md:grid-cols-2">
+            {text('legalName', t.value.legalName, shown.legalName, { required: true })}
+            {text('vatNumber', t.value.vat, shown.vatNumber, { required: true })}
+          </div>
+          <Field
+            id={idOf('iban')}
+            label={t.value.iban}
+            hint={
+              reviewNote('iban') === null ? (
+                t.form.ibanHint
               ) : (
-                (movedHint ?? words)
+                <>
+                  {t.form.ibanHint}
+                  <br />
+                  {reviewNote('iban')}
+                </>
               )
-            return (
-              <div key={language} className={flagClass(field)}>
-                <AddressLinesField
-                  language={language}
-                  legend={language === 'it' ? t.value.addressIt : t.value.addressEn}
-                  lines={shown.address[language]}
-                  errors={lineErrors(language)}
-                  idFor={(index) => idOf(lineKey(language, index))}
-                  onChange={(lines, index) => edit(field, lines, lineKey(language, index))}
-                  testIdPrefix="admin-legal-address"
-                  note={note}
-                  noteId={words !== null ? reviewTextId(field) : undefined}
-                  noteAction={reviewAction(field)}
-                />
-              </div>
-            )
-          })}
-        </div>
-      </Card>
+            }
+            error={errorList(errorsOf('iban'))}
+            className={flagClass('iban')}
+          >
+            {(control) => (
+              <input
+                {...control}
+                type="text"
+                spellCheck={false}
+                autoComplete="off"
+                className="scroll-mb-28 font-mono"
+                value={shown.iban}
+                onChange={(event) => edit('iban', event.target.value, 'iban')}
+                // Grouped on blur only, never while typing (the caret and a screen reader's echo would jump), and
+                // only when something was typed: an untouched form makes no draft.
+                onBlur={() => {
+                  if (draft === undefined) return
+                  const grouped = groupIban(draft.iban)
+                  if (grouped !== draft.iban) onDraftChange(setFieldValue(draft, 'iban', grouped))
+                }}
+                data-testid="admin-legal-input-iban"
+              />
+            )}
+          </Field>
+        </Card>
 
-      <Card title={t.form.group.contacts} headingLevel={4}>
-        <p id={contactsHintId} className="field-hint m-0">
-          {t.form.contactsHint}
-        </p>
-        <div className="grid gap-4 md:grid-cols-2">
-          {text('contacts.it', t.value.contactsIt, shown.contacts.it, { lang: 'it', describedBy: contactsHintId })}
-          {text('contacts.en', t.value.contactsEn, shown.contacts.en, { lang: 'en', describedBy: contactsHintId })}
-        </div>
-      </Card>
+        <Card title={t.form.group.address} headingLevel={4}>
+          <div className="grid gap-6 md:grid-cols-2">
+            {(['it', 'en'] as const).map((language) => {
+              const field = language === 'it' ? 'address.it' : 'address.en'
+              const stored = detailsOf(entity).address[language]
+              const movedHint = stored.length > LIMITS.addressLines ? t.address.movedHint(stored.length) : null
+              const words = reviewText(field)
+              const note =
+                movedHint !== null && words !== null ? (
+                  <>
+                    {movedHint} {words}
+                  </>
+                ) : (
+                  (movedHint ?? words)
+                )
+              return (
+                <div key={language} className={flagClass(field)}>
+                  <AddressLinesField
+                    language={language}
+                    legend={language === 'it' ? t.value.addressIt : t.value.addressEn}
+                    lines={shown.address[language]}
+                    errors={lineErrors(language)}
+                    idFor={(index) => idOf(lineKey(language, index))}
+                    onChange={(lines, index) => edit(field, lines, lineKey(language, index))}
+                    testIdPrefix="admin-legal-address"
+                    note={note}
+                    noteId={words !== null ? reviewTextId(field) : undefined}
+                    noteAction={reviewAction(field)}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </Card>
 
-      <LegalEntityFormBar
-        dirty={dirty}
-        nextVersion={entity.version + 1}
-        saving={saving}
-        checking={phase === 'checking'}
-        conflict={conflict !== null}
-        notice={notice}
-        saveRef={saveRef}
-      />
+        <Card title={t.form.group.contacts} headingLevel={4}>
+          <p id={contactsHintId} className="field-hint m-0">
+            {t.form.contactsHint}
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {text('contacts.it', t.value.contactsIt, shown.contacts.it, { lang: 'it', describedBy: contactsHintId })}
+            {text('contacts.en', t.value.contactsEn, shown.contacts.en, { lang: 'en', describedBy: contactsHintId })}
+          </div>
+        </Card>
+
+        <LegalEntityFormBar
+          dirty={dirty}
+          nextVersion={entity.version + 1}
+          saving={saving}
+          checking={phase === 'checking'}
+          conflict={conflict !== null}
+          notice={notice}
+          saveRef={saveRef}
+        />
+      </form>
+      {/* A sibling of the form, never inside it: the library's ConfirmDialog renders its own <form> and does not
+        portal, so mounted inside ours it nests forms and Confirm submits the browser's way (D3). */}
       {confirming !== null && (
         <ProtectedChangeDialog
           entityName={strings.common.entities[confirming.entity]}
@@ -779,6 +783,6 @@ export default function LegalEntityForm({
           onCancel={cancelProtected}
         />
       )}
-    </form>
+    </>
   )
 }

@@ -44,7 +44,7 @@ describe('in Italian', () => {
     )
     const box = screen.getByRole('alertdialog')
     expect(within(box).getByRole('heading', { name: 'Salvare queste modifiche a WellD CH?' })).toBeTruthy()
-    expect(within(box).getByRole('list', { name: 'Dati che cambiano' })).toBeTruthy()
+    expect(within(box).getByRole('list')).toBeTruthy()
     expect(within(box).getAllByRole('term').map((el) => el.textContent)).toEqual(['Precedente', 'Nuovo', 'Precedente', 'Nuovo'])
     expect(within(box).getAllByRole('definition').map((el) => el.textContent)).toEqual([
       'Nessun valore',

@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ProtectedChangeDialog from './ProtectedChangeDialog'
+import { accessibleDescription } from './ProtectedChangeList.testkit'
 import type { ProtectedChange } from '../lib/legalEntitiesApi'
 
 afterEach(cleanup)
@@ -75,5 +76,32 @@ describe('ProtectedChangeDialog layout', () => {
     show()
     const results = await axe.run(document.body, { rules: { 'color-contrast': { enabled: false }, region: { enabled: false } } })
     expect(results.violations.map((v) => v.id)).toEqual([])
+  })
+})
+
+describe('ProtectedChangeDialog accessible description (D3, AC-9.6)', () => {
+  it('holds every detail with its Old and New values, as accname computes it (a list label must not replace them)', () => {
+    show()
+    const description = accessibleDescription(screen.getByRole('alertdialog'))
+    for (const value of [
+      'Legal name',
+      'VAT number',
+      'IBAN',
+      'Old',
+      'New',
+      'wellD AG',
+      LONG_NAME,
+      'CHE-123.456.788 MWST',
+      'CHE-987.654.321 MWST',
+      'CH93 0076 2011 6238 5295 7',
+      'DE89 3704 0044 0532 0130 00',
+    ])
+      expect(description).toContain(value)
+  })
+
+  it('renders no form of its own inside another form, and its own form is the only one', () => {
+    show()
+    expect(document.querySelectorAll('form form')).toHaveLength(0)
+    expect(document.querySelectorAll('form')).toHaveLength(1)
   })
 })

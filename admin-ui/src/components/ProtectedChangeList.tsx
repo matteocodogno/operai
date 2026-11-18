@@ -29,27 +29,39 @@ function Side({ value, mono }: { value: string; mono: boolean }) {
   return <dd className={`m-0 break-words [overflow-wrap:anywhere]${mono ? ' font-mono text-sm' : ''}`}>{value}</dd>
 }
 
-export default function ProtectedChangeList({ changes, testId = 'admin-legal-protected-list' }: ProtectedChangeListProps) {
+export default function ProtectedChangeList({
+  changes,
+  testId = 'admin-legal-protected-list',
+}: ProtectedChangeListProps) {
   return (
-    <ul className="m-0 my-3 flex list-none flex-col gap-2 p-0" aria-label={t.listLabel} data-testid={testId}>
-      {changes.map((change) => {
-        const mono = change.field !== 'legalName'
-        return (
-          <li
-            key={change.field}
-            className="rounded-md border border-rule bg-ink px-3 py-2"
-            data-testid={`${testId}-${change.field}`}
-          >
-            <div className="mb-1 text-xs font-medium uppercase tracking-wide text-soft">{valueName(change.field)}</div>
-            <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
-              <dt className="pt-px text-xs font-semibold text-soft">{t.old}</dt>
-              <Side value={change.before} mono={mono} />
-              <dt className="pt-px text-xs font-semibold text-soft">{t.new}</dt>
-              <Side value={change.after} mono={mono} />
-            </dl>
-          </li>
-        )
-      })}
-    </ul>
+    <>
+      {/* The list's own words, as content: an `aria-label` on the <ul> would REPLACE the items in the dialog's
+          computed accessible description (accname step 2C), and the dialog must read every Old and New value. */}
+      <p className="sr-only" data-testid={`${testId}-label`}>
+        {t.listLabel}
+      </p>
+      <ul className="m-0 my-3 flex list-none flex-col gap-2 p-0" data-testid={testId}>
+        {changes.map((change) => {
+          const mono = change.field !== 'legalName'
+          return (
+            <li
+              key={change.field}
+              className="rounded-md border border-rule bg-ink px-3 py-2"
+              data-testid={`${testId}-${change.field}`}
+            >
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-soft">
+                {valueName(change.field)}
+              </div>
+              <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+                <dt className="pt-px text-xs font-semibold text-soft">{t.old}</dt>
+                <Side value={change.before} mono={mono} />
+                <dt className="pt-px text-xs font-semibold text-soft">{t.new}</dt>
+                <Side value={change.after} mono={mono} />
+              </dl>
+            </li>
+          )
+        })}
+      </ul>
+    </>
   )
 }

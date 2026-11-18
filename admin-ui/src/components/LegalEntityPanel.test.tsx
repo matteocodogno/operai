@@ -257,3 +257,44 @@ describe('a failure to read stays the page’s', () => {
     expect(screen.queryByTestId('admin-legal-form')).toBeNull()
   })
 })
+
+describe('no dialog of the page sits inside a form (D3)', () => {
+  it('has no form inside a form with the save confirmation open, and none with the restore dialog open', async () => {
+    answer(entityFixture('welld_it'), entityFixture('welld_ch'), ['welld_ch'])
+    vi.mocked(checkLegalEntity).mockResolvedValue({
+      baseVersion: 3,
+      outcome: 'change',
+      changedFields: ['iban'],
+      protectedChanges: [{ field: 'iban', before: 'CH93 0076 2011 6238 5295 7', after: 'DE89 3704 0044 0532 0130 00' }],
+    })
+    vi.mocked(listVersions).mockResolvedValue({
+      items: [
+        { version: 3, action: 'save', restoredFrom: null, createdBy: null, createdAt: '2026-11-12T16:40:00.000Z', changedFields: [], restorable: true },
+        { version: 2, action: 'save', restoredFrom: null, createdBy: null, createdAt: '2026-11-10T16:40:00.000Z', changedFields: ['iban'], restorable: true },
+      ],
+      nextBefore: null,
+    })
+    vi.mocked(getVersion).mockImplementation(async (entity, n) => ({
+      ...versionOf(entityFixture(entity)),
+      version: n,
+      ...(n === 2 ? { iban: 'DE89370400440532013000', ibanPrint: 'DE89 3704 0044 0532 0130 00' } : {}),
+    }))
+    renderPage('/legal-entities?entity=welld_ch')
+    const user = userEvent.setup()
+    await screen.findByTestId('admin-legal-form')
+
+    await user.type(legalName(), ' x')
+    await user.click(screen.getByTestId('admin-legal-save'))
+    const confirmation = await screen.findByRole('alertdialog')
+    expect(document.querySelectorAll('form form')).toHaveLength(0)
+    expect(confirmation.closest('form')).toBeNull()
+    await user.click(screen.getByTestId('admin-legal-protected-cancel'))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+
+    await user.click(screen.getByRole('tab', { name: 'History' }))
+    await user.click(await screen.findByRole('button', { name: 'Restore version 2' }))
+    const restore = await screen.findByRole('alertdialog')
+    expect(restore.closest('form')).toBeNull()
+    expect(document.querySelectorAll('form form')).toHaveLength(0)
+  })
+})

@@ -20,9 +20,12 @@ const CHANGES: ProtectedChange[] = [
 ]
 
 describe('ProtectedChangeList', () => {
-  it('renders a labelled list with one item per detail, in the order given', () => {
+  it('renders a list with one item per detail, in the order given, introduced by its words (not an aria-label)', () => {
     render(<ProtectedChangeList changes={CHANGES} />)
-    const list = screen.getByRole('list', { name: 'Details that change' })
+    const list = screen.getByRole('list')
+    expect(list.hasAttribute('aria-label')).toBe(false)
+    expect(list.hasAttribute('aria-labelledby')).toBe(false)
+    expect(screen.getByText('Details that change')).toBeTruthy()
     const items = within(list).getAllByRole('listitem')
     expect(items.map((item) => item.querySelector('div')?.textContent)).toEqual(['Legal name', 'VAT number', 'IBAN'])
   })

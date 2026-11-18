@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import RestoreDialog from './RestoreDialog'
+import { accessibleDescription } from './ProtectedChangeList.testkit'
 import type { RestoreDialogProps } from './RestoreDialog'
 import { LegalEntityApiError, getVersion, restoreVersion } from '../lib/legalEntitiesApi'
 import { entityFixture } from '../pages/LegalEntitiesPage.fixtures'
@@ -116,6 +117,35 @@ describe('the protected block (AC-9.4)', () => {
       expect(text).toContain(word)
     expect(document.activeElement).toBe(screen.getByTestId('admin-legal-restore-cancel'))
     expect(await axeViolations(document.body)).toEqual([])
+  })
+
+  it('has an accessible description, as accname computes it, holding each detail with its Old and New values (D3, AC-9.6)', async () => {
+    show({
+      entity: { ...CURRENT, legalName: 'wellD AG' },
+      target: versionOf({
+        legalName: 'wellD SA',
+        vatNumber: 'CHE-000.000.000',
+        iban: 'DE89370400440532013000',
+        ibanPrint: 'DE89 3704 0044 0532 0130 00',
+      }),
+    })
+    const box = await screen.findByRole('alertdialog')
+    const text = accessibleDescription(box)
+    for (const value of [
+      'Legal name',
+      'VAT number',
+      'IBAN',
+      'Old',
+      'New',
+      'wellD AG',
+      'wellD SA',
+      CURRENT.vatNumber,
+      'CHE-000.000.000',
+      'CH93 0076 2011 6238 5295 7',
+      'DE89 3704 0044 0532 0130 00',
+    ])
+      expect(text).toContain(value)
+    expect(document.querySelectorAll('form form')).toHaveLength(0)
   })
 
   it('lists legal name, VAT number and IBAN in the closed order, and says None for an empty side', async () => {
