@@ -248,3 +248,109 @@ None at medium or above. One refinement of an existing Low, no new entry:
 
 ### SELF-CRITIQUE
 The fix was checked mainly by reading the diff and running a probe that scans response text for chosen ids, so a leak under a derived or re-encoded form of an id would not be caught by the scan; none was found by reading. The host fakes (CRM, projects, activities, meetings) stand in for the real owners, so real crm-api and meetings-api answers for a non-reader are exercised only as the first review described, by reading. The hours-api suite and typecheck were run once each, not lint; the hours-ui, shell and other backend suites and the T42 UI companion were not run. New Mediums were ruled out by reading `view.ts`, the labels and totals layers and the three call sites, not by an exhaustive search of every service.
+
+## Re-check 2026-11-18 (delta since c85b0898: T43–T45, rebase onto main)
+
+Reviewer: owasp-reviewer (fresh agent), read-only, branch `feat/time-tracking` at e78b6c95. Dispatched because
+`security-triggers.py --tier production --diff-base c85b0898` returned `dispatch: true` (production reviews every
+batch; matched `auth/**`, `*permission*` in hours-ui and admin-ui, `*session*` in shell).
+
+### Verdict: PASS
+
+0 critical · 0 high · 0 medium · 2 low (R1, R4) · 2 info (R2, R3). F2–F7 of the first review stand as accepted;
+F7 is updated below.
+
+### Scope
+
+`git diff c85b0898 HEAD` (105 files, specs and `*.md` excluded), plus the final state against `origin/main` of every
+file the rebase touched (the conflict-resolution commits sit on both sides of c85b0898):
+
+- **hours-api**: `src/lib/{env,errors,problem}.ts`, `src/openapi/registry.ts`, `src/lists/` (routes,
+  `authz/timeListManage.ts`, `nameRule.ts`, `idRule.ts`), `src/entries/{filters,list.routes,entries.routes,schemas,rules}.ts`,
+  `src/totals/totals.routes.ts`, `src/index.ts`, `package.json`, `bun.lock`, `Dockerfile`, the example env file, the
+  deleted `railway.json`.
+- **hours-ui**: `HoursShell.tsx`, `lib/permissions.ts`, `router.tsx`, `pages/SettingsPage.tsx`, `lib/timeListsApi.ts`,
+  `lib/duration.ts`, `components/EntryDialog.tsx`, `EntryDialogModel.ts`, `HoursFilters.tsx`, `HoursFiltersState.ts`,
+  `pages/{MyHoursPage,EveryoneHoursPage}.tsx`, `lib/hoursApi.ts`, `vite.config.ts`, `package.json`, `pnpm-lock.yaml`.
+- **admin-ui**: `git diff origin/main -- admin-ui` is empty.
+- **auth**: `src/authz/seed.ts`, `src/authz/catalogs/hours.ts`, `src/system/serviceClients.ts`, the two tests changed
+  since c85b0898, the example env file.
+- **meetings-api**: `src/index.ts`, `src/lib/env.ts`, `src/auth/systemAuth.middleware.ts`, `src/meetings/list.routes.ts`,
+  `src/system/hosts.routes.ts`.
+- **activities-api, crm-api**: `src/activities/activities.routes.ts`, `crm-api/src/activity-host/resolve.routes.ts`.
+- **shell**: `src/lib/{session,runtimeRemotes}.ts`, `src/router.tsx`, `src/hooks/useRemoteVersions.ts`, `vite.config.ts`,
+  `vercel.json` (CSP), `public/runtime-config.example.json`, `playwright.config.ts`, the example env file, and a
+  credential scan of `e2e/hours*.spec.ts` and `e2e/helpers/hours*Fixtures.ts`.
+- **env-doctor**: `manifest.ts`, `templates/production/{hours-api,auth,meetings-api}.env`, `check.test.ts`.
+- **infra, CI, config**: `.github/workflows/changeset-check.yml`, `.betterleaksignore`, `compose.yaml`, `mise.toml`,
+  `infra/check.sh`, `lerna.json`, `scripts/check-shared-copies.ts`, `infra/README.md` § Time tracking.
+
+Run: `bunx tsc --noEmit` in hours-api, activities-api, meetings-api (clean); `bun scripts/check-shared-copies.ts`
+(33 groups in sync); hours-ui focused vitest (`HoursShell`, `SettingsPage`, `duration`, `HoursFiltersState`,
+`permissions`: 146 pass); an adversarial probe of the duration parser (56 chosen + 300 000 random inputs, four
+50 000-character ReDoS runs at 0.1–0.2 ms); `bun audit` (hours-api), `pnpm audit --prod` (hours-ui). Not run by the
+reviewer: the hours-api DB suite, betterleaks, osv-scanner, any browser flow. The main loop then ran
+`gitleaks git --gitleaks-ignore-path .betterleaksignore --log-opts=origin/main..HEAD` (gitleaks 8.30.1): one finding,
+R2's, and none after its fix.
+
+### Findings
+
+| # | Sev | OWASP | Where | Status |
+|---|---|---|---|---|
+| R1 | Low | A06 | `hours-ui/pnpm-lock.yaml` (`picomatch@4.0.7`) | accepted — dev-time transitive (`better-auth>vitest>picomatch`), not shipped, same lock version in shell, crm-ui and projects-ui; no patched version yet |
+| R2 | Info | A02/A05 | `.betterleaksignore` | fixed — anchor `check.test.ts:generic-api-key:1421` moved to `:1449` by the rebase |
+| R3 | Info | A05 (EU residency) | `compose.yaml` | fixed — the comment named the deleted `hours-api/railway.json`; it now names the `.railway/railway.ts` block |
+| R4 | Low | A08/A05 | `hours-api/src/openapi/registry.ts`, `src/index.ts` | accepted — suite-wide pattern, not from this delta |
+
+- **R1.** GHSA-fc5q-39xc-vjpf (picomatch `<=4.0.7`, ReDoS) through the test toolchain. No runtime impact. Record a
+  reviewed waiver if the osv-scanner gate flags it; bump when better-auth or vitest ship a patched picomatch, for every
+  frontend at once, not in hours-ui alone.
+- **F7 update (hours-api).** `bun audit` reports 4 (2 high, 2 moderate), all dev-time Prisma CLI transitives
+  (`deepmerge-ts`, `mysql2` ×2, `valibot`). The zod 3 item is gone with zod 4.6.7. Pins equal activities-api,
+  projects-api and crm-api (`hono` 4.13.16, `@hono/zod-openapi` 1.6.3, `@scalar/hono-api-reference` 0.12.17,
+  `@hono/node-server` 2.1.6 override).
+- **R2.** Every value the 9 added lines cover is a placeholder (the synthetic key base64-decodes to
+  `{"synthetic-key-never-printed"` plus padding; the hours-api client secret is `dummy-…`). Only the line anchor was stale.
+- **R3.** No committed file pins hours-api to the EU until the runbook's step 4 adds its `.railway/railway.ts` block;
+  the control is `infra/provision-tool.sh`, which refuses a block without the `europe-west4` replica. Keep that audit a
+  hard gate of step 4 before the first deploy.
+- **R4.** `GET /docs` is public by design and `@scalar/hono-api-reference` loads an unpinned jsdelivr script without
+  SRI; hours-api (like activities-api, crm-api, projects-api) sets no `secureHeaders()`. The page holds no data and the
+  JWT lives in the shell's memory on another origin. Suite-wide follow-up: pin the CDN URL or serve it from the image,
+  add `secureHeaders()`, or expose `/docs` outside production.
+
+### Checked, no finding
+
+- **T43 — Settings tab (A01, A05).** The TabNav shows only for `canReadAll || canManageLists` and the Settings link
+  only for `canManageLists`, both out of the DOM until `/authz/me` resolves (`HoursShell.tsx:32`, `permissions.ts:35-43`).
+  A typed `/hours/settings` without the grant returns before any fetch (`SettingsPage.tsx:151`) and shows
+  `PermissionDenied` once resolved or after 3 s, failing closed. The server enforces `time-list:manage` on every list
+  write (`lists.routes.ts:66,86,119,141`, middleware before validators in `@hono/zod-openapi` 1.6.3); only a refusal is
+  cached (30 s per `(sub, perm_epoch)`), an outage never. Names render as React text; path ids are
+  `encodeURIComponent`-ed. `ALLOWED_ORIGINS` narrowed to the shell origin (`templates/production/hours-api.env:16`,
+  `manifest.ts:386`), `*` still refused; the shell CSP adds only the hours remote and hours-api origins.
+- **T44 — `target` (A01, A03).** Client: allowlist of four literals before `URLSearchParams`; the list, totals and
+  export walk send the same object. Server: `z.enum(["project","deal","meeting","none"]).optional()` shared by list and
+  totals (`filters.ts:45`), 400 before any auth, owner or database call; one more AND term after the scope
+  (`filters.ts:124`); the scope is decided only by `readScope` (`list.routes.ts:151`, `totals.routes.ts:86`). No new
+  oracle: `on.type` is in every view already; D44's withheld ids are untouched.
+- **T45 — typed Duration (A03/A04).** Client-side only. The server enforces whole 30-minute steps from 30 min to 24 h
+  in the body schema (`entries/schemas.ts:57-59,68,86`), in `assertMinutes` (`entries/rules.ts:100-108`, 422
+  `invalid_minutes`, POST and PATCH) and in the database CHECK `time_entry_minutes`.
+- **Rebase onto main (A01, A05, A06, A08).** auth's `seed.ts`, `catalogs/hours.ts`, `serviceClients.ts` are additive
+  against main; both permissions unconditioned, admin only, in neither the directory nor the holders gate; client
+  `hours-api` has exactly `meetings.hosts.read`; the production `auth.env` gains a reference, no value, one scope.
+  meetings-api `SERVICE_AUDIENCE` optional (unset = every `/system` call 401), refused when equal to `AUTH_AUDIENCE`,
+  required by env-doctor for production; `systemAuth.middleware.ts` pins RS256, issuer, audience, scope, `system:` prefix
+  and the allowlisted sub with one identical 401 and matches the shared copy; `GET /meetings?ids=` ANDed with the
+  caller's own set, capped at 25. activities-api `?ids=` and crm-api `entityType:"deal"` keep the first review's shape.
+  hours-api's zod 4 / `@hono/zod-openapi` 1.6.3 migration: every write route declares `required: true` (non-JSON = 415
+  Problem, never skips validation); 4xx messages are the library's fixed text, never the body. Port move to 8089: no
+  behavioural change; `Dockerfile` still non-root, `--frozen-lockfile`. CI and `lerna.json` only add the hours paths;
+  shared-copy groups extended, none loosened. e2e files hold no credentials.
+
+### SELF-CRITIQUE
+The reviewer did not run the hours-api DB suite (it truncates tables), betterleaks, osv-scanner or any browser flow;
+the zod 4 behaviour rests on reading the library source plus typecheck, and the dependency picture on `bun audit` and
+`pnpm audit`. operai-ui's `SearchPicker` and `ExportButton` were outside this delta and not re-read. The QE run of
+2026-11-18 runs the suites and the browser flows.

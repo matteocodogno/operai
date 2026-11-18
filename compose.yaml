@@ -473,7 +473,8 @@ services:
   # fails closed on a write.
   #
   # DATA-RESIDENCY: in production this service is deployed to Railway EU region
-  # (see hours-api/railway.json). Locally it runs against the shared Postgres
+  # (see the hours-api block of .railway/railway.ts, added at step 4 of infra/README.md § Time tracking;
+  # provision-tool.sh refuses a block without the EU replica). Locally it runs against the shared Postgres
   # instance above, in its own logical database ('hours'). Same pattern as
   # 'estimai'/'notify'/'refund'/'inventory'/'projects'/'activities' above — no init script;
   # Prisma creates the logical database itself the first time migrations run
