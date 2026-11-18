@@ -25,6 +25,11 @@ vi.mock('../../lib/settingsApi', async (importOriginal) => {
   return { ...original, getSetting: vi.fn(), putSetting: vi.fn() }
 })
 
+vi.mock('../../lib/accountingApi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../lib/accountingApi')>()
+  return { ...original, listLedgerAccounts: vi.fn(), listVatCodes: vi.fn() }
+})
+
 vi.mock('shell/session', async (importOriginal) => {
   const original = await importOriginal<typeof import('shell/session')>()
   return { ...original, usePermissions: vi.fn() }
@@ -33,6 +38,7 @@ vi.mock('shell/session', async (importOriginal) => {
 import * as session from 'shell/session'
 import * as ratesApi from '../../lib/ratesApi'
 import * as settingsApi from '../../lib/settingsApi'
+import * as accountingApi from '../../lib/accountingApi'
 import { createAppRouter } from '../../router'
 
 type Permissions = ReturnType<typeof session.usePermissions>
@@ -62,6 +68,8 @@ const tabNames = () => screen.queryAllByRole('tab').map((tab) => tab.textContent
 beforeEach(() => {
   vi.mocked(session.usePermissions).mockReturnValue(SETTINGS_ADMIN)
   vi.mocked(ratesApi.listRates).mockResolvedValue({ entities: [] })
+  vi.mocked(accountingApi.listLedgerAccounts).mockResolvedValue([])
+  vi.mocked(accountingApi.listVatCodes).mockResolvedValue([])
   vi.mocked(settingsApi.getSetting).mockResolvedValue({
     key: 'accounting-distribution-email',
     value: null,
@@ -146,6 +154,7 @@ describe('?section= picks the view, and only that view is mounted', () => {
     await waitFor(() => expect(ratesApi.listRates).toHaveBeenCalled())
     expect(screen.queryByTestId('refund-settings-accounting')).toBeNull()
     expect(screen.queryByTestId('refund-settings-exchange-rates')).toBeNull()
+    expect(accountingApi.listLedgerAccounts).not.toHaveBeenCalled()
   })
 
   it('?section=exchange-rates mounts only the exchange-rates view: General, with its fetches, never mounts', async () => {
@@ -159,9 +168,11 @@ describe('?section= picks the view, and only that view is mounted', () => {
     expect(settingsApi.getSetting).not.toHaveBeenCalled()
   })
 
-  it('?section=accounting mounts only the accounting view', async () => {
+  it('?section=accounting mounts only the accounting view, with its cards', async () => {
     await openSettings('?section=accounting')
     expect(screen.getByTestId('refund-settings-accounting')).not.toBeNull()
+    expect(await screen.findByTestId('settings-accounts-card')).not.toBeNull()
+    expect(screen.getByTestId('settings-vat-codes-card')).not.toBeNull()
     expect(screen.queryByTestId('refund-settings-exchange-rates')).toBeNull()
     expect(ratesApi.listRates).not.toHaveBeenCalled()
   })

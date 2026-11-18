@@ -137,3 +137,22 @@ describe('useLoadedResource', () => {
     error.mockRestore()
   })
 })
+
+describe('useLoadedResource: replace with a function', () => {
+  it('patches the data as it is when the function runs, not as it was when the write began', async () => {
+    const { result } = renderHook(() => useLoadedResource<string[]>(() => Promise.resolve(['a'])))
+    await waitFor(() => expect(result.current.status).toBe('loaded'))
+
+    act(() => result.current.replace(['a', 'b']))
+    act(() => result.current.replace((current) => [...current, 'c']))
+
+    expect(result.current.status === 'loaded' && result.current.data).toEqual(['a', 'b', 'c'])
+  })
+
+  it('does nothing while the resource is not loaded', async () => {
+    const pending = deferred<string[]>()
+    const { result } = renderHook(() => useLoadedResource<string[]>(() => pending.promise))
+    act(() => result.current.replace((current) => [...current, 'x']))
+    expect(result.current.status).toBe('loading')
+  })
+})

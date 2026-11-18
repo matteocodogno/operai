@@ -19,7 +19,8 @@
  *
  * `reload()` keeps the current data visible instead of going back to a skeleton: a row the user just
  * acted on must still be in the DOM so focus can be moved to it. `replace(data)` swaps in a fresher
- * value the caller already holds (a PUT that returns the whole row) without another request.
+ * value the caller already holds (a PUT that returns the whole row) without another request; `replace(fn)`
+ * patches the current value, which is what an async write must use (its closure may be stale by then).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -31,8 +32,12 @@ export type ResourceState<T> =
 export type LoadedResource<T> = ResourceState<T> & {
   /** Load again. A loaded resource stays `loaded` (with its old data) until the new answer arrives. */
   reload: () => void
-  /** Show `data` as the loaded value now (for a write that returned the fresh resource). */
-  replace: (data: T) => void
+  /**
+   * Show `data` as the loaded value now (for a write that returned the fresh resource). Given a function, it
+   * receives the data as it is when it runs (not as it was when the write started) and returns the new value;
+   * on a resource that is not loaded it does nothing, since there is nothing to patch.
+   */
+  replace: (data: T | ((current: T) => T)) => void
 }
 
 export function useLoadedResource<T>(loader: () => Promise<T>, enabled = true): LoadedResource<T> {
@@ -70,7 +75,16 @@ export function useLoadedResource<T>(loader: () => Promise<T>, enabled = true): 
   }, [enabled, reloadToken])
 
   const reload = useCallback(() => setReloadToken((token) => token + 1), [])
-  const replace = useCallback((data: T) => setState({ status: 'loaded', data }), [])
+  const replace = useCallback(
+    (data: T | ((current: T) => T)) =>
+      setState((current) => {
+        if (typeof data !== 'function') return { status: 'loaded', data }
+        return current.status === 'loaded'
+          ? { status: 'loaded', data: (data as (value: T) => T)(current.data) }
+          : current
+      }),
+    [],
+  )
 
   const visible: ResourceState<T> = enabled ? state : { status: 'forbidden' }
   return { ...visible, reload, replace }
