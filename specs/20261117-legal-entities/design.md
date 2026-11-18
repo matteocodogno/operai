@@ -1,6 +1,7 @@
 ---
 spec: 20261117
-status: draft
+status: approved
+approved: 2026-11-18
 ---
 
 # Design: Legal entities — one registry of the group's companies, for every tool
@@ -770,10 +771,10 @@ Resolved:
 - [x] DR-12 library change (wrapping tab list): done; FU-3 verified at 320 px in a real browser by QE T45 (`scrollWidth` 320 = `clientWidth` 320, both themes; QE section 8).
 - [x] The copy added by T51 landed in the code through T40, T60, T63, T65 and T59 (S12, S7 additions, the 429 and paging texts, the notice, FU-1, FU-4, FU-7, FU-9); QE saw it on the real pages (section 8, section 10).
 - [x] Contrast: the page's 47 text elements measure at least 5.01:1 in both themes; axe (WCAG 2.1 A/AA) is 0 violations on every screen and both dialogs (QE T45, section 8).
-- [x] S7 `confirmDisabledReason`, the list's description and the dialog's place beside the form: this document now says what was built (sections S7 and S12 and their accessibility notes). The S12 busy reading is written here as built too; the decision itself is listed below, pending the owner's review.
+- [x] S7 `confirmDisabledReason`, the list's description and the dialog's place beside the form: this document now says what was built (sections S7 and S12 and their accessibility notes). The S12 busy reading is written here as built too; the decision itself is listed below, approved by the owner on 2026-11-18.
 - [x] FU-5 (no design change): the ADR for how a layout draws the missing mark is written: `docs/adr/20261117-a-layout-draws-the-configurators-missing-mark-through-a-runtime-patch-of-one-template-line-the-label-only-in-the-drawing-and-the-brackets-only-in-the-page-text-and-a-layout-that-cannot-is-refused.md` (commit `caf5564a`).
 
-Decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review (built as decided; not owner-approved yet):
+Decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18 (built as decided; not owner-approved yet):
 
 - [ ] DR-14 (administrators without the grant get a link that redirects): the `admin` role holds `legal-entity:manage` by seed (T3) and department admins inherit it, so every effective administrator can open the history link; no design change. The owner may instead choose to show `PermissionDenied` rather than a redirect.
 - [ ] DR-17 (the lock-screen push may show the actor's name and the two IBAN tails): accepted as AC-9.12 and reading R-a allow. The owner may ask for a shorter push (a notify-api change).

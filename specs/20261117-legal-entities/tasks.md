@@ -1145,3 +1145,8 @@ Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T
   reports it alive, so the job goes to the dying worker (`WorkerFailed`). Fix the test by waiting for the death
   (backend-dev); the architect decides whether the pool should retry a job lost that way. Low; CI job re-runnable.
 - Eval: round 1 FAIL 76.5, round 2 FAIL 78.3 (bounded loop of 2 reached — escalated to the owner, no third round run).
+- Owner, 2026-11-18 (morning review): every orchestrator decision of the unattended run 2026-11-17/18 is APPROVED
+  (lifting R13 was already the owner's; S12 busy reading, DR-13…DR-18 incl. DR-14 and DR-17, the T64/T72/T76/T77
+  numbers 1 s / 30 per 600 s / 1.1 s, the two 2026-11-18 ADRs, T44 prepared ahead); design.md APPROVED; N1/O-1
+  decided: the notice identifies the author by their account EMAIL (the display name is editable by its holder) —
+  spec amendment of AC-9.11 and tasks T78+ follow; then eval round 3 on the owner's request.

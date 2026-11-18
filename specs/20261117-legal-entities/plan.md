@@ -1383,13 +1383,13 @@ This supersedes decision 8's "refreshes when its entry is older", G10 F6, and th
   (`docs/adr/20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds.md`),
   which now points forward to it (`43850795`). The pin ADR's "Amendment 2026-11-18" records T77: wherever it, its
   title or its file name says 100, read 30.
-- **Pending the owner's review:** the numbers (1 s, 30 per 600 s, 1.1 s; T72, T76, T77) were decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review,
+- **Approved by the owner on 2026-11-18:** the numbers (1 s, 30 per 600 s, 1.1 s; T72, T76, T77) were decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18,
   from the re-review's recommendation. No owner approval of them is recorded; the ADR's Status is Proposed.
 
 ### H2 — ADR candidates: all written
 
 The eight plan candidates are Accepted (approved with the plan and its amendments). The two records of 2026-11-18
-are **Proposed**: decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review.
+are **Proposed**: decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18.
 
 | Candidate | Record |
 | --- | --- |
@@ -1401,8 +1401,8 @@ are **Proposed**: decided by the orchestrator during the owner-requested unatten
 | 6 (notify-api idempotency and template binding; amends 20260714, 20261101) | `docs/adr/20261117-notify-api-system-routes-protect-against-repeats-by-a-caller-scoped-idempotency-key-and-bind-a-template-to-its-caller-with-closed-typed-data.md` |
 | 7 (confirmation backed by a read-only check) | `docs/adr/20261117-a-confirmation-is-backed-by-a-read-only-server-check-it-is-admin-uis-and-the-registry-does-not-enforce-it-and-when-the-check-cannot-be-made-nothing-is-saved.md` |
 | 8 (FU-5, the missing mark) | `docs/adr/20261117-a-layout-draws-the-configurators-missing-mark-through-a-runtime-patch-of-one-template-line-the-label-only-in-the-drawing-and-the-brackets-only-in-the-page-text-and-a-layout-that-cannot-is-refused.md` |
-| not a candidate (D3 rule; **Proposed**, pending the owner's review) | `docs/adr/20261118-a-dialog-that-renders-its-own-form-is-mounted-beside-the-form-never-inside-it.md` |
-| not a candidate (F6/N2, H1; **Proposed**, pending the owner's review) | `docs/adr/20261118-a-pin-ahead-of-the-held-version-forces-one-registry-refresh-at-most-once-a-second-and-100-times-in-10-minutes-per-process-and-any-other-mismatching-pin-is-answered-409-at-once.md` (amended 2026-11-18: budget 30, T77) |
+| not a candidate (D3 rule; **Accepted** (owner, 2026-11-18)) | `docs/adr/20261118-a-dialog-that-renders-its-own-form-is-mounted-beside-the-form-never-inside-it.md` |
+| not a candidate (F6/N2, H1; **Accepted** (owner, 2026-11-18)) | `docs/adr/20261118-a-pin-ahead-of-the-held-version-forces-one-registry-refresh-at-most-once-a-second-and-100-times-in-10-minutes-per-process-and-any-other-mismatching-pin-is-answered-409-at-once.md` (amended 2026-11-18: budget 30, T77) |
 
 - `AGENTS.md` gained one line for each of the six new records (`caf5564a`).
 - The new records state their amendments in their Status lines, and the older ADRs (20260714, 20260716, 20261101,
@@ -1463,7 +1463,7 @@ No AC is affected. AC-9.12 and AC-9.14 are covered as G5 intended, and the stric
 
   A unit test asserts that there is no nested `<form>` and drives a real `requestSubmit`. The rule is recorded as
   `docs/adr/20261118-a-dialog-that-renders-its-own-form-is-mounted-beside-the-form-never-inside-it.md`.
-- **S12 busy state (2026-11-18, T40 report; decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review).** design.md S12 says both
+- **S12 busy state (2026-11-18, T40 report; decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18).** design.md S12 says both
   buttons are `aria-disabled` while the confirmation is busy. `@operai/ui` `ConfirmDialog` disables Confirm
   **natively** while `busy`, which is shared library behaviour for every dialog in the suite.
   - Accepted as is: the busy state is short and announced, and axe is clean on both dialogs.
@@ -1487,13 +1487,13 @@ documents' output is unchanged, and the golden corpus stays byte-identical. This
 
 ### H7 — Design decisions taken unattended (orchestrator, 2026-11-17; recorded in tasks.md for the owner's review)
 
-Each item below was decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review. None is owner-approved yet.
+Each item below was decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18. None is owner-approved yet.
 
 - **DR-14.** An effective administrator can always open the notice's history link. The reason: the `admin` role holds
   `legal-entity:manage` unconditioned by seed (T3), and department admins inherit that role. No design change.
   Consistent with G3, which notifies effective administrators whether or not they hold the grant.
 - **DR-17.** The push text on a lock screen may show the actor's name and the two IBAN tails. This is allowed by
-  AC-9.12 and by reading R-a (push text in English, R20). Accepted by the orchestrator, pending the owner's review.
+  AC-9.12 and by reading R-a (push text in English, R20). Accepted by the orchestrator, approved by the owner on 2026-11-18.
 - DR-13, DR-15, DR-16 and DR-18 stand as design.md says; DR-18 was done in T63.
 - Still open with the owner (not plan decisions):
   - **N1 / O-1:** the actor's display name can be edited by its holder through `POST /auth/update-user`, and the
