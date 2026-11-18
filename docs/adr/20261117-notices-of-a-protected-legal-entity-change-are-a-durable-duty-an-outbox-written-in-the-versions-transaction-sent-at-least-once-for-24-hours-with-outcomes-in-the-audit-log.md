@@ -1,7 +1,7 @@
 # 20261117 — Notices of a protected change to a legal entity are a durable duty: outbox rows written in the version's own transaction, a dispatcher in auth that claims them with leases and `SKIP LOCKED`, retries for 24 hours, and every outcome in the audit log
 
 **Date:** 2026-11-17  
-**Status:** Accepted — plan amendment "after security review" of specs/20261117-legal-entities (approved by the owner 2026-11-17 with tasks T51–T71); owner decisions in spec US-9: OQ-11 (handed over within 60 seconds, first retry within 5 minutes, given up after 24 hours, the give-up in the audit log), OQ-12 (release order) and AC-9.14 ("the duty to send is kept together with the version"). Plan ADR candidate 5. **Amends** ADR 20261105-auth-pushes-admin-notifications (its escalation trigger fires) and **departs from** ADR 20260716-system-notifications-cross-user-trigger §4 (best effort, no retry) for this one notice.  
+**Status:** Accepted — plan amendment "after security review" of specs/20261117-legal-entities (approved by the owner 2026-11-17 with tasks T51–T71); owner decisions in spec US-9: OQ-11 (handed over within 60 seconds, first retry within 5 minutes, given up after 24 hours, the give-up in the audit log), OQ-12 (release order) and AC-9.14 ("the duty to send is kept together with the version"). Plan ADR candidate 5. **Amends** ADR 20261105-auth-pushes-admin-notifications (its escalation trigger fires) and **departs from** ADR 20260716-system-notifications-cross-user-trigger §4 (best effort, no retry) for this one notice. **Amended 2026-11-18** by ADR 20261118-a-notice-identifies-its-author-by-the-account-email-captured-in-the-versions-transaction-and-that-address-is-the-one-personal-value-a-notice-carries: point 3 ("The rows hold no value") now has one exception, the author's account email in `authorEmail`, captured in the version's transaction; the open note on N1 is closed (the notice names the account email, never the display name); the GDPR line's "Notices name the actor by display name" no longer holds.  
 **Deciders:** Matteo Codogno (product owner)  
 **Project:** operai
 
@@ -143,7 +143,7 @@ This decision is revisited when any of these happens:
 
 ## Compliance notes
 
-- GDPR / data-protection impact: low. The rows hold user ids, an entity and a version number; the outside address is read from the environment at send time and never stored. Notices name the actor by display name (see N1) and carry at most the last 4 characters of an IBAN.
+- GDPR / data-protection impact: low. The rows hold user ids, an entity and a version number; the outside address is read from the environment at send time and never stored. Notices name the actor by display name (see N1) [amended 2026-11-18: by account email, see the Status line] and carry at most the last 4 characters of an IBAN.
 - Data residency: no new third party and no new data flow: `auth` already calls notify-api, which already sends through Resend (ADR 20260714-notify-api-email-channel-service-trust); the notice adds a content class (a change of a legal detail, without its values), not a recipient of data.
 - Audit trail: required, and provided (Tier 2 `audit_log`, ADR 20260804-two-tier-audit-assurance-auth-audit-log-application-level). The notice rows themselves are Tier 2 and carry no immutability trigger, because the dispatcher updates them; the immutable record is the version.
 

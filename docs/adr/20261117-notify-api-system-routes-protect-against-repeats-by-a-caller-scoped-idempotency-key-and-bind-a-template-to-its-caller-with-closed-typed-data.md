@@ -1,7 +1,7 @@
 # 20261117 — notify-api's system routes protect against repeats with a caller-scoped idempotency key (a partial unique index for notifications, a `sent`-only one for emails, the same key passed to Resend), and an email template can be bound to its caller, addressed by user id, and fed only closed typed data
 
 **Date:** 2026-11-17  
-**Status:** Accepted — approved plan amendment "after security review" of specs/20261117-legal-entities (2026-11-17), owner decisions AC-9.12 (no value of a detail leaves auth in a notice beyond an IBAN's last 4 characters) and AC-9.14 (no recipient gets two notices on one channel for one version, retries included). Plan ADR candidate 6. **Amends** ADR 20260714-notify-api-email-channel-service-trust (a template open to every caller, addressed by `to`, no repeat protection) and ADR 20261101-notify-api-resolves-email-notice-address-from-auth (an address is resolved from a user id only for `email: true` on `/system/notifications`).  
+**Status:** Accepted — approved plan amendment "after security review" of specs/20261117-legal-entities (2026-11-17), owner decisions AC-9.12 (no value of a detail leaves auth in a notice beyond an IBAN's last 4 characters) and AC-9.14 (no recipient gets two notices on one channel for one version, retries included). Plan ADR candidate 6. **Amends** ADR 20260714-notify-api-email-channel-service-trust (a template open to every caller, addressed by `to`, no repeat protection) and ADR 20261101-notify-api-resolves-email-notice-address-from-auth (an address is resolved from a user id only for `email: true` on `/system/notifications`). **Amended 2026-11-18** by ADR 20261118-a-notice-identifies-its-author-by-the-account-email-captured-in-the-versions-transaction-and-that-address-is-the-one-personal-value-a-notice-carries: point 7's bounded actor name `actorName` becomes `actorEmail` (an email of at most 320 characters or null, content only); the GDPR line "No address is added to any request" now has one exception, the author's address as content. Addressing by `recipientId` is unchanged.  
 **Deciders:** Matteo Codogno (product owner)  
 **Project:** operai
 
@@ -137,7 +137,7 @@ This decision is revisited when any of these happens:
 
 ## Compliance notes
 
-- GDPR / data-protection impact: low. No address is added to any request; the delivery row keeps the address as it did before; keys carry a row id and no value. The email carries names of changed details and at most the last 4 characters of an IBAN.
+- GDPR / data-protection impact: low. No address is added to any request [amended 2026-11-18: one exception, the author's address as content, see the Status line]; the delivery row keeps the address as it did before; keys carry a row id and no value. The email carries names of changed details and at most the last 4 characters of an IBAN.
 - Data residency: compliant; no new third party (Resend was already the email provider, ADR 20260714-notify-api-email-channel-service-trust).
 - Audit trail: not required by this ADR; the audit of the notice is in ADR 20261117-notices-of-a-protected-legal-entity-change-are-a-durable-duty-an-outbox-written-in-the-versions-transaction-sent-at-least-once-for-24-hours-with-outcomes-in-the-audit-log.
 
