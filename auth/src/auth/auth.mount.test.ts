@@ -210,28 +210,49 @@ describe("CORS exposes Retry-After (T74)", () => {
 // Better Auth's defaults (`user.changeEmail` off, `update-user` ignoring `email`). This pins the premise.
 
 describe("a signed-in holder cannot change user.email (D9-2)", () => {
-  const attempts: Array<[string, string, Record<string, unknown>]> = [
-    ["POST /auth/change-email", "/auth/change-email", { newEmail: "attacker-chosen@legalentities.test" }],
-    ["POST /auth/change-email (callbackURL)", "/auth/change-email", { newEmail: "attacker-chosen@legalentities.test", callbackURL: "/" }],
-    ["POST /auth/update-user with an email member", "/auth/update-user", { email: "attacker-chosen@legalentities.test" }],
-    ["POST /auth/update-user with email and name", "/auth/update-user", { email: "attacker-chosen@legalentities.test", name: "Renamed" }],
+  const attempts: Array<[string, string, Record<string, unknown>, string]> = [
+    ["POST /auth/change-email", "/auth/change-email", { newEmail: "attacker-chosen@legalentities.test" }, "CHANGE_EMAIL_DISABLED"],
+    [
+      "POST /auth/change-email (callbackURL)",
+      "/auth/change-email",
+      { newEmail: "attacker-chosen@legalentities.test", callbackURL: "/" },
+      "CHANGE_EMAIL_DISABLED",
+    ],
+    [
+      "POST /auth/update-user with an email member",
+      "/auth/update-user",
+      { email: "attacker-chosen@legalentities.test" },
+      "EMAIL_CAN_NOT_BE_UPDATED",
+    ],
+    [
+      "POST /auth/update-user with email and name",
+      "/auth/update-user",
+      { email: "attacker-chosen@legalentities.test", name: "Renamed" },
+      "EMAIL_CAN_NOT_BE_UPDATED",
+    ],
   ];
 
-  for (const [label, path, body] of attempts) {
-    test(`${label} leaves the stored email unchanged`, async () => {
+  for (const [label, path, body, code] of attempts) {
+    test(`${label} is refused with ${code} and leaves the stored email unchanged`, async () => {
       const email = `t88-email-${RUN_ID}-${crypto.randomUUID()}@legalentities.test`;
       const user = await db.user.create({ data: { name: "T88 fixture", email, emailVerified: true } });
       createdUserIds.push(user.id);
       const cookie = await sessionCookieFor(user.id);
+
+      // The session is genuinely accepted: without this, a rejected cookie would also "refuse" the change.
+      const who = await app.request("/auth/get-session", { headers: { origin: ORIGIN, cookie } });
+      expect(who.status).toBe(200);
+      const sessionBody = (await who.json()) as { user?: { id?: string; email?: string } } | null;
+      expect(sessionBody?.user?.id).toBe(user.id);
+      expect(sessionBody?.user?.email).toBe(email);
 
       const res = await app.request(path, {
         method: "POST",
         headers: { "content-type": "application/json", origin: ORIGIN, cookie },
         body: JSON.stringify(body),
       });
-      const text = await res.text();
-      // Recorded, not asserted: what Better Auth answers (it may refuse, or accept the request and ignore the member).
-      console.info(`[T88] ${label} -> ${res.status} ${text.slice(0, 160)}`);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { code?: string }).code).toBe(code);
 
       const after = await db.user.findUniqueOrThrow({ where: { id: user.id } });
       expect(after.email).toBe(email);
