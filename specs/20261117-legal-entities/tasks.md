@@ -1140,3 +1140,8 @@ Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T
   letterhead fixture `shell/e2e/fixtures/letterhead-a4.pdf`, which has none — pre-existing, unrelated to this
   feature. AC-6.3's e2e reaches an incomplete entity by a direct DB insert, because AC-1.2 makes the API refuse one;
   in production the only incomplete state is a moved version 1 (AC-7.3), which T45's move rehearsal covers.
+- FU-14 (QE delta, 2026-11-18): `letterhead-api/api/tests/pool.rs:1084` `pool_replaces_a_worker_killed_while_idle` is a
+  pre-existing test race (identical on origin/main): `kill -9` returns before the worker is dead and `try_wait` still
+  reports it alive, so the job goes to the dying worker (`WorkerFailed`). Fix the test by waiting for the death
+  (backend-dev); the architect decides whether the pool should retry a job lost that way. Low; CI job re-runnable.
+- Eval: round 1 FAIL 76.5, round 2 FAIL 78.3 (bounded loop of 2 reached — escalated to the owner, no third round run).

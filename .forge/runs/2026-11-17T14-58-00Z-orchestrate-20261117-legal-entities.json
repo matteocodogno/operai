@@ -5,7 +5,7 @@
   "feature": "20261117-legal-entities",
   "rigor": "production",
   "started": "2026-11-17T14:58:00Z",
-  "finished": "2026-11-18T09:30:00Z",
+  "finished": "2026-11-18T04:46:55Z",
   "agents": [
     {
       "agent": "product-owner",
@@ -467,7 +467,10 @@
       "agent": "architect",
       "tasks": [],
       "outcome": "plan amendment after security review (G1-G16) + T51-T71, owner approved",
-      "commits": []
+      "commits": [
+        "de7d52ce",
+        "f31feb1e"
+      ]
     },
     {
       "agent": "designer",
@@ -743,7 +746,7 @@
       "tasks": [
         "T44"
       ],
-      "outcome": "completed",
+      "outcome": "prepared; open until consumed after T16 in the release session",
       "commits": [
         "87a24dee"
       ],
@@ -840,10 +843,9 @@
       "tasks": [],
       "outcome": "plan sync after implementation (H1\u2013H12) + T77 update",
       "commits": [
-        "f31feb1e",
-        "66945ea5",
         "5e8dd828",
-        "4c9a6842"
+        "4c9a6842",
+        "ccc641a1"
       ]
     },
     {
@@ -874,6 +876,41 @@
         "da0b000c"
       ],
       "worktree": "le/T77"
+    },
+    {
+      "agent": "evaluator",
+      "tasks": [
+        "T47"
+      ],
+      "outcome": "FAIL 78.3 (round 2; bounded loop reached, escalated to owner)",
+      "commits": [
+        "3db7dbe4"
+      ]
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [],
+      "outcome": "pin budget replica arithmetic comment corrected",
+      "commits": [
+        "256ca63f"
+      ]
+    },
+    {
+      "agent": "architect",
+      "tasks": [],
+      "outcome": "approval states and replica arithmetic corrected",
+      "commits": [
+        "ccc641a1"
+      ]
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [],
+      "outcome": "QE delta for T77: PASS; CI pool flake triaged as pre-existing test race (FU-14)",
+      "commits": [
+        "f8c0f4db"
+      ],
+      "worktree": "le/QD"
     }
   ],
   "drift_events": [
@@ -954,11 +991,11 @@
     }
   ],
   "verdicts": {
-    "qe": "PASS (T45; T42/T43/T68 FAIL rounds fixed by D1-D3)",
-    "owasp": "T46 REVIEW REQUIRED \u2192 T70 PASS WITH NOTES \u2192 delta (T76/D2/D3) PASS WITH NOTES; lows fixed in T77",
-    "eval": "FAIL 76.5 (round 1); round 2 follows"
+    "qe": "PASS (T45) + delta PASS for T77",
+    "owasp": "T46 REVIEW REQUIRED \u2192 T70 PASS WITH NOTES \u2192 delta PASS WITH NOTES; lows fixed in T77",
+    "eval": "FAIL 76.5 (round 1), FAIL 78.3 (round 2) \u2014 bounded loop reached, escalated to the owner"
   },
-  "result": "partial",
+  "result": "escalated",
   "notes": "Owner asked for an unattended overnight run from 2026-11-17 evening. Owner steps outstanding: T15-T18, T48, T49, T71 (release, Railway credentials, CRM copy). Owner decision open: N1/O-1 (actor's display name in the notice). T44 prepared ahead of T16 by orchestrator decision.",
   "tokens": null,
   "cost_usd": null,
