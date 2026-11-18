@@ -5,7 +5,7 @@
   "feature": "20261117-legal-entities",
   "rigor": "production",
   "started": "2026-11-17T14:58:00Z",
-  "finished": "2026-11-18T04:46:55Z",
+  "finished": "2026-11-18T09:46:07Z",
   "agents": [
     {
       "agent": "product-owner",
@@ -911,6 +911,151 @@
         "f8c0f4db"
       ],
       "worktree": "le/QD"
+    },
+    {
+      "agent": "orchestrator",
+      "tasks": [],
+      "outcome": "owner approvals recorded 2026-11-18 (decisions, design); N1 decided: author by email",
+      "commits": [
+        "d1da2ecc"
+      ]
+    },
+    {
+      "agent": "product-owner",
+      "tasks": [],
+      "outcome": "spec amendment D9 (+ R-D9a, OQ-15/16 resolved)",
+      "commits": [
+        "269090f1",
+        "264d0199",
+        "11664e4e",
+        "2e6c4a23",
+        "1cd5d326"
+      ]
+    },
+    {
+      "agent": "architect",
+      "tasks": [],
+      "outcome": "plan amendment D9 (J1\u2013J13) + tasks T78\u2013T87",
+      "commits": [
+        "11664e4e",
+        "264d0199"
+      ]
+    },
+    {
+      "agent": "adr-writer",
+      "tasks": [],
+      "outcome": "ADR D9-1 (author by account email)",
+      "commits": [
+        "11664e4e"
+      ]
+    },
+    {
+      "agent": "designer",
+      "tasks": [
+        "T78"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "2780051a"
+      ]
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T80"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "eacd65ea"
+      ]
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T79"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "62781f27"
+      ]
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T82"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "536e45dd"
+      ]
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T81"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "1cd5d326"
+      ]
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T83"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "a79680fc"
+      ]
+    },
+    {
+      "agent": "owasp-reviewer",
+      "tasks": [
+        "T86"
+      ],
+      "outcome": "D9 delta PASS WITH NOTES; N1 CLOSED; 3 lows \u2192 T88, T89",
+      "commits": []
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T84"
+      ],
+      "outcome": "PASS",
+      "commits": [
+        "1685569b"
+      ]
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T88"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "91eeb87d"
+      ]
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T89"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "8490f348"
+      ]
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T85"
+      ],
+      "outcome": "PASS",
+      "commits": [
+        "b02cf03f"
+      ]
     }
   ],
   "drift_events": [
@@ -991,11 +1136,11 @@
     }
   ],
   "verdicts": {
-    "qe": "PASS (T45) + delta PASS for T77",
-    "owasp": "T46 REVIEW REQUIRED \u2192 T70 PASS WITH NOTES \u2192 delta PASS WITH NOTES; lows fixed in T77",
-    "eval": "FAIL 76.5 (round 1), FAIL 78.3 (round 2) \u2014 bounded loop reached, escalated to the owner"
+    "qe": "PASS (T45) + delta PASS for T77 + delta PASS for D9 (T85)",
+    "owasp": "T46 \u2192 T70 \u2192 deltas (T76/D2/D3, D9) all PASS WITH NOTES, 0 medium+; N1 closed",
+    "eval": "FAIL 76.5 (r1), FAIL 78.3 (r2); round 3 at the owner's request follows"
   },
-  "result": "escalated",
+  "result": "partial",
   "notes": "Owner asked for an unattended overnight run from 2026-11-17 evening. Owner steps outstanding: T15-T18, T48, T49, T71 (release, Railway credentials, CRM copy). Owner decision open: N1/O-1 (actor's display name in the notice). T44 prepared ahead of T16 by orchestrator decision.",
   "tokens": null,
   "cost_usd": null,
