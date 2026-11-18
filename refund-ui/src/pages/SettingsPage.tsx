@@ -9,10 +9,12 @@ import {
   PageHeader,
   SkeletonRows,
   StatePanel,
+  Tabs,
   VisuallyHidden,
   formatDate,
   formatDateTime,
   formatNumber,
+  tabPanelProps,
 } from '@operai/ui'
 import type { DataTableColumn } from '@operai/ui'
 import * as ratesApi from '../lib/ratesApi'
@@ -30,6 +32,8 @@ import AddRateEntryModal from '../components/AddRateEntryModal'
 import SuccessBanner from '../components/SuccessBanner'
 import { validateRate, validateValidFrom } from '../lib/rateValidation'
 import { strings } from '../strings'
+import AccountingSettingsView from './settings/AccountingSettingsView'
+import ExchangeRatesView from './settings/ExchangeRatesView'
 
 const t = strings.settings
 
@@ -153,7 +157,11 @@ const rateColumns = (currency: Currency): DataTableColumn<RateEntry>[] => [
   { id: 'status', header: t.columns.status, render: (entry) => entry.inEffectToday && <RateInEffectBadge /> },
 ]
 
-export default function SettingsPage() {
+/**
+ * The General view: today's Settings page, unchanged — the mileage-rate cards and the accounting
+ * distribution email (specs/20261118-refund-accounting-export T23: the page became three views and this is the first).
+ */
+function GeneralSettingsView() {
   // Capabilities from the shell's cached permissions (INC-32) — derived at
   // render; until they resolve, or on any failure, they are empty (no grants).
   const { permissions } = usePermissions()
@@ -384,7 +392,7 @@ export default function SettingsPage() {
   const settingsHidden = !canReadSettings || settingsState.status === 'hidden'
 
   return (
-    <section aria-labelledby="refund-settings-heading" data-testid="refund-settings-page">
+    <>
       {addModal.open && (
         <AddRateEntryModal
           entity={addModal.entity}
@@ -401,8 +409,6 @@ export default function SettingsPage() {
           generalError={addModal.generalError}
         />
       )}
-
-      <PageHeader title={t.heading} titleId="refund-settings-heading" description={t.description} />
 
       <div className="flex flex-col gap-4">
         {listState.status === 'forbidden' && <PermissionDenied headingLevel={3} title={t.forbiddenTitle} message={t.forbidden} />}
@@ -583,6 +589,91 @@ export default function SettingsPage() {
             )}
           </Card>
         )}
+      </div>
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The page: a header, the view switch and the one view that is open
+// ---------------------------------------------------------------------------
+
+/** The Settings views, in tab order; `?section=` carries these ids. */
+const SETTINGS_SECTIONS = ['general', 'accounting', 'exchange-rates'] as const
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
+
+const SECTION_LABEL: Record<SettingsSection, string> = {
+  general: t.sections.general,
+  accounting: t.sections.accounting,
+  'exchange-rates': t.sections.exchangeRates,
+}
+
+export type SettingsPageProps = {
+  /** The requested view (`?section=`). Unknown, or one the user cannot open: the first available view is shown. */
+  section?: string
+  /** The month an exchange-rates deep link points at (`&month=YYYY-MM`); only that view reads it. */
+  month?: string
+  /**
+   * Called with the view the user picked. With it, the page is controlled by `section` (the router keeps it in the
+   * URL); without it the page keeps its own choice, so it also works outside a router.
+   */
+  onSectionChange?: (section: SettingsSection) => void
+}
+
+/**
+ * SettingsPage — the refund tool's configuration, in same-page views (UX-1, specs/20261118-refund-accounting-export):
+ * General (today's page), Accounts and VAT, Exchange rates. Only the open view is mounted, so an auto-fetch
+ * of exchange rates runs only when an admin looks at them. A view the user cannot open is left out of
+ * the tab list, never disabled (design-system § Tool frame): the accounting views need `settings:read`;
+ * General stays for everyone who reaches the page (its own cards handle a 403). With a single view there is
+ * no tab list and the page is exactly today's. UX only: refund-api enforces every grant.
+ *
+ * Capabilities fail CLOSED until the shell resolves them, so a deep link to a gated view first shows
+ * General for an instant and then switches.
+ */
+export default function SettingsPage({ section, month, onSectionChange }: SettingsPageProps) {
+  const { permissions } = usePermissions()
+  const canReadSettings = hasCapability(permissions, 'settings', 'read')
+  const [ownSection, setOwnSection] = useState<string | undefined>(section)
+
+  const available: SettingsSection[] = canReadSettings ? [...SETTINGS_SECTIONS] : ['general']
+  const requested = onSectionChange ? section : ownSection
+  const active: SettingsSection = available.find((id) => id === requested) ?? available[0]
+
+  const handleChange = (next: SettingsSection) => {
+    if (onSectionChange) onSectionChange(next)
+    else setOwnSection(next)
+  }
+
+  const showTabs = available.length > 1
+
+  return (
+    <section aria-labelledby="refund-settings-heading" data-testid="refund-settings-page">
+      <PageHeader
+        title={t.heading}
+        titleId="refund-settings-heading"
+        description={showTabs ? t.descriptionAll : t.description}
+      />
+
+      {showTabs && (
+        <Tabs
+          label={t.sections.label}
+          tabs={available.map((id) => ({ id, label: SECTION_LABEL[id] }))}
+          value={active}
+          onChange={handleChange}
+          idPrefix="refund-settings"
+          testId="refund-settings-tabs"
+          wrap
+        />
+      )}
+
+      <div
+        {...(showTabs ? tabPanelProps('refund-settings', active) : {})}
+        data-testid={`refund-settings-view-${active}`}
+      >
+        {active === 'general' && <GeneralSettingsView />}
+        {active === 'accounting' && <AccountingSettingsView />}
+        {active === 'exchange-rates' && <ExchangeRatesView month={month} />}
       </div>
     </section>
   )

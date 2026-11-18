@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter, getRouteApi, redirect, useNavigate } from '@tanstack/react-router'
 import RefundShell from './components/RefundShell'
 import MyRequestsPage from './pages/MyRequestsPage'
 import NewRequestPage from './pages/NewRequestPage'
@@ -9,6 +9,7 @@ import BatchHistoryPage from './pages/BatchHistoryPage'
 import CompileBatchPage from './pages/CompileBatchPage'
 import BatchDetailPage from './pages/BatchDetailPage'
 import SettingsPage from './pages/SettingsPage'
+import type { SettingsSection } from './pages/SettingsPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 // ---------------------------------------------------------------------------
@@ -37,8 +38,32 @@ import NotFoundPage from './pages/NotFoundPage'
 // for.
 // ---------------------------------------------------------------------------
 
+const settingsRouteApi = getRouteApi('/settings')
+
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
+
 export function createAppRouter(basepath?: string) {
   const rootRoute = createRootRoute({ component: RefundShell })
+
+  /**
+   * The `/settings` route's component: the page is a plain component with props (it also renders outside a
+   * router), and this keeps its open view and the exchange-rates deep-link month in the URL
+   * (specs/20261118-refund-accounting-export UX-1). Picking a tab REPLACES the history entry, so Back does not walk through
+   * tab clicks, and drops `month` (it only means something on the rates view).
+   */
+  const SettingsRoute = () => {
+    const { section, month } = settingsRouteApi.useSearch()
+    const navigate = useNavigate()
+    return (
+      <SettingsPage
+        section={section}
+        month={month}
+        onSectionChange={(next: SettingsSection) =>
+          void navigate({ to: '/settings', search: { section: next }, replace: true })
+        }
+      />
+    )
+  }
 
   // Root redirects to Screen R1 (My requests) — design.md: "entry point for
   // every employee flow" — mirrors admin-ui's index → /roles redirect and
@@ -159,7 +184,15 @@ export function createAppRouter(basepath?: string) {
   const settingsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/settings',
-    component: SettingsPage,
+    component: SettingsRoute,
+    // `section` picks the view, `month` (YYYY-MM) a row of the exchange-rates view. Both are only hints from a
+    // link a person may have typed or kept: anything that is not a string, or a month that is not YYYY-MM,
+    // is dropped here, so the page never sees it. Which sections exist is the page's call (it needs the
+    // user's capabilities), so an unknown `section` string passes through and falls back there.
+    validateSearch: (search: Record<string, unknown>): { section?: string; month?: string } => ({
+      section: typeof search.section === 'string' ? search.section : undefined,
+      month: typeof search.month === 'string' && MONTH.test(search.month) ? search.month : undefined,
+    }),
   })
 
   // ---------------------------------------------------------------------------
