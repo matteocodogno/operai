@@ -17,6 +17,11 @@ defaults module, the release script, the data model's settings keys, the API con
 table, D4/D7/D9/D13 and the former "Spec amendments proposed" section, now "Spec amendments
 applied".
 
+**Post-approval sync with design.md (2026-11-18)**: the designer's gaps G1–G13 and decisions
+UX-1..UX-14 are folded in below. The full record is the section "Post-approval sync with design.md
+(2026-11-18)" near the end. Where it changes earlier wording, the earlier wording has been edited in
+place.
+
 ## Architecture
 
 ### Shape in one paragraph
@@ -59,7 +64,7 @@ computed on read from the frozen classification and the rate in effect. refund-u
 
 | File | Role |
 |---|---|
-| `bazgSource.ts` | The outbound client. One fixed HTTPS host, no redirects, 5 s timeout, 512 KiB body cap, `?j=YYYY&m=MM`. |
+| `bazgSource.ts` | The outbound client. One fixed HTTPS host, no redirects, 5 s timeout per call, 512 KiB body cap, `?j=YYYY&m=MM`. The calls of one trigger run in parallel under a 10 s total budget (G6). |
 | `parse.ts` (pure) | Strict extraction of `<monat>` and the `eur`/`usd`/`gbp` `<devise>` → `<waehrung>`/`<kurs>`. A document carrying `<!DOCTYPE`/`<!ENTITY` is refused. The `<monat>` echo must equal the requested month. Unit `1` or `100` is normalised to "per 1 unit". |
 | `fx.repo.ts` / `fx.service.ts` | Rate in effect = the latest *corrected* entry, else the *fetched* entry. Also: which months are fetchable, the throttle, single-flight per month, and the fetch-attempt log. |
 | `fx.routes.ts` | `GET /exchange-rates`, `POST /exchange-rates/fetch`, `PUT /exchange-rates/{month}/{currency}`. |
@@ -94,7 +99,10 @@ computed on read from the frozen classification and the rate in effect. refund-u
   recorded as `disabled`. Used in local dev offline and in tests, where a fake source is injected.
   This is not a cross-service variable, so no env-doctor entry is needed.
 - `src/index.ts`: register the routers. The export route is registered next to `batchesRouter`, and
-  its paths (`/batches/{id}/accounting-export…`) do not collide with existing ones.
+  its paths (`/batches/{id}/accounting-export…`) do not collide with existing ones. The CORS layer
+  gains `exposeHeaders: ["Content-Disposition", "X-Export-Row-Count",
+  "X-Export-Excluded-Line-Count"]` (G9), so a browser on the UI's origin can read them. The UI still
+  builds the filename from data on the page (UX-12) and does not depend on these headers.
 
 **refund-api: new script** `scripts/accounting-release.ts` (`bun run accounting:release`). It is
 idempotent, run once by an operator after the deploy (the D7 precedent of
@@ -132,30 +140,68 @@ restricting it later is a role edit in admin-ui, with no deploy.
 
 **refund-ui**
 
-- `pages/SettingsPage.tsx` is split into cards. The page is already 589 lines, so each card is its
-  own component, with an API module per resource:
-  - `LedgerAccountsCard` and `VatCodesCard`: list with active/inactive, add dialog,
-    deactivate/reactivate confirm, history disclosure. There is no edit control for a VAT rate
-    (AC-1.5).
-  - `ExpenseTypeDefaultsCard`: 12 rows, account and VAT selects offering only active entries, "none"
-    shown explicitly, a history disclosure, the foreign-currency VAT code select, and a warning when
-    a default points at a now-inactive entry.
+- `pages/SettingsPage.tsx` gets **three same-page views** through `Tabs` (UX-1): **General**
+  (today's mileage-rate cards and the distribution email, unchanged), **Accounts and VAT**, and
+  **Exchange rates**. The active view is in the URL (`?section=general|accounting|exchange-rates`,
+  plus `&month=YYYY-MM`), validated with `validateSearch` on `settingsRoute`. Only the active view is
+  mounted. A view the user cannot open is left out, and with a single view no tab list is shown. Each
+  card is its own component, with an API module per resource:
+  - `LedgerAccountsCard` and `VatCodesCard`: list with active/inactive and who added each entry,
+    an add dialog, **Deactivate** as a `ConfirmDialog` with `tone="primary"` stating the
+    consequences, and **Reactivate** acting at once (UX-3). There is no edit control for a VAT rate
+    (AC-1.5). No change-history view for catalog entries (AC-1.8 is audit recording; the API keeps
+    `history`).
+  - `ExpenseTypeDefaultsCard`: 12 rows with the default or **None**, who/when, **Change** (one
+    `FormDialog` per type, two selects offering only active entries and "None", UX-2) and
+    **History** (one shared history `Drawer`). The foreign-currency VAT code sits at the top of the
+    card, with the same Change/History pair and the inactive warning (AC-2.7).
   - `ExchangeRatesCard`: months × EUR/USD/GBP, origin badge (fetched/corrected/missing), correction
-    dialog, "Fetch now", last-fetch banner (AC-5.6). When the GET says `fetchDue` and the user holds
-    `settings:manage`, the card calls fetch once.
-  - Visibility follows the existing pattern: the tab shows with `settings:read`; the write controls
-    need `settings:manage`. The UI hides controls only; the server enforces.
-- `pages/ReviewDetailPage.tsx`: a `LineClassificationPanel` per WellD CH line, with
-  account/VAT selects, a "default" marker, CHF amount, the rate used or "rate missing", and the VAT
-  amount. It is editable when the request is `submitted` (with `request:set-approved-total`) or
-  `approved` and not in a paid batch (with `request:reclassify`), and read-only otherwise. The
-  approve dialog shows the `classification_missing` 409 as a list of the lines to fix (AC-3.4) and
-  the `accounting_release_pending` 409 as a plain message.
+    dialog, **Fetch now**, persistent last-fetch-failed banner (AC-5.6). When the GET says
+    `fetchDue` and the user holds `settings:manage`, the view fetches **once per visit**, never
+    loops, never moves focus, and reports in a polite live region (UX-11). `&month=` scrolls to the
+    row and focuses its header.
+  - Months are shown through a new `formatMonth` in `@operai/ui` ("March 2026" / "marzo 2026",
+    UX-10), with story, test and changeset. It must be live in the shell before refund-ui uses it
+    (AGENTS.md: a remote runs on the live shell's library). Fallback: ISO `YYYY-MM`.
+  - Visibility follows the existing pattern: the tabs show with `settings:read`; the write controls
+    need `settings:manage`; a 403 that arrives anyway hides the card (UX-9). The UI hides controls
+    only; the server enforces.
+- `pages/ReviewDetailPage.tsx`: a `LineClassificationPanel` per WellD CH line that is not rejected
+  (no panel and no "not applicable" text for WellD Italia or rejected lines, UX-13). It has:
+  - account and VAT **native `<select>`s**, labelled number first, **committed on change** (UX-4);
+  - a **Default** / **Set by hand** marker in the field hint;
+  - the CHF amount, the rate used or **Rate missing**, and the VAT amount, always as returned by the
+    server (the browser never computes them).
+
+  The panel is editable when the request is `submitted` (with `request:set-approved-total`) or
+  `approved` and not in a paid batch (with `request:reclassify`); no confirmation dialog after
+  approval (UX-14). It is read-only otherwise. The accounting view is reloaded after any
+  approved-total change, reject or restore.
+
+  **Approve refusals branch on `error.code`** (G2). The existing handler shows every 409 other than
+  `all_lines_rejected` as "already decided"; that is replaced by an explicit switch:
+  - `classification_missing` → the approve dialog **closes** and a **page-level `ErrorSummary`**
+    lists one jump link per missing value. Focus moves to the first missing select, and each
+    panel's select carries its own error (UX-5, G1). If the 409 names a line the page no longer
+    has, the request and the accounting view reload first.
+  - `accounting_release_pending` → a plain message **inside** the dialog, with Approve still
+    available.
+  - `all_lines_rejected` → unchanged.
+  - any other 409 → the existing "already decided" guardrail.
+- `pages/RequestDetailPage.tsx`, `ExpenseLineRow` and the batch page show receipt numbers **in
+  full** on screen (UX-8); only the batch PDF compresses runs.
 - `pages/RequestDetailPage.tsx` and the line rows: show `receiptNumber` only (AC-4.9, AC-3.10).
-- `pages/BatchDetailPage.tsx`: receipt numbers next to the employee name, plus an
-  `AccountingExportCard` showing:
-  - the summary: rows, WellD Italia lines left out (AC-6.6), the blockers;
-  - a Download button, done through `apiFetch` → Blob, as in `RequestExportLink`;
+- `pages/BatchDetailPage.tsx`: receipt numbers under each request row, plus an
+  `AccountingExportCard` that loads on its own without delaying the page and shows:
+  - the summary: rows, and WellD Italia lines left out when above zero (AC-6.6, G12);
+  - the blockers as a **warning**, not an error, with "you can still pay or discard this batch"
+    (UX-6). A missing rate links to Settings at that month for holders of `settings:read`, and
+    otherwise says "Ask an administrator to enter or fetch it" (G5);
+  - **Download CSV** as a `secondary` button, `aria-disabled` with the reason while blocked
+    (UX-7). The download uses `apiFetch` → `response.blob()` (never `.text()`, which drops the BOM)
+    with a client-built filename `refund-accounting-<cutoff>-<batchId>.csv` (UX-12). A 409
+    `accounting_export_blocked` switches the card to Blocked from the response body alone (G10);
+  - an info note for `accounting_export_out_of_scope` (UX-9);
   - nothing at all for a `discarded` batch (AC-6.9).
 - `strings.ts`: every new string in `en` and `it` (parity test); formatting through the library's
   `formatMoney`/`formatDate`/`formatNumber`.
@@ -174,6 +220,13 @@ restricting it later is a role edit in admin-ui, with no deploy.
   registry, so there is no second write path.
 - **Only active codes:** the route refuses an unknown or inactive code with 422, and the select
   offers active codes only (AC-2.6).
+- **The same rule for type defaults (G3):** a type's default **account** or default **VAT code**
+  that points at a deactivated entry counts as **no default**. `resolveClassification` returns
+  `account: null` (or `vatCode: null`) for that half, so AC-3.4 refuses the approval and the
+  panel shows its Missing state. This is the reading of AC-1.3 ("can no longer be chosen for a new
+  classification"): freezing a default at approval is a new classification. A value already
+  **stored** on a line (an override, or a frozen classification) is kept even if its entry is
+  later deactivated, and is returned with `active: false` (AC-1.3, AC-1.6).
 - **Usable or nothing:** `resolveClassification` treats the designation as **usable** only when it
   is set **and** the code is currently active. A missing designation, a cleared one, or one that
   points at a code deactivated since is **no default VAT code** for every non-CHF WellD CH line
@@ -593,7 +646,8 @@ GET /review/requests/{id}/accounting             // request:review + requestInSc
           amountCents,                     // approvedTotalCents ?? requestedAmountCents (provisional before approval)
           receiptNumber | null,
           employee: { name, email },       // AC-4.6
-          classification: null | {         // null for WellD Italia (AC-3.9)
+          rejected: boolean,               // rejected lines are returned, with classification null (G4)
+          classification: null | {         // null for WellD Italia (AC-3.9) and for rejected lines
             account: { id, number, name, active } | null,  accountIsDefault: boolean,
             vatCode: { id, code, label, ratePercent, active } | null,  vatCodeIsDefault: boolean },
           chf: { amountCents: number | null, rateMicros: number | null, rate: "0.9246" | null,
@@ -602,7 +656,7 @@ GET /review/requests/{id}/accounting             // request:review + requestInSc
         } ] }
 
 PUT /review/requests/{id}/lines/{lineId}/classification
-  body { ledgerAccountId?: string|null, vatCodeId?: string|null }   // at least one key; null = back to default (submitted only)
+  body { ledgerAccountId?: string, vatCodeId?: string }   // at least one key; ids only, no "back to default" (G8)
   gate: status submitted → request:set-approved-total; approved → request:reclassify (D5); both + requestInScope
   200 the line object above (same shape)
   403 capability     404 out of scope / unknown line
@@ -611,13 +665,12 @@ PUT /review/requests/{id}/lines/{lineId}/classification
   409 { code:"line_rejected" }
   422 { code:"line_not_welld_ch" }                // AC-3.9
   422 { code:"ledger_account_inactive" | "vat_code_inactive" | "unknown_…" }      // AC-1.3/1.6
-  422 { code:"classification_required" }          // null on an approved line
   // Inside one transaction: SELECT … FOR UPDATE on the request row, decide on the LOCKED status,
   // write the line, write `line_classified`. Never touches approvedTotalCents/status/decided* (AC-3.6).
 
 POST /review/requests/{id}/approve               // existing route, two new 409s
   409 { code:"classification_missing",
-        lines: [ { lineId, date, type, missing: ["account"|"vatCode"] } ] }   // AC-3.4 — nothing changes
+        lines: [ { lineId, date, type, missing: ["account"|"vatCode"] } ] }   // AC-3.4 — nothing changes; line id, date and type always present
   409 { code:"accounting_release_pending" }       // D6 gate, until the release script has run
 ```
 
@@ -641,7 +694,6 @@ GET /exchange-rates?from=YYYY-MM&to=YYYY-MM
   Rate = { status:"missing" }                                                       // AC-5.5
        | { status:"fetched"|"corrected", rateMicros, rate:"0.9246",
            fetchedAt?, sourceUrl?, correctedAt?, correctedByEmail?,
-           sourceDiscrepancy?: { sourceNow: "0.9250", seenAt },
            history: [ { origin, rate, at, byEmail } ] }                             // AC-5.2/5.3
 POST /exchange-rates/fetch         { months?: ["2026-10"] }       // default: every fetchable month missing a rate
   200 { attempts: [ { month, outcome, errorCode|null, recorded } ], lastFetch }
@@ -660,7 +712,7 @@ GET /batches/{id}/accounting-export
         rowCount, excludedLineCount,                                     // WellD Italia lines left out (AC-6.6)
         blockers: {
           missingRates: [ { currency, month } ],                         // AC-6.5
-          unclassifiedLines: [ { lineId, requestId, employee, receiptNumber, missing:[…] } ],   // AC-7.2
+          unclassifiedLines: [ { lineId, requestId, date, type, employee, receiptNumber, missing:[…] } ],   // AC-7.2; date+type (G11)
           unnumberedLines:   [ { lineId, requestId, employee } ] },      // should never happen after release
         fetchAttempted: boolean }
   403 { code:"accounting_export_out_of_scope" }
@@ -671,7 +723,9 @@ GET /batches/{id}/accounting-export/csv
       Content-Disposition: attachment; filename="refund-accounting-<cutoff YYYY-MM-DD>-<batchId>.csv"
       X-Export-Row-Count, X-Export-Excluded-Line-Count
       body: the CSV
-  409 { code:"accounting_export_blocked", blockers }   409 { code:"batch_discarded" }   403 / 404 as above
+  409 { code:"accounting_export_blocked", ...ExportSummary }    // the SAME schema as the summary's 200 body (G10)
+  409 { code:"batch_discarded" }   403 / 404 as above
+  // CORS exposes Content-Disposition and X-Export-* (G9).
   // The export-log row is written before the body is returned; if that write fails → 500, no file.
 ```
 
@@ -738,10 +792,17 @@ GET /batches/{id}/accounting-export/csv
   (Europe/Zurich). See Risk R2 for why.
 - One HTTP call covers EUR, USD and GBP of one month.
 - Throttle: no new attempt for a month within 15 min of the previous one. Single-flight per month in
-  the process. At most 6 months per trigger. 5 s timeout each.
+  the process. At most 6 months per trigger.
+- **Parallel, with a total budget (G6):** the months of one trigger (export, admin fetch, settings
+  view) are fetched in parallel. Each call has its own 5 s timeout, and the whole trigger has a
+  `FX_FETCH_BUDGET_MS = 10_000` deadline (one `AbortSignal.any` of the per-call and budget
+  signals). When the budget expires, unfinished calls are aborted and recorded as `failed` /
+  `timeout`, while rates already received are kept. The export summary is then computed from the
+  database as usual, so a slow source becomes a clean "missing rate" blocker, never a 5xx and never
+  a wait above about 10 s.
 - A fetched (currency, month) is recorded once and never overwritten (partial unique index,
   `ON CONFLICT DO NOTHING`). If a later fetch sees a different value, it is logged as a discrepancy
-  and shown to the admin, who decides whether to correct.
+  in the fetch-attempt log only. No API field or screen shows it (G8: no AC asks for it).
 
 ## Test strategy
 
@@ -781,7 +842,7 @@ backs the parser unit test.
 | AC-3.1 | int, ui | Submitted CH CHF line → accounting view shows the type defaults, `*IsDefault: true`; the panel shows the "default" marker. |
 | AC-3.2 | int | Submitted CH EUR line (and USD, GBP) → type default account and the designated foreign-currency VAT code, both `*IsDefault: true`; the type's own default VAT code is not used. |
 | AC-3.3 | int | PUT another active account → `accountIsDefault: false`; a `line_classified` row with actor, from→to and cause `review`. |
-| AC-3.4 | int, ui | Type without a default and no override → approve 409 `classification_missing` listing that line; request still `submitted`, no number assigned, no counter row. Same for a non-CHF line when the foreign-currency VAT code is unset or inactive (`missing: ["vatCode"]`), while a CHF line of the same type approves. UI lists the lines. |
+| AC-3.4 | int, ui | Type without a default and no override → approve 409 `classification_missing` listing that line with `lineId`, `date` and `type`; request still `submitted`, no number assigned, no counter row. Same for a type whose default **account** was deactivated (G3), and for a non-CHF line when the foreign-currency VAT code is unset or inactive (`missing: ["vatCode"]`), while a CHF line of the same type approves. UI: the dialog closes, a page-level `ErrorSummary` lists the missing values, focus lands on the first missing select; `accounting_release_pending` stays in the dialog; an unrelated 409 still shows the "already decided" guardrail (branching on `error.code`, G2). |
 | AC-3.5 | int | Approve → change defaults → line keeps the ids it had at approval; the `line_classified` row has cause `approval`. |
 | AC-3.6 | int | Approved line (no batch, then compiled batch) + `request:reclassify` → 200 and audit `post_approval`; `approvedTotalCents`, `status`, `decided*` unchanged. Without `reclassify` → 403. |
 | AC-3.7 | int, db | Request `paid` → 409 `classification_locked`; raw `UPDATE refund_line SET "vatCodeId"` on a paid request's line raises. |
@@ -801,7 +862,7 @@ backs the parser unit test.
 | AC-5.1 | unit, int | `parse.ts` on the recorded 2026-03 fixture → EUR 924600, USD 780800, GBP 1063500, `<monat>` 2026-03. Fake source → `POST /exchange-rates/fetch` records rows with `sourceUrl`, `fetchedAt`, actor `system:fx-fetch`. |
 | AC-5.2 | int, ui | GET shows the rate and `status` fetched/corrected per currency; the card shows the origin badge. |
 | AC-5.3 | int, db | PUT correction → in effect; `history` keeps the fetched value; the row carries actor and time; immutability of `exchange_rate_entry`. |
-| AC-5.4 | int | Correct, then fetch again with the fake source returning another value → the correction stays in effect; the discrepancy is logged and shown. |
+| AC-5.4 | int | Correct, then fetch again with the fake source returning another value → the correction stays in effect; the discrepancy is in the fetch-attempt log, and no API field carries it. |
 | AC-5.5 | int, ui | A month with no row → `{status:"missing"}`; the card shows "missing". |
 | AC-5.6 | int, ui | Fake source throws / times out / returns a wrong `<monat>` → no rate row changes; `lastFetch.outcome = "failed"` with `at`; banner shown. |
 | AC-5.7 | int | No `settings:manage` → PUT and POST fetch 403. |
@@ -818,8 +879,20 @@ backs the parser unit test.
 | AC-6.11 | int | No `request:review` → 403; review scoped to `welld_it` → 403 `accounting_export_out_of_scope`. |
 | AC-6.12 | int | A line approved at 0, not rejected → a row with `0.00` CHF and `0.00` VAT. |
 | AC-7.1 | int (script) | Seed legacy approved/paid CH lines (no numbers), CHF and EUR → run `accounting-release` → CHF lines get the type defaults, EUR lines the type's default account and the foreign-currency VAT code; all numbered by expense date per owner and year; audit actor `system:accounting-release`. A second run changes nothing. Before the marker, approve → 409 `accounting_release_pending`. `--offsets` makes numbering start after N; an offset for an (owner, year) that already has numbers is refused. |
-| AC-7.2 | int (script + export) | Legacy line whose type has no default, and a legacy EUR line released while the foreign-currency VAT code is inactive → both unclassified after release; export 409 lists them under `unclassifiedLines`; after PUT classification (`reclassify`) → export 200. |
+| AC-7.2 | int (script + export) | Legacy line whose type has no default, and a legacy EUR line released while the foreign-currency VAT code is inactive → both unclassified after release; export 409 lists them under `unclassifiedLines` with `date` and `type`; the 409 body validates against the summary schema; after PUT classification (`reclassify`) → export 200. |
 | AC-7.3 | int (script + export) | Legacy approved WellD Italia lines → after `accounting-release` (and a second run): `receiptNumber` null, no classification, no audit row for them; no counter row created for them; an export of their batch leaves them out and counts them in `excludedLineCount`. An IT line approved after release is numbered (AC-4.1). |
+
+**Extra tests (ADR writer and design sync).** These prove properties that no single AC states:
+
+| Property | Level | What proves it |
+|---|---|---|
+| Month boundary in Europe/Zurich (ADR on FX fetching) | unit | `fetchableMonths(now)`: at 2026-11-04T23:30Z (= 2026-11-05 00:30 Zurich) October is fetchable, at 2026-11-04T22:30Z (= 23:30 Zurich, day 4) it is not; same around the CET/CEST switch (2026-03-29/2026-10-25). The current month is never fetchable. |
+| A second fetched row for the same (currency, month) is refused | db | Raw `INSERT` of a second `origin='fetched'` row → unique violation on `exchange_rate_fetched_once`; a second `corrected` row is accepted. |
+| Classification PUT racing approve / mark-paid | int | `Promise.all` of PUT classification and approve (20 iterations): either the PUT lands before the freeze (and the frozen value is the override, cause `approval`) or after it (409, or 403 without `reclassify`). Never an override written on an approved line under `set-approved-total`. Same with mark-paid: either saved before, or 409 `classification_locked`. |
+| Failed export-log write → 500 and no file | int | Inject a failing `refund_batch_export` insert → the CSV route answers 500 Problem JSON, with no `text/csv` body and no log row. |
+| CORS exposes the export headers (G9) | int | Preflight and GET from an allowed origin carry `Access-Control-Expose-Headers` with `Content-Disposition`. |
+| FX budget (G6) | int | Fake source delaying 30 s for 3 months → the summary answers in under 11 s, with the three months as `missingRates` and three `failed`/`timeout` attempts logged. |
+| Inactive default account counts as missing (G3) | unit | `resolveClassification` vector: type default pointing at an inactive account → `account: null`; a stored override on an inactive account → kept with `active: false`. |
 
 **Mapping result: total.** Every AC of the amended spec (61: the 53 approved ones plus AC-1.9,
 AC-1.10, AC-1.11, AC-2.5 to AC-2.8 and AC-7.3) maps to at least one automated test, and the rows
@@ -850,7 +923,7 @@ Fixtures: the release marker and an EUR rate seeded through refund-api test-supp
 | R7 | **A classification PUT racing approve or mark-paid** could store an override after the freeze, under the wrong permission. | The PUT locks the request row `FOR UPDATE` and decides on the locked status; mark-paid and approve already update that row, so they serialise. DB trigger for paid. |
 | R8 | **AC-3.10 leak** through a future change that adds accounting fields to `RefundLineResponse`. | A test asserting the exact key set of the owner's line JSON. |
 | R9 | **Re-export after a correction differs** from a file already imported. | Allowed by AC-6.8. The export log keeps the hash and actor per download, so accounting can see that a batch was exported twice with different content. |
-| R10 | **Outbound call in the export request path** adds latency, or fails. | Only for missing rates; 5 s timeout; at most 6 months; 15-min throttle. A failure turns into an ordinary "missing rate" blocker, never a 5xx. |
+| R10 | **Outbound call in the export request path** adds latency, or fails. | Only for missing rates; calls in parallel, 5 s each, 10 s total budget; at most 6 months; 15-min throttle. A failure or a budget timeout turns into an ordinary "missing rate" blocker, never a 5xx. |
 | R11 | **Triggers in raw SQL** drift from `schema.prisma` (ADR 20260716 risk). | `db.*.test.ts` for every new trigger; migrations only via `migrate deploy`. |
 | R12 | **Batch PDF of an old batch regenerated after a cache miss** now shows receipt numbers. | Accepted: same inputs + same code stays deterministic; the stored object is used when present. Noted in the changeset. |
 | R13 | **Deploy order**: refund-api checks `request:reclassify` before auth declares it. | Deploy auth first. Until then, post-approval reclassification is 403 (fail closed); everything else works. |
@@ -936,6 +1009,59 @@ above is synced with them:
 
 Still a plan-level reading, not spec text: AC-6.11's capability is `request:review` (the compile
 gate), narrowed to WellD CH scope (D8). No further amendment is proposed.
+
+## Post-approval sync with design.md (2026-11-18)
+
+design.md (same folder) found 13 gaps and took 14 UX decisions. The recommended option was taken
+for each one, unattended. The plan's status stays `approved`, because nothing here adds scope:
+gaps that would need a new AC are listed as follow-ups.
+
+| Gap | Taken | Where in this plan |
+|---|---|---|
+| G1 | The `classification_missing` refusal is a **page-level `ErrorSummary`** (the dialog closes), not a list inside the approve dialog. This deviates from the plan's earlier wording, which has been aligned. `accounting_release_pending` stays in the dialog. | refund-ui § ReviewDetailPage |
+| G2 | Approve 409s **branch on `error.code`**; tested. | refund-ui § ReviewDetailPage; AC-3.4 row |
+| G3 | A **deactivated default account counts as missing** (like an inactive VAT code); stored values keep `active: false`. | § Foreign-currency VAT code rules; extra tests |
+| G4 | Rejected lines are returned by the accounting view with `rejected: true` and `classification: null`; no panel. | API § Accounting |
+| G5 | Exchange rates stay behind `settings:read`/`settings:manage`. The export blocker tells non-admin accounting users to ask an administrator. Giving accounting the rates is a role grant in admin-ui, no deploy; a product follow-up (F2), not decided here. | refund-ui § BatchDetailPage |
+| G6 | Fetches of one trigger run **in parallel** under a **10 s total budget**; a timeout ends as a clean missing-rate blocker. | FX source rules; R10; extra tests |
+| G7 | `formatMonth` added to `@operai/ui` (fallback `YYYY-MM`); shell first. | refund-ui § Settings |
+| G8 | The `null` ("back to default") branch of the classification PUT and the `sourceDiscrepancy` API field are **dropped**: no AC asks for them. Discrepancies stay in the fetch-attempt log. | API; FX rules; AC-5.4 row |
+| G9 | refund-api **exposes** `Content-Disposition` and `X-Export-*` through CORS; the UI does not depend on them. | refund-api § index.ts; extra tests |
+| G10 | The `accounting_export_blocked` 409 body **is** the summary schema (one shared zod schema). | API § Export; AC-7.2 row |
+| G11 | `unclassifiedLines` items carry `date` and `type`; the approve 409 items already carry line id, date and type. | API |
+| G12 | The WellD Italia count is stated **only when above zero**. The API always returns it, and AC-6.6's test covers a non-zero count. Showing "0 left out" is one copy line if the user wants it. | refund-ui § BatchDetailPage |
+| G13 | `BatchPdfLink`'s emoji icon is untouched: out of scope (follow-up F6). | — |
+
+| UX | Taken as designed |
+|---|---|
+| UX-1 | Settings tabs General / Accounts and VAT / Exchange rates, view in the URL, only the active view mounted |
+| UX-2 | One `FormDialog` per expense type for defaults |
+| UX-3 | Deactivate = primary-tone confirm; Reactivate at once |
+| UX-4 | Native selects, number first, commit on change |
+| UX-5 | `ErrorSummary` for `classification_missing` (G1) |
+| UX-6 | Missing rate is a warning blocker, not an error |
+| UX-7 | Download is `secondary`, `aria-disabled` with its reason while blocked |
+| UX-8 | Receipt numbers in full on screen; compressed only in the PDF |
+| UX-9 | Sections without a capability are left out; the export's out-of-scope note is the exception |
+| UX-10 | `formatMonth` (G7) |
+| UX-11 | Auto-fetch once per visit, no loop, no focus move, persistent failure banner |
+| UX-12 | CSV via `response.blob()`, client-built filename |
+| UX-13 | No panel for WellD Italia or rejected lines |
+| UX-14 | No confirmation for post-approval reclassification |
+
+**Not-in-scope follow-ups.** Each would need a new AC, so none is planned:
+
+- **F1:** "back to default" on a classified line.
+- **F2:** exchange rates readable and correctable by accounting users who are not admins (the role
+  grant `settings:read`/`settings:manage`, or a narrower permission). This is a product question,
+  alongside open question 5.
+- **F3:** showing the source discrepancy of a fetched rate to the admin.
+- **F4:** a "N lines still need an account" notice before Approve is pressed.
+- **F5:** a re-export hint on a compiled batch after a post-approval change (R9).
+- **F6:** replacing `BatchPdfLink`'s emoji icon (INC-31).
+- **F7:** a change-history view for accounts and VAT codes (the API already returns `history`).
+- **F8:** an AC of its own for **Fetch now** and the `fetchDue` auto-fetch. They are planned and
+  designed anyway, because without them no admin could reach AC-5.1 and AC-5.6.
 
 ## ADRs written
 
