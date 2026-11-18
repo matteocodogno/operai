@@ -442,7 +442,7 @@ Reading the list:
     values that change, handles 422/409/403/5xx as design S7; success focuses the entity heading; read-only
     entity shows Open only; axe 0 violations.
 
-- [ ] T40: admin-ui — FU-7 string gaps and FU-8's failing tests fixed, then the accessibility sweep of design.md's list (every screen state incl. S12 and the S5/S7 additions, dark and light, Italian once, 320 px) — refs: AC-8.1, AC-8.2, AC-9.6 — deps: T37, T38, T39, T51, T60, T61, T73
+- [x] T40: admin-ui — FU-7 string gaps and FU-8's failing tests fixed, then the accessibility sweep of design.md's list (every screen state incl. S12 and the S5/S7 additions, dark and light, Italian once, 320 px) — refs: AC-8.1, AC-8.2, AC-9.6 — deps: T37, T38, T39, T51, T60, T61, T73
   - touch: `admin-ui/src/pages/LegalEntitiesPage.a11y.test.tsx`, `admin-ui/src/pages/LegalEntitiesPage.test.tsx`, `admin-ui/src/strings/legalEntities.ts`, `admin-ui/src/strings.test.tsx`, `admin-ui/src/lib/legalEntityMappings*`, `admin-ui/src/components/AddressLinesField*`, `admin-ui/src/components/ConflictBanner*`, `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/LegalEntityHistory*`, `admin-ui/src/components/LegalEntityVersionView*`
   - agent: frontend-dev for FU-7/FU-8 (copy from T51), then quality-engineer for the sweep · push 2
   - widened 2026-11-17 (owner): it now also fixes FU-7 (admin-ui string gaps, with the designer's copy from T51)
@@ -476,7 +476,7 @@ Reading the list:
     two sessions → conflict → reapply; the design's keyboard-only path end to end; Italian once; `axeViolations`
     0 on each screen.
 
-- [ ] T43: e2e — CRM and the configurator use the registry: Settings note, refusal of an incomplete entity, issuer in classic and service offers, preview with real details — refs: AC-5.4, AC-6.1, AC-6.2, AC-6.3 — deps: T41, T28, T30, T31, T32, T23, T63, T64, T65, T66
+- [x] T43: e2e — CRM and the configurator use the registry: Settings note, refusal of an incomplete entity, issuer in classic and service offers, preview with real details — refs: AC-5.4, AC-6.1, AC-6.2, AC-6.3 — deps: T41, T28, T30, T31, T32, T23, T63, T64, T65, T66
   - touch: `shell/e2e/crm-legal-entities.spec.ts`, `shell/e2e/crm-offer-wizard.spec.ts`, `shell/e2e/crm-offer-wizard-pages.spec.ts`, `shell/e2e/crm-offer-wizard-revise.spec.ts`, `shell/e2e/letterheads.spec.ts`, `shell/e2e/fixtures/letterheads.ts`
   - agent: quality-engineer · push 2
   - done when: Playwright green — Settings shows the note (link for the manager, sentence for a `deal:financials`
@@ -489,7 +489,7 @@ Reading the list:
 
 ## Push 2 — release plumbing
 
-- [ ] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each) and auth (minor: US-9 notices), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2, AC-9.7 — deps: T13, T16, T23, T28, T29, T31, T32, T40, T58, T59, T60, T61, T62, T63, T64, T65, T66
+- [x] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each) and auth (minor: US-9 notices), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2, AC-9.7 — deps: T13, T16, T23, T28, T29, T31, T32, T40, T58, T59, T60, T61, T62, T63, T64, T65, T66
   - touch: `.changeset/*`
   - agent: backend-dev · push 2
   - note (2026-11-17): T16 now runs at the end (G15), so this task follows it in the same release session; the dep on
@@ -500,7 +500,7 @@ Reading the list:
 
 ## QE, security, eval
 
-- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74, T75, T76, D2, D3
+- [x] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74, T75, T76, D2, D3
   - touch: `specs/20261117-legal-entities/qe-report.md`
   - agent: quality-engineer
   - done when: `qe-report.md` maps every AC to passing evidence, records the MIG rehearsal (counts and flags,
@@ -726,7 +726,7 @@ most of crm-api, crm-ui Settings and admin-ui (B1–B10) fit before the gate ope
 dispatcher may run G-batch tasks on a rebased branch only after confirming 20261116 has no open fix task on the
 same files.
 
-- [ ] T72: crm-api — wait past letterhead-api's one-second forced-refresh window before the single pin retry — refs: AC-6.2, AC-5.5 — deps: T64
+- [x] T72: crm-api — wait past letterhead-api's one-second forced-refresh window before the single pin retry — refs: AC-6.2, AC-5.5 — deps: T64
   - touch: `crm-api/src/offers/generation.ts`, `crm-api/src/offers/*.test.ts`
   - agent: backend-dev · push 2
   - added by the orchestrator 2026-11-17 (T64 report): letterhead-api now refreshes at most once per second per
@@ -736,7 +736,7 @@ same files.
   - done when: a test with a fake letterhead service that answers 409 for 1 s then 200 shows one retry after ≥ 1.1 s
     and a 200; the existing retry tests stay green; crm-api typecheck and suite green.
 
-- [ ] T73: `@operai/ui` ConfirmDialog — body scrolls with the footer always visible at 320 px, an aria-disabled Confirm with a described reason (`confirmDisabledReason`), an optional width; admin-ui's S12 and restore dialog adopt them as design S7/S12 say — refs: AC-9.1, AC-9.4, AC-9.6, AC-8.1 — deps: T60
+- [x] T73: `@operai/ui` ConfirmDialog — body scrolls with the footer always visible at 320 px, an aria-disabled Confirm with a described reason (`confirmDisabledReason`), an optional width; admin-ui's S12 and restore dialog adopt them as design S7/S12 say — refs: AC-9.1, AC-9.4, AC-9.6, AC-8.1 — deps: T60
   - touch: `operai-ui/src/components/ConfirmDialog*`, `operai-ui/src/components/Dialog*`, `operai-ui/src/styles/tokens.css`, `operai-ui/src/index.ts`, `operai-ui/docs/design-system.md`, `admin-ui/src/components/ProtectedChangeDialog*`, `admin-ui/src/components/RestoreDialog*`, `.changeset/*`
   - agent: frontend-dev · push 1 (library) + push 2 (admin-ui)
   - added by the orchestrator 2026-11-17 (T60 report, library gaps): opt-in props only, existing dialogs unchanged; a
@@ -744,7 +744,7 @@ same files.
   - done when: library tests show the footer in view with three long details at 320 px (layout asserted by
     classes/CSS, story added), Confirm `aria-disabled` + `aria-describedby` reason while the restore dialog reads or
     after a failed read (design S7), the same Cancel/Escape semantics; axe 0; ui:check steps green.
-- [ ] T74: auth — expose `Retry-After` over CORS so admin-ui can read the 429 wait — refs: AC-9.6, AC-8.1 — deps: T52
+- [x] T74: auth — expose `Retry-After` over CORS so admin-ui can read the 429 wait — refs: AC-9.6, AC-8.1 — deps: T52
   - touch: `auth/src/index.ts`, `auth/src/auth/auth.mount.test.ts`
   - agent: backend-dev · push 1
   - added by the orchestrator 2026-11-17 (T60 report): the CORS middleware sets no `exposeHeaders`; `Retry-After` is
@@ -752,14 +752,14 @@ same files.
   - done when: a CORS request to a throttled registry route exposes `Retry-After` (`Access-Control-Expose-Headers`
     contains it); auth suite green.
 
-- [ ] T75: auth — `notices/duty.test.ts`'s committed "real transactions" group uses T53's local-host guard — refs: AC-2.7 — deps: T53, T58
+- [x] T75: auth — `notices/duty.test.ts`'s committed "real transactions" group uses T53's local-host guard — refs: AC-2.7 — deps: T53, T58
   - touch: `auth/src/legalEntities/notices/duty.test.ts`
   - agent: backend-dev · push 2
   - added by the orchestrator 2026-11-17 (T59 report, F4 rule): the group checks only "registry empty"; it must
     also run only when `committedTransactionsSkipReason(DATABASE_URL)` is null (`testDb.ts`).
   - done when: the group skips with the one-line reason on a non-local host and runs on localhost; auth suite green.
 
-- [ ] T76: letterhead-api — a pin forces a registry refresh only when it is newer than the held version, within a per-process budget (security re-review N2) — refs: AC-5.5, AC-6.2 — deps: T64
+- [x] T76: letterhead-api — a pin forces a registry refresh only when it is newer than the held version, within a per-process budget (security re-review N2) — refs: AC-5.5, AC-6.2 — deps: T64
   - touch: `letterhead-api/api/src/registry/**`, `letterhead-api/api/src/routes/render.rs`, `letterhead-api/api/tests/registry.rs`, `letterhead-api/api/tests/render.rs`
   - agent: backend-dev (Rust) · push 2
   - added by the orchestrator 2026-11-18 (security-review-2.md N2): F6's 1/s cap still allows 600 refreshes per
@@ -768,7 +768,7 @@ same files.
     refreshes at most once per second and at most a fixed budget per 10 minutes (well under auth's allowance, e.g.
     100), beyond which it gets the 409 at once; tests prove both; fmt, clippy, api tests green.
 
-- [ ] D2: letterhead-api engine — the preview's text alternative keeps `⟦ ⟧` around a missing label that wraps onto a second line (QE T43 defect D-T43-1) — refs: AC-5.4 — deps: T20
+- [x] D2: letterhead-api engine — the preview's text alternative keeps `⟦ ⟧` around a missing label that wraps onto a second line (QE T43 defect D-T43-1) — refs: AC-5.4 — deps: T20
   - touch: `letterhead-api/engine/src/output/text.rs`, `letterhead-api/engine/src/output/mod.rs`, `letterhead-api/engine/src/render.rs`, `letterhead-api/engine/src/layout/frame/tests.rs`
   - agent: backend-dev (Rust) · push 2
   - failing e2e: `shell/e2e/letterheads.spec.ts` "a missing label that wraps onto a second line keeps its brackets in
@@ -776,7 +776,7 @@ same files.
     without brackets; Italian ("⟦Riga / contatti⟧") and `{contacts}` alone are fine.
   - done when: an engine test reproduces the English wrap and passes; real-document output unchanged; engine tests green.
 
-- [ ] D3: admin-ui — Confirm in the protected-change confirmation must save (QE T68 D-T68-1, high) — refs: AC-9.3, AC-9.1 — deps: T60, T73
+- [x] D3: admin-ui — Confirm in the protected-change confirmation must save (QE T68 D-T68-1, high) — refs: AC-9.3, AC-9.1 — deps: T60, T73
   - touch: `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/ProtectedChangeDialog*`, `admin-ui/src/components/ProtectedChangeList*`, `admin-ui/src/components/LegalEntityPanel*`, `admin-ui/src/components/RestoreDialog*`
   - agent: frontend-dev · push 2
   - failing e2e: `shell/e2e/protected-legal-details.spec.ts` "keyboard only: Confirm saves…", "a newer version saved
@@ -828,7 +828,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 
 ### Design
 
-- [ ] T51: design — the amendment after the security review: S12 protected-change confirmation, S7 restore additions, the 429 and history-paging states, the notice copy (in-app en/it, email en), and the copy owed by FU-1, FU-4, FU-7, FU-9 — refs: AC-9.1, AC-9.2, AC-9.4, AC-9.6, AC-9.11, AC-9.12, AC-9.13, AC-2.2, AC-8.2 — deps: none
+- [x] T51: design — the amendment after the security review: S12 protected-change confirmation, S7 restore additions, the 429 and history-paging states, the notice copy (in-app en/it, email en), and the copy owed by FU-1, FU-4, FU-7, FU-9 — refs: AC-9.1, AC-9.2, AC-9.4, AC-9.6, AC-9.11, AC-9.12, AC-9.13, AC-2.2, AC-8.2 — deps: none
   - touch: `specs/20261117-legal-entities/design.md`, `.forge/design/20261117-legal-entities/content/*` (git-ignored mockups)
   - agent: designer (the owner reviews the copy)
   - done when: every item of design.md's "TODO for the designer — amendment after the security review" is ticked
@@ -840,7 +840,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 
 ### Push 1 — auth (hardening, the check route, the copy)
 
-- [ ] T52: auth — a deleted person is refused everywhere in the registry (F2); save and restore throttled per person, the history paged (F3) — refs: AC-2.2, AC-3.1, AC-4.2, AC-4.3, AC-1.5 — deps: none
+- [x] T52: auth — a deleted person is refused everywhere in the registry (F2); save and restore throttled per person, the history paged (F3) — refs: AC-2.2, AC-3.1, AC-4.2, AC-4.3, AC-1.5 — deps: none
   - touch: `auth/src/legalEntities/coverage.ts`, `auth/src/legalEntities/coverage.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/legalEntities/write.routes.test.ts`, `auth/src/legalEntities/history.routes.ts`, `auth/src/legalEntities/history.routes.test.ts`, `auth/src/legalEntities/read.routes.ts`, `auth/src/legalEntities/read.routes.test.ts`, `auth/src/legalEntities/repo.ts`, `auth/src/lib/env.ts`, `auth/src/index.ts`
   - agent: backend-dev · push 1
   - Details: plan G8 (`activeUserProfile` in `coverage.ts`, used by write `authorize`, the history/version guard,
@@ -854,7 +854,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     `nextBefore` null on the last page, the union of the pages = every version, `limit` 0/101/abc and `before` abc →
     422 `invalid_request` after the 403s with nothing echoed; `auth.mount.test.ts` and the whole auth suite green.
 
-- [ ] T53: auth — the committed-transaction test group runs only against a local database (F4); `DOCUMENTED_CLIENT_SCOPES["crm-api"]` lists `letterhead:render` (FU-6) — refs: AC-2.7, AC-3.2 — deps: T52
+- [x] T53: auth — the committed-transaction test group runs only against a local database (F4); `DOCUMENTED_CLIENT_SCOPES["crm-api"]` lists `letterhead:render` (FU-6) — refs: AC-2.7, AC-3.2 — deps: T52
   - touch: `auth/src/legalEntities/write.routes.test.ts`, `auth/src/legalEntities/testDb.ts`, `auth/src/system/serviceClients.ts`, `auth/src/system/serviceClients.test.ts`
   - agent: backend-dev · push 1
   - Details: plan G10 F4; the host guard is a function in `testDb.ts` so T59's committed-transaction tests reuse it.
@@ -863,7 +863,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     reason and not the URL; the group still runs on compose; `testDb.ts`'s header names the exception;
     `DOCUMENTED_CLIENT_SCOPES["crm-api"]` includes `letterhead:render` and its test asserts it; auth suite green.
 
-- [ ] T54: auth — the copy names who last edited the CRM row and shows each IBAN's tail; one `ibanTail` rule shared with the notices (F5 items 2 and 3) — refs: AC-7.2, AC-7.5, AC-9.11 — deps: none
+- [x] T54: auth — the copy names who last edited the CRM row and shows each IBAN's tail; one `ibanTail` rule shared with the notices (F5 items 2 and 3) — refs: AC-7.2, AC-7.5, AC-9.11 — deps: none
   - touch: `auth/src/legalEntities/ibanTail.ts`, `auth/src/legalEntities/ibanTail.test.ts`, `auth/src/legalEntities/import.ts`, `auth/src/legalEntities/import.test.ts`, `auth/scripts/import-crm-legal-details.ts`
   - agent: backend-dev · push 1
   - done when: `ibanTail` unit tests — "" → `none`; 8 characters → `set`; 9 → the last 4; a 34-character IBAN → the
@@ -871,7 +871,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     the dry run and of the apply prints per entity `IBAN …1234` / `IBAN set` / `IBAN none`; the marker scan finds no
     full IBAN, legal name, VAT or address line of the fixtures in stdout; the rest of `import.test.ts` green.
 
-- [ ] T55: auth — `POST /legal-entities/{entity}/versions/check`: what a save would change, protected details listed, nothing written — refs: AC-9.1, AC-9.5, AC-9.17 — deps: T52
+- [x] T55: auth — `POST /legal-entities/{entity}/versions/check`: what a save would change, protected details listed, nothing written — refs: AC-9.1, AC-9.5, AC-9.17 — deps: T52
   - touch: `auth/src/legalEntities/check.routes.ts`, `auth/src/legalEntities/check.routes.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/legalEntities/rules.ts`, `auth/src/legalEntities/rules.test.ts`, `auth/src/legalEntities/routerTable.test.ts`, `auth/src/auth/auth.mount.test.ts`, `auth/src/index.ts`
   - agent: backend-dev · push 1
   - Details: plan G1.7, G2 (`PROTECTED_FIELDS`, `protectedChanged` in `rules.ts`), G5 (contract), G12 (router
@@ -887,7 +887,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 
 ### Push 1 — notify-api
 
-- [ ] T56: notify-api — idempotency keys on `/system/notifications` and `/system/emails`; per-template caller binding; `recipientId` addressing for a bound template; Resend `Idempotency-Key` — refs: AC-9.13, AC-9.14 — deps: none
+- [x] T56: notify-api — idempotency keys on `/system/notifications` and `/system/emails`; per-template caller binding; `recipientId` addressing for a bound template; Resend `Idempotency-Key` — refs: AC-9.13, AC-9.14 — deps: none
   - touch: `notify-api/prisma/schema.prisma`, `notify-api/prisma/migrations/*`, `notify-api/src/system/notifications.*`, `notify-api/src/system/emails.*`, `notify-api/src/system/systemAuth.middleware*`, `notify-api/src/channels/email.channel*`, `notify-api/src/channels/emailDelivery.repo.ts`, `notify-api/src/channels/inApp.channel.ts`, `notify-api/src/notifications/notifications.repo*`, `notify-api/src/lib/resend.ts`, `notify-api/src/openapi/registry.ts`
   - agent: backend-dev · push 1
   - Details: plan G1.3–G1.5, G4 (notify-api migration: `callerSub`, `idempotencyKey`, partial unique index on
@@ -901,7 +901,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     for a template that does not allow it → 400; a template bound to another caller → 403 `template_not_allowed`,
     nothing written; every existing test unchanged and green; the migration is additive.
 
-- [ ] T57: notify-api — the `legal_entity_change` email template: English, strict typed data, bound to `system:auth`, addressed by `recipientId` or `to` — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T56, T51
+- [x] T57: notify-api — the `legal_entity_change` email template: English, strict typed data, bound to `system:auth`, addressed by `recipientId` or `to` — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T56, T51
   - touch: `notify-api/src/system/emailTemplates.ts`, `notify-api/src/system/emailTemplates.test.ts`, `notify-api/src/system/emails.schemas.ts`, `notify-api/src/system/emails.routes.ts`, `notify-api/src/system/emails.routes.test.ts`, `notify-api/src/channels/email.channel.ts`, `notify-api/src/system/emails.idempotency.test.ts` (added 2026-11-17: T56's "binds nothing yet" assertion must now expect the `legal_entity_change` entry)
   - agent: backend-dev · push 1
   - done when: template tests — renders T51's English copy with the entity label, the actor (escaped, controls and
@@ -915,7 +915,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 
 ### Push 1 — configuration and runbook
 
-- [ ] T67: Config contract and runbook — the copy role for the copy window (F5 item 1), `LEGAL_ENTITY_NOTICE_EMAIL` and the registry rate limits in env-doctor and `.env.example`, the release at the end (G15) with step 7, e2e limits in compose — refs: AC-7.1, AC-7.4, AC-9.10 — deps: T52, T54
+- [x] T67: Config contract and runbook — the copy role for the copy window (F5 item 1), `LEGAL_ENTITY_NOTICE_EMAIL` and the registry rate limits in env-doctor and `.env.example`, the release at the end (G15) with step 7, e2e limits in compose — refs: AC-7.1, AC-7.4, AC-9.10 — deps: T52, T54
   - touch: `infra/README.md`, `tools/env-doctor/manifest.ts`, `tools/env-doctor/templates/production/auth.env`, `tools/env-doctor/check.test.ts`, `auth/.env.example`, `compose.yaml`
   - agent: devops · push 1 (docs and config only; the names are fixed by plan G4, so it needs no push-2 task)
   - done when: the runbook's step 3 creates a `SELECT`-only role on `entity_profile`'s legal columns, `updatedAt`
@@ -926,7 +926,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     rate-limit variables (optional; production must not set the write limit above 10 — a test fails a template that
     does); compose raises the write limit for the e2e stack only; `mise run env:doctor` passes locally.
 
-- [ ] T69: Changesets for the push-1 additions — notify-api (minor), auth (patch: F2–F5, FU-6, the check route) — refs: AC-9.13, AC-9.14, AC-4.2, AC-2.2 — deps: T52, T53, T54, T55, T56, T57
+- [x] T69: Changesets for the push-1 additions — notify-api (minor), auth (patch: F2–F5, FU-6, the check route) — refs: AC-9.13, AC-9.14, AC-4.2, AC-2.2 — deps: T52, T53, T54, T55, T56, T57
   - touch: `.changeset/*`
   - agent: backend-dev · push 1
   - done when: `pnpm exec changeset status --verbose` lists notify-api and auth with these bumps beside T13's;
@@ -935,7 +935,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 
 ### Push 2 — auth (US-9 notices)
 
-- [ ] T58: auth — the notice duty: the `legal_entity_notice` table, recipients at the moment of storing, rows in the version's transaction, the no-recipient audit entry — refs: AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T52, T55
+- [x] T58: auth — the notice duty: the `legal_entity_notice` table, recipients at the moment of storing, rows in the version's transaction, the no-recipient audit entry — refs: AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T52, T55
   - touch: `auth/prisma/schema.prisma`, `auth/prisma/migrations/*`, `auth/src/legalEntities/notices/recipients.ts`, `auth/src/legalEntities/notices/recipients.test.ts`, `auth/src/legalEntities/notices/duty.ts`, `auth/src/legalEntities/notices/duty.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/lib/env.ts`
   - agent: backend-dev · push 2
   - Details: plan G1.1, G1.2, G2, G3, G4 (model, CHECKs, FK); `LEGAL_ENTITY_NOTICE_EMAIL` in `lib/env.ts` (optional,
@@ -951,7 +951,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     `legal_entity.notice_no_recipients`; no row or audit entry holds a sentinel value (AC-9.12); the CHECKs refuse an
     `outside` in-app row and an unknown status; auth suite green.
 
-- [ ] T59: auth — the notice dispatcher: kick and sweep, leases, retries for 24 h, idempotency keys, the content (in-app en/it, email data), outcomes in the audit log, started with the server — refs: AC-9.7, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15 — deps: T58, T56, T57, T54, T53, T51
+- [x] T59: auth — the notice dispatcher: kick and sweep, leases, retries for 24 h, idempotency keys, the content (in-app en/it, email data), outcomes in the audit log, started with the server — refs: AC-9.7, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15 — deps: T58, T56, T57, T54, T53, T51
   - touch: `auth/src/legalEntities/notices/dispatcher.ts`, `auth/src/legalEntities/notices/dispatcher.test.ts`, `auth/src/legalEntities/notices/content.ts`, `auth/src/legalEntities/notices/content.test.ts`, `auth/src/legalEntities/notices/copy.ts`, `auth/src/legalEntities/notices/copy.test.ts`, `auth/src/lib/notify.ts`, `auth/src/lib/notify.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/index.ts`, `auth/src/legalEntities/write.routes.test.ts` (added 2026-11-17, T58 report: `wipeRegistry`/`emptyRegistry` must also delete `legal_entity_notice` rows, which the real-transactions group otherwise leaves as orphans)
   - agent: backend-dev · push 2
   - Details: plan G6 (schedule, reasons, leases, logs), G5 (both notify calls, `severity: "warning"`), G1.6 (copy of
@@ -969,7 +969,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 
 ### Push 2 — admin-ui
 
-- [ ] T60: admin-ui — the protected-change confirmation on save (S12) and in the restore dialog (S7), and the 429 state — refs: AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.17, AC-8.1, AC-8.2 — deps: T51, T55
+- [x] T60: admin-ui — the protected-change confirmation on save (S12) and in the restore dialog (S7), and the 429 state — refs: AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.17, AC-8.1, AC-8.2 — deps: T51, T55
   - touch: `admin-ui/src/components/ProtectedChange*`, `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/RestoreDialog*`, `admin-ui/src/lib/legalEntitiesApi*`, `admin-ui/src/strings/legalEntities.ts`, `admin-ui/src/components/LegalEntityPanel.test.tsx`, `admin-ui/src/components/LegalEntityHistory.test.tsx`, `admin-ui/src/components/LegalEntityHistory.tsx` (added 2026-11-17: tests made stale by the check call and the in-dialog read failure; `onLoadFailed`/`restoreFailed` dead code)
   - agent: frontend-dev · push 2
   - Details: plan G7; design S12 and the S7 additions (T51); `ProtectedChangeDialog` and `ProtectedChangeList` on the
@@ -983,14 +983,14 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     only and IBAN spacing-only saves → no dialog; 429 → T51's banner; axe 0 violations on every dialog state in en
     and it, dark and light; strings parity and `noHardcodedStrings` green.
 
-- [ ] T61: admin-ui — the history in pages: "Show older versions" with its loading and failure states (F3) — refs: AC-2.2, AC-8.1, AC-8.2 — deps: T52, T51, T60
+- [x] T61: admin-ui — the history in pages: "Show older versions" with its loading and failure states (F3) — refs: AC-2.2, AC-8.1, AC-8.2 — deps: T52, T51, T60
   - touch: `admin-ui/src/components/LegalEntityHistory*`, `admin-ui/src/lib/legalEntitiesApi*`, `admin-ui/src/strings/legalEntities.ts`
   - agent: frontend-dev · push 2
   - done when: Vitest — the first page of 50; the button while `nextBefore` is not null; appending keeps the rows
     and moves focus to the first new row's Open; the last page hides the button; a failure keeps the rows and
     offers Retry; Open and Restore work on appended rows; axe 0 violations; parity green.
 
-- [ ] T62: admin-ui — the Audit page shows before and after of a legal entity change from `data.changes` (F7) — refs: AC-2.5, AC-9.15 — deps: none
+- [x] T62: admin-ui — the Audit page shows before and after of a legal entity change from `data.changes` (F7) — refs: AC-2.5, AC-9.15 — deps: none
   - touch: `admin-ui/src/pages/AuditPage.tsx`, `admin-ui/src/pages/AuditPage.test.tsx`
   - agent: frontend-dev · push 2
   - done when: Vitest — a `legal_entity.save` row with `data.changes` shows each changed field's before and after
@@ -999,7 +999,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 
 ### Push 2 — crm-ui, letterhead-api, letterheads-ui (follow-ups and F6)
 
-- [ ] T63: crm-ui — the overflow notice points at Legal entities (FU-1); the classic Generate dialog and the offers card show `LegalEntityNotice` for an incomplete entity (FU-2) — refs: AC-6.3, AC-8.1, AC-8.2 — deps: T51
+- [x] T63: crm-ui — the overflow notice points at Legal entities (FU-1); the classic Generate dialog and the offers card show `LegalEntityNotice` for an incomplete entity (FU-2) — refs: AC-6.3, AC-8.1, AC-8.2 — deps: T51
   - touch: `crm-ui/src/strings/offerWizard.ts`, `crm-ui/src/components/offerWizard/LetterheadNotice*`, `crm-ui/src/components/offerWizard/LegalEntityNotice*`, `crm-ui/src/components/GenerateOfferDialog*`, `crm-ui/src/components/OffersCard*`, `crm-ui/src/components/offerWizard/ServicePreview*.test.tsx`, `crm-ui/src/pages/OfferWizardPage.generate.service.test.tsx`, `crm-ui/src/pages/DealSalesFlow.test.tsx` (added 2026-11-17: its AC-6.3 test asserted the one-line error FU-2 replaces)
   - agent: frontend-dev · push 2
   - done when: Vitest — `letterhead.overflow.body`/`bodyAskAdmin` say T51's copy (Legal entities, link for a
@@ -1007,7 +1007,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     Generate dialog and on the offers card shows `LegalEntityNotice` with the link for a manager and the sentence
     otherwise; axe 0 violations; strings parity and `noHardcodedStrings` green.
 
-- [ ] T64: letterhead-api — forced refreshes coalesced: at most one per second per process; a mismatching pin answered 409 at once inside that second (F6) — refs: AC-5.5, AC-6.2 — deps: none
+- [x] T64: letterhead-api — forced refreshes coalesced: at most one per second per process; a mismatching pin answered 409 at once inside that second (F6) — refs: AC-5.5, AC-6.2 — deps: none
   - touch: `letterhead-api/api/src/routes/render.rs`, `letterhead-api/api/src/registry/cache.rs`, `letterhead-api/api/tests/render.rs`, `letterhead-api/api/tests/registry.rs`
   - agent: backend-dev (Rust) · push 2
   - done when: `cargo test -p letterhead-api` — 100 renders with a mismatching pin within one second → at most one
@@ -1015,14 +1015,14 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     without a call; after 1 s a mismatch refreshes again; a matching pin makes no call; the existing cache and render
     tests green.
 
-- [ ] T65: letterhead-api engine — the configurator sample's intro says the company details are the registry's real ones (FU-9) — refs: AC-5.4 — deps: T51
+- [x] T65: letterhead-api engine — the configurator sample's intro says the company details are the registry's real ones (FU-9) — refs: AC-5.4 — deps: T51
   - touch: `letterhead-api/engine/src/sample/**`, `letterhead-api/api/tests/preview.rs`
   - agent: backend-dev (Rust) · push 2
   - done when: the it and en intros carry T51's copy and no longer say the company data are placeholders marked
     "(SAMPLE)"; a preview test asserts the new sentence in both languages; the render golden corpus and pinning
     tests are byte-identical (real documents unaffected).
 
-- [ ] T66: letterheads-ui — `getAuthBaseUrl` declared in the federation types and exported by the shell stub; the cast dropped (FU-10) — refs: AC-5.4 — deps: none
+- [x] T66: letterheads-ui — `getAuthBaseUrl` declared in the federation types and exported by the shell stub; the cast dropped (FU-10) — refs: AC-5.4 — deps: none
   - touch: `letterheads-ui/src/federation/remotes.d.ts`, `letterheads-ui/src/federation/__stubs__/shellSession.ts`, `letterheads-ui/src/hooks/useCanManageLegalEntity.ts`, `letterheads-ui/src/hooks/useCanManageLegalEntity.test.tsx`
   - agent: frontend-dev · push 2
   - done when: no cast to reach `getAuthBaseUrl`; `tsc --noEmit` and the letterheads-ui suite green; the hook still
@@ -1030,7 +1030,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 
 ### End-to-end, review, owner
 
-- [ ] T68: e2e — protected details: confirm and cancel on save, the restore dialog's list, no dialog for an address-only change, the notice in the notification centre (it and en) — refs: AC-9.1, AC-9.2, AC-9.3, AC-9.5, AC-9.6, AC-9.7, AC-9.13, AC-9.17 — deps: T41, T57, T59, T60, T67
+- [x] T68: e2e — protected details: confirm and cancel on save, the restore dialog's list, no dialog for an address-only change, the notice in the notification centre (it and en) — refs: AC-9.1, AC-9.2, AC-9.3, AC-9.5, AC-9.6, AC-9.7, AC-9.13, AC-9.17 — deps: T41, T57, T59, T60, T67
   - touch: `shell/e2e/protected-legal-details.spec.ts`, `shell/e2e/helpers/legalEntitiesFixtures.ts`, `shell/e2e/legal-entities.spec.ts` (added 2026-11-18, QE T43: make T42's history tests independent of the number of versions — version 1 may be on a later page — and restore `before.ibanPrint` in the refusal test)
   - agent: quality-engineer · push 2
   - done when: Playwright green — an admin changes the IBAN typed with spaces and lower case: the dialog shows Old
