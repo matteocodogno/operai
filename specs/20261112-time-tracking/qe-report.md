@@ -1,5 +1,196 @@
 # QE report — specs/20261112-time-tracking (rigor: production, full mode)
 
+Two passes, newest first. **Second pass (2026-11-18, re-verification after fix round 1 of 2): this section, the current verdict.**
+The first pass (FAIL, D-1, D-2, D-3) is kept unchanged below the line, as history.
+
+## QE verdict: BLOCKED   (second pass; gates measured at 3ca1931f; my two commits add `shell/e2e/hours.spec.ts` (57814131) and this file, nothing a gate measures)
+
+D-1, D-2 and D-3 are **fixed, in every placement, rendered**; nothing in this pass is a ✗ and no hours spec failed (11 of 11 existing
+hours journeys green, plus 1 I added). The row that keeps the verdict from being PASS is T35's "whole `pnpm e2e` green": it ran,
+**140 passed, 12 failed, 31 did not run** (was 108 / 23 / 51), and every one of the 43 non-passes has an established cause outside
+this branch: three environment faults (EF-2 still open, EF-9 and EF-10 new) and one pre-existing test race on `main` (Pre-existing P-2).
+Nothing here asks a dev agent for a fix round. The caller repairs EF-2, EF-9, EF-10 and re-runs the blocked specs (commands below).
+
+### Checks I could not run to green (named first)
+
+| Check | Needs | What I did |
+|---|---|---|
+| `cd shell && pnpm e2e`, whole suite (T35 done-when) | crm-api with `ACTIVITIES_API_URL` in effect (EF-2); notify-api with a regenerated Prisma client (EF-9); `ffmpeg`/`ffprobe` on meetings-api's PATH (EF-10) | ran it whole (13.9 min, recipe of the first pass): 140 / 12 / 31, cause of each in "Whole-suite e2e" below. The blocked specs are 4 + 31 (crm-offer-wizard), 5 (push-notifications), 2 (meetings-deal) |
+| betterleaks (the CI secret scanner) | the `betterleaks` binary, not installed | `gitleaks 8.30.1` with `.betterleaksignore` over the 11 commits since the first pass: 0 findings. Substitute, as in the first pass |
+
+Everything else ran.
+
+## Verdict table (second pass)
+
+| Check | Threshold | Actual | Result |
+|---|---|---|---|
+| D-1 Everyone's hours: ~40 filter changes (3 reads each) in 10 min, API, paced 15 s, a holder | every person named, `identities` never in `unavailable` | 40 changes, 120 reads, 2909 list rows checked: 0 degraded. Auth budget left afterwards 93 of 120 (hours-api spent 27; first pass: 120 spent by about change 40, names lost from there) | ✓ |
+| D-1 same through the real UI (headless browser, holder persona): 40 changes in 622 s, plus 120 My hours filter actions in parallel | no "Unknown user", no "names could not be loaded" banner | 0 of 160 actions degraded; 115 of 120 budget left, measured 2.5 min after the run (so the oldest 2.5 min of calls had left the window) | ✓ |
+| D-1 My hours, API: 120 actions 5 s apart, every fourth after a `POST`, one `PATCH` in twelve | named | 120 reads, 30 `POST` + 10 `PATCH` views: 0 degraded; 119 of 120 left (she shares names with the holder's cache: cross-viewer reuse, as the plan says) | ✓ |
+| D-1 My hours placements through the UI (310 entries): load, 2 reloads, Load more, 10 filter changes, Save ×3, Edit ×3, Delete ×3, Export ×2 | named, no banner, export names present | 26 actions in 99 s: 0 degraded; 117 of 120 left | ✓ |
+| D-1 Everyone's export walk | names in the file | 1272 rows, 8 people, 0 unknown/empty names; Hours numeric `0.0`; file sum 3131.5 h = the screen's "3,131 h 30" | ✓ |
+| D-1 `groupBy` day, project, deal, category, month, Settings: 0 lookups | unchanged | no code path of the diff calls `resolveIdentities` for them (`totals`/`labels` changed in comments and tests only); not re-measured | ✓ (carried) |
+| AC-4.8: a rename shows within 60 s (live) | old name for at most 60 s from the cached send, then the new name | renamed through auth; hours-api served the old name for 55 s after the rename (the cached batch was sent about 5 s before it), then the new one | ✓ |
+| D-2 five design strings + the From/To pair, en and it, My hours and Everyone's hours | the design.md § Date rules — copy table, word for word | all rendered as designed, see table below | ✓ |
+| D-3 the six `TimeListItemDialog` placements, en and it | × "Close"/"Chiudi", footer "Cancel"/"Annulla", one of each | 6 of 6 in en and 6 of 6 in it; the entry dialog still ✓ | ✓ |
+| Whole `pnpm e2e` (T35 done-when) | all green | 140 passed / 12 failed / 31 not run; 0 in hours; causes below | BLOCKED |
+| T35 `hours.spec.ts`, T36 `hours-owners.spec.ts` | pass | whole-suite run: 4/4 and 7/7; after my fifth journey, re-run of both files: 12/12 (5 + 7) | ✓ |
+| hours-api typecheck | exit 0 | exit 0 | ✓ |
+| hours-api tests (`hours_test`) | all pass | 1871 pass, 0 fail, 45 files (first pass 1812 / 43) | ✓ |
+| hours-api coverage | ≥ 80 % lines | 99.20 % lines, 98.94 % functions; `lib/identities.ts` 100 % / 100 % | ✓ |
+| hours-ui lint, build | exit 0 | lint exit 0, build exit 0 | ✓ |
+| hours-ui tests | all pass | 1523 pass, 57 files (first pass 1504) | ✓ |
+| hours-ui coverage | ≥ 80 % lines | 98.73 % lines, 96.10 % branches, 95.68 % functions (shell's `@vitest/coverage-v8` linked in for the run, removed, `hours-ui/coverage` removed) | ✓ |
+| `mise run shared:check`, `changeset:check`, `env:doctor`, `react:skew` | exit 0 | all 0 (`shared:check`: 33 groups in sync) | ✓ |
+| tools/env-doctor `push.test.ts` | pass | not re-run: the diff touches neither file; stays recorded as the first pass did (fails on `origin/main` too) | ✓ (pre-existing, carried) |
+| Mutation check of the name cache (a scratch `git worktree`, removed) | each mutant fails the unit files | TTL 0 fails the budget test (110 refusals, the first on the holder's 121st call at +360 s); keep every item, cache a failure, clock from arrival, never expire, keep an omitted id: each killed (1 to 12 failing tests) | ✓ |
+| Dependency audit | no critical | not re-run: no `package.json` or lockfile in the diff since 309845fb; first pass stands (none critical) | ✓ (carried) |
+| Secret scan (security floor) | 0 findings | 0 in the 11 commits since the first pass (gitleaks substitute) | ✓ |
+| AC coverage (spec.md, 44 ACs) | 44/44 | 44/44 named by at least one test file that ran green in this pass or the first (hours-api, hours-ui, hours e2e); AC-4.8: api 5, ui 7 (first pass api 3) | ✓ |
+| Exploratory regression sweep (My hours, entry dialog by keyboard, Everyone's, export, Settings) | no regression | all walked, 0 console or page errors, see below | ✓ |
+| Design states, a11y, component reuse (design.md) | as the first pass | unchanged by the diff (copy and one label); duplicated-name class now ✓ | ✓ |
+
+## D-1 — fixed (T46, 60 s cache keyed by user id)
+
+Fix of the class, every placement of the first pass's table, measured live on the dev stack (hours-api restarted at 16:52 on the
+T46 code, `bun run --hot`):
+
+| Placement (first pass) | First pass | Now |
+|---|---|---|
+| My hours: load, filter change, Load more, Save, Edit, Delete | 1 lookup per action, 120 spent after ~120 actions | 26 UI actions: 3 spent. 120 API actions: 1 spent. Always named |
+| Everyone's hours: load or any filter change | 3 lookups per change, 120 spent after ~40 changes | 40 changes (API and UI): 27 spent over 10 min (the plan's bound is ≤ 50), never degraded |
+| Export walk | 1 per page | 1 page: names present in the file |
+| `groupBy` day / project / deal / category / month, Settings | 0 | 0 (unchanged) |
+
+Evidence: `holder.out`, `emp.out`, `ui.out`, `ui-d1b.out`, `rename.out` in
+`/private/tmp/claude-331608204/-Users-edoardo-paronzini-Work-Experiments-operai/f2ce1f1a-3ebd-4e72-83ca-8155e69a4eef/scratchpad/d1/`
+(scripts beside them). How the budget was measured: after each run I spent the persona's remaining identities budget by calling
+`auth POST /authz/users/identities` directly until the first 429 (the budget is per `sub` and shared by every caller of that route).
+
+The unit evidence is sound as well: `identities.budget.test.ts` fails with the cache off (the 120-per-10-min limiter, the same
+numbers as my live measure of the first pass: the holder's first refusal on call 121), and five more mutants of `identities.ts` are
+each killed. The cache is cross-viewer by design (plan § Sequences "Names"): in the employee's run it served names the holder's reads
+had fetched, which is why she spent 1 call; the budget test keeps her apart on purpose.
+
+## D-2 — fixed, rendered (headless Chromium through the shell, `<html lang>` en and it, `d2d3.out`, `d2b.out`)
+
+| Placement | en | it | Result |
+|---|---|---|---|
+| Entry dialog, Day emptied (what a half-typed or impossible date leaves in the native field) | "Choose a valid day." | "Scegli un giorno valido." | ✓ ✓ |
+| Entry dialog, Save with Day emptied and Duration filled | one alert, "Choose a valid day.", focus on Day | "Scegli un giorno valido.", focus on Day | ✓ ✓ |
+| Entry dialog, Day 31.12.1999 | "The day cannot be before 01.01.2000." | "Il giorno non può precedere il 01.01.2000." | ✓ ✓ |
+| Entry dialog, 30.02.2026 typed on the keyboard | Chromium rolls 02/30 to 2026-03-02 (a real day, no error: browser behavior) | field empty, "Scegli un giorno valido." | ✓ ✓ |
+| My hours, Custom, From before the floor | "The start date cannot be before 01.01.2000." | "La data di inizio non può precedere il 01.01.2000." | ✓ ✓ |
+| My hours, Custom, To before the floor | "The end date cannot be before 01.01.2000." | "La data di fine non può precedere il 01.01.2000." | ✓ ✓ |
+| My hours, Custom, both before the floor | two different alerts, From then To (first pass: the same sentence twice) | same, in Italian | ✓ ✓ |
+| Everyone's hours, Custom: From, To, both (same `HoursFilters`) | as My hours | as My hours | ✓ ✓ |
+
+Screenshots (`/Users/edoardo.paronzini/Work/Experiments/operai/.playwright-mcp/`): `qe2-d2-my-en.png`, `qe2-d2-my-it.png`,
+`qe2-d2-all-en.png`, `qe2-d2-all-it.png`. A six-digit year could not be typed in Chromium's field (it keeps four digits); that case
+rests on the component tests. `d2d3.out` ends with 2 "BAD" lines: those are my script's own wrong expectation (Duration left empty, so
+Duration's error shows next to Day's); `d2b.out` repeats the step with Duration filled and is clean.
+
+## D-3 — fixed, rendered (`d2d3.out`)
+
+All six placements of `TimeListItemDialog`, in English and Italian, each with one "Close"/"Chiudi" (the ×) and one
+"Cancel"/"Annulla" (footer) and "Add"/"Aggiungi" or "Save"/"Salva": Add category ✓, Add project work type ✓, Add deal work type ✓,
+Rename category ✓, Rename project work type ✓, Rename deal work type ✓. The × closes each. Entry dialog: "Close" + "Cancel" ✓.
+Delete confirmation: focus on Cancel ✓. Screenshots: `qe2-sweep-settings-dialog.png` (the dialog with × and Cancel),
+`qe2-d3-settings-en.png`, `qe2-d3-settings-it.png`.
+
+## Whole-suite e2e (T35 done-when): 140 passed, 12 failed, 31 not run (13.9 min)
+
+Run command: the first pass's recipe (the ten `E2E_*_REMOTE_PORT` variables, `pnpm exec playwright test --reporter=list,json`).
+Results: `/private/tmp/claude-331608204/-Users-edoardo-paronzini-Work-Experiments-operai/f2ce1f1a-3ebd-4e72-83ca-8155e69a4eef/scratchpad/e2e-full2.json`
+and `e2e-full2.log` (same directory). Hours: 11 of 11 green. First pass's EF-1, EF-4, EF-6, EF-7 are **repaired and verified by their
+specs passing now**: inventory-assignment 3, inventory-ledger 1, letterheads-access 6, -browser-contract 2, -versions 5, letterheads 5 of 6,
+activities-notify 1, refund-headline 2, -batches-headline 2, -settings 2, self-approval-control 1, mileage-rate 1. EF-3's missing table
+is applied and EF-5's `PUSH_ENABLED` is on (notify-api now answers `enabled: true` to `GET /push/config`), but each has a deeper cause.
+
+| # | Failing specs (failed + not run) | Cause, with the evidence | Branch code? | Repair (a person) |
+|---|---|---|---|---|
+| EF-2 (still open) | `crm-offer-wizard`, `-pages`, `-revise`, `-service` (4 + 31) | the fixture's `POST /deals/:id/estimate/override` → 503 `activities_unconfigured` ("Activities are not configured for the CRM"). `crm-api/src/lib/activities.ts:133` raises it when `baseUrl === undefined \|\| tokens === null`. The running crm-api (pid 48504, started 16:52:47) has `SERVICE_CLIENT_ID`, `NOTIFY_INTERNAL_URL`, `PROJECTS_INTERNAL_URL` in its environment and **no `ACTIVITIES_API_URL`**; `crm-api/.env.example:27` lists it. The branch's crm-api diff is `activity-host/resolve*` only | no | give crm-api `ACTIVITIES_API_URL=http://localhost:8087` (and the pair `SERVICE_CLIENT_ID`/`SECRET` it already has), restart crm-api |
+| EF-9 (new) | `push-notifications` ×5 (the 6th, on-load no-subscription, passes) | `GET /push/devices` → 500 "Unexpected database failure listing push devices". The DB is fine (`push_device` exists, migration `20261111164143_add_push_device` applied). The **generated Prisma client of notify-api is stale**: `notify-api/src/lib/generated/prisma/models` holds `EmailDelivery.ts` and `Notification.ts`, no `PushDevice.ts`; the schema has `model PushDevice` (line 87). In a scratch worktree `prisma generate` from the same schema produces `PushDevice.ts`. Same class as the first pass's EF-7. Of the ten services notify-api is the only one whose schema/model counts differ (3 vs 2) | no | `cd notify-api && bun run db:generate`, restart notify-api (run outside `mise run dev`) |
+| EF-10 (new; EF-3's table is fixed) | `meetings-deal` ×2 (1 passes) | a recorded meeting stays `processing`, the test waits 120 s for `ready`. `meeting_job` in the dev `meetings` DB: `prepare_audio` jobs `failed`, `lastErrorCode: media_unavailable`, 3 of 3 attempts, 4 of them in this run; `prepareAudio.ts:295` maps `ToolMissingError` ("binary could not be started", `media/probe.ts:54`) to that code. `ffmpeg` and `ffprobe` exist nowhere on this machine (`which`, `/opt/homebrew/bin`, `/usr/local/bin`). Also, as the caller predicted, `deliver_host_notice` jobs sit `queued` with `lastErrorCode: unavailable` (meetings-api has `SERVICE_AUDIENCE` but no `SERVICE_CLIENT_ID`); a likely second blocker for the deal journey once audio prepares, not proven independently | no | install `ffmpeg` (provides `ffprobe`) so meetings-api finds it; give meetings-api `SERVICE_CLIENT_ID`/`SECRET` (auth client `meetings-api`), restart |
+
+Re-run only these, after the repairs (same ten `E2E_*` variables): `pnpm exec playwright test e2e/crm-offer-wizard*.spec.ts`,
+`e2e/push-notifications.spec.ts`, `e2e/meetings-deal.spec.ts` (the 42 blocked tests: 4 failed + 31 not run in crm-offer-wizard, 5 failed in push, 2 failed in meetings-deal; the three groups of specs hold 44 tests, 2 of which already pass).
+
+### Pre-existing, not this branch (listed so nobody chases them)
+
+- P-1 (first pass, unchanged): `tools/env-doctor/push.test.ts` fails on `origin/main` too.
+- P-2 (new, found because EF-4 no longer hides it): `letterheads.spec.ts:379` "the screen is in the person's language: Italian when
+  the browser asks for it" fails, 2 of 2 (in the whole run and alone), `Error: request.response: Target page, context or browser has
+  been closed` at `shell/e2e/fixtures/letterheads.ts:327`. Cause: `recordPreviewCalls` stores `request.response()` for every preview
+  request; the test ends right after seeing the first request (`calls.length > 0`) and calls `context.close()` while that preview is
+  still in flight, so the promise rejects unhandled. The dev letterhead-api is a **debug build** (`target/debug/letterhead-api`) and
+  answers the preview in 935 to 973 ms (3 runs, `lh-timing.mjs`), so the request is always still open at the close. Proof of the
+  mechanism: a temporary copy of the spec with `await calls[0]!.response` before `context.close()` passes (2.1 s); the copy is removed.
+  The branch touches none of `letterhead-api`, `letterheads-ui`, `shell/e2e/letterheads*.ts`, `shell/e2e/fixtures/letterheads.ts`
+  (`git diff origin/main...HEAD` is empty for them). Not reproduced on a `main` stack (the stack runs this branch's code), so the
+  claim is "independent of the branch", proven by the mechanism, not "seen red on main". Owner: whoever owns the letterheads spec;
+  a timing race that a release-built service (fast preview) hides.
+
+The caller decides whether T35's "whole suite green" is accepted with P-2 recorded (as P-1 was) or waits for a fix of the spec.
+
+## Defects
+
+None new. D-1, D-2, D-3 are closed. For each: it was **found in the first pass**, so none is "new since the fix"; this pass found no
+regression in what the fixes touched (every placement above was re-measured).
+
+Observations (not defects):
+- Every e2e run and every QE sweep adds a permanent retired category (AC-3.2, no delete): the dev Category filter lists 20+
+  retired "E2E category …" entries now, plus "QE2 sweep …" from this pass.
+- T46's own notes still stand for the main loop: `hours-api/src/test-support/testAuth.ts:8` still lists identities among what is
+  "asked live"; the comments in `entries/list.routes.ts`, `entries/view.ts`, `labels/resolve.ts` were updated.
+- The 360 px table observation of the first pass is unchanged and not re-measured (nothing in the diff touches layout).
+
+## Exploratory regression sweep (real browser, `ui-sweep.mjs`, `sweep.out`; screenshots `qe2-sweep-*.png`)
+
+My hours (employee persona): Record hours opened from the keyboard, focus on Day; Duration "2:30" reads "= 2 h 30"; Tab from Duration
+lands on the "What was it on" radio (Project), three ArrowRight reach Other work; Save, "Entry saved.", the entry is listed; Escape from
+the dialog returns focus to Record hours; Delete opens the alert dialog with focus on Cancel, confirm removes it, empty state back.
+Everyone's hours (admin): This year, names read, no banner, read only (no Edit or Delete), Export downloads
+`hours-2026-01-01_2026-12-31.xlsx`. Settings (admin): add, rename, retire, restore a category (no dialog on retire/restore), no Delete
+control anywhere. 0 console or page errors. The first pass's flows F1 to F8 are not re-walked one by one: the diff changes two label
+strings, two error strings and the name cache, all covered above.
+
+## Tests I added
+
+- `shell/e2e/hours.spec.ts` (commit 57814131), a fifth journey: "the design's date copy and a distinct name on every control of the hours dialogs, in
+  English and Italian (D-2, D-3)": the Day and Custom period errors written out as literals (never read from the catalog) in My hours
+  and Everyone's hours, and "no two buttons of one dialog share a name" for the entry dialog and all six Settings dialogs, plus a
+  self-check that the detector finds a hand-made duplicate. **Seen to fail when the behavior is broken**: I reproduced each
+  pre-fix behavior by rewriting the served hours-ui module in a temporary copy of the spec (no application file touched; the copy is
+  removed): × named "Cancel" → fails at `en: categories: one "Close"`; the old empty-Day sentence → `en: an emptied Day`; the old
+  Italian floor sentence → `it: a Day before the floor`; the old shared Custom sentence → `en: My hours, both Custom dates before the
+  floor`. Passes unmodified (11 s). `tsc -p tsconfig.e2e.json`, ESLint and Prettier clean.
+
+## Security
+
+No new surface from my change (test code). The T46 cache was reviewed twice by the `owasp-reviewer` (`owasp-report.md`, both PASS, F1 / I1 /
+I4 fixed in 2650fa89); this pass found nothing that changes that: the live rename and the budget runs behaved as the key and
+viewer-independence argument says. No further pass needed for this round's diff.
+
+## Environment I touched (cleaned)
+
+Personas `qe2-*@operai.test` (users stay, as every e2e persona; all their hours entries deleted, the role `qe2-hours-readall` unassigned and
+deleted), two more permanent retired categories ("QE2 sweep …", from two runs of the sweep), the scratch worktree and `hours-ui/coverage` removed, the temporary coverage
+link removed, `git status` shows only my two files.
+
+## Next
+
+1. Caller: repair EF-2, EF-9, EF-10 and re-run the blocked specs (command above); then decide on P-2 (accept as pre-existing, or have the
+   letterheads spec fixed). With those, T35's whole-suite row is the only open item for a PASS.
+2. T40 (close) still needs the eval, which is not mine.
+
+---
+
+# FIRST PASS (history, superseded by the verdict above)
+
+
+# QE report — specs/20261112-time-tracking (rigor: production, full mode)
+
 First QE pass on this feature: no earlier `qe-report.md`. Full sweep (every AC, every `design.md` screen, state and
 placement, every `plan.md` test-strategy row), listed before anything is fixed. Run 2026-11-18 by the quality engineer.
 
