@@ -2,14 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
 import { useSession, usePermissions } from 'shell/session'
 import type { Permission } from 'shell/session'
-import { Banner, Button, Card, Icon, PageHeader, Skeleton, VisuallyHidden, useFocusOnMount } from '@operai/ui'
+import { Banner, Button, Card, ErrorSummary, Icon, PageHeader, Skeleton, VisuallyHidden, useFocusOnMount } from '@operai/ui'
 import { ownerDisplay, strings } from '../strings'
 import * as requestsApi from '../lib/requestsApi'
 import type { RefundLine, RefundRequestDetail } from '../lib/requestsApi'
 import * as reviewApi from '../lib/reviewApi'
 import * as attachmentsApi from '../lib/attachmentsApi'
 import * as accountingApi from '../lib/accountingApi'
-import type { AccountingLine, ClassifyBody, RequestAccounting } from '../lib/accountingApi'
+import type { AccountingLine, ClassificationMissingLine, ClassifyBody, MissingValue, RequestAccounting } from '../lib/accountingApi'
 import { useLoadedResource } from '../lib/useLoadedResource'
 import { ApiError } from '../lib/refundApi'
 import { formatDate, formatDateTime } from '../lib/dates'
@@ -133,6 +133,8 @@ const errorMessageFor = (error: unknown, fallback: string): string => {
   if (error instanceof ApiError) {
     if (error.code === 'self_approval_forbidden') return strings.pages.reviewDetail.decide.selfApprovalForbiddenError
     if (error.code === 'all_lines_rejected') return strings.pages.reviewDetail.decide.allLinesRejectedTooltip
+    // Approvals are off until the release script has run: nothing to fix on the page, said where the person is.
+    if (error.code === 'accounting_release_pending') return strings.pages.reviewDetail.classification.releasePending
     return error.detail ?? error.title
   }
   return fallback
@@ -147,6 +149,10 @@ export default function ReviewDetailPage() {
   const [reloadToken, setReloadToken] = useState(0)
   const [guardrail, setGuardrail] = useState<GuardrailState>(null)
   const [decisionDialog, setDecisionDialog] = useState<DecisionDialogState>({ open: false })
+  // The lines a refused approval (409 `classification_missing`) named, until the next attempt (AC-3.4, S8).
+  const [refusal, setRefusal] = useState<ClassificationMissingLine[] | null>(null)
+  // A new object each time the summary should take focus to its first missing select.
+  const [focusFirstMissing, setFocusFirstMissing] = useState<object | null>(null)
   // The not-found heading takes focus when that state replaces the page (INC-30).
   const headingRef = useFocusOnMount<HTMLHeadingElement>(pageState.status === 'notFound')
   const rowNodesRef = useRef(new Map<string, HTMLDivElement>())
@@ -353,12 +359,54 @@ export default function ReviewDetailPage() {
         canChange={canChangeClassification}
         options={options.status === 'loaded' ? options.data : null}
         canOpenRates={canOpenRates}
+        missing={missingFor(line.id)}
         onClassify={(body) => handleClassify(line.id, body)}
         onConflict={handleClassificationConflict}
         onOptionsStale={reloadOptions}
       />
     )
   }
+
+  // The values a refused approval named that are STILL missing: it shrinks as accounting chooses them, and a line the
+  // page no longer has (a race) is dropped. In the order the page shows its controls: line by line, account first.
+  const missingItems: { lineId: string; field: MissingValue; text: string }[] = []
+  if (refusal !== null && pageState.status === 'loaded' && accountingState !== null) {
+    for (const line of pageState.request.lines) {
+      const named = refusal.find((entry) => entry.lineId === line.id)
+      const classification = accountingState.lines.find((entry) => entry.lineId === line.id)?.classification
+      if (!named || !classification) continue
+      const label = lineLabelOf(line)
+      if (named.missing.includes('account') && classification.account === null) {
+        missingItems.push({ lineId: line.id, field: 'account', text: t.classification.missingSummary.account(label) })
+      }
+      if (named.missing.includes('vatCode') && classification.vatCode === null) {
+        missingItems.push({ lineId: line.id, field: 'vatCode', text: t.classification.missingSummary.vatCode(label) })
+      }
+    }
+  }
+  const missingFor = (lineId: string) => ({
+    account: missingItems.some((item) => item.lineId === lineId && item.field === 'account'),
+    vatCode: missingItems.some((item) => item.lineId === lineId && item.field === 'vatCode'),
+  })
+
+  /** Moves focus to the select of one missing value; the panel's select carries `data-classification-field`. */
+  const focusMissing = useCallback((lineId: string, field: MissingValue) => {
+    rowNodesRef.current
+      .get(lineId)
+      ?.querySelector<HTMLSelectElement>(`select[data-classification-field="${field === 'account' ? 'account' : 'vat'}"]`)
+      ?.focus()
+  }, [])
+
+  const firstMissingRef = useRef<{ lineId: string; field: MissingValue } | null>(null)
+  useEffect(() => {
+    firstMissingRef.current = missingItems[0] ?? null
+  })
+  useEffect(() => {
+    // After the dialog has closed and gone: its own focus return has already happened.
+    if (focusFirstMissing !== null && firstMissingRef.current) {
+      focusMissing(firstMissingRef.current.lineId, firstMissingRef.current.field)
+    }
+  }, [focusFirstMissing, focusMissing])
 
   /** Above the lines: the one loading line, the one load failure, or the "not available" note. */
   const classificationNotice = classifiable ? (
@@ -372,6 +420,16 @@ export default function ReviewDetailPage() {
           {t.classification.unavailable404}
         </Banner>
       )}
+      <ErrorSummary
+        title={t.classification.missingSummary.title(missingItems.length)}
+        hint={t.classification.missingSummary.hint}
+        items={missingItems.map((item) => ({ id: `${item.lineId}:${item.field}`, text: item.text }))}
+        onGo={(itemId) => {
+          const at = itemId.lastIndexOf(':')
+          focusMissing(itemId.slice(0, at), itemId.slice(at + 1) as MissingValue)
+        }}
+        testId="classification-missing-summary"
+      />
     </>
   ) : null
 
@@ -395,23 +453,42 @@ export default function ReviewDetailPage() {
   const handleApproveConfirm = useCallback(async () => {
     if (pageState.status !== 'loaded') return
     const employeeName = ownerDisplay(pageState.request.owner)
+    setRefusal(null)
     setDecisionDialog((prev) => (prev.open ? { ...prev, deciding: true, error: null } : prev))
     try {
       await reviewApi.approve(id)
       setDecisionDialog({ open: false })
       void navigate({ to: '/review', search: { confirmation: t.decide.approveConfirmation(employeeName) } })
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409 && err.code !== 'all_lines_rejected') {
+      // Told apart by `error.code`, never by status alone (G2): each 409 here means something different.
+      const missingLines = accountingApi.classificationMissingLines(err)
+      if (missingLines !== null && missingLines.length > 0) {
+        // Nothing to confirm any more: the values to fix are on the page, which a dialog would cover (UX-5).
+        // The request and the accounting view load again, so a line the page no longer has is settled first.
+        setDecisionDialog({ open: false })
+        setRefusal(missingLines)
+        setFocusFirstMissing({})
+        reloadAccounting()
+        await reloadRequest()
+      } else if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        err.code !== 'all_lines_rejected' &&
+        err.code !== 'accounting_release_pending' &&
+        missingLines === null
+      ) {
         setDecisionDialog({ open: false })
         setGuardrail({ title: t.guardrail.title, message: t.guardrail.message })
         await reloadRequest()
       } else {
+        // `accounting_release_pending` and `all_lines_rejected` say their own sentence in the dialog, which stays
+        // open (nothing on the page can fix either); so does a refusal that names no usable line.
         setDecisionDialog((prev) =>
           prev.open ? { ...prev, deciding: false, error: errorMessageFor(err, t.decide.genericError) } : prev,
         )
       }
     }
-  }, [pageState, id, navigate, t, reloadRequest])
+  }, [pageState, id, navigate, t, reloadRequest, reloadAccounting])
 
   const handleRejectConfirm = useCallback(
     async (motivation: string) => {

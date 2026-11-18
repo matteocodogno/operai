@@ -73,4 +73,29 @@ describe('ApproveDialog', () => {
     fireEvent.click(screen.getByTestId('approve-dialog-cancel'))
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
+
+  it('shows the release-pending sentence inline and stays usable: Cancel closes it, Approve can be pressed again (S8)', () => {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+    render(
+      <ApproveDialog
+        employeeName="Alice"
+        isDeciding={false}
+        errorMessage="Approvals are not available yet: the accounting setup has not been completed. Ask an administrator."
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    )
+
+    const error = screen.getByTestId('approve-dialog-error')
+    expect(error.textContent).toContain('the accounting setup has not been completed')
+    expect(error.getAttribute('role')).toBe('alert')
+    const approve = screen.getByTestId('approve-dialog-confirm') as HTMLButtonElement
+    expect(approve.disabled).toBe(false)
+    fireEvent.click(approve)
+    fireEvent.click(approve)
+    expect(onConfirm).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByTestId('approve-dialog-cancel'))
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
 })
