@@ -1,7 +1,7 @@
 # 20261101 — An email notice is addressed by user id: notify-api looks the address up in auth when it sends
 
 **Date:** 2026-11-01
-**Status:** Accepted (specs/20261101-crm-notifications; the product owner chose this option)
+**Status:** Accepted (specs/20261101-crm-notifications; the product owner chose this option) Amended 2026-11-17 by ADR 20261117-notify-api-system-routes-protect-against-repeats-by-a-caller-scoped-idempotency-key-and-bind-a-template-to-its-caller-with-closed-typed-data (an address is also resolved from `recipientId` on the new email route, not only for `email: true` on `/system/notifications`; `users.contact` and its audience are unchanged).
 **Deciders:** wellD
 **Project:** Operai
 

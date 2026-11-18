@@ -1,7 +1,7 @@
 # 20260714 — notify-api email as a second delivery channel, with a shared-secret auth→notify-api service-to-service trust
 
 **Date:** 2026-07-14  
-**Status:** Accepted  
+**Status:** Accepted Amended 2026-11-17 by ADR 20261117-notify-api-system-routes-protect-against-repeats-by-a-caller-scoped-idempotency-key-and-bind-a-template-to-its-caller-with-closed-typed-data (a template open to every caller, addressed by `to`, with no repeat protection: routes now take a caller-scoped idempotency key and bind a template to its caller with closed typed data).  
 **Deciders:** wellD  
 **Project:** Operai
 

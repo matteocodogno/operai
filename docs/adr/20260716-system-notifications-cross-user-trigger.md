@@ -1,7 +1,7 @@
 # 20260716 — Server-to-server in-app notification trigger: `POST /system/notifications` reuses the ADR 20260714-notify-api-email-channel-service-trust internal-token trust for a second internal caller
 
 **Date:** 2026-07-16
-**Status:** Accepted
+**Status:** Accepted Section 4 (best effort, no retry) departed from for one notice by ADR 20261117-notices-of-a-protected-legal-entity-change-are-a-durable-duty-an-outbox-written-in-the-versions-transaction-sent-at-least-once-for-24-hours-with-outcomes-in-the-audit-log; the refund decision notice stays best-effort.
 **Deciders:** wellD
 **Project:** Operai
 

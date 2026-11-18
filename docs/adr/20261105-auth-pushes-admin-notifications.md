@@ -1,7 +1,7 @@
 # 20261105 — auth pushes admin notifications: `system:auth` gains `notifications.push`, bound to origin `admin`
 
 **Date:** 2026-11-05
-**Status:** Accepted (specs/20261105-signup-gate)
+**Status:** Accepted (specs/20261105-signup-gate) Amended 2026-11-17 by ADR 20261117-notices-of-a-protected-legal-entity-change-are-a-durable-duty-an-outbox-written-in-the-versions-transaction-sent-at-least-once-for-24-hours-with-outcomes-in-the-audit-log (its escalation trigger, a second kind of notice from `auth`, fired; the access-request notice itself stays best-effort and the origin `admin` binding is unchanged).
 **Deciders:** wellD
 **Project:** Operai
 

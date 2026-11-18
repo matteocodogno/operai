@@ -1,7 +1,7 @@
 # 20261118 — A caller's version pin can force the letterhead service to re-read the registry only when it is ahead of the version held, at most once a second and 100 times in 10 minutes per process; any other mismatching pin is answered 409 at once without a call
 
 **Date:** 2026-11-18  
-**Status:** Accepted — F6 part: owner decision of 2026-11-17 to fix every low finding of the security review in this feature (plan amendment "after security review", G10, approved 2026-11-17; tasks T64, T72). N2 part (newer pins only, budget of 100 per 10 minutes): recommended by the security re-review (security-review-2.md N2, T70) and added to tasks.md as T76 on 2026-11-18 by the orchestrator; implemented, and no separate owner approval of the numbers is recorded. **Amends** point 3 ("The pin") and point 4 of ADR 20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds.  
+**Status:** Accepted — F6 part: owner decision of 2026-11-17 to fix every low finding of the security review in this feature (plan amendment "after security review", G10, approved 2026-11-17; tasks T64, T72). N2 part (newer pins only, budget of 100 per 10 minutes): recommended by the security re-review (security-review-2.md N2, T70) and added to tasks.md as T76 on 2026-11-18 by the orchestrator; implemented, and no separate owner approval of the numbers is recorded. **Amends** point 3 ("The pin") and point 4 of ADR 20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds. **Amended 2026-11-18:** the budget was lowered from 100 to 30 per 10 minutes by T77 (see Amendment 2026-11-18 below); the file name and the title keep the original 100.  
 **Deciders:** Matteo Codogno (product owner)  
 **Project:** operai
 
@@ -108,6 +108,10 @@ Described above.
 - **Constants out of step.** If `auth`'s `LEGAL_ENTITIES_SERVICE_LIMIT` is lowered, or replicas are added, the budget may no longer be "well under"; neither is checked by a test that reads the other. Compare them when either changes.
 - **Per-process counts.** Each replica of `letterhead-api` has its own budget; with N replicas the total is N times 100.
 - **A registry change during a refused window.** A caller whose pin is newer than the held version, in the one-second window or beyond the budget, gets a 409; its single retry waits 1.1 s, which is past the window, but beyond the budget it fails with `layout_service_unavailable` until the entry's own 30-second refresh brings the new version. The document is refused, not printed with the wrong version.
+
+## Amendment 2026-11-18 — the budget is 30 per 10 minutes, and the prior entry is the fallback during a forced refresh
+
+Task T77 (in progress when this note was written) lowers `PIN_REFRESH_BUDGET` from 100 to **30** forced refreshes per 10 minutes per process and keeps the prior entry as the fallback while a forced refresh is in flight, so a slow, failing or 429-answering `auth` does not leave the process with no entry to fall back to. Both follow the delta findings of specs/20261117-legal-entities/security-review-2.md: T76-1 (a forced refresh dropped the held entry before its outcome was known) and T76-2 (the budget is per process while `auth`'s allowance of 300 reads per 10 minutes is per service, shared by every replica). Wherever this ADR, including its title and file name, says 100, read 30. The rest of the decision (newer pins only, once a second, 409 at once otherwise) is unchanged.
 
 ## Escalation triggers
 
