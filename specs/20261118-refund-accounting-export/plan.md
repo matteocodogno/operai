@@ -511,10 +511,17 @@ model RefundBatchExport {
   - (a) once `OLD."receiptNumber"` is non-null, any change to the five receipt columns raises, and
     DELETE raises (AC-4.7);
   - (b) a change to `ledgerAccountId`/`vatCodeId`/`*IsDefault` raises when the parent
-    `refund_request.status = 'paid'` (AC-3.7, defense in depth behind the route's 409).
+    `refund_request.status = 'paid'` **and the line already has a receipt number**
+    (`OLD."receiptNumber" IS NOT NULL`). This is AC-3.7's defense in depth behind the route's 409,
+    and the reason for the condition is in § Implementation sync, IS-1.
+- CHECK `refund_line_receipt_all_or_none`: the five receipt columns are all set or all null.
+- One shared trigger function `accounting_history_immutable()` (raises with `TG_TABLE_NAME`),
+  attached by per-table UPDATE and DELETE triggers to the seven history tables.
+- `receipt_counter_guard()` also freezes the key (`ownerUserId`, `year`) and lets a no-op update
+  through (`lastSeq` may stay equal).
 - CHECK constraints: `vat_code."rateBasisPoints" BETWEEN 0 AND 10000`; the
   `accounting_catalog_status` one-of; `exchange_rate_entry` currency ≠ CHF, rate > 0, and
-  `month = date_trunc('month', month)`.
+  `EXTRACT(DAY FROM month) = 1`.
 - The partial unique index on fetched rates.
 
 **Settings keys (`refund_setting`, no DDL).** Both keys are written by dedicated routes or the
@@ -698,9 +705,11 @@ GET /exchange-rates?from=YYYY-MM&to=YYYY-MM
 POST /exchange-rates/fetch         { months?: ["2026-10"] }       // default: every fetchable month missing a rate
   200 { attempts: [ { month, outcome, errorCode|null, recorded } ], lastFetch }
   // a source failure is NOT an HTTP error here: 200 with outcome "failed", the attempt logged, rates untouched (AC-5.6)
-PUT /exchange-rates/{month}/{currency}   { rate: string }        // ^\d{1,4}(\.\d{1,6})?$, > 0
+PUT /exchange-rates/{month}/{currency}   { rate: string }        // ^\d{1,3}(\.\d{1,6})?$ and 0 < rate < 1000
   200 the month row
   422 { code:"invalid_rate" | "currency_not_convertible" (CHF) | "month_not_completed" }
+  // 0 < rate < 1000 is binding: rateMicros is a Postgres INTEGER, which overflows above
+  // 2147.483647; 1000 is also the parser's bound for a fetched rate (IS-6)
   // no-op (same as in effect) → 200, no row
 ```
 
@@ -777,10 +786,12 @@ GET /batches/{id}/accounting-export/csv
   "Matteo Codogno" → `MC`.
 - If the name is null, has one word, or yields fewer than 2 letters (AC-4.8), use the email local
   part:
-  - split on `.`: when at least two parts contain a letter, take the first letter of each of the
-    first two parts;
-  - otherwise take the first two letters;
-  - pad with `X` if fewer than 2 letters remain.
+  - split on `.` and skip the parts with no A–Z letter; when at least two parts remain, take the
+    first A–Z letter of each of the first two (`123.matteo.codogno` → `MC`, `1m.2c` → `MC`);
+  - otherwise take the first two A–Z letters of the whole local part (`mcodogno` → `MC`);
+  - pad with `X` if fewer than 2 letters remain (`x` → `XX`, `123` → `XX`).
+- A name whose first or last word has no A–Z letter (`Matteo 123`) counts as giving no initials,
+  so the email is used (IS-7).
 - Number = initials + `YY` (year of the expense date) + `/` + seq padded to 3 digits. 1000 and above
   print in full.
 
@@ -1009,6 +1020,46 @@ above is synced with them:
 
 Still a plan-level reading, not spec text: AC-6.11's capability is `request:review` (the compile
 gate), narrowed to WellD CH scope (D8). No further amendment is proposed.
+
+## Implementation sync (2026-11-19)
+
+T1 (commit 352c6747, `refund-api/prisma/migrations/20261119090000_accounting_export/migration.sql`)
+and T3 differ from the plan's wording in seven points. All seven are accepted; the plan text above
+is edited in place, and the receipt-numbers and classification ADRs of 20261118 are amended to
+match. Status stays `approved`.
+
+| # | Drift | Decision |
+|---|---|---|
+| IS-1 | `refund_line_accounting_guard` locks a paid request's line classification **only when the line has a receipt number**. | **Accepted.** Reason: the release backfill (T11, AC-7.1) has to classify legacy lines of requests that were already paid. After the release, every non-rejected line is numbered in the same approval transaction that freezes its classification, so every post-release paid line is locked. No hole was found; see the details after this table. |
+| IS-2 | CHECK `refund_line_receipt_all_or_none` (five receipt columns all set or all null). | Accepted; added to § Data model. It closes a partial write that the trigger alone would not catch. |
+| IS-3 | `receipt_counter_guard()` also freezes `ownerUserId`/`year`, and allows a no-op update. | Accepted. A key change would move a sequence to another person or year. A no-op update is harmless and keeps upserts simple. |
+| IS-4 | One shared function `accounting_history_immutable()`, with per-table triggers. | Accepted. The behaviour is the same as one function per table. The error names the table through `TG_TABLE_NAME`. |
+| IS-5 | Month CHECK as `EXTRACT(DAY FROM month) = 1`. | Accepted. It is equivalent for a `date` column, and is IMMUTABLE-safe. |
+| IS-6 | Rate correction input must be `0 < rate < 1000`. | **Binding for T10.** `rateMicros` is an INTEGER, which overflows above 2147.483647. 1000 matches the parser's range for fetched rates (T5). Contract updated (`PUT /exchange-rates/{month}/{currency}`): the regex allows up to 3 integer digits, and the bound is checked as well, so `999.999999` is accepted and `1000` is refused with 422 `invalid_rate`. T10's tests must include both. |
+| IS-7 | Email initials skip local-part segments with no letter; a name word with no letter sends the rule to the email. | Accepted, and stated in "Receipt number rules". It is the reading of AC-4.8 that never yields a non-letter initial. |
+
+IS-1 in detail:
+
+- **Required order of writes.** `classifyAndNumber` (T8) writes the classification **before or in
+  the same statement as** the receipt number, so on a paid legacy line the guard sees
+  `OLD."receiptNumber" IS NULL`. Writing the number first, and classifying afterwards in a second
+  statement, would be refused. T8 and T11 keep the order, and T11's test classifies a legacy line
+  of a paid request.
+- **What remains unlocked at the database.** Two kinds of line on a paid request:
+  - pre-release WellD Italia lines, which are never numbered (AC-7.3);
+  - rejected lines.
+
+  Neither is ever classified by the application (422 `line_not_welld_ch`, 409 `line_rejected`),
+  and the export excludes both. A raw-SQL write to them changes nothing that is booked.
+- **A consequence that is not caused by the drift.** A legacy WellD CH line of an already paid
+  request that the release leaves **unclassified** (its type had no usable default, AC-7.2) is
+  numbered by the release and is then locked by AC-3.7 for good. Its old paid batch can never be
+  exported. This follows from the spec (AC-3.6 allows reclassification only while unpaid) and
+  would hold with the original guard too.
+  - Mitigation: T39's `--dry-run` lists these lines. Accounting either sets defaults for every
+    type before the release run, or accepts it: those batches predate the feature and are already
+    in the hand register.
+  - Opening paid legacy lines to classification would need a spec amendment, so it is not planned.
 
 ## Post-approval sync with design.md (2026-11-18)
 
