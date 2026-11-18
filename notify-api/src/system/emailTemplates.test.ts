@@ -334,6 +334,9 @@ describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-enti
     otherChanged: ["contacts.en" as const],
     iban: { old: { state: "tail" as const, last4: "5957" }, new: { state: "none" as const } },
   };
+  // The paragraph of lines inside the frame: from the first sentence to the end of its <p>.
+  const noticeLines = (html: string): string =>
+    /<p [^>]*>((?:Change saved by|Version \d+ restored by)[\s\S]*?)<\/p>/.exec(html)![1]!;
   const render = (overrides: Record<string, unknown> = {}, baseUrl: string = BASE_URL) =>
     renderEmailTemplate(
       { template: "legal_entity_change", data: { ...winter, ...overrides } },
@@ -343,27 +346,28 @@ describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-enti
   it("renders the design's worked example: subject, heading, one row of lines, note, button and footer", () => {
     const { subject, html } = render();
     expect(subject).toBe("Legal details of WellD CH changed: IBAN");
-    expect(html).toContain('<div lang="en"');
-    expect(html).toContain("<p><strong>The legal details of WellD CH were changed</strong></p>");
-    expect(html).toContain(
+    // The Operai frame (emailLayout.ts): English document, the heading, then one paragraph of lines.
+    expect(html).toContain('<html lang="en">');
+    expect(html).toMatch(/<h1[^>]*>The legal details of WellD CH were changed<\/h1>/);
+    expect(noticeLines(html)).toBe(
       [
-        "<p>Change saved by the account anna.rossi@welld.ch.",
+        "Change saved by the account anna.rossi@welld.ch.",
         "When: 17 November 2026, 10:12 CET (Europe/Zurich).",
         "New version: 8.",
         "Details changed: IBAN.",
         "Old IBAN: …5957.",
         "New IBAN: none.",
-        "Also changed: contacts line (English).</p>",
-      ].join("<br>\n"),
+        "Also changed: contacts line (English).",
+      ].join("<br />"),
     );
     expect(html).toContain(
-      "<p>This message names the details that changed. It does not show their values, except the last four characters of an IBAN.</p>",
+      ">This message names the details that changed. It does not show their values, except the last four characters of an IBAN.</p>",
     );
     expect(html).toContain(
-      "<p>If you did not expect this change, open the history and restore the previous version if it is wrong. Then tell an administrator.</p>",
+      ">If you did not expect this change, open the history and restore the previous version if it is wrong. Then tell an administrator.</p>",
     );
     expect(html).toContain(">Open the history of WellD CH</a>");
-    expect(html).toContain("<p>The link asks you to sign in. Only people who may see this history can open it.</p>");
+    expect(html).toContain(">The link asks you to sign in. Only people who may see this history can open it.</p>");
     expect(html).toContain(
       "Sent by Operai Admin. You receive this notice because you may manage this legal entity, you are an administrator, you made the change, or this mailbox is set to receive these notices.",
     );
@@ -424,8 +428,7 @@ describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-enti
 
   it("every line is a whole sentence ending in a full stop", () => {
     const { html } = render({ otherChanged: ["address.it", "contacts.en"] });
-    const paragraph = /<p>(Change saved by[\s\S]*?)<\/p>/.exec(html)![1]!;
-    const sentences = paragraph.split("<br>\n");
+    const sentences = noticeLines(html).split("<br />");
     expect(sentences).toHaveLength(7);
     for (const line of sentences) {
       expect(line).toMatch(/^[A-Z].*\.$/);
@@ -473,7 +476,7 @@ describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-enti
 
   it("an author with no address on record says so, for a save and for a restore; no name fallback", () => {
     const save = render({ actorEmail: null }).html;
-    expect(save).toContain("<p>Change saved by an account with no email address on record.<br>");
+    expect(noticeLines(save).startsWith("Change saved by an account with no email address on record.<br />")).toBe(true);
     expect(save).not.toContain("unnamed");
     expect(save).not.toContain("Anna");
     const restore = render({ actorEmail: null, action: "restore", restoredFrom: 5 }).html;

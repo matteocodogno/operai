@@ -477,38 +477,49 @@ const renderLegalEntityChange = (
         ? `Version ${data.restoredFrom} restored by an account with no email address on record.`
         : "Change saved by an account with no email address on record."
       : isRestore
-        ? `Version ${data.restoredFrom} restored by the account ${escapeHtml(author)}.`
-        : `Change saved by the account ${escapeHtml(author)}.`;
+        ? `Version ${data.restoredFrom} restored by the account ${author}.`
+        : `Change saved by the account ${author}.`;
 
-  // Every line is a whole sentence ending in a full stop. Values already escaped or closed; the IBAN token holds
-  // `…` and four characters of [A-Z0-9] (zod) and is escaped regardless.
-  const lines = [
+  // Every line is a whole sentence ending in a full stop, as plain text: the frame's `lines` block escapes each one
+  // (the author address included). Values are closed or tokens; the IBAN token holds `…` and four characters of
+  // [A-Z0-9] (zod).
+  const sentences = [
     byAction,
-    `When: ${escapeHtml(formatNoticeWhen(data.storedAt))}.`,
+    `When: ${formatNoticeWhen(data.storedAt)}.`,
     `New version: ${data.version}.`,
     `Details changed: ${details}.`,
   ];
   if (data.iban !== undefined && data.protectedChanged.includes("iban")) {
-    lines.push(`Old IBAN: ${escapeHtml(ibanTokenText(data.iban.old))}.`);
-    lines.push(`New IBAN: ${escapeHtml(ibanTokenText(data.iban.new))}.`);
+    sentences.push(`Old IBAN: ${ibanTokenText(data.iban.old)}.`);
+    sentences.push(`New IBAN: ${ibanTokenText(data.iban.new)}.`);
   }
-  if (otherNames.length > 0) lines.push(`Also changed: ${joinNames(otherNames)}.`);
+  if (otherNames.length > 0) sentences.push(`Also changed: ${joinNames(otherNames)}.`);
 
-  const url = escapeHtml(
-    `${appBaseUrl.replace(/\/+$/, "")}/admin/legal-entities?entity=${data.entity}&view=history`,
-  );
+  const url = `${appBaseUrl.replace(/\/+$/, "")}/admin/legal-entities?entity=${data.entity}&view=history`;
 
-  const html = [
-    '<div lang="en" style="font-family: sans-serif; line-height: 1.6; color: #1a1a1a;">',
-    `<p><strong>The legal details of ${entity} were changed</strong></p>`,
-    `<p>${lines.join("<br>\n")}</p>`,
-    "<p>This message names the details that changed. It does not show their values, except the last four characters of an IBAN.</p>",
-    "<p>If you did not expect this change, open the history and restore the previous version if it is wrong. Then tell an administrator.</p>",
-    `<p><a href="${url}" style="display: inline-block; padding: 8px 16px; background: #1a1a1a; color: #ffffff; text-decoration: none; border-radius: 4px;">Open the history of ${entity}</a></p>`,
-    "<p>The link asks you to sign in. Only people who may see this history can open it.</p>",
-    '<p style="color: #666666; font-size: 12px;">Sent by Operai Admin. You receive this notice because you may manage this legal entity, you are an administrator, you made the change, or this mailbox is set to receive these notices.</p>',
-    "</div>",
-  ].join("\n");
+  // The Operai frame (emailLayout.ts). The preheader holds closed values only, never the author's address, so the
+  // address is in the message exactly once.
+  const html = renderFrame({
+    lang: "en",
+    title: subject,
+    preheader: `Details changed: ${details}.`,
+    tool: "Admin",
+    body: [
+      heading(`The legal details of ${entity} were changed`),
+      paragraph([lines(sentences)]),
+      paragraph(
+        "This message names the details that changed. It does not show their values, except the last four characters of an IBAN.",
+      ),
+      paragraph(
+        "If you did not expect this change, open the history and restore the previous version if it is wrong. Then tell an administrator.",
+      ),
+      button(url, `Open the history of ${entity}`),
+      paragraph("The link asks you to sign in. Only people who may see this history can open it.", { muted: true, small: true }),
+    ],
+    footer: [
+      "Sent by Operai Admin. You receive this notice because you may manage this legal entity, you are an administrator, you made the change, or this mailbox is set to receive these notices.",
+    ],
+  });
 
   return { subject, html };
 };
