@@ -500,7 +500,7 @@ Reading the list:
 
 ## QE, security, eval
 
-- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74, T75, T76, D2
+- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74, T75, T76, D2, D3
   - touch: `specs/20261117-legal-entities/qe-report.md`
   - agent: quality-engineer
   - done when: `qe-report.md` maps every AC to passing evidence, records the MIG rehearsal (counts and flags,
@@ -775,6 +775,19 @@ same files.
     English too (AC-5.4)" — footer line `{iban} {contacts}`, contacts empty, English: text reads "… Contacts / line"
     without brackets; Italian ("⟦Riga / contatti⟧") and `{contacts}` alone are fine.
   - done when: an engine test reproduces the English wrap and passes; real-document output unchanged; engine tests green.
+
+- [ ] D3: admin-ui — Confirm in the protected-change confirmation must save (QE T68 D-T68-1, high) — refs: AC-9.3, AC-9.1 — deps: T60, T73
+  - touch: `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/ProtectedChangeDialog*`, `admin-ui/src/components/ProtectedChangeList*`, `admin-ui/src/components/LegalEntityPanel*`, `admin-ui/src/components/RestoreDialog*`
+  - agent: frontend-dev · push 2
+  - failing e2e: `shell/e2e/protected-legal-details.spec.ts` "keyboard only: Confirm saves…", "a newer version saved
+    while the dialog is open…", `shell/e2e/legal-entities.spec.ts` "a welld_ch manager edits welld_ch…": Confirm does a
+    native navigation to `/admin/legal-entities?`, no POST. Lead: `ProtectedChangeDialog` is mounted inside the form's
+    `<form>` and `ConfirmDialog` renders its own `<form>` (nested forms; React warns).
+  - also D-T68-2 (medium, AC-9.6): `ProtectedChangeList`'s `<ul aria-label>` replaces its content in the dialog's
+    computed accessible description, which must hold each detail's Old and New values (design S12/S7).
+  - done when: no nested `<form>` anywhere in the page (a unit test asserts it and that Confirm calls the save once);
+    the computed accessible description of both dialogs contains each Old/New value (unit test with an
+    accessible-description computation); admin-ui suite green; the three e2e journeys are re-run by T45.
 
 ## Follow-ups found during implementation (orchestrator, 2026-11-17)
 
