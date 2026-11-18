@@ -726,9 +726,13 @@ test.describe('specs/20261117-legal-entities T43: the CRM and the registry', () 
 
     test.afterAll(async () => {
       if (!service || restoreConfig === null) return
+      test.setTimeout(120_000)
       // the letterhead as it was (a new version: versions are never deleted), and a legal name that fits
       await saveVersion(people.admin, 'welld_ch', restoreConfig)
       await saveDetails(people.admin, 'welld_ch', stageDetails('welld_ch', 'B'))
+      // ... and wait out the services' caches (AC-3.3: up to 60 s) so that the next spec file does not start on the 200-character name:
+      // QE T45 saw letterheads.spec.ts's first journey refused ("footer does not fit") right after this one on a fresh stack.
+      await settle()
     })
 
     test('a legal name that does not fit the letterhead refuses Generate, and the notice offers Legal entities (a manager) or the sentence (anyone else)', async ({

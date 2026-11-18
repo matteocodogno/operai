@@ -243,7 +243,12 @@ test.describe('specs/20261117-legal-entities T42: reach, edit, refusal (AC-1.1 t
     await expect(page.getByRole('heading', { name: 'WellD CH', level: 3 })).toBeVisible()
     await expect(input(page, 'legalName')).toHaveValue(chRegistry.legalName)
     await expect(line(page, 'it', 0)).toHaveValue(chRegistry.address.it[0] ?? '')
-    await expect(page.getByTestId('admin-legal-entity-version-line')).toContainText(`Version ${chRegistry.version} · saved by`, { timeout: 15_000 })
+    // The current version is a save by a person, or (on a registry nobody has saved since the move: a fresh database) the move's
+    // version 1 "moved from the CRM by the system" (AC-7.2): the line names its number either way.
+    await expect(page.getByTestId('admin-legal-entity-version-line')).toContainText(
+      new RegExp(`Version ${chRegistry.version} · (saved by|moved from the CRM by the system)`),
+      { timeout: 15_000 },
+    )
     await page.goBack()
     await expect(page).toHaveURL(/\/admin\/roles/)
     await context.close()

@@ -324,10 +324,17 @@ export function recordPreviewCalls(page: Page): PreviewCall[] {
       at,
       language: body.language,
       config: body.config,
-      response: request.response().then(async (response) => {
-        if (response) await response.finished()
-        return { status: response?.status() ?? 0, ms: Date.now() - at }
-      }),
+      // A journey that ends (and closes its context) while a preview is still being drawn must not leave this promise
+      // rejecting with "Target page, context or browser has been closed" (an unhandled rejection that Playwright charges to the
+      // test): the call then reads as status 0, which every journey that checks a status still fails on. (QE T45: the Italian
+      // journey of specs/20261116 ends right after the first call and failed 6 of 6 runs on a fresh stack for this alone.)
+      response: request
+        .response()
+        .then(async (response) => {
+          if (response) await response.finished()
+          return { status: response?.status() ?? 0, ms: Date.now() - at }
+        })
+        .catch(() => ({ status: 0, ms: Date.now() - at })),
     })
   })
   return calls

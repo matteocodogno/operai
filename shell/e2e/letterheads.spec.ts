@@ -565,6 +565,12 @@ test.describe('specs/20261117-legal-entities T43: the configurator preview shows
     const context = await contextFor(browser, people.admin)
     const page = await context.newPage()
     await openConfigurator(page, 'welld_ch')
+    // The service refuses a footer taller than the bottom margin (422 `footer_overflow`, "checked with every placeholder replaced by
+    // 40 characters"), and a letterhead that nothing has changed yet has a margin too small for this line: the journey raises it
+    // itself instead of relying on what an earlier spec of another stack left behind (QE T45: on a fresh database the preview was
+    // refused and the journey never saw its text).
+    await tabTo(page, marginInput(page, 'Bottom'))
+    await typeIntoFocused(page, '45')
     for (const language of ['Italian', 'English'] as const) {
       await tabTo(page, footerLeftLine2(page, language))
       await typeIntoFocused(page, '{iban} {contacts}')
