@@ -25,6 +25,11 @@
 //! [`PIN_REFRESH_WINDOW`] per process, so that a stream of pins that run ahead of the registry cannot spend `auth`'s
 //! own allowance per service and turn the renders into 503. Beyond it nothing is dropped and the answer is the
 //! caller's 409 at once. (A pin that is not newer than the version held never gets here: the route answers it.)
+//!
+//! A forced refresh does not throw the held entry away before it knows the outcome (delta review T76-1): the entry
+//! is kept as the fallback while the refresh is in flight and if it fails, for every caller (an unpinned one, a
+//! pin that matches), under the same 60 s rule counted from when that entry was sent. Only `invalidate()` forgets
+//! it for good. A pin that is newer than the entry gets the entry too, and the route's 409 with its version.
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -42,8 +47,10 @@ use super::{FRESH_FOR, LegalEntityDetails, REFRESH_TIMEOUT, USABLE_FOR};
 pub const FORCED_REFRESH_EVERY: Duration = Duration::from_secs(1);
 
 /// The pin retry reads `auth` at most this many times in [`PIN_REFRESH_WINDOW`], per process (security re-review
-/// N2). Well under what `auth` allows one service (300 in 10 minutes).
-pub const PIN_REFRESH_BUDGET: usize = 100;
+/// N2, delta review T76-2). `auth` allows the `letterhead-api` client 300 reads in 10 minutes in all, and that
+/// allowance is shared by every replica of the service, while this budget is per process: 30 keeps ten replicas,
+/// forced reads and the natural ones together, inside it. A legitimate save needs one or two.
+pub const PIN_REFRESH_BUDGET: usize = 30;
 
 /// The window of [`PIN_REFRESH_BUDGET`], sliding: no 10 minutes hold more than the budget.
 pub const PIN_REFRESH_WINDOW: Duration = Duration::from_secs(600);
@@ -186,6 +193,10 @@ struct Flight {
 #[derive(Default)]
 struct State {
     entry: Option<Arc<Snapshot>>,
+    /// The entry a forced refresh (`refresh_for_pin`) took out of `entry`: not fresh (a read goes to `auth`), but
+    /// what a failed refresh falls back to while it is usable. Cleared by a refresh that is cached and by
+    /// `invalidate()`.
+    fallback: Option<Arc<Snapshot>>,
     flight: Option<Flight>,
     next_flight: u64,
     /// Bumped by `invalidate()`: a refresh begun in an earlier epoch is not cached.
@@ -256,12 +267,14 @@ impl Registry {
         let inner = &self.inner;
         let (held, held_epoch, mut flight) = {
             let mut state = inner.state();
-            let held = state.entry.clone();
-            if let Some(entry) = &held
+            let entry = state.entry.clone();
+            if let Some(entry) = &entry
                 && self.age(entry) < FRESH_FOR
             {
                 return Ok(entry.clone());
             }
+            // Not fresh: what a failed refresh may fall back to (the entry, or the one a forced refresh set aside).
+            let held = entry.or_else(|| state.fallback.clone());
             let flight = match &state.flight {
                 Some(flight) => flight.result.clone(),
                 None => self.start_flight(&mut state),
@@ -279,11 +292,17 @@ impl Registry {
         };
 
         // The held entry is used when it is usable, was not invalidated while the refresh ran (the caller asked
-        // for a newer one), and the refresh did not bring one.
-        let current_epoch = inner.state().epoch;
-        if let Some(entry) = held
-            && current_epoch == held_epoch
-        {
+        // for a newer one), and the refresh did not bring one. A forced refresh started meanwhile moved the entry
+        // to the fallback: that one is used, not nothing.
+        let candidate = {
+            let state = inner.state();
+            if state.epoch == held_epoch {
+                held
+            } else {
+                state.fallback.clone()
+            }
+        };
+        if let Some(entry) = candidate {
             let age = self.age(&entry);
             if age <= USABLE_FOR {
                 (inner.log)(&format!(
@@ -315,11 +334,13 @@ impl Registry {
     pub fn invalidate(&self) {
         let mut state = self.inner.state();
         state.entry = None;
+        state.fallback = None;
         state.flight = None;
         state.epoch += 1;
     }
 
-    /// The pin retry, coalesced: forgets the entry (as [`Registry::invalidate`]) so that the next read asks `auth`,
+    /// The pin retry, coalesced: sets the entry aside (unlike [`Registry::invalidate`], it stays the fallback of a failed
+    /// refresh) so that the next read asks `auth`,
     /// unless a forced refresh was started less than [`FORCED_REFRESH_EVERY`] ago or the entry was sent less than
     /// that ago, or [`PIN_REFRESH_BUDGET`] forced refreshes were started in the last [`PIN_REFRESH_WINDOW`] (a
     /// refused call does not use the budget; a started one does, whatever its outcome). Returns whether it did. When it did not, the caller's next read is the held entry (no call) or the
@@ -348,7 +369,11 @@ impl Registry {
         }
         state.forced.push_back(now);
         state.last_forced = Some(now);
-        state.entry = None;
+        // Set the entry aside, not away: it stays the fallback while this refresh runs and if it fails (a second
+        // forced refresh before the first one's answer keeps the older fallback: there is no entry to replace it).
+        if let Some(entry) = state.entry.take() {
+            state.fallback = Some(entry);
+        }
         state.flight = None;
         state.epoch += 1;
         true
@@ -399,6 +424,7 @@ impl Registry {
                 let mut state = inner.state();
                 if state.epoch == started_in {
                     state.entry = Some(snapshot.clone());
+                    state.fallback = None;
                 }
             }
             // Before the result is announced, so that a caller who wakes finds the flight gone and the entry in.

@@ -765,12 +765,117 @@ async fn registry_a_failed_forced_refresh_still_counts_for_the_second() {
     rig.clock.advance(5 * SECOND);
     rig.source.set(Mode::Fail(Failure::Network));
     assert!(rig.registry.refresh_for_pin());
-    assert_eq!(rig.registry.all().await.err(), Some(Unavailable));
+    // The entry (sent 5 s ago) is the fallback of the failed refresh (T76-1): the read is not unavailable.
+    assert_eq!(
+        version_of(
+            &rig.registry.all().await.expect("fallback"),
+            Entity::WelldCh
+        ),
+        3
+    );
     // `auth` is back, but the next forced refresh waits for its second; a plain read is the cache rule's own.
     rig.source.set(Mode::Ok);
     assert!(!rig.registry.refresh_for_pin());
     rig.clock.advance(SECOND);
     assert!(rig.registry.refresh_for_pin());
+}
+
+#[tokio::test]
+async fn registry_a_failed_forced_refresh_keeps_serving_the_old_entry_within_60_s_of_its_send() {
+    let rig = rig();
+    rig.registry.all().await.expect("read");
+    rig.clock.advance(10 * SECOND);
+    rig.source.save("welld_ch", None);
+    rig.source.set(Mode::Fail(Failure::Status(429)));
+    assert!(rig.registry.refresh_for_pin());
+    // The forced refresh fails; unpinned reads (a matching pin is a plain read too) get the old entry, not 503.
+    for _ in 0..3 {
+        let read = rig.registry.get(Entity::WelldCh).await.expect("fallback");
+        assert_eq!(read.version, 3, "the entry set aside answers");
+        rig.clock.advance(SECOND);
+    }
+    assert!(rig.log.contains("registry_stale_used"));
+    // A pin newer than the entry: a second forced refresh, `auth` still failing, reads the same entry (the route
+    // compares it with the pin and answers its 409 with this version).
+    assert!(rig.registry.refresh_for_pin());
+    assert_eq!(
+        rig.registry
+            .get(Entity::WelldCh)
+            .await
+            .expect("entry")
+            .version,
+        3
+    );
+    // Still bounded by 60 s from when the entry was SENT (at 1 000 s): 60 s exactly is usable, past it is not.
+    rig.clock.advance(Duration::from_secs(1_060 - 1_013));
+    rig.registry.all().await.expect("60 s exactly");
+    rig.clock.advance(Duration::from_millis(1));
+    assert_eq!(rig.registry.all().await.err(), Some(Unavailable));
+}
+
+#[tokio::test]
+async fn registry_reads_that_join_a_forced_refresh_get_the_old_entry_if_it_fails() {
+    let rig = rig();
+    rig.registry.all().await.expect("read");
+    rig.clock.advance(10 * SECOND);
+    rig.source.set(Mode::Fail(Failure::Network));
+    rig.source.lock_hold_next();
+    assert!(rig.registry.refresh_for_pin());
+    let first = tokio::spawn({
+        let registry = rig.registry.clone();
+        async move { registry.get(Entity::WelldIt).await }
+    });
+    rig.source.entered.notified().await;
+    // A second reader joins the flight in progress (the entry is not fresh to it: it is set aside).
+    let second = tokio::spawn({
+        let registry = rig.registry.clone();
+        async move { registry.get(Entity::WelldCh).await }
+    });
+    tokio::task::yield_now().await;
+    rig.source.release.notify_one();
+    assert_eq!(first.await.expect("joined").expect("fallback").version, 1);
+    assert_eq!(second.await.expect("joined").expect("fallback").version, 3);
+    assert_eq!(rig.source.calls(), 2, "one flight");
+}
+
+#[tokio::test]
+async fn registry_a_forced_refresh_that_works_replaces_the_entry_and_drops_the_fallback() {
+    let rig = rig();
+    rig.registry.all().await.expect("read");
+    rig.clock.advance(10 * SECOND);
+    rig.source.save("welld_ch", None);
+    assert!(rig.registry.refresh_for_pin());
+    assert_eq!(
+        version_of(&rig.registry.all().await.expect("read"), Entity::WelldCh),
+        4
+    );
+    // The new entry goes stale and `auth` fails: the answer is bounded by the new entry's age, not the old one's.
+    rig.source.set(Mode::Fail(Failure::Network));
+    rig.clock.advance(50 * SECOND);
+    assert_eq!(
+        version_of(&rig.registry.all().await.expect("read"), Entity::WelldCh),
+        4
+    );
+    rig.clock.advance(11 * SECOND);
+    assert_eq!(rig.registry.all().await.err(), Some(Unavailable));
+}
+
+#[tokio::test]
+async fn registry_invalidate_drops_the_fallback_a_forced_refresh_set_aside() {
+    let rig = rig();
+    rig.registry.all().await.expect("read");
+    rig.clock.advance(10 * SECOND);
+    rig.source.set(Mode::Fail(Failure::Network));
+    assert!(rig.registry.refresh_for_pin());
+    rig.registry.invalidate();
+    assert_eq!(rig.registry.all().await.err(), Some(Unavailable));
+}
+
+#[test]
+fn registry_the_forced_refresh_budget_is_30_per_10_minutes() {
+    // auth's 300 per 10 minutes per service is shared by every replica of the client (delta review T76-2).
+    assert_eq!(PIN_REFRESH_BUDGET, 30);
+    assert_eq!(PIN_REFRESH_WINDOW, Duration::from_secs(600));
 }
 
 #[tokio::test]

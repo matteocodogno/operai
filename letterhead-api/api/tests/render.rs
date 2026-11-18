@@ -3284,6 +3284,49 @@ mod issuer {
         assert_eq!(world.auth.registry.reads(), before + 1);
     }
 
+    /// Delta review T76-1: a newer pin makes a forced read, and `auth` is failing. The entry held is the fallback of
+    /// that read (it was not thrown away first): unpinned and matching-pin renders still answer from it, and the pin
+    /// that is newer gets the 409 with the version in use, not a 503 for everybody.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_a_failed_pin_refresh_keeps_the_held_entry_for_everybody_else() {
+        let Some(world) = world_with_letterheads().await else {
+            return;
+        };
+        let token = world.caller().await;
+        let first = post(
+            &world.server,
+            "/v1/render/pdf",
+            &token,
+            &v2("welld_it", "it"),
+        )
+        .await;
+        assert_eq!(first.status, 200, "{}", first.text());
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+
+        world.auth.registry.down(true);
+        let mut pinned = v2("welld_it", "it");
+        pinned["legalEntityVersion"] = json!(4);
+        let reply = post(&world.server, "/v1/render/pdf", &token, &pinned).await;
+        assert_problem(&reply, 409, "legal_entity_version_mismatch");
+        assert_eq!(reply.json()["currentVersion"], 3);
+
+        let unpinned = post(
+            &world.server,
+            "/v1/render/pdf",
+            &token,
+            &v2("welld_it", "it"),
+        )
+        .await;
+        assert_eq!(unpinned.status, 200, "{}", unpinned.text());
+        pinned["legalEntityVersion"] = json!(3);
+        let matching = post(&world.server, "/v1/render/pdf", &token, &pinned).await;
+        assert_eq!(matching.status, 200, "{}", matching.text());
+        assert_eq!(
+            matching.header("legal-entity-version").as_deref(),
+            Some("3")
+        );
+    }
+
     /// The service reads the registry as its own client: with the scope `legal-entities:read` (the stub refuses a
     /// token without it) and never with the caller's token.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
