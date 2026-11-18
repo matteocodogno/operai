@@ -791,7 +791,7 @@ same files.
     the computed accessible description of both dialogs contains each Old/New value (unit test with an
     accessible-description computation); admin-ui suite green; the three e2e journeys are re-run by T45.
 
-- [ ] T77: letterhead-api — keep the prior registry entry as fallback during a pin-forced refresh; pin budget 30 per 10 minutes (security delta review T76-1, T76-2) — refs: AC-5.5, AC-6.2 — deps: T76
+- [x] T77: letterhead-api — keep the prior registry entry as fallback during a pin-forced refresh; pin budget 30 per 10 minutes (security delta review T76-1, T76-2) — refs: AC-5.5, AC-6.2 — deps: T76
   - touch: `letterhead-api/api/src/registry/**`, `letterhead-api/api/src/routes/render.rs`, `letterhead-api/api/tests/registry.rs`, `letterhead-api/api/tests/render.rs`
   - agent: backend-dev (Rust) · push 2
   - added by the orchestrator 2026-11-18 (eval round 1 fixes): a forced refresh dropped the held entry, removing the 60 s
