@@ -21,6 +21,12 @@
  *           refused, cancelled or conflicting save
  *   AC-9.9, AC-9.11, AC-9.12 are observed on the way: the person who saved gets the receipt; the notice says what changed by name and the
  *           last four characters of each IBAN and carries no legal value at all
+ *   AC-9.11, AC-9.12 (amendment D9, T84; security re-review N1): the author is named by the EMAIL OF THEIR ACCOUNT and by nothing else. The
+ *           notice of every journey below states the author's email, in English and in Italian, and no display name; a dedicated persona
+ *           renames itself (Better Auth's `POST /auth/update-user`) to a sentinel BEFORE a protected save and is still named by its email;
+ *           the email is the one the account had when the version was stored: the account's email and name are changed after the save and
+ *           before the email's retry, and the retry says what the first attempt would have; an account whose email is not an address is
+ *           "an account with no email address on record", never its name. The email's own words are read from a fake Resend (below).
  *
  * NOT covered here, and why: the push channel (PUSH_ENABLED is off in the local stack: no subscription can exist), AC-9.10 (the outside
  * mailbox is `LEGAL_ENTITY_NOTICE_EMAIL`, unset locally), and the failure paths of AC-9.14/9.15 (notify-api down, retries: QE T45's rehearsal).
@@ -32,7 +38,13 @@
  *     stubbed and a `sent` row is recorded; never a real email) and its notify-ui remote served for the shell;
  *   - `auth` started with NODE_ENV other than `test` (the notice dispatcher starts: it logs "notice dispatcher started"), NOTIFY_INTERNAL_URL
  *     at notify-api, and `auth`'s environment exported to the Playwright process (the outbox is read with `auth`'s own client, as `grantRole` is);
- *   - optional: `E2E_NOTIFY_DATABASE_URL` (notify-api's database) to also assert the email deliveries notify-api recorded.
+ *   - optional: `E2E_NOTIFY_DATABASE_URL` (notify-api's database) to also assert the email deliveries notify-api recorded;
+ *   - optional, for the words of the EMAIL (D9): `E2E_FAKE_RESEND_PORT=<port>`, with notify-api started with `EMAIL_ENABLED=true`, a placeholder
+ *     `RESEND_API_KEY` and `RESEND_FROM`, and `RESEND_BASE_URL=http://127.0.0.1:<port>`. The spec then runs a fake Resend on that port (a local
+ *     server: no provider is ever reached) and reads the subject and body of each email, and makes the first email of the renamed persona
+ *     fail so that a RETRY happens after the account's email changed. Without it (`EMAIL_ENABLED=false`, the local default, which stubs the
+ *     send and records a `sent` row with no content) the journeys read the email's source instead: the author's email stored on the outbox
+ *     row, which is all the email's text is built from, and say so in an annotation.
  *
  * What a run leaves behind: versions of welld_ch (never deleted: AC-4.3), the last one with this run's values, and the notices they made.
  *
@@ -42,7 +54,10 @@ import { expect, test, type Browser, type BrowserContext, type Locator, type Pag
 import { authCall, contextFor, tabTo } from './fixtures/letterheads'
 import { axeViolations } from './helpers/meetingsFixtures'
 import {
+  FAKE_RESEND_PORT,
+  LEGAL_PERSONAS,
   NOTICE_WITHIN_MS,
+  RENAMER,
   auditCount,
   emailDeliveriesSince,
   forbiddenValues,
@@ -54,11 +69,19 @@ import {
   ibanLast4,
   noticeRows,
   notificationsOf,
+  readAccount,
+  rearmEmailNotice,
+  renameAccount,
   rowsOf,
+  setAccountEmail,
   setUpLegalEntityPeople,
+  setUpRenamerPersona,
+  startFakeResend,
   typedIban,
+  waitForEmail,
   waitForNotice,
   waitForOutbox,
+  type FakeResend,
   type LegalDetails,
   type LegalEntityPeople,
   type NoticeItem,
@@ -77,10 +100,17 @@ let tag = 0
 const unique = (): string => `${RUN}${(tag += 1)}`
 
 let people: LegalEntityPeople
+/** The fake Resend notify-api is pointed at (only when `E2E_FAKE_RESEND_PORT` is set), up for the whole file: every email of every journey reaches it. */
+let fake: FakeResend | null = null
 
 test.beforeAll(async () => {
   test.setTimeout(180_000)
   people = await setUpLegalEntityPeople()
+  if (FAKE_RESEND_PORT !== null) fake = await startFakeResend(FAKE_RESEND_PORT)
+})
+
+test.afterAll(async () => {
+  await fake?.close()
 })
 
 // ─── The registry, as an API client ──────────────────────────────────────────────────────────────────────────────────
@@ -121,6 +151,7 @@ interface HistoryItem {
   version: number
   action: string
   changedFields: string[]
+  createdBy: { id: string; name: string } | null
 }
 
 async function newestVersions(session: SeededSession, limit = 3): Promise<HistoryItem[]> {
@@ -210,6 +241,28 @@ function expectValueFree(notice: NoticeItem, reads: readonly RegistryEntity[]): 
   for (const value of forbiddenValues(...reads)) {
     expect(everything.includes(value), 'a legal value is in the notice').toBe(false)
   }
+}
+
+/** Every display name of the personas of these journeys: none may be in any notice, whoever the author is (D9). */
+const PERSONA_NAMES: readonly string[] = [...Object.values(LEGAL_PERSONAS).map((persona) => persona.name), RENAMER.name]
+
+/** The whole text of a notice, both languages, link included. */
+const textOf = (notice: NoticeItem): string =>
+  [notice.title, notice.body, notice.it?.title ?? '', notice.it?.body ?? '', notice.link?.href ?? '', notice.link?.label ?? ''].join('\n')
+
+/**
+ * AC-9.11 and AC-9.12 as amended by D9: the notice states the author by the email of their account, in the sentence of the language
+ * (English body, Italian body), and no display name in any part of it. `names` are the display names that must be nowhere in it.
+ */
+function expectAuthorByEmail(notice: NoticeItem, email: string, action: 'save' | { restoredFrom: number }, names: readonly string[]): void {
+  const english = action === 'save' ? `Change saved by the account ${email}.` : `Version ${action.restoredFrom} restored by the account ${email}.`
+  const italian = action === 'save' ? `Modifica salvata dall'account ${email}.` : `Versione ${action.restoredFrom} ripristinata dall'account ${email}.`
+  expect(notice.body).toContain(english)
+  expect(notice.it?.body).toContain(italian)
+  const everything = textOf(notice)
+  for (const name of names) expect(everything.includes(name), 'a display name is in the notice').toBe(false)
+  expect(everything).not.toContain('no email address on record')
+  expect(everything).not.toContain('senza indirizzo email registrato')
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -565,6 +618,8 @@ test.describe('specs/20261117-legal-entities T68: Confirm, and the notice (AC-9.
     expect(forManager.elapsedMs).toBeLessThanOrEqual(NOTICE_WITHIN_MS)
     expect(forActor.elapsedMs).toBeLessThanOrEqual(NOTICE_WITHIN_MS)
     expectValueFree(forManager.notice, [start, after])
+    // D9: made through the page by the admin, the notice names the admin's account email (the manager's and the receipt), not the name.
+    for (const { notice } of [forManager, forActor]) expectAuthorByEmail(notice, people.admin.email, 'save', PERSONA_NAMES)
     await actor.context.close()
   })
 
@@ -602,7 +657,8 @@ test.describe('specs/20261117-legal-entities T68: Confirm, and the notice (AC-9.
     // What it says (AC-9.11): the entity, who, the version, which details by NAME, the last four of each IBAN, a link to the history.
     for (const { notice } of [forManager, forActor]) {
       expect(notice.title).toBe(`Legal details of ${ENTITY_NAME} changed: legal name, VAT number and IBAN`)
-      expect(notice.body).toContain('Change saved by Legal Entities E2E Admin.')
+      // D9: the author is the account's email, in both languages, and no display name is in any part of the notice.
+      expectAuthorByEmail(notice, people.admin.email, 'save', PERSONA_NAMES)
       expect(notice.body).toContain(`New version: ${next}.`)
       expect(notice.body).toContain('Details changed: legal name, VAT number and IBAN.')
       expect(notice.body).toContain(`Old IBAN: …${ibanLast4(start.iban)}.`)
@@ -630,6 +686,8 @@ test.describe('specs/20261117-legal-entities T68: Confirm, and the notice (AC-9.
       expect(own.find((row) => row.channel === 'in_app')).toMatchObject({ status: 'delivered', recipientKind: 'person' })
       const email = own.find((row) => row.channel === 'email')!
       expect(email.attempts, 'the email path was attempted').toBeGreaterThanOrEqual(1)
+      // D9: every row of the version holds the author's account email as it was when the version was stored: what the email is written from.
+      expect(own.every((row) => row.authorEmail === people.admin.email), 'the rows hold the author account email').toBe(true)
       // With the local stack (EMAIL_ENABLED=false) notify-api stubs the send and says "sent"; one that is not configured says so and the row waits.
       expect(email.status === 'delivered' || email.lastReason === 'email_not_configured', `email row: ${email.status} ${email.lastReason}`).toBe(true)
     }
@@ -637,6 +695,7 @@ test.describe('specs/20261117-legal-entities T68: Confirm, and the notice (AC-9.
     expect(rows.every((row) => row.status !== 'given_up')).toBe(true)
     // No record carries a value (AC-9.12): the rows are ids, channels and a closed reason.
     for (const value of forbiddenValues(start, after)) expect(JSON.stringify(rows).includes(value), 'a legal value is in the outbox').toBe(false)
+    for (const name of PERSONA_NAMES) expect(JSON.stringify(rows).includes(name), 'a display name is in the outbox').toBe(false)
     const deliveries = emailDeliveriesSince(sentIso)
     if (deliveries === null) {
       test.info().annotations.push({ type: 'email-deliveries', description: "E2E_NOTIFY_DATABASE_URL is not set: notify-api's own email_delivery rows were not read; the outbox row is the evidence" })
@@ -658,7 +717,8 @@ test.describe('specs/20261117-legal-entities T68: Confirm, and the notice (AC-9.
     await expect(manager.page.getByTestId(`notification-title-${forManager.notice.id}`)).toHaveText(forManager.notice.it!.title)
     await expect(item).toContainText(`IBAN precedente: …${ibanLast4(start.iban)}`)
     await expect(item).toContainText(`Nuovo IBAN: …${ibanLast4(newIban)}`)
-    await expect(item).toContainText('Modifica salvata da')
+    await expect(item).toContainText(`Modifica salvata dall'account ${people.admin.email}.`)
+    for (const name of PERSONA_NAMES) await expect(item, 'a display name is on the notification centre').not.toContainText(name)
     await expect(item).not.toContainText('Legal details of')
     const shown = await item.innerText()
     for (const value of forbiddenValues(start, after)) expect(shown.includes(value), 'a legal value is on the notification centre').toBe(false)
@@ -677,6 +737,8 @@ test.describe('specs/20261117-legal-entities T68: Confirm, and the notice (AC-9.
     await expect(own).toBeVisible({ timeout: 30_000 })
     await expect(receipt.page.getByTestId(`notification-title-${forActor.notice.id}`)).toHaveText(forActor.notice.title)
     await expect(own).toContainText(`New IBAN: …${ibanLast4(newIban)}`)
+    await expect(own).toContainText(`Change saved by the account ${people.admin.email}.`)
+    for (const name of PERSONA_NAMES) await expect(own, 'a display name is on the notification centre').not.toContainText(name)
     await receipt.context.close()
   })
 
@@ -758,10 +820,9 @@ test.describe('specs/20261117-legal-entities T68: the restore dialog (AC-9.4, 9.
     const { notice, elapsedMs } = await waitForNotice(people.chManager, ENTITY, versionB + 1, sentAt)
     noteLatency('restore, manager', elapsedMs)
     expect(elapsedMs).toBeLessThanOrEqual(NOTICE_WITHIN_MS)
-    expect(notice.body).toContain(`Version ${versionA} restored by Legal Entities E2E Admin.`)
+    expectAuthorByEmail(notice, people.admin.email, { restoredFrom: versionA }, PERSONA_NAMES)
     expect(notice.body).toContain(`Old IBAN: …${ibanLast4(ibanB)}.`)
     expect(notice.body).toContain(`New IBAN: …${ibanLast4(ibanA)}.`)
-    expect(notice.it?.body).toContain(`Versione ${versionA} ripristinata da Legal Entities E2E Admin.`)
     expectValueFree(notice, [target, restored])
     await waitForNotice(people.admin, ENTITY, versionB + 1, sentAt)
     await context.close()
@@ -832,5 +893,168 @@ test.describe('specs/20261117-legal-entities T68: who is not told (AC-9.8)', () 
     const rows: OutboxRow[] = await waitForOutbox(ENTITY, next, sentAt)
     expect(rowsOf(rows, people.nobody.userId)).toEqual([])
     expect(await hasNotice(people.nobody, ENTITY, next)).toBe(false)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// T84, amendment D9 (security re-review N1): the author is the account's EMAIL, never the display name, which any signed-in person can
+// change (`POST /auth/update-user`). A dedicated persona (its own account, the `welld_ch` manager grant) does exactly that.
+test.describe('specs/20261117-legal-entities T84: the notice names the author by the account email, never by the display name (AC-9.11, AC-9.12, AC-9.13)', () => {
+  test.describe.configure({ mode: 'serial' })
+
+  const SENTINEL = `Sentinel Mallory ${RUN}`
+  let renamer: SeededSession
+
+  test.beforeAll(async () => {
+    test.setTimeout(120_000)
+    renamer = await setUpRenamerPersona(people.admin)
+  })
+
+  test.afterAll(async () => {
+    // Whatever a journey left behind: the account as it was made, so the next run finds the same person.
+    if (readAccount(renamer.userId).email !== RENAMER.email) setAccountEmail(renamer.userId, RENAMER.email)
+    if (readAccount(renamer.userId).name !== RENAMER.name) await renameAccount(renamer, RENAMER.name)
+  })
+
+  test('a person renamed to a sentinel before a protected save is named by their email, in both languages and both channels; the email stays the one of the save when the account changes before the retry (AC-9.11, AC-9.12, AC-9.13)', async () => {
+    test.setTimeout(300_000)
+    const start = await ensureIban(freshIban())
+    const next = start.version + 1
+    const newIban = freshIban()
+
+    // The person renames themself the way anybody signed in can, then makes a protected change by a direct call (the page would do the same).
+    await renameAccount(renamer, SENTINEL)
+    expect(readAccount(renamer.userId)).toEqual({ name: SENTINEL, email: RENAMER.email })
+    // The renamed person's own email is made to fail at first (a provider failure), so that the email RETRIES, after the account has changed.
+    fake?.failFor(RENAMER.email)
+    const sentAt = Date.now()
+    expect(
+      await saveViaApi(renamer, (details) => {
+        details.iban = newIban
+      }),
+    ).toBe(next)
+    const after = await getRegistryEntity(people.admin, ENTITY)
+    // The sentinel IS in the system: the history (OQ-16) shows the author by the name they had at the save. Only the notice leaves it out.
+    const [newest] = await newestVersions(people.admin, 1)
+    expect(newest).toMatchObject({ version: next, action: 'save', createdBy: { id: renamer.userId, name: SENTINEL } })
+
+    // In the centre of the manager, of the administrator and of the renamed person (the receipt), within 60 s: the email, not the names.
+    const names = [...PERSONA_NAMES, SENTINEL]
+    const [forManager, forAdmin, forRenamer] = await Promise.all([
+      waitForNotice(people.chManager, ENTITY, next, sentAt),
+      waitForNotice(people.admin, ENTITY, next, sentAt),
+      waitForNotice(renamer, ENTITY, next, sentAt),
+    ])
+    for (const found of [forManager, forAdmin, forRenamer]) {
+      expect(found.elapsedMs).toBeLessThanOrEqual(NOTICE_WITHIN_MS)
+      expectAuthorByEmail(found.notice, RENAMER.email, 'save', names)
+      expect(found.notice.title).toBe(`Legal details of ${ENTITY_NAME} changed: IBAN`)
+      expect(found.notice.link?.href).toBe(`/admin/legal-entities?entity=${ENTITY}&view=history`)
+      expectValueFree(found.notice, [start, after])
+    }
+    noteLatency('renamed persona, manager', forManager.elapsedMs)
+
+    // The records: every row of the version holds the email the account had at the save, and no name.
+    const rows = await waitForOutbox(ENTITY, next, sentAt)
+    expect(rows.length).toBeGreaterThanOrEqual(6) // three people, two channels each
+    expect(rows.every((row) => row.authorEmail === RENAMER.email), 'every row holds the email of the save').toBe(true)
+    for (const name of names) expect(JSON.stringify(rows).includes(name), 'a display name is in the outbox').toBe(false)
+
+    // The EMAIL, as it is sent (the words are built from that stored email): read at the fake Resend when there is one.
+    if (fake === null) {
+      test.info().annotations.push({
+        type: 'fake-resend',
+        description: 'E2E_FAKE_RESEND_PORT is not set: the rendered email was not read; the author email stored on every outbox row is the evidence of what it states',
+      })
+    } else {
+      for (const person of [people.admin, people.chManager]) {
+        const email = await waitForEmail(fake, (candidate) => candidate.to.includes(person.email) && candidate.html.includes(`New version: ${next}.`), `the email of version ${next} to ${person.email}`)
+        expect(email.subject).toBe(`Legal details of WellD CH changed: IBAN`)
+        expect(email.html).toContain(`Change saved by the account ${RENAMER.email}.`)
+        for (const name of names) expect(`${email.subject}\n${email.html}`.includes(name), 'a display name is in the email').toBe(false)
+        // Never in the subject, never as a link (design N1): the address is text.
+        expect(email.subject).not.toContain(RENAMER.email)
+        expect(email.html).not.toContain(`mailto:`)
+        for (const value of forbiddenValues(start, after)) expect(`${email.subject}\n${email.html}`.includes(value), 'a legal value is in the email').toBe(false)
+      }
+      // The renamed person's own email was attempted and refused by the provider; the row waits for its retry, with the reason, not given up.
+      await expect.poll(() => noticeRows(ENTITY, next).find((row) => row.recipient === renamer.userId && row.channel === 'email')?.attempts ?? 0, { timeout: 30_000 }).toBeGreaterThanOrEqual(1)
+      const waiting = noticeRows(ENTITY, next).find((row) => row.recipient === renamer.userId && row.channel === 'email')!
+      expect(waiting).toMatchObject({ status: 'pending', authorEmail: RENAMER.email })
+      expect(waiting.lastReason).not.toBeNull()
+      expect(fake.emails.some((email) => email.status === 500 && email.to.includes(RENAMER.email) && email.html.includes(`New version: ${next}.`))).toBe(true)
+    }
+
+    // ── After the save and before the retry: the account's email changes and the person is renamed again. Nothing the notice says follows. ──
+    const moved = `le-e2e-renamer-moved-${RUN}@operai.test`
+    const secondName = `${SENTINEL} Second`
+    setAccountEmail(renamer.userId, moved)
+    await renameAccount(renamer, secondName)
+    expect(readAccount(renamer.userId)).toEqual({ name: secondName, email: moved })
+    const stillStored = noticeRows(ENTITY, next)
+    expect(stillStored.every((row) => row.authorEmail === RENAMER.email), 'the stored email did not follow the account').toBe(true)
+
+    if (fake !== null) {
+      fake.failFor(null)
+      expect(rearmEmailNotice(ENTITY, next, renamer.userId), 'one email row was waiting for its retry').toBe(1)
+      // notify-api resolves the ADDRESS TO SEND TO when it sends (the account's address now); the words are the ones of the save.
+      const retried = await waitForEmail(fake, (candidate) => candidate.to.includes(moved) && candidate.html.includes(`New version: ${next}.`), `the retried email of version ${next}`, 90_000)
+      expect(retried.html).toContain(`Change saved by the account ${RENAMER.email}.`)
+      const sent = `${retried.subject}\n${retried.html}`
+      for (const text of [moved, SENTINEL, secondName, RENAMER.name]) expect(sent.includes(text), 'the account as it is now is in the retried email').toBe(false)
+      const delivered = await waitForOutbox(ENTITY, next, sentAt)
+      expect(rowsOf(delivered, renamer.userId).find((row) => row.channel === 'email')).toMatchObject({ status: 'delivered', authorEmail: RENAMER.email })
+      expect(delivered.every((row) => row.status === 'delivered')).toBe(true)
+    }
+
+    // The notice already in the centre is the one that was stored: the same words, whoever the person is now.
+    const again = (await notificationsOf(people.chManager)).find((item) => isNoticeOf(item, ENTITY, next))!
+    expect(again.id).toBe(forManager.notice.id)
+    expect(again.body).toBe(forManager.notice.body)
+    expect(again.it?.body).toBe(forManager.notice.it?.body)
+
+    // The e-mail deliveries notify-api recorded: addresses, a template and a status; never the name.
+    const deliveries = emailDeliveriesSince(new Date(sentAt - 2_000).toISOString())
+    if (deliveries !== null) {
+      for (const name of names) expect(JSON.stringify(deliveries).includes(name), 'a display name is in a delivery record').toBe(false)
+    }
+  })
+
+  test('an account whose email is not an address is "an account with no email address on record", never its display name (AC-9.11, R-D9a)', async () => {
+    test.setTimeout(240_000)
+    await ensureIban(freshIban())
+    // The person is renamed, and their account holds something that is not an email address when the version is stored.
+    const name = `${SENTINEL} Third`
+    await renameAccount(renamer, name)
+    const unusable = `not-an-address-${RUN}`
+    fake?.failFor(null)
+    setAccountEmail(renamer.userId, unusable)
+    let next: number
+    const sentAt = Date.now()
+    try {
+      next = await saveViaApi(renamer, (details) => {
+        details.iban = freshIban()
+      })
+    } finally {
+      setAccountEmail(renamer.userId, RENAMER.email)
+    }
+    const names = [...PERSONA_NAMES, SENTINEL, name]
+    for (const person of [people.chManager, people.admin]) {
+      const { notice, elapsedMs } = await waitForNotice(person, ENTITY, next, sentAt)
+      expect(elapsedMs).toBeLessThanOrEqual(NOTICE_WITHIN_MS)
+      expect(notice.body).toContain('Change saved by an account with no email address on record.')
+      expect(notice.it?.body).toContain('Modifica salvata da un account senza indirizzo email registrato.')
+      const everything = textOf(notice)
+      for (const text of [...names, unusable]) expect(everything.includes(text), 'a name or the malformed value is in the notice').toBe(false)
+      // The rest of the notice is as ever: the version, the details, the IBAN tails, the link.
+      expect(notice.body).toContain(`New version: ${next}.`)
+      expect(notice.body).toContain('Details changed: IBAN.')
+      expect(notice.link?.href).toBe(`/admin/legal-entities?entity=${ENTITY}&view=history`)
+    }
+    if (fake !== null) {
+      const email = await waitForEmail(fake, (candidate) => candidate.to.includes(people.chManager.email) && candidate.html.includes(`New version: ${next}.`), `the email of version ${next}`)
+      expect(email.html).toContain('Change saved by an account with no email address on record.')
+      for (const text of [...names, unusable]) expect(`${email.subject}\n${email.html}`.includes(text), 'a name or the malformed value is in the email').toBe(false)
+    }
   })
 })

@@ -25,8 +25,16 @@
  * the person's own notification centre through notify-api's `GET /notifications` (as that person), and the delivery outbox of
  * `auth` (`legal_entity_notice`, one row per recipient and channel) through the one direct database access the suite already
  * has to `auth`'s database (the same `bun -e` bridge `grantRole` uses). Neither read ever prints a legal value.
+ *
+ * D9 (T84): a notice names its author by the ACCOUNT EMAIL and never by the display name. The journeys that prove it need three more
+ * things, all here: a dedicated persona that renames itself (`setUpRenamerPersona`, `renameAccount`: Better Auth's own
+ * `POST /auth/update-user`, the door any signed-in person has), a way to change that account's email after the save (`setAccountEmail`,
+ * the same direct `auth` database access) and to bring a failed email row back to due (`rearmEmailNotice`), and, to READ the email a
+ * notice sends, a fake Resend (`startFakeResend`): a local HTTP server that notify-api's Resend client is pointed at
+ * (`RESEND_BASE_URL`), so the rendered subject and body are captured and nothing ever leaves the machine.
  */
 import { execFileSync } from 'node:child_process'
+import { createServer, type Server } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { applySessionCookie, seedAdminSession, seedUserSession, type SeededSession } from './adminSession'
 import { AUTH_URL, authCall, ibanWithCheckDigits, type Call } from '../fixtures/letterheads'
@@ -444,6 +452,8 @@ export interface OutboxRow {
   status: string
   attempts: number
   lastReason: string | null
+  /** The author's account email as captured in the version's transaction (D9); null when the account had none. */
+  authorEmail: string | null
 }
 
 /** The last JSON line a script printed (Prisma's dev logging shares stdout). */
@@ -467,7 +477,7 @@ export function noticeRows(entity: EntityId, version: number): OutboxRow[] {
     import { db } from ${JSON.stringify(`${AUTH_DIR}src/lib/db`)}
     const rows = await db.legalEntityNotice.findMany({
       where: { entity: ${JSON.stringify(entity)}, version: ${Number(version)} },
-      select: { recipient: true, recipientKind: true, channel: true, status: true, attempts: true, lastReason: true },
+      select: { recipient: true, recipientKind: true, channel: true, status: true, attempts: true, lastReason: true, authorEmail: true },
       orderBy: [{ recipient: 'asc' }, { channel: 'asc' }],
     })
     console.log(JSON.stringify(rows))
@@ -545,4 +555,166 @@ export function forbiddenValues(...reads: readonly RegistryEntity[]): string[] {
     }
   }
   return [...values]
+}
+
+// ─── D9 (T84): the author is named by the account email, never by the display name ──────────────────────────────────────
+
+const SHELL_ORIGIN = `http://localhost:${process.env['E2E_SHELL_PORT'] ?? '5173'}`
+
+/** The dedicated persona that renames itself: the `welld_ch` manager's grant, its own account, so no other journey sees its names. */
+export const RENAMER = { email: 'le-e2e-renamer@operai.test', name: 'Legal Entities E2E Renamer' } as const
+
+/**
+ * The renamer persona: the `welld_ch` manager grant (the role of {@link LEGAL_PERSONAS}.chManager, over its own entity `welld_ch`) on an
+ * account of its own, back to its original name. Made for the journeys that need it only, never by the global setup, so the
+ * people and the roles every other journey sees are as they were. The session is minted after the grant (its JWT holds `perm_epoch`).
+ */
+export async function setUpRenamerPersona(admin: SeededSession): Promise<SeededSession> {
+  const manager = LEGAL_PERSONAS.chManager
+  const first = await seedUserSession(RENAMER.email, RENAMER.name)
+  const roleId = await ensureRole(admin, manager.role!)
+  await assign(admin, first, roleId, 'welld_ch')
+  const session = await seedUserSession(RENAMER.email, RENAMER.name)
+  const read = await readAccount(session.userId)
+  if (read.name !== RENAMER.name) await renameAccount(session, RENAMER.name)
+  return session
+}
+
+/**
+ * Renames the account of `session` the way a person does: Better Auth's `POST /auth/update-user` with their own session cookie (a
+ * cookie-bearing POST needs a trusted `Origin`: the shell's). Throws unless the account then reads back the new name.
+ */
+export async function renameAccount(session: SeededSession, name: string): Promise<void> {
+  const response = await fetch(`${AUTH_URL}/auth/update-user`, {
+    method: 'POST',
+    headers: { Cookie: session.cookieHeader, 'Content-Type': 'application/json', Origin: SHELL_ORIGIN },
+    body: JSON.stringify({ name }),
+  })
+  if (!response.ok) throw new Error(`[legalEntitiesFixtures] POST /auth/update-user answered ${response.status}`)
+  const read = await fetch(`${AUTH_URL}/auth/get-session`, { headers: { Cookie: session.cookieHeader } })
+  const body = (await read.json()) as { user?: { name?: string } } | null
+  if (body?.user?.name !== name) throw new Error('[legalEntitiesFixtures] the account does not read back the name it was renamed to')
+}
+
+/** Runs a script on `auth`'s database client (the `bun -e` bridge of {@link noticeRows}) and returns the last JSON it printed. */
+function authDbScript(body: string, what: string): unknown {
+  const script = `
+    import { db } from ${JSON.stringify(`${AUTH_DIR}src/lib/db`)}
+    ${body}
+    await db.$disconnect()
+  `
+  const output = execFileSync('bun', ['-e', script], { cwd: AUTH_DIR, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return lastJson(output, what)
+}
+
+/** The name and the email an account has right now (the database, not a session). */
+export function readAccount(userId: string): { name: string; email: string } {
+  return authDbScript(
+    `const row = await db.user.findUniqueOrThrow({ where: { id: ${JSON.stringify(userId)} }, select: { name: true, email: true } })
+     console.log(JSON.stringify(row))`,
+    'the account read',
+  ) as { name: string; email: string }
+}
+
+/**
+ * Changes the account's email in the database, as a later change of address would (AC-9.11: nothing a notice says may follow it). Every
+ * session of the account stays valid (they are keyed by the user id), so the journey can go on as the same person.
+ */
+export function setAccountEmail(userId: string, email: string): void {
+  authDbScript(
+    `await db.user.update({ where: { id: ${JSON.stringify(userId)} }, data: { email: ${JSON.stringify(email)} } })
+     console.log(JSON.stringify({ ok: true }))`,
+    'the account email change',
+  )
+}
+
+/**
+ * Makes the PENDING email row of `userId` for the version due now (a failed attempt waits +1 minute: AC-9.14): what the dispatcher's own
+ * clock would do a minute later, so a journey need not wait one. Returns how many rows it touched; a delivered row is never touched.
+ */
+export function rearmEmailNotice(entity: EntityId, version: number, userId: string): number {
+  const result = authDbScript(
+    `const r = await db.legalEntityNotice.updateMany({
+       where: { entity: ${JSON.stringify(entity)}, version: ${Number(version)}, recipient: ${JSON.stringify(userId)}, channel: 'email', status: 'pending' },
+       data: { nextAttemptAt: new Date(), leaseUntil: null },
+     })
+     console.log(JSON.stringify({ count: r.count }))`,
+    'the email row re-arm',
+  ) as { count: number }
+  return result.count
+}
+
+// ── a fake Resend: the email notify-api would send, read instead of sent ──
+
+/** One request notify-api's Resend client made to the fake. */
+export interface CapturedEmail {
+  to: string[]
+  subject: string
+  html: string
+  /** What the fake answered: 200 (taken), or 500 while {@link FakeResend.failFor} named the address. */
+  status: number
+  at: number
+}
+
+export interface FakeResend {
+  readonly emails: CapturedEmail[]
+  /** Answer 500 (a provider failure) to every email addressed to `address`, until called again with `null`. */
+  failFor(address: string | null): void
+  close(): Promise<void>
+}
+
+/** The port of the fake Resend, when the stack was started with notify-api pointed at it (`RESEND_BASE_URL`); `null` when it was not. */
+export const FAKE_RESEND_PORT: number | null = process.env['E2E_FAKE_RESEND_PORT'] ? Number(process.env['E2E_FAKE_RESEND_PORT']) : null
+
+/**
+ * Starts a fake Resend on `127.0.0.1:port` and records every `POST /emails`. notify-api must have `EMAIL_ENABLED=true`, a placeholder
+ * `RESEND_API_KEY`/`RESEND_FROM` and `RESEND_BASE_URL=http://127.0.0.1:<port>`: its real client then talks to this server, so the
+ * rendered email is observable and no real provider is ever reached. A body is kept in memory for the journey and never logged.
+ */
+export async function startFakeResend(port: number): Promise<FakeResend> {
+  const emails: CapturedEmail[] = []
+  let failing: string | null = null
+  let counter = 0
+  const server: Server = createServer((request, response) => {
+    const chunks: Buffer[] = []
+    request.on('data', (chunk: Buffer) => chunks.push(chunk))
+    request.on('end', () => {
+      if (request.method !== 'POST' || request.url !== '/emails') {
+        response.writeHead(404, { 'Content-Type': 'application/json' }).end('{}')
+        return
+      }
+      const payload = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}') as { to?: string | string[]; subject?: string; html?: string }
+      const to = Array.isArray(payload.to) ? payload.to : payload.to ? [payload.to] : []
+      const fail = failing !== null && to.some((address) => address.toLowerCase() === failing!.toLowerCase())
+      emails.push({ to, subject: payload.subject ?? '', html: payload.html ?? '', status: fail ? 500 : 200, at: Date.now() })
+      if (fail) {
+        response.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ name: 'application_error', message: 'the fake provider is failing', statusCode: 500 }))
+      } else {
+        counter += 1
+        response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ id: `fake_resend_${counter}` }))
+      }
+    })
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(port, '127.0.0.1', resolve)
+  })
+  return {
+    emails,
+    failFor: (address) => {
+      failing = address
+    },
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  }
+}
+
+/** Waits until the fake holds an email that satisfies `match` (and was taken: status 200), or throws past `within`. */
+export async function waitForEmail(fake: FakeResend, match: (email: CapturedEmail) => boolean, what: string, within = NOTICE_WITHIN_MS): Promise<CapturedEmail> {
+  const started = Date.now()
+  for (;;) {
+    const found = fake.emails.find((email) => email.status === 200 && match(email))
+    if (found) return found
+    if (Date.now() - started > within) throw new Error(`[legalEntitiesFixtures] the fake Resend never took ${what} in ${Math.round((Date.now() - started) / 1000)} s`)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
 }
