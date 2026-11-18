@@ -9,7 +9,7 @@
  *
  * Import order: `../test-support/world` first (see its TRAP note).
  */
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 import {
   PERSONAS,
   SEED,
@@ -112,13 +112,23 @@ describe("groupBy=person (AC-4.5, AC-4.8; plan § Totals)", () => {
     expect(hosts.calls.map((recorded) => recorded.route)).toEqual(["auth.identities"]);
   });
 
-  it("shows the new name once auth names the person otherwise: nothing about the name is stored (AC-4.8)", async () => {
+  it("shows the new name once auth names the person otherwise, from 60 s after the read that named them: nothing about the name is stored (AC-4.8, T46)", async () => {
     await makeNoEntityEntry(TRAINING, { minutes: 60 });
-    expect((await groupsOf(`groupBy=person&${NOVEMBER}`)).groups).toEqual([keyed(ALICE, "Name of alice", 60, { status: "active" })]);
+    const start = Date.now();
+    setSystemTime(new Date(start));
+    try {
+      expect((await groupsOf(`groupBy=person&${NOVEMBER}`)).groups).toEqual([keyed(ALICE, "Name of alice", 60, { status: "active" })]);
 
-    hosts.auth.setIdentity(ALICE, { name: "Alice Renamed" });
+      hosts.auth.setIdentity(ALICE, { name: "Alice Renamed" });
 
-    expect((await groupsOf(`groupBy=person&${NOVEMBER}`)).groups).toEqual([keyed(ALICE, "Alice Renamed", 60, { status: "active" })]);
+      setSystemTime(new Date(start + 59_999));
+      expect((await groupsOf(`groupBy=person&${NOVEMBER}`)).groups).toEqual([keyed(ALICE, "Name of alice", 60, { status: "active" })]);
+
+      setSystemTime(new Date(start + 60_000));
+      expect((await groupsOf(`groupBy=person&${NOVEMBER}`)).groups).toEqual([keyed(ALICE, "Alice Renamed", 60, { status: "active" })]);
+    } finally {
+      setSystemTime();
+    }
   });
 
   it("when auth does not answer, still counts the person: no name, status unknown, `identities` named, the total unchanged (AC-4.7)", async () => {

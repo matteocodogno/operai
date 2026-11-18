@@ -10,6 +10,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { PERSONAS, bearerOf, resetWorld } from "../test-support/world";
 import { claimsOf, startHosts } from "../test-support/hosts";
+import { __resetIdentityCacheForTests } from "../lib/identities";
 import { resolveLabels, type LabelNeeds } from "./resolve";
 
 const hosts = startHosts();
@@ -405,6 +406,8 @@ describe("the sources are read in parallel (plan § Sequences, List / totals ste
     for (const [route, source] of cases) {
       hosts.heal(route);
       hosts.fail(route, { status: 500 });
+      // A person named by an earlier read is held for 60 s (T46); every case starts with nobody known, so `auth` is asked.
+      __resetIdentityCacheForTests();
       const labels = await labelsFor(needs);
       expect(labels.unavailable).toEqual([source]);
       hosts.heal(route);
@@ -412,6 +415,7 @@ describe("the sources are read in parallel (plan § Sequences, List / totals ste
 
     // All of them down at once: all are named, once each, in the order of the plan's `Unavailable` type.
     for (const [route] of cases) hosts.fail(route, { status: 500 });
+    __resetIdentityCacheForTests();
     const everything = await labelsFor(needs);
     expect(everything.unavailable).toEqual(["projects", "crm", "activities", "meetings", "meeting-deals", "identities"]);
     expect(everything.project("p1").visibility).toBe("unavailable");

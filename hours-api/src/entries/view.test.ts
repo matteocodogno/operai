@@ -8,7 +8,7 @@
  *
  * Import order: `../test-support/world` first (see its TRAP note).
  */
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import {
   PERSONAS,
@@ -25,6 +25,7 @@ import {
   type PersonaName,
 } from "../test-support/world";
 import { startHosts } from "../test-support/hosts";
+import { __resetIdentityCacheForTests } from "../lib/identities";
 import { ENTRY_INCLUDE, TimeEntryViewSchema, viewEntries } from "./view";
 
 const hosts = startHosts();
@@ -80,15 +81,25 @@ describe("an entry on no entity", () => {
 });
 
 describe("the person (AC-4.8)", () => {
-  it("shows the name auth gives now: renaming the person between two reads changes it on the next view", async () => {
+  it("shows the name auth gives: a person renamed after a read is shown the new name on the next view from 60 s after the first was sent (T46: the 60 s cache)", async () => {
     await makeNoEntityEntry();
-    expect((await viewAs()).items[0]?.person).toEqual({ id: ALICE, name: "Name of alice", status: "active" });
+    const start = Date.now();
+    setSystemTime(new Date(start));
+    try {
+      expect((await viewAs()).items[0]?.person).toEqual({ id: ALICE, name: "Name of alice", status: "active" });
 
-    hosts.auth.setIdentity(ALICE, { name: "Alice Verdi" });
+      hosts.auth.setIdentity(ALICE, { name: "Alice Verdi" });
 
-    const { items, unavailable } = await viewAs();
-    expect(items[0]?.person).toEqual({ id: ALICE, name: "Alice Verdi", status: "active" });
-    expect(unavailable).toEqual([]);
+      setSystemTime(new Date(start + 59_999));
+      expect((await viewAs()).items[0]?.person).toEqual({ id: ALICE, name: "Name of alice", status: "active" });
+
+      setSystemTime(new Date(start + 60_000));
+      const { items, unavailable } = await viewAs();
+      expect(items[0]?.person).toEqual({ id: ALICE, name: "Alice Verdi", status: "active" });
+      expect(unavailable).toEqual([]);
+    } finally {
+      setSystemTime();
+    }
   });
 
   it("asks auth with the viewer's own Authorization, once for the page's distinct people", async () => {
@@ -671,6 +682,8 @@ describe("the wire shape (plan § Views)", () => {
     for (const route of ["auth.identities", "projects.resolve", "crm.resolve", "activities.list", "meetings.list", "meetings.system-hosts"] as const) {
       hosts.fail(route, { status: 500 });
     }
+    // The people the first reads named are held for 60 s (T46): forget them, so that `auth` is asked, and is down.
+    __resetIdentityCacheForTests();
     const everythingDown = await viewAs("alice");
 
     for (const views of [allReadable, nothingReadable, everythingDown]) {

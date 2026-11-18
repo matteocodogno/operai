@@ -5,8 +5,9 @@
  * refuse must fail its test, not pass against a lenient fake), they record every request that reached
  * them, and they put themselves back.
  */
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 import { env } from "../lib/env";
+import { __identityCacheSizeForTests, resolveIdentities } from "../lib/identities";
 import { serviceTokens } from "../lib/serviceToken";
 import { TEST_AUDIENCE, TEST_SERVICE_AUDIENCE } from "../test-support/env";
 import { claimsOf, startHosts, tokenShaped } from "../test-support/hosts";
@@ -15,6 +16,8 @@ import { resetWorld } from "../test-support/world";
 const hosts = startHosts();
 afterAll(() => hosts.stop());
 beforeEach(() => hosts.reset());
+// A test that moved the clock must not leave it moved (T46).
+afterEach(() => setSystemTime());
 
 const ALICE = `Bearer ${tokenShaped({ sub: "user-alice" })}`;
 
@@ -72,6 +75,16 @@ describe("what it records", () => {
     expect(hosts.callsTo("projects.resolve")).toHaveLength(1);
   });
 
+  it("the instant each call arrived (`at`, `Date.now()`, so a test that moves the clock reads simulated time) (T46)", async () => {
+    const start = Date.parse("2026-11-13T10:00:00Z");
+    setSystemTime(new Date(start));
+    await projectsResolve({ entityType: "project", ids: ["p1"] });
+    setSystemTime(new Date(start + 90_000));
+    await activities("ids=a");
+    await projectsResolve({ entityType: "project", ids: "nope" });
+    expect(hosts.calls.map((call) => call.at)).toEqual([start, start + 90_000, start + 90_000]);
+  });
+
   it("a request it refuses, a request that fails by script and a request with no credential too", async () => {
     await projectsResolve({ entityType: "project", ids: "nope" });
     await projectsResolve({ entityType: "project", ids: [] }, null);
@@ -120,6 +133,31 @@ describe("failures by script", () => {
     expect([hosts.crm.legacy, hosts.activities.legacy, hosts.meetings.legacy]).toEqual([false, false, false]);
     const body: any = await (await projectsResolve({ entityType: "project", ids: ["p1"] })).json();
     expect(body).toEqual({ reader: true, items: [{ id: "p1", state: "missing" }] });
+  });
+
+  it("`reset` also empties hours-api's identity cache: a name read in one test is not answered from memory in the next (T46)", async () => {
+    hosts.auth.setIdentity("user-alice", { name: "Alice Rossi" });
+    expect((await resolveIdentities(ALICE, ["user-alice"])).get("user-alice")?.name).toBe("Alice Rossi");
+    // Asked again, it is answered from memory: no second call reached the fake.
+    await resolveIdentities(ALICE, ["user-alice"]);
+    expect(hosts.callsTo("auth.identities")).toHaveLength(1);
+
+    hosts.reset();
+    hosts.auth.setIdentity("user-alice", { name: "Alice Bianchi" });
+    expect((await resolveIdentities(ALICE, ["user-alice"])).get("user-alice")?.name).toBe("Alice Bianchi");
+    expect(hosts.callsTo("auth.identities")).toHaveLength(1);
+  });
+
+  it("`stop` empties the identity cache too, so the next test file is never answered a name this one left (T46)", async () => {
+    const other = startHosts();
+    try {
+      other.auth.setIdentity("user-alice", { name: "Alice Rossi" });
+      await resolveIdentities(ALICE, ["user-alice"]);
+      expect(__identityCacheSizeForTests()).toBe(1);
+    } finally {
+      await other.stop();
+    }
+    expect(__identityCacheSizeForTests()).toBe(0);
   });
 
   it("is reset by `resetWorld`, the hook T10's world.ts offers", async () => {
@@ -399,6 +437,78 @@ describe("auth", () => {
     hosts.auth.setIdentity("user-alice", { name: "Alice Bianchi" });
     const res = await post(env.AUTH_BASE_URL, "/authz/users/identities", { ids: ["user-alice"] });
     expect(((await res.json()) as { users: { name: string }[] }).users[0]?.name).toBe("Alice Bianchi");
+  });
+
+  describe("limitIdentities: auth's per-person budget on the identities route (T46)", () => {
+    const BOB = `Bearer ${tokenShaped({ sub: "user-bob" })}`;
+    const identities = (authorization: string | null = ALICE, ids: string[] = ["user-x"]) =>
+      post(env.AUTH_BASE_URL, "/authz/users/identities", { ids }, authorization);
+    const at = (ms: number) => setSystemTime(new Date(Date.parse("2026-11-13T10:00:00Z") + ms));
+
+    it("answers 120 calls and the 121st with a 429 and a Retry-After, as auth's sliding window does", async () => {
+      at(0);
+      hosts.auth.limitIdentities(120, 600_000);
+      const statuses: number[] = [];
+      for (let i = 0; i < 120; i++) statuses.push((await identities()).status);
+      expect(statuses.every((status) => status === 200)).toBe(true);
+      at(1_000);
+      const refused = await identities();
+      expect(refused.status).toBe(429);
+      // Whole seconds, rounded up, never 0: the oldest counted call frees its slot 599 s from now.
+      expect(refused.headers.get("Retry-After")).toBe("599");
+      expect(await refused.json()).toMatchObject({ status: 429 });
+    });
+
+    it("does not count a refused call, so a refusal never delays the recovery", async () => {
+      at(0);
+      hosts.auth.limitIdentities(3, 10_000);
+      for (const ms of [0, 1_000, 2_000]) {
+        at(ms);
+        expect((await identities()).status).toBe(200);
+      }
+      for (const ms of [3_000, 9_000]) {
+        at(ms);
+        expect((await identities()).status).toBe(429);
+      }
+      // The call of t = 0 leaves the window at t = 10 s (a call counts while `now - t < window`): had the two refusals been
+      // counted, 1 s + 2 s + 3 s + 9 s would still fill it.
+      at(10_000);
+      expect((await identities()).status).toBe(200);
+      at(10_500);
+      expect((await identities()).status).toBe(429);
+    });
+
+    it("counts per token `sub`: another person is not affected", async () => {
+      at(0);
+      hosts.auth.limitIdentities(1, 10_000);
+      expect((await identities(ALICE)).status).toBe(200);
+      expect((await identities(ALICE)).status).toBe(429);
+      expect((await identities(BOB)).status).toBe(200);
+    });
+
+    it("leaves a scripted failure and a call with no credential out of the count", async () => {
+      at(0);
+      hosts.auth.limitIdentities(1, 10_000);
+      hosts.fail("auth.identities", { status: 503, times: 1 });
+      expect((await identities()).status).toBe(503);
+      expect((await identities(null)).status).toBe(401);
+      expect((await identities()).status).toBe(200);
+      expect((await identities()).status).toBe(429);
+    });
+
+    it("is cleared by `reset`: no limit, no count", async () => {
+      at(0);
+      hosts.auth.limitIdentities(1, 10_000);
+      expect((await identities()).status).toBe(200);
+      expect((await identities()).status).toBe(429);
+      hosts.reset();
+      expect((await identities()).status).toBe(200);
+      expect((await identities()).status).toBe(200);
+    });
+
+    it("is unlimited until a test asks for a limit", async () => {
+      for (let i = 0; i < 150; i++) expect((await identities()).status).toBe(200);
+    });
   });
 
   it("resolves the caller's own permissions, unconditioned, and echoes the token's `perm_epoch`", async () => {

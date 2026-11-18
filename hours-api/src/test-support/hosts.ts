@@ -34,7 +34,18 @@
  * (a refused body, a scripted failure, a timed-out call), so "the fake recorded no call" means no
  * request left hours-api. Each record carries the `Authorization` it received and the query as
  * URLSearchParams, so an id holding `&`, `#`, `+`, `%` or a space is compared as decoded, which is
- * how the real owners read it.
+ * how the real owners read it, and the instant it arrived (`at`, `Date.now()`, so a test that moves
+ * the clock with `setSystemTime` reads simulated time).
+ *
+ * `auth.limitIdentities(limit, windowMs)` plays auth's per-person budget on the identities route
+ * (`IDENTITIES_RATE_LIMIT` per token `sub` per `IDENTITIES_RATE_WINDOW_MS`, auth/src/lib/rateLimiter.ts):
+ * past `limit` calls in the sliding window the route answers 429 with a `Retry-After`, and a refused
+ * call is not counted, so it never delays the recovery. There is no limit until a test asks for one
+ * (T46, plan § Sequences "Names").
+ *
+ * `reset()` and `stop()` also empty hours-api's identity cache (`src/lib/identities.ts`), as they forget the
+ * service tokens they minted: a name read in one test must not be answered from memory in the next, nor
+ * in the next test file.
  *
  * The owners' validation is copied strictly, because the clients must cope with it: bodies are strict
  * (projects 400, crm 422), activities `ids` and meetings `ids` follow the 422 rules of T6 and T8, and
@@ -44,6 +55,7 @@
  */
 
 import { env } from "../lib/env";
+import { __resetIdentityCacheForTests } from "../lib/identities";
 import { serviceTokens } from "../lib/serviceToken";
 import { TEST_SERVICE_AUDIENCE } from "./env";
 import { onReset } from "./world";
@@ -187,6 +199,8 @@ export interface RecordedCall {
   readonly authorization: string | null;
   /** The parsed JSON body, or null (a GET, or a body that is not JSON). */
   readonly body: unknown;
+  /** `Date.now()` when the call arrived: simulated time under `setSystemTime` (T46). */
+  readonly at: number;
 }
 
 export interface ProjectsHost {
@@ -226,6 +240,13 @@ export interface AuthHost {
   grant(sub: string, resource: string, action: string): void;
   /** Tokens `POST /system/service-token` minted since the last reset. */
   readonly mints: number;
+  /**
+   * Plays auth's per-person limit on `POST /authz/users/identities` (T46): the `limit`+1st call of one token `sub`
+   * within a sliding `windowMs` is answered 429 with `Retry-After` (whole seconds, rounded up, at least 1), as
+   * auth/src/lib/rateLimiter.ts does. A refused call is not counted; a scripted failure and a call with no
+   * credential never reach the count. Cleared by `reset()`.
+   */
+  limitIdentities(limit: number, windowMs: number): void;
 }
 
 export interface Hosts {
@@ -329,6 +350,9 @@ export function startHosts(): Hosts {
   const activityReaders = new Map<string, boolean>();
   const meetings: StoredMeeting[] = [];
   const identities = new Map<string, ScriptedIdentity>();
+  let identityLimit: { readonly limit: number; readonly windowMs: number } | null = null;
+  /** The instants of each `sub`'s counted calls to the identities route, oldest first. */
+  const identityHits = new Map<string, number[]>();
   const grants = new Map<string, { resource: string; action: string }[]>();
   const flags = { crmLegacy: false, activitiesLegacy: false, meetingsLegacy: false };
   let clock = Date.parse("2026-01-01T00:00:00Z");
@@ -562,6 +586,23 @@ export function startHosts(): Hosts {
     });
   }
 
+  /** auth's sliding window: a call counts while `now - at < windowMs`; a refused one is not recorded. `null`: admitted. */
+  function identityRefusal(sub: string | null): Response | null {
+    if (identityLimit === null || sub === null) return null;
+    const now = Date.now();
+    const counted = (identityHits.get(sub) ?? []).filter((at) => now - at < identityLimit!.windowMs);
+    if (counted.length >= identityLimit.limit) {
+      identityHits.set(sub, counted);
+      const retryAfterMs = Math.max(0, identityLimit.windowMs - (now - counted[0]!));
+      const refused = problem(429, "rate_limited");
+      refused.headers.set("Retry-After", String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
+      return refused;
+    }
+    counted.push(now);
+    identityHits.set(sub, counted);
+    return null;
+  }
+
   function authIdentities(body: unknown): Response {
     const valid =
       typeof body === "object" &&
@@ -611,6 +652,7 @@ export function startHosts(): Hosts {
       query: url.searchParams,
       authorization,
       body,
+      at: Date.now(),
     });
 
     const scripted = modes.get(route);
@@ -660,7 +702,8 @@ export function startHosts(): Hosts {
       case "auth.resolve":
         return authResolve(authorization);
       case "auth.identities":
-        return authIdentities(body);
+        // auth counts a caller before it reads the body, so a refused call is a 429 whatever it asked.
+        return identityRefusal(sub) ?? authIdentities(body);
       default:
         return problem(404);
     }
@@ -722,10 +765,14 @@ export function startHosts(): Hosts {
     activityReaders.clear();
     meetings.length = 0;
     identities.clear();
+    identityLimit = null;
+    identityHits.clear();
     grants.clear();
     flags.crmLegacy = flags.activitiesLegacy = flags.meetingsLegacy = false;
     clock = Date.parse("2026-01-01T00:00:00Z");
     forgetTokens();
+    // What hours-api remembered of the names this server answered must not outlive the test (T46).
+    __resetIdentityCacheForTests();
     for (const host of severed) point(host, prefixes[host]);
     severed.clear();
   };
@@ -792,6 +839,10 @@ export function startHosts(): Hosts {
       get mints() {
         return minted.length;
       },
+      limitIdentities(limit, windowMs) {
+        identityLimit = { limit, windowMs };
+        identityHits.clear();
+      },
     },
     calls,
     callsTo: (route) => calls.filter((call) => call.route === route),
@@ -810,6 +861,8 @@ export function startHosts(): Hosts {
     async stop() {
       stopped = true;
       forgetTokens();
+      // The next test file must not be answered a name from this one (T46).
+      __resetIdentityCacheForTests();
       for (const host of Object.keys(original) as HostName[]) point(host, original[host]);
       await server.stop(true);
     },
