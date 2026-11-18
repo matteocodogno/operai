@@ -1,6 +1,8 @@
 ---
 spec: 20261118
-status: draft
+status: approved
+approved: 2026-11-18
+approved_note: "approved under the user's pre-authorisation of 2026-11-18 (unattended run: 'procedi con le altre fasi … riguardo tutto domani mattina'); review on the user's return"
 ---
 
 # Plan: Refund accounting — ledger accounts, VAT, receipt numbers and the batch export
