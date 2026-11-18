@@ -5,7 +5,7 @@
   "feature": "20261117-legal-entities",
   "rigor": "production",
   "started": "2026-11-17T14:58:00Z",
-  "finished": "2026-11-18T09:58:28Z",
+  "finished": "2026-11-18T09:59:41Z",
   "agents": [
     {
       "agent": "product-owner",
@@ -1608,6 +1608,24 @@
         "ea65ad2a"
       ],
       "committed_at": "2026-11-18T10:58:26+01:00"
+    },
+    {
+      "agent": "orchestrator",
+      "tasks": [],
+      "outcome": "chore(forge): run trace regenerated from git (specs/20261117)",
+      "commits": [
+        "37fe655c"
+      ],
+      "committed_at": "2026-11-18T10:58:28+01:00"
+    },
+    {
+      "agent": "orchestrator",
+      "tasks": [],
+      "outcome": "docs(legal-entities): owner confirms R-D9a (specs/20261117)",
+      "commits": [
+        "5aee2d2a"
+      ],
+      "committed_at": "2026-11-18T10:59:41+01:00"
     },
     {
       "agent": "owasp-reviewer",
