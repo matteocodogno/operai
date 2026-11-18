@@ -773,13 +773,13 @@ Resolved:
 - [x] DR-14 (administrators without the grant get a link that redirects): orchestrator decision in tasks.md: the `admin` role holds `legal-entity:manage` by seed (T3) and department admins inherit it, so every effective administrator can open the history link; no design change. The owner may still choose to show `PermissionDenied` instead of a redirect; that is a new request, not an open item of this design.
 - [x] Contrast: the page's 47 text elements measure at least 5.01:1 in both themes; axe (WCAG 2.1 A/AA) is 0 violations on every screen and both dialogs (QE T45, section 8).
 - [x] S12 busy reading, S7 `confirmDisabledReason`, the list's description and the dialog's place beside the form: this document now says what was built (sections S7 and S12 and their accessibility notes).
+- [x] FU-5 (no design change): the ADR for how a layout draws the missing mark is written: `docs/adr/20261117-a-layout-draws-the-configurators-missing-mark-through-a-runtime-patch-of-one-template-line-the-label-only-in-the-drawing-and-the-brackets-only-in-the-page-text-and-a-layout-that-cannot-is-refused.md` (commit `caf5564a`).
 
 Still open, for the owner:
 
 - [ ] Owner review of the copy added by T51 (S12 and S7 additions, the 429 and paging texts, the notice in-app en and it, email en, FU-1, FU-4, FU-7, FU-9). Owner: owner.
 - [ ] **N1 / O-1**: the actor's display name in the notice. A session holder can rename themselves through `POST /auth/update-user`, so the notice can show another person's name (QE section 12, confirmed live). Options: make the name read-only to its holder, or add the actor's email to the notice (that changes N1's copy and AC-9.11, for the PO). Decide before release step 7 (T71). Owner: owner.
 - [ ] **O-4**: the shell footer text (11 px, "Legal information", "Operai v0.5.0") measures 3.01:1 (light) and 2.79:1 (dark), under 4.5:1. Pre-existing chrome outside this feature and not on the Legal entities page; for the shell's designer, not this task.
-- [ ] FU-5 (no design change): the ADR for how a layout draws the missing mark is not written yet (architect).
 
 ## Amendment after the security review (2026-11-17, task T51): where each item went
 
