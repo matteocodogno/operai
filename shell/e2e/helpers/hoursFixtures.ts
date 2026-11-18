@@ -136,6 +136,51 @@ export interface HoursPerson extends SeededSession {
 }
 
 /**
+ * Creates the role `name` when it does not exist, then full-replaces its rules (idempotent), through the real admin
+ * API (`POST /admin/roles`, `PUT /admin/roles/{id}/rules`), exactly as an administrator would. Used for the one thing
+ * the real `admin` role cannot show: a role that holds a single hours permission and nothing else (AC-3.3 / D51: the
+ * permission alone reaches Settings; AC-4.2: read-all alone reaches Everyone's hours). Returns the role id.
+ */
+export async function ensureRole(
+  admin: SeededSession,
+  name: string,
+  rules: Array<{ resource: string; action: string }>,
+): Promise<string> {
+  const listed = await authAdminCall<{ id: string; name: string }[] | { items?: { id: string; name: string }[] }>(
+    admin,
+    'GET',
+    '/admin/roles',
+  )
+  const existing = (Array.isArray(listed) ? listed : (listed.items ?? [])).find((role) => role.name === name)
+  const id =
+    existing?.id ??
+    (
+      await authAdminCall<{ id: string }>(admin, 'POST', '/admin/roles', {
+        name,
+        description: 'hours e2e: one permission only',
+      })
+    ).id
+  await authAdminCall(admin, 'PUT', `/admin/roles/${id}/rules`, { rules })
+  return id
+}
+
+/** Best-effort removal of a role a journey made: its holders lose it first, then it is deleted. */
+export async function deleteRoleQuietly(admin: SeededSession, roleId: string, holders: SeededSession[]): Promise<void> {
+  for (const holder of holders) {
+    try {
+      await authAdminCall(admin, 'PUT', `/admin/users/${holder.userId}/roles`, { roleIds: [] })
+    } catch {
+      // cleanup must never fail a run
+    }
+  }
+  try {
+    await authAdminCall(admin, 'DELETE', `/admin/roles/${roleId}`)
+  } catch {
+    // cleanup must never fail a run; a leftover role holds one hours permission and no person
+  }
+}
+
+/**
  * Seeds a session for a new `@operai.test` user left with exactly `roles` (a per-run e-mail, see newRunId: user
  * rows persist in the shared dev DB, so a journey never reuses one). The token is minted AFTER the role change.
  */

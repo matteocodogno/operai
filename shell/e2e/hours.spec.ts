@@ -10,6 +10,9 @@
  *     once restored it is again (retired and restored, never deleted).
  *  3. A non-holder has no Everyone's hours tab and no Settings tab (and a typed address is refused), while the
  *     admin sees both people's entries in Everyone's hours.
+ *  4. (QE) A role that holds only `time-list:manage` reaches Settings and not Everyone's hours; one that holds only
+ *     `time-entry:read-all` the opposite: the permission alone is enough (AC-3.3 as amended by D51), in the tabs, at
+ *     the typed address and in the API.
  *
  * Needs the stack up (`mise run dev`): auth (ENABLE_TEST_AUTH=true), hours-api with its own .env, the shell and
  * hours-ui. Against the dev stack Playwright reuses the servers when each remote's port is pointed at it:
@@ -24,8 +27,12 @@ import {
   cleanupPeople,
   createEntryViaApi,
   deleteOwnEntriesQuietly,
+  deleteRoleQuietly,
+  ensureRole,
   hoursAdmin,
+  hoursCall,
   minutesOfShort,
+  mustHoursCall,
   newRunId,
   openMyHoursFromMenu,
   ownEntriesViaApi,
@@ -54,6 +61,7 @@ test.describe("specs/20261112-time-tracking T35: my hours, the time lists, every
   let colleague: HoursPerson
   let categories: [CategoryRow, CategoryRow]
   const madeCategories: string[] = []
+  const madeRoles: { id: string; holders: HoursPerson[] }[] = []
 
   test.beforeAll(async () => {
     admin = await hoursAdmin(runId)
@@ -66,6 +74,8 @@ test.describe("specs/20261112-time-tracking T35: my hours, the time lists, every
     await deleteOwnEntriesQuietly(employee, monthStart)
     await deleteOwnEntriesQuietly(colleague, monthStart)
     for (const id of madeCategories) await retireCategoryQuietly(admin, id)
+    // Roles go before the people: the admin that deletes them is one of the run's people.
+    for (const role of madeRoles) await deleteRoleQuietly(admin, role.id, role.holders)
     await cleanupPeople(runId)
   })
 
@@ -249,5 +259,84 @@ test.describe("specs/20261112-time-tracking T35: my hours, the time lists, every
     await expect(table.getByTestId(`hours-entry-${theirs.id}`)).toBeVisible({ timeout: 30_000 })
     for (const entry of mine) await expect(table.getByTestId(`hours-entry-${entry.id}`)).toHaveCount(0)
     await adminCtx.close()
+  })
+
+  test("a role that holds only time-list:manage reaches Settings and not Everyone's hours; one that holds only time-entry:read-all the opposite (AC-3.3 as amended by D51, AC-4.2, QE)", async ({
+    browser,
+  }) => {
+    // Two roles of ONE permission each, made through the real admin API: neither has Admin access, neither has a tool
+    // grant. The admin role cannot show this: it holds both permissions at once.
+    const listsRoleName = `e2e-hours-lists-${runId}`
+    const readAllRoleName = `e2e-hours-readall-${runId}`
+    const listsRole = await ensureRole(admin, listsRoleName, [{ resource: 'time-list', action: 'manage' }])
+    const readAllRole = await ensureRole(admin, readAllRoleName, [{ resource: 'time-entry', action: 'read-all' }])
+    const listsOnly = await seedHoursPerson('lst', [listsRoleName], runId)
+    const readAllOnly = await seedHoursPerson('rda', [readAllRoleName], runId)
+    madeRoles.push({ id: listsRole, holders: [listsOnly] }, { id: readAllRole, holders: [readAllOnly] })
+
+    // A category for the API half (an admin makes it; nobody deletes one, so it is retired afterwards).
+    const made = await mustHoursCall<CategoryRow>(admin, 'POST', '/time-categories', {
+      name: `E2E one-permission ${runId}`,
+      requiresNote: false,
+    })
+    madeCategories.push(made.id)
+
+    // ── The holder of time-list:manage alone ──
+    const listsCtx = await personContext(browser, listsOnly)
+    const lists = await listsCtx.newPage()
+    const readAllCalls: string[] = []
+    lists.on('request', (request) => {
+      if (request.url().includes('whose=all')) readAllCalls.push(request.url())
+    })
+    await lists.goto('/hours')
+    await expect(lists.getByTestId('hours-my-page')).toBeVisible({ timeout: 30_000 })
+    const listsTabs = lists.getByRole('navigation', { name: 'Hours sections' })
+    await expect(listsTabs.getByRole('link')).toHaveText(['My hours', 'Settings'])
+    await listsTabs.getByRole('link', { name: 'Settings' }).click()
+    await expect(lists).toHaveURL(/\/hours\/settings$/)
+    await expect(lists.getByTestId('time-lists-card-categories')).toBeVisible({ timeout: 30_000 })
+    await expect(lists.getByTestId('hours-permission-denied')).toHaveCount(0)
+    // Everyone's hours is refused where it is reached, and nothing of everyone's is asked for.
+    await lists.goto('/hours/all')
+    await expect(lists.getByTestId('hours-permission-denied')).toBeVisible({ timeout: 30_000 })
+    await expect(lists.getByTestId('hours-entries-table')).toHaveCount(0)
+    expect(readAllCalls, 'a holder of time-list:manage alone never asks for everyone’s hours').toEqual([])
+    await listsCtx.close()
+
+    // The API agrees, for a person with no Admin access: the lists are theirs to manage, everyone's hours are not.
+    const retire = await hoursCall(listsOnly, 'PATCH', `/time-categories/${made.id}`, { retired: true })
+    expect(retire.status).toBe(200)
+    const restore = await hoursCall(listsOnly, 'PATCH', `/time-categories/${made.id}`, { retired: false })
+    expect(restore.status).toBe(200)
+    const everyone = await hoursCall<{ code?: string }>(
+      listsOnly,
+      'GET',
+      `/time-entries?whose=all&from=${monthStart}&to=${monthEnd}`,
+    )
+    expect(everyone.status).toBe(403)
+    expect(everyone.body.code).toBe('read_all_required')
+
+    // ── The holder of time-entry:read-all alone ──
+    const allCtx = await personContext(browser, readAllOnly)
+    const all = await allCtx.newPage()
+    await all.goto('/hours')
+    await expect(all.getByTestId('hours-my-page')).toBeVisible({ timeout: 30_000 })
+    const allTabs = all.getByRole('navigation', { name: 'Hours sections' })
+    await expect(allTabs.getByRole('link')).toHaveText(['My hours', "Everyone's hours"])
+    await allTabs.getByRole('link', { name: "Everyone's hours" }).click()
+    await expect(all.getByTestId('hours-everyone-page')).toBeVisible({ timeout: 30_000 })
+    await expect(all.getByTestId('hours-permission-denied')).toHaveCount(0)
+    await all.goto('/hours/settings')
+    await expect(all.getByTestId('hours-permission-denied')).toBeVisible({ timeout: 30_000 })
+    await expect(all.getByTestId('time-lists-card-categories')).toHaveCount(0)
+    await allCtx.close()
+
+    const refused = await hoursCall<{ code?: string }>(readAllOnly, 'PATCH', `/time-categories/${made.id}`, {
+      retired: true,
+    })
+    expect(refused.status).toBe(403)
+    expect(refused.body.code).toBe('time_list_manage_required')
+    const after = (await timeListsViaApi(admin)).categories.find((category) => category.id === made.id)
+    expect(after?.retired, 'a refused change leaves the category as it was').toBe(false)
   })
 })
