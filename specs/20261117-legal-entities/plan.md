@@ -1076,6 +1076,9 @@ unset → `{ status: "skipped", reason: "not_configured" }`. Response `status` g
                                                          // state: none | set (≤ 8 chars) | tail (last4 ^[A-Z0-9]{4}$)
 ```
 
+*(D9: `actorName` is replaced by `actorEmail`, the author's account email captured when the version was stored, or
+null; no display name anywhere in a notice: see Amendment 2026-11-18 — D9, J3–J4.)*
+
 The link is built by notify-api from its `APP_BASE_URL` and the closed entity:
 `/admin/legal-entities?entity=<entity>&view=history` (E7). Resend receives `Idempotency-Key: <sub>:<key>`
 (SDK option if 6.17 has it, else the raw header; the task verifies which). *(Settled: the SDK option, resend 6.17.2:
@@ -1255,7 +1258,7 @@ and **A-int (clock)**: the dispatcher with an injected clock and a fake notify-a
 | AC-9.8 | A-int | welld_ch-conditioned manager notified for welld_ch, not welld_it; unconditioned holder for both; an administrator via a department without the grant notified; a soft-deleted holder/admin not; a person who is admin + manager + actor → exactly one in_app and one email row; recipients fixed at store time (role removed afterwards → still sent) |
 | AC-9.9 | A-int | the actor has rows |
 | AC-9.10 | A-int | `LEGAL_ENTITY_NOTICE_EMAIL` set → one email row `outside`, no in_app; unset → none, other rows identical; unset between store and send → `given_up` `outside_address_unset` + audit |
-| AC-9.11 | A-unit, N-int | content builder per case: entity label, actor name as stored, save vs restore of version m, date/time/zone in Europe/Zurich (CET and CEST dates), version n, protected names, IBAN tails (empty → none; 8 chars → set; 9 chars → last 4), other names, history link; `legal_entity_change` renders the same facts in English with an absolute link |
+| AC-9.11 | A-unit, N-int | *(author by email since D9: see Amendment 2026-11-18 — D9, J8)* content builder per case: entity label, actor name as stored, save vs restore of version m, date/time/zone in Europe/Zurich (CET and CEST dates), version n, protected names, IBAN tails (empty → none; 8 chars → set; 9 chars → last 4), other names, history link; `legal_entity_change` renders the same facts in English with an absolute link |
 | AC-9.12 | A-int, N-int | sentinel legal name, VAT, IBAN (old and new), address and contacts lines: none appears in any request auth sends (in-app en/it, email data, key), in `legal_entity_notice` rows, in notice audit rows, in the dispatcher's log lines, nor in the stored notify-api notification or rendered email (only the two last-4 tails); notify-api refuses a `data` member outside the strict shape and a `last4` not matching `^[A-Z0-9]{4}$` |
 | AC-9.13 | A-int, N-int, E2E | per person one in-app call with `it` and one email call with `recipientId` (English); outside: email only; notify-api with an idempotent in-app call raises one push dispatch; E2E: the notice appears in the notification centre, Italian when the shell is Italian |
 | AC-9.14 | A-int (clock), N-int | notify-api down → save answers 201 exactly as with it up; one recipient's 500 does not delay another's call; first retry at +1 min, then the schedule, `given_up` at 24 h; a new dispatcher instance (restart) sends pending rows; a timeout after notify-api stored → retry → 200 idempotent → one notification; two dispatchers on one database → one call per row; email repeat after `sent` → nothing sent |
@@ -1384,12 +1387,12 @@ This supersedes decision 8's "refreshes when its entry is older", G10 F6, and th
   which now points forward to it (`43850795`). The pin ADR's "Amendment 2026-11-18" records T77: wherever it, its
   title or its file name says 100, read 30.
 - **Approved by the owner on 2026-11-18:** the numbers (1 s, 30 per 600 s, 1.1 s; T72, T76, T77) were decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18,
-  from the re-review's recommendation. No owner approval of them is recorded; the ADR's Status is Proposed.
+  from the re-review's recommendation. The ADR's Status is Accepted (owner, 2026-11-18).
 
 ### H2 — ADR candidates: all written
 
 The eight plan candidates are Accepted (approved with the plan and its amendments). The two records of 2026-11-18
-are **Proposed**: decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18.
+are **Accepted (owner, 2026-11-18)**: decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18.
 
 | Candidate | Record |
 | --- | --- |
@@ -1487,7 +1490,7 @@ documents' output is unchanged, and the golden corpus stays byte-identical. This
 
 ### H7 — Design decisions taken unattended (orchestrator, 2026-11-17; recorded in tasks.md for the owner's review)
 
-Each item below was decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18. None is owner-approved yet.
+Each item below was decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), approved by the owner on 2026-11-18.
 
 - **DR-14.** An effective administrator can always open the notice's history link. The reason: the `admin` role holds
   `legal-entity:manage` unconditioned by seed (T3), and department admins inherit that role. No design change.
@@ -1497,8 +1500,8 @@ Each item below was decided by the orchestrator during the owner-requested unatt
 - DR-13, DR-15, DR-16 and DR-18 stand as design.md says; DR-18 was done in T63.
 - Still open with the owner (not plan decisions):
   - **N1 / O-1:** the actor's display name can be edited by its holder through `POST /auth/update-user`, and the
-    notice prints that name. It must be decided before T71. Choosing "add the actor's email" would change AC-9.11,
-    which is the PO's to amend.
+    notice prints that name. *(Decided by the owner on 2026-11-18: the notice names the author by account email
+    only, spec amendment D9; designed in "Amendment 2026-11-18 — D9" below.)*
   - The copy review of T51.
 
 ### H8 — Release order: G15 still holds
@@ -1578,3 +1581,302 @@ the 60 s rule, not what a document prints. AC-3.3, AC-5.5 and
 AC-6.2 hold, and a budget refusal is a refused document (503), never a document printed with older details. H3–H6
 settle points the plan left open, or fix the plan's own text against a design that was already approved (F15). The
 open owner items (N1/O-1 and the T51 copy) are listed in H7. They would become spec changes only through the PO.
+
+## Amendment 2026-11-18 — D9
+
+> Plan status stays `approved`. Source: spec amendment D9 (`269090f1`: AC-9.11, AC-9.12, AC-9.16, the two new
+> Non-goals, OQ-14 to OQ-16), the owner's decision of 2026-11-18 recorded in tasks.md (`d1da2ecc`),
+> security-review-2.md N1 and qe-report.md O-1. The code read for it: `auth/src/legalEntities/notices/{duty,dispatcher,content,copy}.ts`,
+> `write.routes.ts`, `repo.ts`, `auth/prisma/schema.prisma` (`LegalEntityVersion`, `LegalEntityNotice`, `User`),
+> `auth/src/auth/auth.config.ts` (session cookie cache), `auth/src/lib/notify.ts`, notify-api
+> `src/system/{emails.schemas,emailTemplates,emails.routes}.ts`, `src/channels/push.channel.ts`, `src/lib/zodHook.ts`,
+> design.md N1, ADR 5 and ADR 6. Where any text above says that a notice names the actor by name (`actorName`,
+> `sanitizeActorName`, `createdByName` read by the notice code), this block wins. Items J1…J12; tasks T78–T87.
+
+### J1 — What changes
+
+```
+ before  send time: versionOf(n).createdByName ── sanitizeActorName ──► "Change saved by Anna Rossi."   (editable by its holder: N1)
+ after   store time, in the version's transaction (recordNoticeDuty):
+           SELECT email FROM "user" WHERE id = actor  ──► legal_entity_notice."authorEmail" on every row of version n
+         send time (dispatcher): claimed row ─ authorEmail ─► content.ts ─► in-app en/it body + email data.actorEmail
+                                                                         ─► notify-api legal_entity_change template
+```
+
+Unchanged: the history (AC-2.2) and the audit log (AC-2.5) still show the name (OQ-16); `legal_entity_version` still
+stores `createdByName` for them; recipients, schedule, keys, leases, reasons and every other closed slot of a notice.
+The notice code stops reading `createdByName` altogether, so no path from the display name into a notice remains.
+
+### J2 — Where the email is captured (decision)
+
+**Chosen: a nullable column `authorEmail` on `legal_entity_notice`, written by `recordNoticeDuty` with the rows, from
+a read of the actor's `user` row inside the version's transaction.**
+
+1. **Fixed with the version, like the recipients.** AC-9.8's recipients are already fixed by the rows written at
+   store time; AC-9.11 asks for the author's email to be fixed "like the recipients", and the same insert does it. A
+   send-time read of `user.email` by `createdByUserId` (security-review-2.md N1 fix 2) is **rejected**: a change of
+   the address or a deletion of the account before a retry (AC-9.14, up to 24 h) would change what the notice says.
+2. **Only where it is needed.** Only a protected change has notice rows. A version without notices needs no email,
+   so there is **no backfill**, and the import never reaches the duty (G2, AC-9.16): the system needs no email.
+3. **Tier 2, not Tier 1.** `legal_entity_notice` is Tier 2 (rows change status, no immutability trigger; G4,
+   ADR 20260804). `legal_entity_version` is Tier 1, append-only, with UPDATE/DELETE/TRUNCATE triggers (ADR-1): an
+   address written there could never be corrected or erased, even under a data-protection request.
+4. **The dispatcher works per row.** A claimed row then carries everything it needs beyond the two immutable
+   versions; the claim's `RETURNING` gains one column; no join to `user` at send time.
+
+**Read in the transaction, not from the session.** Better Auth serves the session's user from a cookie cache up to
+5 minutes old (`auth.config.ts`, `cookieCache.maxAge`), and the save handler takes `user` from that session. The
+duty therefore reads `tx.user.findUnique({ where: { id: actorUserId }, select: { email: true } })` after
+`appendVersion`, under the entity lock: the committed address at the moment the version is stored. One primary-key
+read, on protected changes only (R17 unchanged). `write.routes.ts` does not change.
+
+**Stored verbatim.** No lowercasing or rewriting: the notice states the address the account had. An empty string or
+a missing row becomes `null`. Missing is unreachable today: the F2 authorisation step refuses a missing or deleted
+person, users are only soft-deleted, and `User.email` is required and unique (OQ-15). `null` makes the notice say
+"no email address on record" (J5); it never falls back to the display name.
+
+**The capture never fails the save.** There is no CHECK on the form or length of the address, because a CHECK that
+fails would turn a legitimate save into a 500. The one CHECK is `"authorEmail" IS NULL OR "authorEmail" <> ''`,
+which the code guarantees by writing `null` for an empty string.
+
+Rejected:
+
+- (a) **`createdByEmail` on `legal_entity_version`.** The data would sit in Tier 1 forever (point 3 above). It would
+  be written for every save, protected or not. It would also live in the table that the history, the version view
+  and the service reads select from (`GET /system/legal-entities`, read by letterhead-api and crm-api), so one
+  SELECT-list change would leak it into an API that OQ-16 keeps unchanged. And ADR-1's contract test would be
+  touched for a concern that belongs to the notice only.
+- (b) **A table `legal_entity_notice_author` with one row per noticed version.** It keeps one copy instead of 2N+1,
+  but it adds a table, a foreign key and a Tier 2 surface for a few dozen bytes on a few rows per protected change.
+  The per-row copy is written by one `createMany` from one value, so the rows of a version cannot disagree (tested).
+- (c) **The session's `user.email`.** It can be up to 5 minutes stale (cookie cache).
+- (d) **Editing the unreleased migration `…_legal_entity_notices` instead of adding one.** It has been applied on
+  compose, CI and e2e databases, and editing it would break Prisma's migration checksum. A new additive migration
+  is used instead.
+
+### J3 — Data model (auth, push 2)
+
+```prisma
+model LegalEntityNotice {
+  // … as G4 …
+  /// The actor's account email when the version was stored (AC-9.11, amendment D9); null = none on record.
+  /// Personal data: content of the notice only; never in a log line or an audit entry. Written once, never updated.
+  authorEmail   String?
+}
+```
+
+`auth/prisma/migrations/<ts>_legal_entity_notice_author_email/migration.sql` (additive, no data changed):
+
+```sql
+ALTER TABLE "legal_entity_notice" ADD COLUMN "authorEmail" TEXT;
+ALTER TABLE "legal_entity_notice"
+  ADD CONSTRAINT "legal_entity_notice_authorEmail_not_empty" CHECK ("authorEmail" IS NULL OR "authorEmail" <> '');
+```
+
+- **No backfill.** Production has no notice row: auth's notices ship in push 2 (T48), together with this change.
+  A row written by a pre-D9 build on a development, CI or e2e database reads `null`, so its notice says "no email
+  address on record" and never shows a name.
+- **Never updated.** The dispatcher's `updateMany` calls set status columns only. A test asserts that no update
+  of a notice row names `authorEmail`.
+- **Comments.** The schema and `duty.ts` comments that say the rows hold no personal value are corrected. They now
+  hold no value *of a detail* (AC-9.12) and one personal value, the author's email.
+
+### J4 — Contracts
+
+**auth (internal).** `NoticeDutyRequest` is unchanged: it already has `actorUserId`, and the duty reads the address
+itself. `NoticeFacts.actorName` becomes `authorEmail: string | null`. `sanitizeActorName` and `ACTOR_NAME_MAX` go
+away, and `noticeFacts(current, previous, authorEmail)` takes the row's value.
+
+**The one rule for an author address.** `noticeAuthorEmail = z.string().email().max(320)`, exported by `content.ts`.
+It is the rule of notify-api's `ToSchema` and of auth's `LEGAL_ENTITY_NOTICE_EMAIL`, and it refuses blanks,
+control and format characters. How `content.ts` uses it:
+
+- an address that passes is shown verbatim;
+- `null` gives the "no email address on record" sentence;
+- an address that is present but fails the rule follows reading **R-D9a** (J11): it is treated as "no email address
+  on record", and the log line `legal_entity_notice_author_email_unusable` is written with `{ id, entity, version,
+  channel }` and no value.
+
+**notify-api `legal_entity_change` `data`** (push 1; still a `strictObject`):
+
+```jsonc
+{ "entity": "welld_ch", "action": "save", "restoredFrom": null,
+  "actorEmail": "anna.rossi@welld.ch",   // REQUIRED. An email address by the rule of `to`, at most 320 characters;
+                                         // or null = "no email address on record". Never a display name.
+  "storedAt": "…", "version": 8, "protectedChanged": ["iban"], "otherChanged": [], "iban": { … } }
+// "actorName" is removed: sent by a caller, it is an unknown member → 400 (strictObject). A missing "actorEmail" → 400.
+```
+
+zod: `actorEmail: z.string().email("data.actorEmail must be an email address").max(320).nullable()`.
+
+**Template.**
+
+- `actorEmail` is HTML-escaped and printed as text, with no `mailto:` link. A mail client may still auto-link it,
+  which is acceptable: the notice does not vouch for who was behind the account (Non-goal).
+- `null` gives the no-email sentence. The fallback "an unnamed user" is removed, and no fallback can name a person.
+- Subject and title are unchanged and hold closed values only (design DA-6). The address is in the body only.
+
+**In-app call.** Its shape is unchanged (G5). The body line `notice.byAction.*` carries the address in `en` and `it`.
+
+**Push (DR-17).** The push text is the English title and body, so a lock screen shows the author's address. This
+was accepted by the owner: AC-9.12 counts push text as part of a notice.
+
+**Longest case.** With a 320-character address, a restore, three protected names, four other names and Italian, the
+body is about 930 UTF-16 units, under the 2000 limit. The push JSON is about 1.6 KB, under notify-api's 3000-byte
+cap, so `shrink` never cuts the body and the address is never shown cut short. A test asserts both.
+
+### J5 — Copy (designer, T78)
+
+The binding contract for the designer:
+
+- the slot of `notice.byAction.save` and `notice.byAction.restore` takes the address;
+- `notice.unknownActor` ("an unnamed person" / "una persona senza nome") is replaced by a key for "no email address
+  on record", in `en` and `it`;
+- the email template's "an unnamed user" is replaced by the same English words;
+- in both channels the address appears once, in the body.
+
+Recommendation (the designer decides). Name the **account**, not a person, because the notice states the address
+as recorded and does not prove who used it (Non-goal):
+
+- with an address: "Change saved by the account anna.rossi@welld.ch." / "Modifica salvata dall'account
+  anna.rossi@welld.ch.";
+- with none: "Change saved by an account with no email address on record." / "Modifica salvata da un account senza
+  indirizzo email registrato.";
+- rename the slot `{actor}` to `{author}`.
+
+design.md N1 is updated to match: the closed slots, DA-6, the worked example, the longest case and DR-17. The open
+item "N1 / O-1" is closed by D9.
+
+### J6 — Personal data: where the address may and may not appear
+
+**Allowed (notice content, AC-9.12 as amended).**
+
+- the in-app body (`en`, `it`) and the push text derived from it;
+- the email's HTML body and its request `data`, including the outside mailbox's email (AC-9.10);
+- the notification notify-api stores (its `body` and `bodyIt` columns);
+- the Resend payload;
+- the outbox column `authorEmail`.
+
+**Never.**
+
+- **auth log lines.**
+  - The dispatcher keeps its fixed fields: id, entity, version, channel, reason, attempts, error class.
+  - `NoticeContentError` messages stay constant strings.
+  - Failures of a save log `safeErrorText` only: class and code. A Prisma error message could hold the inserted
+    value, so it is never logged.
+  - The duty logs nothing, and `lib/notify.ts` never logs a body.
+- **Audit entries.** `legal_entity.notice_*` keep `data: { version, recipient, userId?, channel, reason?, at }` and
+  their summaries. `legal_entity.save` and `legal_entity.restore` are unchanged: `actorUserId` already identifies
+  the person.
+- **Idempotency keys**, which carry the row id only.
+- **notify-api logs.**
+  - The system routes log no `data` (the log-privacy tests).
+  - zod 4 issues carry no input unless `reportInput` is set, and it is not. A 400 for a bad `actorEmail` therefore
+    returns the path and the message, never the value (tested).
+  - `email_delivery` stores `to`, template and status, not `data`.
+
+**Retention.** The column stays with its row; G4 has no cleanup job. A future procedure that erases an account's
+personal data must also cover `legal_entity_notice.authorEmail` and notify-api's stored notifications. No such
+procedure exists today. Recorded here so the next spec that needs one finds it.
+
+### J7 — Release order and skew (confirmed)
+
+**The split.** The notify-api change (T79, with its changeset T82) is **push 1**. The auth capture, content and
+copy (T80, T81, changeset T83) are **push 2**.
+
+- T16 has not been cut, so the D9 notify-api commit is cherry-picked into the push-1 release branch like T56/T57.
+- T79's commits touch notify-api and its push-1 changeset only. T80, T81 and T83 touch auth and the push-2
+  changeset only, so the cut needs no surgery (H8).
+
+**New auth and old notify-api.** The strict schema answers 400: `actorEmail` is an unknown member and `actorName`
+is missing. The dispatcher records `notify_refused` and retries on the G6 schedule until notify-api is upgraded.
+After 24 h the row is given up, with `notice_failed` and `notice_given_up` in the audit log. The in-app channel is
+not affected. **This cannot happen in the planned order** (G15: push 1, then steps 2–4, then push 2). Confirmed.
+
+**New notify-api and old auth** (between push 1 and push 2). Push-1 auth has no dispatcher and sends no
+`legal_entity_change`, so there is nothing to refuse. notify-api therefore replaces the member outright.
+
+Rejected: accepting both `actorName` and `actorEmail` for a transition. It is needed by no caller, and it would keep
+a display-name input alive in the template, against "no display name anywhere in a notice".
+
+**Rollback.**
+
+- notify-api rolled back below D9 while push-2 auth runs: as above (retried, then given up with audit entries; the
+  in-app channel works).
+- auth rolled back to push 1: the dispatcher stops and the rows wait. This is unchanged.
+
+**Checks.**
+
+- T16: the push-1 cut contains T79's commit and T82's changeset, and none of T80, T81, T83 or T84.
+- T48: notify-api in production is the push-1 version, so it accepts `actorEmail`. QE (T85) rehearses the
+  new-auth + old-notify-api pairing on compose.
+
+### J8 — Test strategy (the changed ACs)
+
+| AC | Level | What proves it |
+| --- | --- | --- |
+| AC-9.11 | A-int (duty) | A protected save → every row of the version carries the actor's `user.email`, read in the transaction: person rows and the outside row, all equal. The address is changed in the database after the session was made and before the save → the rows carry the new one (the session's snapshot is not used). Missing row or empty address (injected) → `null`, and the save still succeeds. A non-protected save, a no-op or a refusal → no row (as T58). |
+| AC-9.11 | A-int (clock) | After the version is stored, the actor's `email` and `name` are changed and the actor is soft-deleted. The notice then sent to the other recipients still states the captured address. The actor's own rows end `given_up` `recipient_deleted` as before. A retry sends the same words. No update of a row touches `authorEmail`. |
+| AC-9.11 | A-unit, N-int | The save and restore lines carry the address in `en` and `it`. `null` and an unusable address give the no-email sentence in both languages, and everything else of the list is still stated. `emailData(...).actorEmail` is the address or `null`. The template renders the address escaped (`<`, `&`, `"` in a hostile local part) with no `mailto:`, and `null` as the no-email sentence. Longest case: a 320-character address stays within 200/2000, and the push payload is under 3000 bytes with nothing shrunk. Copy parity of `en` and `it`. |
+| AC-9.11 | E2E | The notice body (en and it) contains the actor's account email. |
+| AC-9.12 | A-int, N-int | **Sentinel display name** `D9 Sentinel Display Name` on the actor: it is absent from every request auth sends, every row, every audit entry and every log line, from the stored notification and from the rendered email. **Sentinel address** `d9-sentinel-author@operai.test`: it appears only in the J6 "allowed" places, and never in a log line (dispatcher success, failure and error; a failed save; notify-api) nor in an audit entry, a title or a subject. **notify-api:** an `actorName` member → 400; `actorEmail` missing, not an address, or over 320 characters → 400, and the 400 body does not contain the value. The existing value sentinels stay. |
+| AC-9.12 | E2E | The actor renames themselves to a sentinel through `POST /auth/update-user` before the save, using a dedicated persona so the history assertions of other specs keep their names. The sentinel is absent from the in-app notice (title and body, en and it), and the account email is present. |
+| AC-9.10, AC-9.13 | A-int | The outside row's email `data` carries the same `actorEmail` as the person rows. |
+| AC-9.16 | A-int | Unchanged tests: the first and repeated import apply → 0 notice rows and 0 calls. The capture lives only in `recordNoticeDuty`, which `import.ts` does not import (existing scan). The system never has an author address to state. |
+
+**Coverage check:** 52 ACs, the same set. AC-9.11, AC-9.12 and AC-9.16 are re-mapped above. AC-9.10 and AC-9.13 gain
+one assertion each. Every other row of "Test strategy — US-9" and H10 stands. The mapping is total.
+
+### J9 — Risks (added)
+
+| # | Risk | Mitigation / early check |
+| --- | --- | --- |
+| R26 | An account address that fails the shared rule (over 320 characters, or a form zod refuses) would make notify-api refuse the email channel of every notice by that author. | `content.ts` applies the same rule first, under reading R-D9a. Early check **T87**: a read-only count, over production `user` rows, of addresses that fail the rule. Only the count is recorded, never an address. Sign-in is by Google or GitHub only, so 0 is expected. |
+| R27 | Wider reach of personal data: the author's address now goes to every recipient, the outside mailbox and lock screens, and is stored in notify-api's notifications and the outbox. | Owner-accepted (AC-9.12, Non-goals). J6 keeps it out of logs, audit and keys, and J6 records the retention note. |
+| R28 | The push-1 cut misses T79: every notice email gets 400, is retried, then given up. | J7 checks at T16 and T48. The give-ups are audited and visible. QE (T85) rehearses the pairing. |
+| R29 | Notices written by a pre-D9 build (development databases only) say "no email address on record". | Production never runs a pre-D9 notice build: T48 depends on T80 and T81. |
+
+### J10 — Security
+
+**YES**, unchanged. An `owasp-reviewer` **delta** pass (T86, frontier tier: financial data, R1) runs in parallel
+with the QE delta (T85). Surfaces:
+
+- the capture in `notices/duty.ts`: read inside the transaction, never from the session; written once;
+- the new column, and the claim's `RETURNING`;
+- `content.ts`/`copy.ts`: no path from `createdByName` or `user.name` into a notice; R-D9a;
+- notify-api `emails.schemas.ts` (the `actorEmail` rule, the strict shape, a 400 that does not echo the value) and
+  `emailTemplates.ts` (escaped text, no link, no name fallback);
+- the push text;
+- log and audit privacy across auth and notify-api.
+
+The pass also confirms that N1 / O-1 is closed. The display name stays editable (fix 1 of N1 was not chosen), and
+it still shows in the history, which is out of D9's scope (OQ-16).
+
+### J11 — Spec drift and readings
+
+- **R-D9a (reading, proposed for the owner; not blocking).** The spec defines what a notice says when the account
+  had **no** email address, but not when the recorded address is not a well-formed one. The plan reads it as "no
+  email address on record", because it must never fall back to the display name. A notice must still go out, since
+  it is the safeguard. The case is believed unreachable (R26, T87).
+
+  Proposed sentence for AC-9.11: *"An email address that is not a valid email address counts as no email address on
+  record."* Until the owner decides, the plan applies this reading.
+- design.md, for the designer (T78), not spec drift: commit `d1da2ecc` left three contradictions in it. The
+  "Decided by the orchestrator …, approved by the owner on 2026-11-18 (built as decided; not owner-approved yet)"
+  heading, the unticked DR-14/DR-17 boxes, and the open "N1 / O-1" item.
+- This commit corrects the same kind of stale text in this plan: H1's last bullet, H2's intro and H7's intro said
+  "Proposed" or "None is owner-approved yet" after the owner's approval.
+- No other drift was found. D9 is buildable as written.
+
+### J12 — ADR candidates
+
+- **D9-1.** "A notice identifies its author by the account email captured in the version's transaction, and that
+  address is the one personal value a notice carries." It records J2's choice (the outbox column, not the Tier 1
+  version, and not a send-time read) and the content rule of J4–J6.
+  - It **amends** ADR 5 (`20261117-notices-of-…-audit-log.md`): point 3 "The rows hold no value", its open note on
+    N1, and its GDPR line.
+  - It **amends** ADR 6 (`20261117-notify-api-system-routes-…-closed-typed-data.md`): point 7 (a bounded actor name
+    becomes `actorEmail`) and its GDPR line "No address is added to any request". auth now sends **one** person's
+    address as **content**, never as addressing. Recipient addressing by `recipientId` is unchanged, so ADR
+    20261101 and ADR 6's rejected Option E still hold.
+  - For the `adr-writer`: a new short record with forward pointers in ADR 5 and ADR 6.
