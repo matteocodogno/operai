@@ -25,7 +25,11 @@ export type AuditAction =
   | "line_restored"
   | "batch_compiled"
   | "batch_paid"
-  | "batch_discarded";
+  | "batch_discarded"
+  // specs/20261118-refund-accounting-export (T8): the classification frozen or
+  // changed on a line, and the receipt number issued to it.
+  | "line_classified"
+  | "receipt_number_assigned";
 
 export interface WriteAuditEntryParams {
   readonly requestId: string;

@@ -155,7 +155,7 @@ Reading the list:
     - designation of a code that is later deactivated → `usable: false`, and after reactivation
       `usable: true`.
 
-- [ ] T8: refund-api — shared `classifyAndNumber(tx, …)`: freeze classification, lock counters in year order, number lines, write the two audit actions; the release gate check — refs: AC-3.5, AC-4.3, AC-4.4, AC-4.5, AC-4.7, AC-4.10 — deps: T1, T3, T4
+- [x] T8: refund-api — shared `classifyAndNumber(tx, …)`: freeze classification, lock counters in year order, number lines, write the two audit actions; the release gate check — refs: AC-3.5, AC-4.3, AC-4.4, AC-4.5, AC-4.7, AC-4.10 — deps: T1, T3, T4
   - touch: `refund-api/src/accounting/numbering.repo.ts`, `refund-api/src/accounting/numbering.repo.test.ts`, `refund-api/src/accounting/release.ts`, `refund-api/src/accounting/release.test.ts`, `refund-api/src/requests/audit.ts`
   - agent: backend-dev · backend
   - Details:
