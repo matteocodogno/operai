@@ -11,7 +11,8 @@
     "db:generate": "node node_modules/prisma/build/index.js generate",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "settings:seed": "bun run scripts/seed-setting.ts"
+    "settings:seed": "bun run scripts/seed-setting.ts",
+    "accounting:release": "bun run scripts/accounting-release.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1088.0",

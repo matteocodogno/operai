@@ -213,7 +213,7 @@ Reading the list:
 
 ## Backend — approval, release, accounting view
 
-- [ ] T11: refund-api — release script `accounting:release` (seed, system-actor designation, offsets, backfill CH lines, marker, `--dry-run`) — refs: AC-2.5, AC-7.1, AC-7.2, AC-7.3 — deps: T6, T7, T8
+- [x] T11: refund-api — release script `accounting:release` (seed, system-actor designation, offsets, backfill CH lines, marker, `--dry-run`) — refs: AC-2.5, AC-7.1, AC-7.2, AC-7.3 — deps: T6, T7, T8
   - touch: `refund-api/scripts/accounting-release.ts`, `refund-api/scripts/accounting-release.test.ts`, `refund-api/scripts/data/*`, `refund-api/package.json`
   - agent: backend-dev · backend
   - Details:
