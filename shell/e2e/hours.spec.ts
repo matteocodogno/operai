@@ -13,6 +13,9 @@
  *  4. (QE) A role that holds only `time-list:manage` reaches Settings and not Everyone's hours; one that holds only
  *     `time-entry:read-all` the opposite: the permission alone is enough (AC-3.3 as amended by D51), in the tabs, at
  *     the typed address and in the API.
+ *  5. (QE, second pass) The words of design.md § Date rules — copy and the name of every control in the hours dialogs,
+ *     rendered, in English and in Italian: the Day and Custom period errors (D-2), and no two controls of one dialog
+ *     with the same accessible name (D-3: the entry dialog, the delete confirmation and all six Settings dialogs).
  *
  * Needs the stack up (`mise run dev`): auth (ENABLE_TEST_AUTH=true), hours-api with its own .env, the shell and
  * hours-ui. Against the dev stack Playwright reuses the servers when each remote's port is pointed at it:
@@ -26,6 +29,7 @@ import { expect, test } from '@playwright/test'
 import {
   cleanupPeople,
   createEntryViaApi,
+  signInContext,
   deleteOwnEntriesQuietly,
   deleteRoleQuietly,
   ensureRole,
@@ -338,5 +342,156 @@ test.describe("specs/20261112-time-tracking T35: my hours, the time lists, every
     expect(refused.body.code).toBe('time_list_manage_required')
     const after = (await timeListsViaApi(admin)).categories.find((category) => category.id === made.id)
     expect(after?.retired, 'a refused change leaves the category as it was').toBe(false)
+  })
+
+  test("the design's date copy and a distinct name on every control of the hours dialogs, in English and Italian (D-2, D-3, QE second pass)", async ({
+    browser,
+  }) => {
+    // design.md § Date rules — copy, word for word (written out here, never read from the app's catalog: a test that
+    // reads the catalog cannot tell a wrong sentence from the right one).
+    const copy = {
+      en: {
+        locale: 'en-US',
+        lang: 'en',
+        dayInvalid: 'Choose a valid day.',
+        dayFloor: 'The day cannot be before 01.01.2000.',
+        from: 'The start date cannot be before 01.01.2000.',
+        to: 'The end date cannot be before 01.01.2000.',
+        close: 'Close',
+        cancel: 'Cancel',
+      },
+      it: {
+        locale: 'it-IT',
+        lang: 'it',
+        dayInvalid: 'Scegli un giorno valido.',
+        dayFloor: 'Il giorno non può precedere il 01.01.2000.',
+        from: 'La data di inizio non può precedere il 01.01.2000.',
+        to: 'La data di fine non può precedere il 01.01.2000.',
+        close: 'Chiudi',
+        cancel: 'Annulla',
+      },
+    } as const
+
+    /** The accessible name of every button in `dialog` (an aria-label wins over the text, as it does for a reader). */
+    const buttonNames = (dialog: import('@playwright/test').Locator): Promise<string[]> =>
+      dialog
+        .getByRole('button')
+        .evaluateAll((buttons) =>
+          buttons.map((button) => (button.getAttribute('aria-label') ?? button.textContent ?? '').trim()),
+        )
+    const duplicates = (names: string[]): string[] => names.filter((name, index) => names.indexOf(name) !== index)
+    const alertsOf = (scope: import('@playwright/test').Locator): Promise<string[]> =>
+      scope
+        .locator('[role="alert"]')
+        .allInnerTexts()
+        .then((texts) => texts.map((text) => text.trim()).filter(Boolean))
+
+    for (const words of [copy.en, copy.it]) {
+      const label = words.lang
+      // ── A person recording hours: the Day errors, the Custom period errors, the entry dialog's two ways out ──
+      const personCtx = await browser.newContext({ locale: words.locale })
+      await signInContext(personCtx, employee)
+      const mine = await personCtx.newPage()
+      await mine.goto('/hours')
+      await expect(mine.locator('html')).toHaveAttribute('lang', words.lang)
+      await expect(mine.getByTestId('hours-my-page')).toBeVisible({ timeout: 30_000 })
+
+      await mine.getByTestId('hours-record').click()
+      const entry = mine.getByRole('dialog')
+      await entry.waitFor()
+      const day = entry.getByTestId('hours-entry-day')
+      await day.fill('')
+      await day.blur()
+      expect(await alertsOf(entry), `${label}: an emptied Day`).toEqual([words.dayInvalid])
+      await day.fill('1999-12-31')
+      await day.blur()
+      expect(await alertsOf(entry), `${label}: a Day before the floor`).toEqual([words.dayFloor])
+      const entryNames = await buttonNames(entry)
+      expect(entryNames, `${label}: the entry dialog's buttons`).toContain(words.close)
+      expect(entryNames, `${label}: the entry dialog's buttons`).toContain(words.cancel)
+      expect(duplicates(entryNames), `${label}: two buttons of the entry dialog with one name`).toEqual([])
+      await mine.keyboard.press('Escape')
+      await expect(entry).toHaveCount(0)
+
+      await mine.getByTestId('hours-filter-period').selectOption('custom')
+      await mine.getByTestId('hours-filter-from').fill('1999-12-30')
+      await mine.getByTestId('hours-filter-from').blur()
+      await mine.getByTestId('hours-filter-to').fill('1999-12-31')
+      await mine.getByTestId('hours-filter-to').blur()
+      expect(
+        await alertsOf(mine.getByRole('search')),
+        `${label}: My hours, both Custom dates before the floor`,
+      ).toEqual([words.from, words.to])
+      await mine.getByTestId('hours-filter-to').fill(today)
+      await mine.getByTestId('hours-filter-to').blur()
+      expect(await alertsOf(mine.getByRole('search')), `${label}: My hours, only From before the floor`).toEqual([
+        words.from,
+      ])
+      await mine.getByTestId('hours-filter-from').fill(monthStart)
+      await mine.getByTestId('hours-filter-to').fill('1999-12-31')
+      await mine.getByTestId('hours-filter-to').blur()
+      expect(
+        (await alertsOf(mine.getByRole('search'))).filter((text) => text === words.to),
+        `${label}: My hours, To before the floor`,
+      ).toEqual([words.to])
+      await personCtx.close()
+
+      // ── An admin: the same Custom period in Everyone's hours, and every Settings dialog ──
+      const adminCtx = await browser.newContext({ locale: words.locale })
+      await signInContext(adminCtx, admin)
+      const page = await adminCtx.newPage()
+      await page.goto('/hours/all')
+      await expect(page.getByTestId('hours-everyone-page')).toBeVisible({ timeout: 30_000 })
+      await page.getByTestId('hours-filter-period').selectOption('custom')
+      await page.getByTestId('hours-filter-from').fill('1999-12-30')
+      await page.getByTestId('hours-filter-from').blur()
+      await page.getByTestId('hours-filter-to').fill('1999-12-31')
+      await page.getByTestId('hours-filter-to').blur()
+      expect(
+        await alertsOf(page.getByRole('search')),
+        `${label}: Everyone's hours, both Custom dates before the floor`,
+      ).toEqual([words.from, words.to])
+
+      await page.goto('/hours/settings')
+      await expect(page.getByTestId('time-lists-card-categories')).toBeVisible({ timeout: 30_000 })
+      // Add and Rename of a category, a project work type and a deal work type: six dialogs of one component.
+      for (const scope of ['categories', 'project', 'deal'] as const) {
+        const card = page.getByTestId(`time-lists-card-${scope}`)
+        for (const opener of [
+          card.getByTestId(`time-lists-add-${scope}`),
+          card.locator(`[data-testid^="time-lists-rename-${scope}-"]`).first(),
+        ]) {
+          await opener.click()
+          const dialog = page.getByRole('dialog')
+          await dialog.waitFor()
+          const names = await buttonNames(dialog)
+          expect(
+            names.filter((name) => name === words.close),
+            `${label}: ${scope}: one "${words.close}"`,
+          ).toHaveLength(1)
+          expect(
+            names.filter((name) => name === words.cancel),
+            `${label}: ${scope}: one "${words.cancel}"`,
+          ).toHaveLength(1)
+          expect(duplicates(names), `${label}: ${scope}: two buttons of one dialog with one name`).toEqual([])
+          // The × leaves the form, as the footer button does.
+          await dialog.getByRole('button', { name: words.close, exact: true }).click()
+          await expect(dialog).toHaveCount(0)
+        }
+      }
+      // The detector bites: the same check on a dialog whose × is renamed "Cancel" (the D-3 defect, made by hand in
+      // the DOM) finds the duplicate, so the checks above would fail on that defect.
+      await page.getByTestId('time-lists-add-categories').click()
+      const broken = page.getByRole('dialog')
+      await broken.waitFor()
+      await broken
+        .getByRole('button', { name: words.close, exact: true })
+        .evaluate((button, name) => button.setAttribute('aria-label', name), words.cancel)
+      expect(duplicates(await buttonNames(broken)), `${label}: the detector finds the D-3 defect`).toEqual([
+        words.cancel,
+      ])
+      await broken.getByRole('button', { name: words.cancel }).last().click()
+      await adminCtx.close()
+    }
   })
 })
