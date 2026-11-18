@@ -129,4 +129,58 @@ describe("env.ts (AC-4.1, specs/20260722-refund-settings)", () => {
       expect(exitCode).toBe(0);
     });
   }
+
+  // T9 (specs/20261118-refund-accounting-export) — REFUND_FX_SOURCE is `bazg` or `off`.
+  describe("REFUND_FX_SOURCE", () => {
+    async function readSource(overrides: Record<string, string | undefined>) {
+      const env: Record<string, string> = {
+        ...REQUIRED_ENV_WITHOUT_ACCOUNTING_DISTRIBUTION_EMAIL,
+        PATH: process.env["PATH"] ?? "",
+      };
+      for (const [k, v] of Object.entries(overrides)) {
+        if (v === undefined) delete env[k];
+        else env[k] = v;
+      }
+      const proc = Bun.spawn({
+        cmd: [
+          "bun",
+          "--no-env-file",
+          "-e",
+          "import('./src/lib/env.ts').then((m) => { console.log('SOURCE=' + m.env.REFUND_FX_SOURCE); process.exit(0); })",
+        ],
+        cwd: import.meta.dir + "/../..",
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const exitCode = await proc.exited;
+      return {
+        exitCode,
+        stdout: await new Response(proc.stdout).text(),
+        stderr: await new Response(proc.stderr).text(),
+      };
+    }
+
+    it("defaults to bazg when unset", async () => {
+      const { exitCode, stdout } = await readSource({});
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("SOURCE=bazg");
+    });
+
+    for (const value of ["bazg", "off"]) {
+      it(`accepts ${value}`, async () => {
+        const { exitCode, stdout } = await readSource({ REFUND_FX_SOURCE: value });
+        expect(exitCode).toBe(0);
+        expect(stdout).toContain(`SOURCE=${value}`);
+      });
+    }
+
+    for (const value of ["http://evil.example", "BAZG", "ecb", ""]) {
+      it(`exits naming REFUND_FX_SOURCE for ${JSON.stringify(value)}`, async () => {
+        const { exitCode, stderr } = await readSource({ REFUND_FX_SOURCE: value });
+        expect(exitCode).toBe(1);
+        expect(stderr).toContain("REFUND_FX_SOURCE");
+      });
+    }
+  });
 });

@@ -177,7 +177,7 @@ Reading the list:
     - 20 concurrent calls for one employee → distinct contiguous numbers;
     - a rolled-back transaction consumes nothing.
 
-- [ ] T9: refund-api — FX source client, repo and service: rate in effect, fetch on demand (throttle, single-flight, parallel under the 10 s budget), attempt log, `REFUND_FX_SOURCE` — refs: AC-5.1, AC-5.4, AC-5.6 — deps: T1, T5
+- [x] T9: refund-api — FX source client, repo and service: rate in effect, fetch on demand (throttle, single-flight, parallel under the 10 s budget), attempt log, `REFUND_FX_SOURCE` — refs: AC-5.1, AC-5.4, AC-5.6 — deps: T1, T5
   - touch: `refund-api/src/fx/bazgSource.ts`, `refund-api/src/fx/bazgSource.test.ts`, `refund-api/src/fx/fx.repo.ts`, `refund-api/src/fx/fx.service.ts`, `refund-api/src/fx/fx.service.test.ts`, `refund-api/src/lib/env.ts`, `refund-api/src/lib/env.test.ts`
   - agent: backend-dev · backend
   - Details:

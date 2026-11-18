@@ -126,6 +126,14 @@ const envSchema = z
     REFUND_APP_BASE_URL: z
       .string()
       .url("REFUND_APP_BASE_URL must be a valid absolute URL"),
+    // ─── Monthly exchange rates (T9, specs/20261118-refund-accounting-export) ──
+    // Where `src/fx/` gets the federal monthly average rates: `bazg` (default) calls
+    // the one fixed BAZG host on demand, `off` never makes an outbound call and
+    // records every attempt as `disabled` (offline dev, e2e: rates are typed by
+    // hand). Not a URL on purpose: the host is a constant in `fx/bazgSource.ts`
+    // so no configuration can turn the fetch into a request to somewhere else
+    // (SSRF guard). Any other value fails startup.
+    REFUND_FX_SOURCE: z.enum(["bazg", "off"]).default("bazg"),
   })
   .superRefine((val, ctx) => {
     const residencyError = checkEuResidency(
