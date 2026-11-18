@@ -235,6 +235,15 @@ export async function latestAttempt(client: Client): Promise<AttemptRow | null> 
   return row ? toAttempt(row) : null;
 }
 
+/** The newest attempt of any month that actually asked the source, `ok` or `failed`: the "last fetch" of AC-5.6 (added by T10). */
+export async function latestFetchAttempt(client: Client): Promise<AttemptRow | null> {
+  const row = await client.exchangeRateFetchAttempt.findFirst({
+    where: { outcome: { in: ["ok", "failed"] } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+  return row ? toAttempt(row) : null;
+}
+
 /** The newest attempt of one month that actually asked the source (`ok` or `failed`): the one the throttle looks at. */
 export async function latestSourceAttempt(client: Client, month: string): Promise<AttemptRow | null> {
   const row = await client.exchangeRateFetchAttempt.findFirst({

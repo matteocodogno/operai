@@ -199,7 +199,7 @@ Reading the list:
     - `off` → `disabled`;
     - an unknown `REFUND_FX_SOURCE` fails env validation.
 
-- [ ] T10: refund-api — exchange-rates routes: list with origin/missing/last fetch/`fetchDue`, fetch now, correction — refs: AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-5.6, AC-5.7 — deps: T7, T9
+- [x] T10: refund-api — exchange-rates routes: list with origin/missing/last fetch/`fetchDue`, fetch now, correction — refs: AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-5.6, AC-5.7 — deps: T7, T9
   - touch: `refund-api/src/fx/fx.routes.ts`, `refund-api/src/fx/fx.schemas.ts`, `refund-api/src/fx/fx.routes.test.ts`, `refund-api/src/index.ts`
   - agent: backend-dev · backend
   - Details:

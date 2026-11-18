@@ -21,6 +21,7 @@ import { rateEffectiveRouter } from "./rates/effective.routes";
 import { settingsRouter } from "./settings/routes";
 import { catalogRouter } from "./accounting/catalog.routes";
 import { defaultsRouter } from "./accounting/defaults.routes";
+import { fxRouter } from "./fx/fx.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -101,6 +102,9 @@ app.route("/", catalogRouter);
 // defaultsRouter: the default account / VAT code per expense type and the foreign-currency
 // VAT code, specs/20261118-refund-accounting-export (T7).
 app.route("/", defaultsRouter);
+// fxRouter: monthly exchange rates (list, fetch now, admin correction), gated by
+// settings:read / settings:manage — specs/20261118-refund-accounting-export (T10).
+app.route("/", fxRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
