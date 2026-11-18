@@ -784,12 +784,12 @@ Decided by the orchestrator during the owner-requested unattended run 2026-11-17
 
 - [x] DR-14 (administrators without the grant get a link that redirects): the `admin` role holds `legal-entity:manage` by seed (T3) and department admins inherit it, so every effective administrator can open the history link; no design change. The owner may instead choose to show `PermissionDenied` rather than a redirect.
 - [x] DR-17 (the lock-screen push shows the author's account email and the two IBAN tails): accepted as AC-9.11, AC-9.12 and reading R-a allow, and by the owner for the email on 2026-11-18 (D9). The owner may ask for a shorter push (a notify-api change).
-- [ ] DR-13, DR-15, DR-16 and DR-18: "as the design says" (2026-11-17; DR-18 went to T63).
-- [ ] S12 busy reading (2026-11-18, T40 report): the library disables Confirm natively while busy; S12 is read as "Confirm unavailable while busy", no library change.
+- [x] DR-13, DR-15, DR-16 and DR-18: "as the design says" (2026-11-17; DR-18 went to T63). *(owner approved 2026-11-18)*
+- [x] S12 busy reading (2026-11-18, T40 report): the library disables Confirm natively while busy; S12 is read as "Confirm unavailable while busy", no library change. *(owner approved 2026-11-18)*
 
 Still open, for the owner:
 
-- [ ] Owner review of the copy added by T51 (S12 and S7 additions, the 429 and paging texts, the notice in-app en and it, email en, FU-1, FU-4, FU-7, FU-9). Owner: owner.
+- [x] Owner review of the copy added by T51 (S12 and S7 additions, the 429 and paging texts, the notice in-app en and it, email en, FU-1, FU-4, FU-7, FU-9). Owner: owner. *(owner approved 2026-11-18)*
 - [x] **N1 / O-1**: the actor's display name in the notice. Resolved by spec amendment D9 (2026-11-18): the notice names its author by the account email captured in the version's transaction and shows no display name anywhere (copy in N1; plan "Amendment 2026-11-18 — D9", J1-J12). Reading R-D9a (an address that is not valid counts as no address on record) is proposed to the owner and applied meanwhile.
 - [ ] **O-4**: the shell footer text (11 px, "Legal information", "Operai v0.5.0") measures 3.01:1 (light) and 2.79:1 (dark), under 4.5:1. Pre-existing chrome outside this feature and not on the Legal entities page; for the shell's designer, not this task.
 
