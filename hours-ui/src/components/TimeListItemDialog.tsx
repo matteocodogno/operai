@@ -108,7 +108,7 @@ export default function TimeListItemDialog({ scope, item, onSubmit, onCancel }: 
       submitLabel={renaming ? strings.settings.actions.save : strings.settings.actions.add}
       busyLabel={renaming ? strings.settings.actions.saving : strings.settings.actions.adding}
       cancelLabel={strings.common.cancel}
-      closeLabel={strings.common.cancel}
+      closeLabel={strings.common.close}
       busy={submitting}
       error={formError}
       onSubmit={handleSubmit}

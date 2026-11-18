@@ -18,7 +18,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import TimeListItemDialog from './TimeListItemDialog'
 import type { TimeListItemFailure, TimeListItemValues } from './TimeListItemDialog'
 import type { TimeListRow, TimeListScope } from './TimeListCard'
@@ -110,6 +110,36 @@ describe('opening', () => {
 
     expect(nameInput().value).toBe('Training')
     expect((noteCheckbox() as HTMLInputElement).checked).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// (A2) The two ways out have two names (D-3)
+// ---------------------------------------------------------------------------
+
+describe('the × and the footer button are not both "Cancel" (D-3: a name must tell two controls apart)', () => {
+  // Every placement of the one component: Add and Rename of a category, a project work type and a deal work type.
+  it.each([
+    ['Add category', 'categories', undefined],
+    ['Add project work type', 'project', undefined],
+    ['Add deal work type', 'deal', undefined],
+    ['Rename category', 'categories', training],
+    ['Rename project work type', 'project', demo],
+    ['Rename deal work type', 'deal', demo],
+  ] as const)('%s: the × is "Close" and the footer button is "Cancel", one of each', (title, scope, item) => {
+    const { onCancel } = setup({ scope, item })
+    const dialog = within(screen.getByRole('dialog', { name: title }))
+
+    const close = dialog.getByRole('button', { name: 'Close' })
+    const cancel = dialog.getByRole('button', { name: 'Cancel' })
+    expect(close.getAttribute('data-testid')).toBe('time-lists-dialog-close')
+    expect(cancel.getAttribute('data-testid')).toBe('time-lists-dialog-cancel')
+    expect(close.getAttribute('aria-label')).not.toBe(cancel.textContent)
+
+    // Both still leave the form.
+    fireEvent.click(close)
+    fireEvent.click(cancel)
+    expect(onCancel).toHaveBeenCalledTimes(2)
   })
 })
 

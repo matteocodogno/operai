@@ -253,6 +253,13 @@ describe('the cards in Italian', () => {
     ).not.toBeNull()
     expect(within(dialog).getByTestId('time-lists-dialog-submit').textContent).toBe('Aggiungi')
     expect(within(dialog).getByTestId('time-lists-dialog-cancel').textContent).toBe('Annulla')
+    // The × is "Chiudi", not a second "Annulla" (D-3): two controls, two names, in Italian too.
+    expect(within(dialog).getByRole('button', { name: 'Chiudi' })).toBe(
+      within(dialog).getByTestId('time-lists-dialog-close'),
+    )
+    expect(within(dialog).getByRole('button', { name: 'Annulla' })).toBe(
+      within(dialog).getByTestId('time-lists-dialog-cancel'),
+    )
 
     fireEvent.click(within(dialog).getByTestId('time-lists-dialog-submit'))
     expect(within(dialog).getByTestId('time-lists-dialog-name-error').textContent).toBe('Il nome è obbligatorio.')
