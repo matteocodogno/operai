@@ -352,3 +352,60 @@ export async function typeIntoFocused(page: Page, text: string): Promise<void> {
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.type(text, { delay: 25 })
 }
+
+// ─── Registry values the journeys save (specs/20261117-legal-entities, T43) ───────────────────────────────────────────
+
+/** An IBAN with correct check digits for `country` and `bban` (ISO 13616, mod 97), in its electronic form (no spaces). */
+export function ibanWithCheckDigits(country: string, bban: string): string {
+  const digits = [...`${bban}${country}00`].map((c) => (/\d/.test(c) ? c : String(c.charCodeAt(0) - 55))).join('')
+  let rest = 0
+  for (const digit of digits) rest = (rest * 10 + Number(digit)) % 97
+  return `${country}${String(98 - rest).padStart(2, '0')}${bban}`
+}
+
+/** What a document prints of an IBAN: groups of four characters (AC-5.1). */
+export const groupIban = (iban: string): string => iban.replace(/(.{4})(?=.)/g, '$1 ')
+
+/** The optional values of a registry entity (the ones a journey sets to see them printed and should not leave behind). */
+export interface OptionalDetails {
+  iban: string
+  contacts: { it: string; en: string }
+}
+
+interface RegistryRead {
+  version: number
+  legalName: string
+  address: { it: string[]; en: string[] }
+  vatNumber: string
+  iban: string
+  contacts: { it: string; en: string }
+}
+
+/** The IBAN and the contacts lines `entity` holds now. */
+export async function readOptionalDetails(session: SeededSession, entity: EntityId): Promise<OptionalDetails> {
+  const read = await mustOk(`GET /legal-entities/${entity}`, await authCall<RegistryRead>(session, 'GET', `/legal-entities/${entity}`))
+  return { iban: read.iban, contacts: read.contacts }
+}
+
+/**
+ * Puts the optional values back as `keep` says, with ONE registry save that carries everything else unchanged; nothing is saved
+ * when they are as they were. Registry versions are never deleted, but another journey may assume there is no IBAN to find
+ * (the Legal entities journeys of T42 empty it by hand), so a journey that sets one gives it back.
+ */
+export async function restoreOptionalDetails(session: SeededSession, entity: EntityId, keep: OptionalDetails): Promise<void> {
+  const read = await mustOk(`GET /legal-entities/${entity}`, await authCall<RegistryRead>(session, 'GET', `/legal-entities/${entity}`))
+  if (read.iban === keep.iban && read.contacts.it === keep.contacts.it && read.contacts.en === keep.contacts.en) return
+  await mustOk(
+    `POST /legal-entities/${entity}/versions`,
+    await authCall(session, 'POST', `/legal-entities/${entity}/versions`, {
+      baseVersion: read.version,
+      details: {
+        legalName: read.legalName,
+        address: read.address,
+        vatNumber: read.vatNumber,
+        iban: keep.iban,
+        contacts: keep.contacts,
+      },
+    }),
+  )
+}

@@ -7,7 +7,8 @@
  *           refused save
  *   AC-8.4  the preview of the sample document (at least three pages, every block type) is drawn by the service on the
  *           values in the form, saved or not, and follows an edit without a save, within 2 s of the last edit
- *   AC-8.5  the sample's company data is marked as a sample (and the page says nothing is read from the CRM)
+ *   AC-8.5  (superseded by specs/20261117-legal-entities AC-5.4: the preview shows the REGISTRY's company details, not a
+ *           sample; the journeys of that are the describe at the end of this file and the first journey's source line)
  *   AC-8.8  leaving with an unsaved change asks first; the screen is in the person's language (it/en)
  *
  * The access gating and the read-only modes (AC-8.1, 8.2, 8.9) are letterheads-access.spec.ts; the history, the version
@@ -30,9 +31,16 @@
  *  run:  cd shell && pnpm exec playwright test letterheads --trace off
  */
 import { expect, test, type Page } from '@playwright/test'
+import { getRegistryEntity, type LegalDetails } from './helpers/legalEntitiesFixtures'
 import {
   ENTITY_NAME,
   activeVersion,
+  authCall,
+  groupIban,
+  ibanWithCheckDigits,
+  readOptionalDetails,
+  restoreOptionalDetails,
+  type OptionalDetails,
   contextFor,
   ensureLetterheads,
   footerLeftLine1Italian,
@@ -113,11 +121,26 @@ test.describe('specs/20261116-letterhead-service T26: the Letterheads configurat
     await expect(page.getByRole('figure').first()).toContainText('Sample document')
     await expect(page.getByRole('figure').last()).toContainText('End of the document')
 
-    // Its company data is marked as a sample, and the page says what it is and that nothing comes from the CRM (AC-8.5).
-    expect(text).toContain('(SAMPLE)')
-    await expect(page.getByTestId('letterheads-preview-sample')).toHaveText(
-      'Sample document with sample company data. Nothing here is read from the CRM or any other tool.',
+    // The company details are NOT a sample any more (specs/20261117-legal-entities AC-5.4, supersedes AC-8.5): the pages hold
+    // the registry's, the page says where they come from (the source line, with its link for a person who may manage the
+    // entity) and shows the legend of the missing look, and the intro no longer calls the details placeholders (FU-9).
+    expect(text).not.toContain('(SAMPLE)')
+    const words = text.replace(/\s+/g, ' ')
+    expect(words).not.toMatch(/placeholders|segnaposto/i)
+    expect(words).toContain("The company's details in it are the real ones; a detail that is not filled in yet is marked.")
+    const registry = await getRegistryEntity(people.admin, 'welld_ch')
+    expect(words).toContain(registry.legalName)
+    expect(words).toContain(registry.address.en.join(', '))
+    await expect(page.getByTestId('letterheads-preview-sample')).toHaveCount(0)
+    await expect(page.getByTestId('letterheads-preview-source')).toContainText(
+      'The company details (name, address, VAT number, IBAN, contacts) are the real ones from Legal entities, in the preview language. The body of the page is sample text.',
     )
+    await expect(page.getByTestId('letterheads-preview-source-link')).toHaveAttribute(
+      'href',
+      '/admin/legal-entities?entity=welld_ch',
+    )
+    await expect(page.getByTestId('letterheads-preview-legend')).toContainText('⟦Label⟧')
+    await expect(page.getByTestId('letterheads-preview-legend')).toContainText('A detail that is not filled in yet.')
 
     // It is the unsaved form that is drawn (the request carries the configuration, not a version), in the person's language.
     expect(calls.length).toBeGreaterThan(0)
@@ -390,6 +413,165 @@ test.describe('specs/20261116-letterhead-service T26: the Letterheads configurat
     // The sample document follows the person's language too.
     await expect.poll(() => calls.length).toBeGreaterThan(0)
     expect(calls[0]!.language).toBe('it')
+    await context.close()
+  })
+})
+
+// ─── specs/20261117-legal-entities T43: the preview shows the REGISTRY's company details (AC-5.4) ─────────────────────
+
+/** The second line of the default page's footer, left zone (`{address}` in the default configuration), in one language. */
+const footerLeftLine2 = (page: Page, language: 'Italian' | 'English') =>
+  page
+    .getByRole('region', { name: 'Default page' })
+    .getByRole('group', { name: 'Footer', exact: true })
+    .getByRole('group', { name: 'Left zone' })
+    .getByRole('group', { name: 'Line 2' })
+    .getByRole('textbox', { name: `Text, ${language}` })
+
+const MARK = /⟦[^⟧]+⟧/
+
+test.describe('specs/20261117-legal-entities T43: the configurator preview shows the registry\'s details (AC-5.4, FU-9)', () => {
+  const run = Date.now().toString().slice(-6)
+  let optional: OptionalDetails | null = null
+
+  test.beforeAll(async () => {
+    optional = await readOptionalDetails(people.admin, 'welld_ch')
+  })
+
+  // The IBAN and the contacts lines this journey sets are given back (the Legal entities journeys assume none is there to find).
+  test.afterAll(async () => {
+    if (optional !== null) await restoreOptionalDetails(people.admin, 'welld_ch', optional)
+  })
+
+  const details = (contacts: { it: string; en: string }): LegalDetails => ({
+    legalName: `wellD SA Preview ${run}`,
+    address: { it: [`Via Anteprima ${run}`, '6900 Lugano'], en: [`Preview Street ${run}`, '6900 Lugano (CH)'] },
+    vatNumber: `CHE-${run.slice(0, 3)}.${run.slice(3)}.001 MWST`,
+    iban: ibanWithCheckDigits('CH', `00762${'0201164'}${run.slice(0, 5)}`),
+    contacts,
+  })
+
+  async function saveRegistry(next: LegalDetails): Promise<void> {
+    const read = await getRegistryEntity(people.admin, 'welld_ch')
+    const saved = await authCall(people.admin, 'POST', '/legal-entities/welld_ch/versions', { baseVersion: read.version, details: next })
+    expect([200, 201], JSON.stringify(saved.body).slice(0, 300)).toContain(saved.status)
+  }
+
+  const isPreviewCall = (response: { url: () => string; request: () => { method: () => string } }): boolean =>
+    response.request().method() === 'POST' && /\/v1\/letterheads\/[a-z_]+\/preview/.test(response.url())
+
+  /** Chooses a preview language and waits for the pages the service draws for it. */
+  async function chooseLanguage(page: Page, language: 'Italian' | 'English'): Promise<void> {
+    if (await page.getByRole('radio', { name: language }).isChecked()) return
+    const drawn = page.waitForResponse(isPreviewCall, { timeout: 20_000 })
+    await page.getByRole('radio', { name: language }).check()
+    await drawn
+    await expect(previewRegion(page)).not.toHaveAttribute('aria-busy', 'true', { timeout: 15_000 })
+  }
+
+  /**
+   * Draws the preview in `language` again and again (away and back: two new requests each time) until its text holds `expected`:
+   * the service reads the registry within AC-3.3's 60 s of a save. Returns the text, white space collapsed.
+   */
+  async function waitForPreview(page: Page, language: 'Italian' | 'English', expected: RegExp | string): Promise<string> {
+    const other = language === 'Italian' ? 'English' : 'Italian'
+    let text = ''
+    await expect
+      .poll(
+        async () => {
+          await chooseLanguage(page, other)
+          await chooseLanguage(page, language)
+          text = (await previewText(page)).replace(/\s+/g, ' ')
+          return typeof expected === 'string' ? text.includes(expected) : expected.test(text)
+        },
+        { message: `the preview shows ${String(expected)}`, timeout: 90_000, intervals: [2_000] },
+      )
+      .toBe(true)
+    return text
+  }
+
+  test('the pages hold the saved name, the address of the preview language and the grouped IBAN; an empty contacts line shows its label in the missing look, and filled it does not (AC-5.4)', async ({
+    browser,
+  }) => {
+    test.setTimeout(240_000)
+    const empty = details({ it: '', en: '' })
+    await saveRegistry(empty)
+
+    const context = await contextFor(browser, people.admin)
+    const page = await context.newPage()
+    await openConfigurator(page, 'welld_ch')
+
+    // The default footer, untouched: the name and the address, in the preview language (English first, then Italian).
+    const english = await waitForPreview(page, 'English', empty.legalName)
+    expect(english).toContain(empty.address.en.join(', '))
+    expect(english).not.toContain(empty.address.it[0]!)
+    const italian = await waitForPreview(page, 'Italian', empty.address.it.join(', '))
+    expect(italian).toContain(empty.legalName)
+    expect(italian).not.toContain(empty.address.en[0]!)
+
+    // Unsaved edit 1: the footer's second line asks for the IBAN. It prints in groups of four, never in its electronic form.
+    const setLine2 = async (text: string): Promise<void> => {
+      for (const language of ['Italian', 'English'] as const) {
+        await tabTo(page, footerLeftLine2(page, language))
+        await typeIntoFocused(page, text)
+      }
+    }
+    await setLine2('{iban}')
+    await expect(page.getByText('Unsaved changes')).toBeVisible()
+    const iban = await waitForPreview(page, 'English', groupIban(empty.iban))
+    expect(iban).not.toContain(empty.iban)
+    expect(iban).not.toMatch(MARK)
+
+    // Unsaved edit 2: the contacts line, which has no value. Its label is drawn in the missing look (the label, in the preview's
+    // language), nothing else; the text alternative of the page marks it with ⟦ ⟧.
+    await setLine2('{contacts}')
+    const englishMark = (await waitForPreview(page, 'English', MARK)).match(MARK)![0]
+    const italianMark = (await waitForPreview(page, 'Italian', MARK)).match(MARK)![0]
+    expect(englishMark, 'the label follows the preview language').not.toBe(italianMark)
+
+    // The same value filled in the registry: the line prints it, and the label is gone.
+    const filled = details({ it: `Tel. +41 91 ${run}`, en: `Phone +41 91 ${run}` })
+    await saveRegistry(filled)
+    const printed = await waitForPreview(page, 'English', filled.contacts.en)
+    expect(printed).not.toMatch(MARK)
+    const printedIt = await waitForPreview(page, 'Italian', filled.contacts.it)
+    expect(printedIt).not.toMatch(MARK)
+    // Nothing of this was saved in the letterhead: the edit is still unsaved, the active version is the one it started from.
+    await expect(page.getByText('Unsaved changes')).toBeVisible()
+    await context.close()
+  })
+
+  test('the source line links to Legal entities for a manager and names who keeps them for anyone else (AC-5.4, AC-6.1)', async ({ browser }) => {
+    const manager = await contextFor(browser, people.admin)
+    const managerPage = await manager.newPage()
+    await openConfigurator(managerPage, 'welld_ch')
+    await expect(managerPage.getByTestId('letterheads-preview-source-link')).toHaveAttribute('href', '/admin/legal-entities?entity=welld_ch')
+    await manager.close()
+
+    const reader = await contextFor(browser, people.viewer)
+    const readerPage = await reader.newPage()
+    await readerPage.goto('/letterheads?entity=welld_ch')
+    await expect(readerPage.getByTestId('letterheads-preview-source')).toContainText('An administrator keeps them in Legal entities.', { timeout: 30_000 })
+    await expect(readerPage.getByTestId('letterheads-preview-source-link')).toHaveCount(0)
+    await reader.close()
+  })
+
+  test('a missing label that wraps onto a second line keeps its brackets in English too (AC-5.4)', async ({ browser }) => {
+    // KNOWN DEFECT D-T43-1 (letterhead-api engine, `output/text.rs` `page_text_marking`): with the footer's second line
+    // `{iban} {contacts}`, an empty contacts line and the preview in English, the page text reads `... 5295 7 Contacts` / `line` with
+    // NO ⟦ ⟧ (Italian, `⟦Riga` / `contatti⟧`, and a line with the label alone keep them). The drawing is right; the text alternative is not.
+    test.setTimeout(240_000)
+    await saveRegistry(details({ it: '', en: '' }))
+    const context = await contextFor(browser, people.admin)
+    const page = await context.newPage()
+    await openConfigurator(page, 'welld_ch')
+    for (const language of ['Italian', 'English'] as const) {
+      await tabTo(page, footerLeftLine2(page, language))
+      await typeIntoFocused(page, '{iban} {contacts}')
+    }
+    await expect(page.getByText('Unsaved changes')).toBeVisible()
+    const words = await waitForPreview(page, 'English', /Contacts( line)?/)
+    expect(words, 'the English label, in brackets').toContain('⟦Contacts line⟧')
     await context.close()
   })
 })
