@@ -135,7 +135,7 @@ Reading the list:
     AC-1.1, 1.2, 1.4, 1.5 (PUT/PATCH 404), 1.7, 1.8 (history before→after), 1.9, 1.10 and 1.11
     (status-row count unchanged) rows; full refund-api suite green.
 
-- [ ] T7: refund-api — defaults API: the 12 type defaults and the foreign-currency VAT code (history, active only, no-op suppression) — refs: AC-1.9, AC-1.10, AC-2.1, AC-2.2, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8 — deps: T1, T4, T6
+- [x] T7: refund-api — defaults API: the 12 type defaults and the foreign-currency VAT code (history, active only, no-op suppression) — refs: AC-1.9, AC-1.10, AC-2.1, AC-2.2, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8 — deps: T1, T4, T6
   - touch: `refund-api/src/accounting/defaults.repo.ts`, `refund-api/src/accounting/defaults.routes.ts`, `refund-api/src/accounting/defaults.schemas.ts`, `refund-api/src/accounting/defaults.routes.test.ts`, `refund-api/src/index.ts`
   - agent: backend-dev · backend
   - Details:

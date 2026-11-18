@@ -20,6 +20,7 @@ import { ratesRouter } from "./rates/routes";
 import { rateEffectiveRouter } from "./rates/effective.routes";
 import { settingsRouter } from "./settings/routes";
 import { catalogRouter } from "./accounting/catalog.routes";
+import { defaultsRouter } from "./accounting/defaults.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -97,6 +98,9 @@ app.route("/", settingsRouter);
 // catalogRouter: ledger accounts + VAT codes, add / deactivate / reactivate, gated by
 // settings:read / settings:manage — specs/20261118-refund-accounting-export (T6).
 app.route("/", catalogRouter);
+// defaultsRouter: the default account / VAT code per expense type and the foreign-currency
+// VAT code, specs/20261118-refund-accounting-export (T7).
+app.route("/", defaultsRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
