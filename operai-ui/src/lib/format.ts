@@ -9,6 +9,7 @@ import type { Locale } from './i18n'
  *   formatDate('2026-10-31')            31.10.2026   (both languages)
  *   formatDateTime('2026-10-31T14:05Z') 31.10.2026 15:05
  *   formatDateLong('2026-10-31')        31 October 2026 / 31 ottobre 2026
+ *   formatMonth('2026-03')              March 2026 / marzo 2026
  *   formatRelative(date)                3 hours ago / 3 ore fa (a week or older: formatDate)
  *   formatMoney(1234550, 'EUR')         EUR 12,345.50 / 12.345,50 EUR
  *   formatAmount(1234550)               12,345.50 / 12.345,50
@@ -51,6 +52,21 @@ export function formatDateLong(value: string | Date, locale: Locale = resolveLoc
   return new Intl.DateTimeFormat(NUMBER_LOCALE[locale], { day: 'numeric', month: 'long', year: 'numeric' }).format(
     toDate(value),
   )
+}
+
+const YEAR_MONTH = /^(\d{4})-(0[1-9]|1[0-2])$/
+
+/**
+ * A month on its own: "March 2026" / "marzo 2026". Takes an API month (`YYYY-MM`), a
+ * date-only or full ISO string, or a Date (its local month). Anything else throws a
+ * TypeError, like the money formatters, so a bad value never shows as "Invalid Date".
+ */
+export function formatMonth(value: string | Date, locale: Locale = resolveLocale()): string {
+  const yearMonth = typeof value === 'string' ? YEAR_MONTH.exec(value) : null
+  const date = yearMonth ? new Date(Number(yearMonth[1]), Number(yearMonth[2]) - 1, 1) : toDate(value)
+  if (Number.isNaN(date.getTime()))
+    throw new TypeError(`formatMonth: expected YYYY-MM, an ISO date or a Date, got ${String(value)}`)
+  return new Intl.DateTimeFormat(NUMBER_LOCALE[locale], { month: 'long', year: 'numeric' }).format(date)
 }
 
 const RELATIVE_STEPS: ReadonlyArray<[Intl.RelativeTimeFormatUnit, number]> = [

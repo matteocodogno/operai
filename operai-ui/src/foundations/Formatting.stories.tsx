@@ -5,6 +5,7 @@ import {
   formatDateLong,
   formatDateTime,
   formatMoney,
+  formatMonth,
   formatNumber,
   formatRelative,
 } from '../lib/format'
@@ -45,6 +46,12 @@ const ROWS: Row[] = [
     call: "formatDateLong('2026-10-31')",
     en: formatDateLong('2026-10-31', 'en'),
     it: formatDateLong('2026-10-31', 'it'),
+  },
+  {
+    call: "formatMonth('2026-03')",
+    en: formatMonth('2026-03', 'en'),
+    it: formatMonth('2026-03', 'it'),
+    note: 'An API month (YYYY-MM), an ISO date or a Date',
   },
   {
     call: 'formatRelative(5 minutes ago)',

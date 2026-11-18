@@ -110,6 +110,7 @@ export {
   formatDateTime,
   formatDuration,
   formatMoney,
+  formatMonth,
   formatNumber,
   formatRelative,
 } from './lib/format'

@@ -12,6 +12,7 @@ import {
   formatDateTime,
   formatDuration,
   formatMoney,
+  formatMonth,
   formatNumber,
   formatRelative,
 } from './format'
@@ -37,6 +38,27 @@ describe('formatters', () => {
     expect(formatRelative(new Date(2026, 9, 31, 9, 0), now, 'en')).toBe('3 hours ago')
     expect(formatRelative(new Date(2026, 9, 31, 9, 0), now, 'it')).toBe('3 ore fa')
     expect(formatRelative(new Date(2026, 9, 20), now, 'en')).toBe('20.10.2026')
+  })
+
+  it('writes a month in the language, from YYYY-MM, an ISO date or a Date', () => {
+    expect(formatMonth('2026-03', 'en')).toBe('March 2026')
+    expect(formatMonth('2026-03', 'it')).toBe('marzo 2026')
+    expect(formatMonth('2026-12', 'en')).toBe('December 2026')
+    expect(formatMonth('2026-01', 'it')).toBe('gennaio 2026')
+    expect(formatMonth(new Date(2026, 2, 31, 23, 59), 'en')).toBe('March 2026')
+    expect(formatMonth(new Date(2026, 2, 1), 'it')).toBe('marzo 2026')
+    // a date-only string is the calendar day, never shifted into the neighbouring month by the time zone
+    expect(formatMonth('2026-03-01', 'en')).toBe('March 2026')
+    expect(formatMonth('2026-03-31', 'it')).toBe('marzo 2026')
+  })
+
+  it('follows <html lang> when no language is given, and refuses a value that is not a month', () => {
+    document.documentElement.setAttribute('lang', 'it')
+    expect(formatMonth('2026-03')).toBe('marzo 2026')
+    expect(() => formatMonth('2026-13')).toThrow(TypeError)
+    expect(() => formatMonth('March')).toThrow(TypeError)
+    expect(() => formatMonth('')).toThrow(TypeError)
+    expect(() => formatMonth(new Date(Number.NaN))).toThrow(TypeError)
   })
 
   it('formats integer cents with the currency code, grouping and the language decimal mark', () => {
