@@ -5,7 +5,7 @@
   "feature": "20261117-legal-entities",
   "rigor": "production",
   "started": "2026-11-17T14:58:00Z",
-  "finished": "2026-11-18T07:00:00Z",
+  "finished": "2026-11-18T09:30:00Z",
   "agents": [
     {
       "agent": "product-owner",
@@ -826,6 +826,54 @@
       ],
       "outcome": "FAIL 76.5 (round 1; trajectory 2 - no trace)",
       "commits": []
+    },
+    {
+      "agent": "owasp-reviewer",
+      "tasks": [],
+      "outcome": "delta review of T76/D2/D3: PASS WITH NOTES (0 medium+; T76-1, T76-2 low \u2192 T77)",
+      "commits": [
+        "dc658437"
+      ]
+    },
+    {
+      "agent": "architect",
+      "tasks": [],
+      "outcome": "plan sync after implementation (H1\u2013H12) + T77 update",
+      "commits": [
+        "f31feb1e",
+        "66945ea5",
+        "5e8dd828",
+        "4c9a6842"
+      ]
+    },
+    {
+      "agent": "designer",
+      "tasks": [],
+      "outcome": "design.md sync after implementation; FU-5 closed",
+      "commits": [
+        "66945ea5",
+        "7cf84043"
+      ]
+    },
+    {
+      "agent": "adr-writer",
+      "tasks": [],
+      "outcome": "forward pointers in amended ADRs",
+      "commits": [
+        "43850795",
+        "4c9a6842"
+      ]
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T77"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "da0b000c"
+      ],
+      "worktree": "le/T77"
     }
   ],
   "drift_events": [
@@ -907,7 +955,7 @@
   ],
   "verdicts": {
     "qe": "PASS (T45; T42/T43/T68 FAIL rounds fixed by D1-D3)",
-    "owasp": "T46 REVIEW REQUIRED, then T70 PASS WITH NOTES; delta review of T76/D2/D3 in eval round 1 fixes",
+    "owasp": "T46 REVIEW REQUIRED \u2192 T70 PASS WITH NOTES \u2192 delta (T76/D2/D3) PASS WITH NOTES; lows fixed in T77",
     "eval": "FAIL 76.5 (round 1); round 2 follows"
   },
   "result": "partial",
