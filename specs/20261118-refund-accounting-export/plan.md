@@ -212,7 +212,7 @@ restricting it later is a role edit in admin-ui, with no deploy.
    20260714-invitation-lifecycle-derived-expiry-state applies directly: a rate is only ever needed at
    the moment someone reads it. ADR 20261118-assignment-reminders-in-process-scheduler-claimed-by-cas
    does not apply, because no action toward a person has to happen while nobody reads anything. See
-   ADR candidate 1.
+   ADR 20261118-monthly-exchange-rates-are-fetched-on-demand-from-the-federal-source-recorded-once-and-corrected-only-by-an-admin-never-by-a-scheduler-and-the-outbound-fetch-is-hardened.
 
 ### Visibility (AC-3.10)
 
@@ -937,27 +937,28 @@ above is synced with them:
 Still a plan-level reading, not spec text: AC-6.11's capability is `request:review` (the compile
 gate), narrowed to WellD CH scope (D8). No further amendment is proposed.
 
-## ADR candidates
+## ADRs written
 
-1. **External reference data is fetched on demand by the service that needs it, never by a
-   scheduler**: monthly FX rates from BAZG, recorded once, corrections win. It extends ADR
-   20260714-invitation-lifecycle-derived-expiry-state to external data and draws the line against
-   ADR 20261118-assignment-reminders-in-process-scheduler-claimed-by-cas: a schedule only for actions
+Written 2026-11-18 from the former candidates (status Accepted under the same pre-authorisation
+as this plan; review on the owner's return). Each carries a `## Failure shape` section.
+
+1. **20261118-monthly-exchange-rates-are-fetched-on-demand-from-the-federal-source-recorded-once-and-corrected-only-by-an-admin-never-by-a-scheduler-and-the-outbound-fetch-is-hardened**: external reference data is fetched on
+   demand by the service that needs it, never by a scheduler (monthly FX rates from BAZG, recorded
+   once, corrections win). It extends ADR 20260714-invitation-lifecycle-derived-expiry-state to
+   external data and draws the line against ADR
+   20261118-assignment-reminders-in-process-scheduler-claimed-by-cas: a schedule only for actions
    toward people. It also sets the outbound-fetch hardening rules (fixed host, no redirects, size
    cap, no entity resolution).
-2. **Receipt numbers come from a row-locked per-(employee, year) counter inside the approval
-   transaction, and are immutable in the database.** Covers the trigger on `refund_line`, the
+2. **20261118-receipt-numbers-come-from-a-row-locked-per-employee-and-year-counter-inside-the-approval-transaction-and-are-immutable-in-the-database**: covers the trigger on `refund_line`, the
    monotonic counter, the one-time starting offset and the release gate. It constrains every future
    numbering in the suite (offers already use `NNNN/YYYY`; this is the per-person variant).
-3. **Accounting classification is live before approval and frozen at approval; changing it after
-   approval is a separate permission (`request:reclassify`), refused at the database once paid.**
-   Extends the snapshot-at-transition pattern of ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition.
-4. **Derived money for the books: CHF amount and VAT amount are computed on read from integer micros
-   and basis points, rounded once, half-up, never stored.** Extends ADR
+3. **20261118-accounting-classification-is-live-until-approval-then-frozen-and-changing-it-afterwards-needs-request-reclassify-and-is-refused-by-the-database-once-paid**: extends the
+   snapshot-at-transition pattern of ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition.
+4. **20261118-chf-and-vat-amounts-are-derived-on-read-from-integer-micros-and-basis-points-rounded-once-half-up-and-never-stored**: extends ADR
    20260720-mileage-rate-money-precision-integer-micros to FX and VAT.
-5. **The accounting export is generated on request, never stored, logged append-only with its
-   content hash and format version.** Also covers the CSV dialect and injection guard as the suite's
-   CSV convention.
+5. **20261118-the-accounting-export-is-generated-on-request-never-stored-and-logged-append-only-with-its-content-hash-and-format-version**: also covers the CSV
+   dialect and injection guard as the suite's CSV convention. The dialect values stay provisional
+   until accounting answers open question 3 (D3).
 
 The catalog tables, the defaults history and the export log reuse the self-auditing and
 immutability pattern unchanged (ADR 20260716/0024/0028). That reuse needs no ADR of its own.
