@@ -9,6 +9,12 @@ Planned unattended on 2026-11-18 against the approved spec. Every open decision 
 option. Each one is listed with its reason under **Decisions taken unattended** at the end of this
 plan, and each is kept in one place so it is cheap to change after accounting answers.
 
+**Synced 2026-11-18 with the spec amendments of commit 6e074318** (spec § Amendments: A1
+reactivation, A2 foreign-currency VAT code, two clarifications). The affected sections are the
+defaults module, the release script, the data model's settings keys, the API contracts, the test
+table, D4/D7/D9/D13 and the former "Spec amendments proposed" section, now "Spec amendments
+applied".
+
 ## Architecture
 
 ### Shape in one paragraph
@@ -36,7 +42,7 @@ computed on read from the frozen classification and the rate in effect. refund-u
 | File | Role |
 |---|---|
 | `catalog.repo.ts` / `catalog.routes.ts` / `catalog.schemas.ts` | Ledger accounts and VAT codes. Each is an insert-only row whose identity and rate never change, with an append-only status history (deactivate/reactivate). Management routes are gated by `settings:read`/`settings:manage`. |
-| `defaults.repo.ts` / `defaults.routes.ts` | The default account and VAT code per expense type for WellD CH: an append-only history, with the current value derived as the latest row (refund_setting lineage, ADR 20260722-refund-settings-append-only-self-auditing-store). Also the designated **foreign-currency VAT code** (see D4). |
+| `defaults.repo.ts` / `defaults.routes.ts` | The default account and VAT code per expense type for WellD CH: an append-only history, with the current value derived as the latest row (refund_setting lineage, ADR 20260722-refund-settings-append-only-self-auditing-store). Also the designated **foreign-currency VAT code** (domain term added by amendment A2; see "Foreign-currency VAT code rules" below and D4). |
 | `classification.ts` (pure) | `resolveClassification(line, overrides, defaults, foreignVatCodeId)` → `{ account, accountIsDefault, vatCode, vatCodeIsDefault }`. It is the one function shared by the review view, the approve freeze, the release backfill and the export blockers, so these four places cannot disagree (the lesson of ADR 20260714-invitation-lifecycle-derived-expiry-state's "one shared helper" risk). |
 | `classification.repo.ts` / `classification.routes.ts` | Accounting's line view (`GET /review/requests/{id}/accounting`), line classification change (`PUT …/lines/{lineId}/classification`) and the active-options read (`GET /accounting/options`). |
 | `receiptNumber.ts` (pure) | Initials from the name or email (AC-4.2/4.8) and the number format. |
@@ -94,14 +100,22 @@ specs/20260722-refund-settings), and has `--dry-run`. It runs in one transaction
 
 1. Seed the catalog, the 12 defaults and the foreign-currency VAT code from
    `scripts/data/accounting-seed.welld-ch.json`, only where nothing exists yet. The actor is
-   `system:accounting-seed`.
+   `system:accounting-seed`. The designation of the foreign-currency VAT code is a
+   **system-actor designation**: it is written as an ordinary `refund_setting` row (actor
+   `system:accounting-seed`, email `system-accounting-seed@welld.ch`), so it appears in the
+   designation history like any admin change (AC-2.5) and is protected by the same immutability
+   trigger. It is written only when the key has no row yet, so a designation an admin already made
+   is never overridden.
 2. Optionally apply per-employee starting offsets from `--offsets <csv>`
    (`email,year,lastIssuedSeq`), only for (employee, year) pairs with no number issued yet (D2). The
    file is passed at run time and never committed, because it names employees.
-3. Classify (current defaults) and number (by expense date, then line `createdAt`, then `id`) every
-   non-rejected WellD CH line of `approved`/`paid` requests that has no number yet. The audit actor
-   is `system:accounting-release` (AC-7.1). A line whose type has no default stays unclassified,
-   which is AC-7.2.
+3. Classify (current defaults, through the same `resolveClassification` as approval: the type's
+   default account, plus the type's default VAT code for a CHF line or the foreign-currency VAT
+   code for any other currency) and number (by expense date, then line `createdAt`, then `id`)
+   every non-rejected WellD CH line of `approved`/`paid` requests that has no number yet. The audit
+   actor is `system:accounting-release` (AC-7.1). A line left without an account or a usable VAT
+   code stays unclassified, which is AC-7.2. WellD Italia lines are not touched: no number, no
+   classification (AC-7.3).
 4. Write the release marker: the `refund_setting` key `accounting-release-completed-at`. From that
    moment approvals are accepted again.
 
@@ -147,6 +161,28 @@ restricting it later is a role edit in admin-ui, with no deploy.
   `design-system.md` (AGENTS.md rule).
 
 **shell/e2e**: `refund-accounting.spec.ts`, one end-to-end journey (see Test strategy).
+
+### Foreign-currency VAT code rules (amendment A2: AC-2.5 to AC-2.8, AC-3.2, AC-3.4, AC-7.1, AC-7.2)
+
+- **Storage:** the `refund_setting` key `accounting.welld_ch.foreign-currency-vat-code`, whose value
+  is a VAT code id or `null` (cleared). Append-only: every designation is a row with actor and
+  time, so the current designation and its history come from the same table (AC-2.5).
+- **Who:** read with `settings:read`, written with `settings:manage` (AC-2.8). Only through
+  `PUT /accounting/foreign-currency-vat-code`; the key is not in the generic `/settings/{key}`
+  registry, so there is no second write path.
+- **Only active codes:** the route refuses an unknown or inactive code with 422, and the select
+  offers active codes only (AC-2.6).
+- **Usable or nothing:** `resolveClassification` treats the designation as **usable** only when it
+  is set **and** the code is currently active. A missing designation, a cleared one, or one that
+  points at a code deactivated since is **no default VAT code** for every non-CHF WellD CH line
+  (AC-2.7). Such a line shows its type's default account and no VAT code, approval is refused for
+  it unless accounting classifies it (AC-3.4), and the release script leaves it unclassified
+  (AC-7.2). The same "inactive = none" rule already applies to a type default pointing at an
+  inactive entry. A reactivated code (AC-1.10) becomes usable again with no further step.
+- **No retroactive effect:** a change of designation never touches a line already approved: its
+  frozen `vatCodeId` stays (AC-2.3).
+- **Visible:** the defaults card shows the code currently designated or "none", warns when the
+  designated code is inactive, and lists the history (AC-2.5).
 
 ### Interaction flows
 
@@ -431,7 +467,9 @@ script, are deliberately **not** in the generic `/settings/{key}` registry, and 
 path:
 
 - `accounting.welld_ch.foreign-currency-vat-code`: the VAT code id applied by default to non-CHF
-  WellD CH lines (D4).
+  WellD CH lines (D4). Each row is one designation with its actor and time, the history of AC-2.5.
+  The release seed's row has the system actor `system:accounting-seed`. A value pointing at an
+  inactive code counts as no designation when resolved (AC-2.7); the row itself is never changed.
 - `accounting-release-completed-at`: the release marker (D6).
 
 **Audit `detail` shapes (RefundAuditEntry)**
@@ -476,7 +514,9 @@ VAT codes seeded:
 - `IMP77` "IVA 7.7%", 770 bp;
 - `NOVAT` "Senza IVA", 0 bp. The real name of the "no VAT" code is not known (D1).
 
-The foreign-currency VAT code is `NOVAT`. A "—" in the table seeds no default, so approval of that
+The foreign-currency VAT code is designated as `NOVAT` by the seed, as a system-actor designation
+(see the release script). The code's real name is the spec's new open question; D13 gives the
+fallback. A "—" in the table seeds no default, so approval of that
 type is refused until accounting classifies the line (AC-3.4). That is the safe outcome where the
 register gives no answer.
 
@@ -496,18 +536,19 @@ GET  /accounting/ledger-accounts
                    history: [ { active: boolean, at, byEmail } ] } ] }  // oldest → newest; first = creation (AC-1.8)
 POST /accounting/ledger-accounts        { number: string, name: string }
   201 item
-  409 { code:"ledger_account_duplicate", detail:"Account 5905 already exists" }   // AC-1.2 (also on P2002)
+  409 { code:"ledger_account_duplicate", detail:"Account 5905 already exists" }   // AC-1.2, active OR deactivated (also on P2002)
   422 { code:"invalid_ledger_account", detail }
 POST /accounting/ledger-accounts/{id}/deactivate    200 item | 404 | 409 { code:"already_inactive" }
-POST /accounting/ledger-accounts/{id}/reactivate    200 item | 404 | 409 { code:"already_active" }   // D9, see amendment A1
+POST /accounting/ledger-accounts/{id}/reactivate    200 item | 404 | 409 { code:"already_active", detail:"Account 5905 is already active" }
+                                                    // AC-1.9 / AC-1.11: the 409 writes no status row (nothing audited)
 
 GET  /accounting/vat-codes
   200 { items: [ { id, code, label, rateBasisPoints, ratePercent:"8.1", active, createdAt, createdByEmail, history } ] }
 POST /accounting/vat-codes              { code: string, label: string, ratePercent: string }  // ^\d{1,3}(\.\d{1,2})?$, 0 ≤ x ≤ 100
   201 item
-  409 { code:"vat_code_duplicate", detail:"VAT code IMP81 already exists" }        // AC-1.4
+  409 { code:"vat_code_duplicate", detail:"VAT code IMP81 already exists" }        // AC-1.4, active OR deactivated; reactivate instead
   422 { code:"invalid_vat_code" }
-POST /accounting/vat-codes/{id}/deactivate | /reactivate   (as accounts)
+POST /accounting/vat-codes/{id}/deactivate | /reactivate   (as accounts; AC-1.10 / AC-1.11)
 // No PUT/PATCH on either resource exists (AC-1.5): the router answers 404 for those methods.
 ```
 
@@ -516,7 +557,9 @@ POST /accounting/vat-codes/{id}/deactivate | /reactivate   (as accounts)
 ```
 GET /accounting/expense-type-defaults
   200 { entity:"welld_ch",
-        foreignCurrencyVatCode: { id, code, label, ratePercent, active } | null,
+        foreignCurrencyVatCode: { id, code, label, ratePercent, active } | null,   // the designation, even if inactive
+        foreignCurrencyVatCodeUsable: boolean,                                       // false when null or inactive (AC-2.7)
+        foreignCurrencyVatCodeHistory: [ { vatCode: {id,code}|null, at, byEmail } ], // oldest → newest (AC-2.5)
         types: [ {                                                              // always 12, enum order (AC-2.2)
           type,
           account: { id, number, name, active } | null,
@@ -527,8 +570,10 @@ PUT /accounting/expense-type-defaults/{type}     { ledgerAccountId: string|null,
   200 the type row
   422 { code:"ledger_account_inactive" | "vat_code_inactive" | "unknown_ledger_account" | "unknown_vat_code" }  // AC-2.4
   // no-op (same as current) → 200, no new row
-PUT /accounting/foreign-currency-vat-code        { vatCodeId: string|null }
-  200 { foreignCurrencyVatCode }    422 as above
+PUT /accounting/foreign-currency-vat-code        { vatCodeId: string|null }      // settings:manage (AC-2.8)
+  200 { foreignCurrencyVatCode, foreignCurrencyVatCodeUsable, foreignCurrencyVatCodeHistory }
+  422 { code:"vat_code_inactive" | "unknown_vat_code" }                          // AC-2.6
+  // no-op (same as current) → 200, no new row
 ```
 
 ### Accounting (classification)
@@ -653,7 +698,7 @@ GET /batches/{id}/accounting-export/csv
 | 13 | `VAT code` | |
 | 14 | `VAT rate (%)` | 2 decimals: `8.10` |
 | 15 | `VAT amount (CHF)` | 2 decimals |
-| 16 | `Batch` | the batch id |
+| 16 | `Batch` | the batch id: the reference Refund shows on the batch page and in the batch PDF (AC-6.2 clarification) |
 
 - Rows are sorted by employee name (code-point order, not locale), then `ownerUserId`, then
   `receiptYear`, then `receiptSeq`, then line id.
@@ -713,21 +758,28 @@ backs the parser unit test.
 | AC | Level | What proves it |
 |---|---|---|
 | AC-1.1 | int, ui, e2e | POST account → appears in `GET /accounting/ledger-accounts` and `/accounting/options`; usable in PUT default and PUT classification. UI: the add dialog adds a row. |
-| AC-1.2 | int | Second POST with the same number → 409 `ledger_account_duplicate`, detail contains the number. Two concurrent POSTs → one 201, one 409 (P2002 mapped). |
+| AC-1.2 | int | Second POST with the same number → 409 `ledger_account_duplicate`, detail contains the number; same when the existing account is deactivated. Two concurrent POSTs → one 201, one 409 (P2002 mapped). |
 | AC-1.3 | int, db | Deactivate → absent from options; PUT default/classification with it → 422; a line classified with it before keeps `ledgerAccountId` (read back, and still exported). |
-| AC-1.4 | int | POST `IMP81` `"8.1"` → `rateBasisPoints` 810. `"-1"`, `"100.01"`, `"8.123"` → 422. `"100"` and `"0"` accepted. Duplicate code → 409. |
+| AC-1.4 | int | POST `IMP81` `"8.1"` → `rateBasisPoints` 810. `"-1"`, `"100.01"`, `"8.123"` → 422. `"100"` and `"0"` accepted. Duplicate code → 409, also when the existing code is deactivated. |
 | AC-1.5 | int, db, ui | PUT/PATCH `/accounting/vat-codes/{id}` → 404. Raw `UPDATE vat_code SET "rateBasisPoints"` raises. The VAT card renders no edit control. |
 | AC-1.6 | int | Deactivated code absent from options; PUT classification with it → 422; lines carrying it unchanged. |
-| AC-1.7 | int, ui | No `settings:read` → GET 403 on accounts/VAT/defaults. No `settings:manage` → POST/deactivate/PUT 403. UI: write controls hidden without manage. |
-| AC-1.8 | int, db | Add/deactivate rows carry actor and time; `history` shows before→after. Raw UPDATE/DELETE on `ledger_account`, `vat_code`, `accounting_catalog_status` raise. |
+| AC-1.7 | int, ui | No `settings:read` → GET 403 on accounts/VAT/defaults. No `settings:manage` → POST, deactivate, **reactivate** and PUT 403. UI: write controls hidden without manage. |
+| AC-1.8 | int, db | Add/deactivate/**reactivate** rows carry actor and time; `history` shows before→after for each. Raw UPDATE/DELETE on `ledger_account`, `vat_code`, `accounting_catalog_status` raise. |
+| AC-1.9 | int, ui | Deactivate an account used by a classified line, then reactivate → listed active with the same number and name, back in `/accounting/options`, accepted again by PUT default and PUT classification; the line's `ledgerAccountId` unchanged throughout. UI: the reactivate button on an inactive row. |
+| AC-1.10 | int, ui | Same for a VAT code: same code, label and `rateBasisPoints`; usable again as type default, as foreign-currency VAT code (a designation pointing at it becomes `usable: true` again) and on a line; existing lines unchanged. |
+| AC-1.11 | int | Reactivate an active account and an active VAT code → 409 `already_active` with the message; the count of `accounting_catalog_status` rows is unchanged. |
 | AC-2.1 | int, db | PUT default twice → `history` holds both with `byEmail`/`at`; immutability of `expense_type_default`. |
 | AC-2.2 | int, ui | GET returns exactly 12 types, with `null` for unset; the card shows "none". |
-| AC-2.3 | int | Approve, then change the type default → the line's frozen ids unchanged. |
+| AC-2.3 | int | Approve, then change the type default → the line's frozen ids unchanged. Approve a non-CHF line, then change or clear the foreign-currency VAT code → its frozen `vatCodeId` unchanged. |
 | AC-2.4 | int, ui | PUT default with an inactive id → 422; the selects list only active entries. |
+| AC-2.5 | int, script, ui | PUT designation twice → `foreignCurrencyVatCodeHistory` holds both with `byEmail`/`at`, the current one shown. After `accounting-release`, the history's first entry is the seed designation with actor `system:accounting-seed`; a raw UPDATE of that `refund_setting` row raises. A second release run, after an admin designated another code, leaves the admin's designation in effect. The card shows the designated code or "none". |
+| AC-2.6 | int, ui | PUT with an inactive or unknown code → 422 `vat_code_inactive` / `unknown_vat_code`, no new row; the select lists only active codes. |
+| AC-2.7 | unit, int | `resolveClassification` vectors: designation unset, cleared, or pointing at a deactivated code → VAT `null` for non-CHF lines, CHF lines unaffected. Int: deactivate the designated code → the accounting view of a submitted EUR line shows the default account and `vatCode: null`; approve → 409 (AC-3.4); reactivate → the default comes back. |
+| AC-2.8 | int, ui | No `settings:read` → GET defaults 403; no `settings:manage` → PUT designation 403; the select is hidden without manage. |
 | AC-3.1 | int, ui | Submitted CH CHF line → accounting view shows the type defaults, `*IsDefault: true`; the panel shows the "default" marker. |
-| AC-3.2 | int | Submitted CH EUR line → type default account and the foreign-currency VAT code, both defaults. |
+| AC-3.2 | int | Submitted CH EUR line (and USD, GBP) → type default account and the designated foreign-currency VAT code, both `*IsDefault: true`; the type's own default VAT code is not used. |
 | AC-3.3 | int | PUT another active account → `accountIsDefault: false`; a `line_classified` row with actor, from→to and cause `review`. |
-| AC-3.4 | int, ui | Type without a default and no override → approve 409 `classification_missing` listing that line; request still `submitted`, no number assigned, no counter row. UI lists the lines. |
+| AC-3.4 | int, ui | Type without a default and no override → approve 409 `classification_missing` listing that line; request still `submitted`, no number assigned, no counter row. Same for a non-CHF line when the foreign-currency VAT code is unset or inactive (`missing: ["vatCode"]`), while a CHF line of the same type approves. UI lists the lines. |
 | AC-3.5 | int | Approve → change defaults → line keeps the ids it had at approval; the `line_classified` row has cause `approval`. |
 | AC-3.6 | int | Approved line (no batch, then compiled batch) + `request:reclassify` → 200 and audit `post_approval`; `approvedTotalCents`, `status`, `decided*` unchanged. Without `reclassify` → 403. |
 | AC-3.7 | int, db | Request `paid` → 409 `classification_locked`; raw `UPDATE refund_line SET "vatCodeId"` on a paid request's line raises. |
@@ -763,11 +815,14 @@ backs the parser unit test.
 | AC-6.10 | int, db | Download → a `refund_batch_export` row with actor, batch and time; immutability test. A summary call writes no row. |
 | AC-6.11 | int | No `request:review` → 403; review scoped to `welld_it` → 403 `accounting_export_out_of_scope`. |
 | AC-6.12 | int | A line approved at 0, not rejected → a row with `0.00` CHF and `0.00` VAT. |
-| AC-7.1 | int (script) | Seed legacy approved/paid CH lines (no numbers) → run `accounting-release` → classified with the current defaults, numbered by expense date per owner and year, audit actor `system:accounting-release`. A second run changes nothing. Before the marker, approve → 409 `accounting_release_pending`. `--offsets` makes numbering start after N; an offset for an (owner, year) that already has numbers is refused. |
-| AC-7.2 | int (script + export) | Legacy line whose type has no default → unclassified after release; export 409 lists it under `unclassifiedLines`; after PUT classification (`reclassify`) → export 200. |
+| AC-7.1 | int (script) | Seed legacy approved/paid CH lines (no numbers), CHF and EUR → run `accounting-release` → CHF lines get the type defaults, EUR lines the type's default account and the foreign-currency VAT code; all numbered by expense date per owner and year; audit actor `system:accounting-release`. A second run changes nothing. Before the marker, approve → 409 `accounting_release_pending`. `--offsets` makes numbering start after N; an offset for an (owner, year) that already has numbers is refused. |
+| AC-7.2 | int (script + export) | Legacy line whose type has no default, and a legacy EUR line released while the foreign-currency VAT code is inactive → both unclassified after release; export 409 lists them under `unclassifiedLines`; after PUT classification (`reclassify`) → export 200. |
+| AC-7.3 | int (script + export) | Legacy approved WellD Italia lines → after `accounting-release` (and a second run): `receiptNumber` null, no classification, no audit row for them; no counter row created for them; an export of their batch leaves them out and counts them in `excludedLineCount`. An IT line approved after release is numbered (AC-4.1). |
 
-**Mapping result: total.** Every AC maps to at least one automated test. No AC needed a spec
-change to be testable. A1/A2 below are clarifications, not test gaps.
+**Mapping result: total.** Every AC of the amended spec (61: the 53 approved ones plus AC-1.9,
+AC-1.10, AC-1.11, AC-2.5 to AC-2.8 and AC-7.3) maps to at least one automated test, and the rows
+of the ACs the amendments reworded (AC-1.2, 1.4, 1.7, 1.8, 2.3, 3.2, 3.4, 7.1, 7.2) cover the new
+wording. No AC needed a spec change to be testable.
 
 **e2e journey** (`shell/e2e/refund-accounting.spec.ts`):
 
@@ -850,30 +905,35 @@ it.
 | **D1** | **Seed** (open question 4): 15 accounts, `IMP81`/`IMP77`/`NOVAT`, and the type mapping in § Data model. `representation_gifts` gets no default account and `company_manuals` no default VAT code. | Where the register gives no answer, approval asks a human (AC-3.4) instead of booking silently. `NOVAT` is a placeholder name for the register's unnamed "no VAT" code. | Edit `scripts/data/accounting-seed.welld-ch.json` before release, or change in Settings afterwards. |
 | **D2** | **Sequence offset** (open question 2): numbering starts at **001** as the spec says. Per-(employee, year) offsets can be loaded once, before any number exists, by `accounting:release --offsets file.csv`. | Follows the spec text, keeps the paper-era fix available, and never renumbers anything. | Supply the CSV at release; no code change. |
 | **D3** | **CSV dialect** (open question 3): UTF-8 with BOM, `;`, `.` decimal, CRLF, ISO dates, English headers and expense-type labels, `formatVersion 1`. | `;` + BOM opens correctly in Excel/Numbers under CH and IT locales; `.` is the Swiss decimal mark and cannot clash with `;`; English matches the 2026-09-08 documents decision (`labels.ts`). | Constants in `exportFormat.ts`; bump `FORMAT_VERSION`. |
-| **D4** | **"No VAT" code for foreign-currency lines** is a designated code (refund_setting key, select in the defaults card), not "the code with rate 0". | The spec names one code; designating it avoids guessing when several 0 % codes exist. Unset or inactive → no default → approval asks (safe). | Settings UI. |
+| **D4** | **Foreign-currency VAT code** (now spec domain term, amendment A2) is stored as an append-only `refund_setting` key with its own route, history and admin-only gate. Unset, cleared or inactive → no default VAT code for non-CHF lines → approval asks (AC-2.7). | The spec names one code for all foreign currencies; the self-auditing store gives AC-2.5's history for free; "inactive = none" is the safe reading and matches how type defaults are resolved. | Settings UI. |
 | **D5** | **Post-approval reclassification** (open question 5): a new `request:reclassify` action, granted to the same holders as `approve`. | Behaviour equals the spec today; restricting it later is a role edit with no deploy. | admin-ui role grants. |
 | **D6** | **Release gate**: approvals are refused (409 `accounting_release_pending`) until `accounting:release` has run. | Guarantees legacy lines are numbered first and in expense-date order, and that offsets can still be applied. No ordering hazard between deploy and backfill. | Remove the gate check once released (it is one `refund_setting` read). |
-| **D7** | **IT legacy lines are not numbered** by the release script; IT lines approved after release are (AC-4.1 applies to every line). | AC-7.1 scopes the backfill to WellD CH; doing more would touch Italian records nobody asked about. | One filter in the script. |
+| **D7** | **IT legacy lines are not numbered** by the release script; IT lines approved after release are (AC-4.1 applies to every line). Now spec text: AC-7.3 and a Non-goal. | AC-7.1 scopes the backfill to WellD CH. | — (specified) |
 | **D8** | **Export needs WellD CH review scope**, not just the capability. | The file is WellD CH's books; a WellD Italia-scoped accountant has no business exporting it. | One check in `export.routes.ts`. |
-| **D9** | **Reactivation** of an account or VAT code is offered (proposed amendment A1). | Without it, deactivating `IMP81` by mistake is unrecoverable, because AC-1.4 refuses re-adding the same code. | Drop two routes and buttons if A1 is refused; nothing else depends on them. |
+| **D9** | **Reactivation** of an account or VAT code (amendment A1, now AC-1.9 to AC-1.11): an append-only status row `active: true`; reactivating an active entry is a 409 that writes nothing. | Without it, deactivating `IMP81` by mistake is unrecoverable, because AC-1.4 refuses re-adding the same code. | — (specified) |
 | **D10** | **FX source**: the federal monthly averages of the BAZG (the Federal Office for Customs and Border Security, which publishes the monthly averages the ESTV/AFC refers to). Its XML endpoint returned the register's EUR 0.9246 for March 2026. Fetched **on demand** (admin, settings view, export), never by a scheduler; completed months + 5 days only; fetched once, never overwritten; corrections win. | Verified against the register value; no new scheduler (ADR 20260714 posture); a rate cannot change under a file already exported without a visible admin action. | `bazgSource.ts` URL constant and `FX_FETCH_GRACE_DAYS`. |
 | **D11** | **Pre-approval VAT/CHF display** uses `approvedTotal ?? requestedAmount`. | Approve defaults untouched lines to the requested amount, so that is the figure that will be booked. | `classification.repo.ts`. |
 | **D12** | **Withdraw-to-draft clears classification overrides** (audited, cause `withdrawn`). | The employee may change the line's type in draft; a stale override would survive silently otherwise. | `lifecycle.repo.ts`. |
+| **D13** | **Real name of the foreign-currency VAT code** (the spec's new open question). Fallback: the seed creates `NOVAT` "Senza IVA" at 0 % and designates it as a system-actor designation. Before release, accounting's answer is one edit of the code string in `accounting-seed.welld-ch.json`; `--dry-run` prints the code that will be designated. After release, an admin adds the real code, designates it (AC-2.5) and deactivates `NOVAT`; lines already approved keep `NOVAT` (AC-2.3) and unpaid ones can be reclassified (AC-3.6). | The rate (0 %) is known, only the name is not; a designated placeholder keeps foreign-currency lines approvable and exportable, while every step to the real code is audited and needs no deploy. The stricter alternative, seeding no designation, would block every non-CHF approval and the release backfill of EUR lines until accounting answers. | Seed JSON before release; Settings after. |
 
-## Spec amendments proposed
+## Spec amendments applied
 
-Not applied, because only the user changes the spec. The plan works without them, as stated.
+Applied by the product owner on 2026-11-18 in commit 6e074318 (spec § Amendments). The plan
+above is synced with them:
 
-- **A1 (US-1)**: add "an admin can reactivate a deactivated ledger account or VAT code; its number,
-  name, code and rate are unchanged." Reason: AC-1.4 forbids re-adding an existing code, so without
-  reactivation a mistaken deactivation is permanent. If refused, D9 is dropped.
-- **A2 (Domain language)**: "**foreign-currency VAT code** — the VAT code (normally the 'no VAT'
-  code) that a WellD CH line in a currency other than CHF gets by default; configured once for
-  WellD CH." This makes AC-3.2's "the 'no VAT' code" concrete.
-- **Clarifications** (no wording change needed, recorded here for review):
-  - AC-6.2's "batch identifier" is the batch id.
-  - AC-6.11's capability is `request:review` (the compile gate), narrowed to WellD CH scope (D8).
-  - IT legacy lines remain unnumbered (D7).
+- **A1, reactivation:** AC-1.9 to AC-1.11; AC-1.2, AC-1.4, AC-1.7 and AC-1.8 adjusted; Non-goal
+  "editing or deleting a ledger account or VAT code". Planned as D9 (routes, status rows, UI
+  button, tests).
+- **A2, foreign-currency VAT code:** domain term; AC-2.5 to AC-2.8; AC-2.3, AC-3.2, AC-3.4,
+  AC-7.1 and AC-7.2 adjusted; Non-goal "a different VAT code per foreign currency"; new open
+  question on the code designated at release. Planned as D4 and D13, with the rules in
+  § Architecture "Foreign-currency VAT code rules".
+- **Clarification, batch identifier:** AC-6.2's batch identifier is the batch id, which is the
+  reference Refund shows on the batch page and in the batch PDF (CSV column 16).
+- **Clarification, pre-release WellD Italia lines:** AC-7.3 and a Non-goal. Planned as D7.
+
+Still a plan-level reading, not spec text: AC-6.11's capability is `request:review` (the compile
+gate), narrowed to WellD CH scope (D8). No further amendment is proposed.
 
 ## ADR candidates
 
