@@ -5,7 +5,7 @@
   "feature": "20261117-legal-entities",
   "rigor": "production",
   "started": "2026-11-17T14:58:00Z",
-  "finished": "2026-11-18T09:56:32Z",
+  "finished": "2026-11-18T09:58:28Z",
   "agents": [
     {
       "agent": "product-owner",
@@ -1581,6 +1581,33 @@
       ],
       "committed_at": "2026-11-18T10:55:54+01:00",
       "note": "report committed by the orchestrator"
+    },
+    {
+      "agent": "orchestrator",
+      "tasks": [],
+      "outcome": "chore(forge): run trace rebuilt from git \u2014 one entry per commit, corrected attributions and hashes (specs/20261117)",
+      "commits": [
+        "33aa16ca"
+      ],
+      "committed_at": "2026-11-18T10:56:54+01:00"
+    },
+    {
+      "agent": "orchestrator",
+      "tasks": [],
+      "outcome": "docs(legal-entities): eval round 3 documentation fixes (specs/20261117)",
+      "commits": [
+        "d9b9f73d"
+      ],
+      "committed_at": "2026-11-18T10:57:51+01:00"
+    },
+    {
+      "agent": "orchestrator",
+      "tasks": [],
+      "outcome": "test(auth): assert the email-change refusals and the accepted session (specs/20261117)",
+      "commits": [
+        "ea65ad2a"
+      ],
+      "committed_at": "2026-11-18T10:58:26+01:00"
     },
     {
       "agent": "owasp-reviewer",
