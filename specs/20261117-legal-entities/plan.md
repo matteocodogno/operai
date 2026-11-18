@@ -1866,9 +1866,9 @@ it still shows in the history, which is out of D9's scope (OQ-16).
 
 ### J11 — Spec drift and readings
 
-- **R-D9a (reading, applied as an orchestrator reading on 2026-11-18, pending the owner's confirmation; not
-  blocking).** It is not owner-approved: the owner's approval of 2026-11-18 covered the decisions made before their
-  review, and R-D9a came after it. spec.md AC-9.11 carries it marked "R-D9a, orchestrator 2026-11-18". The spec defines what a notice says when the account
+- **R-D9a (reading, applied as an orchestrator reading on 2026-11-18, confirmed by the owner on 2026-11-18; not
+  blocking).** The owner confirmed it separately on 2026-11-18, after it was applied
+  (their earlier approval had covered only the decisions made before their review). spec.md AC-9.11 carries it marked "R-D9a, orchestrator 2026-11-18". The spec defines what a notice says when the account
   had **no** email address, but not when the recorded address is not a well-formed one. The plan reads it as "no
   email address on record", because it must never fall back to the display name. A notice must still go out, since
   it is the safeguard. The case is believed unreachable (R26, T87).

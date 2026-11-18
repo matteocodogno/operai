@@ -1374,3 +1374,4 @@ notify-api is push 1, and auth's notices are push 2.
 
 Then T47 (eval round 3), with the release chain alongside it: T16 → T17 → T18 → T87 → T44 → T48 → T49 → T71 → T50.
 Critical path: T78 → T79 → T81 → T84 → T85 → T16 → T17 → T18 → T87 → T48 → T49 → T71 → T50.
+- Owner, 2026-11-18: R-D9a confirmed (a malformed author email counts as no email address on record); eval round 4 requested.
