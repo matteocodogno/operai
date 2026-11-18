@@ -24,10 +24,10 @@ const adminActor = { userId: "admin-1", email: "admin@welld.ch" };
 const NOW = new Date("2026-11-20T08:00:00.000Z");
 
 beforeEach(async () => {
-  await truncateRefundTables();
+  await truncateRefundTables({ released: false });
 });
 afterAll(async () => {
-  await truncateRefundTables();
+  await truncateRefundTables({ released: false });
 });
 
 interface L {

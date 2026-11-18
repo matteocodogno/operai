@@ -14,6 +14,10 @@
  * fetch attempts, export log) are listed for the same reason; the triggers on
  * them are likewise not fired by TRUNCATE.
  *
+ * specs/20261118-refund-accounting-export (T12): the cleanup puts the accounting
+ * release marker back (see `accountingRelease.ts`), because approving is refused
+ * without it; `truncateRefundTables({ released: false })` leaves it out.
+ *
  * `refund_batch`, `mileage_rate`, and `refund_setting` are all listed
  * explicitly (not just left to CASCADE): each sits on the "referenced" side
  * of an `onDelete: Restrict` FK, or has no incoming FK at all
@@ -26,9 +30,21 @@
  */
 
 import { db } from "../lib/db";
+import { markAccountingReleased } from "./accountingRelease";
 
-export async function truncateRefundTables(): Promise<void> {
+export interface TruncateOptions {
+  /**
+   * Put the accounting release marker back after emptying the tables (default
+   * `true`), so that approvals are accepted in a test that is not about the
+   * release (T12, specs/20261118-refund-accounting-export, plan R14). Pass
+   * `false` for a test of the gate or of the release script itself.
+   */
+  readonly released?: boolean;
+}
+
+export async function truncateRefundTables(options: TruncateOptions = {}): Promise<void> {
   await db.$executeRawUnsafe(
     'TRUNCATE TABLE "refund_audit_entry", "attachment", "refund_line", "refund_batch_item", "refund_request", "refund_batch", "mileage_rate", "refund_setting", "ledger_account", "vat_code", "accounting_catalog_status", "expense_type_default", "receipt_counter", "exchange_rate_entry", "exchange_rate_fetch_attempt", "refund_batch_export" RESTART IDENTITY CASCADE',
   );
+  if (options.released !== false) await markAccountingReleased();
 }

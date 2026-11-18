@@ -92,11 +92,11 @@ const putDesignation = (vatCodeId: string | null, extra: Parameters<typeof call>
 const getDefaults = (extra: Parameters<typeof call>[2] = {}) => call("GET", "/accounting/expense-type-defaults", extra);
 
 beforeEach(async () => {
-  await truncateRefundTables();
+  await truncateRefundTables({ released: false });
   __resetAuthzCacheForTests();
 });
 afterAll(async () => {
-  await truncateRefundTables();
+  await truncateRefundTables({ released: false });
 });
 
 describe("GET (AC-2.2)", () => {

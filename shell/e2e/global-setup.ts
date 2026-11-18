@@ -17,10 +17,48 @@
  *
  * `E2E_SKIP_LEGAL_ENTITIES_SETUP=1` skips it, for a run of specs that touch neither the registry nor an offer. It says so on
  * stderr; a run that skips it proves nothing about the registry.
+ *
+ * It also RELEASES refund accounting (specs/20261118-refund-accounting-export, T12): refund-api refuses every approval
+ * (409 `accounting_release_pending`) until `bun run accounting:release` has run once against its database, so the refund
+ * journeys that approve a request would all fail without it. The script is idempotent (a second run changes nothing), seeds
+ * the accounting catalog and the type defaults WellD CH starts from, and writes the release marker. It runs through
+ * `direnv exec .` in `refund-api/`, the way `mise run dev` starts that service, so it reaches the same database the running
+ * refund-api uses. `E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1` skips it, for a run of specs that never approve a refund request.
  */
+import { execFileSync } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { seedRegistry, setUpLegalEntityPeople, ENTITIES } from './helpers/legalEntitiesFixtures'
 
+const REFUND_API_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../refund-api')
+
+/** Runs refund-api's release script once; the marker it writes is what lets approvals through. */
+function releaseRefundAccounting(): void {
+  if (process.env['E2E_SKIP_REFUND_ACCOUNTING_RELEASE'] === '1') {
+    console.error('[global-setup] E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1: refund accounting is NOT released, approvals will answer 409')
+    return
+  }
+  try {
+    const output = execFileSync('direnv', ['exec', '.', 'bun', 'run', 'accounting:release'], {
+      cwd: REFUND_API_DIR,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    // the script's report names counts, never an employee: print its last line only
+    const last = output.split('\n').map((l) => l.trim()).filter(Boolean).at(-1) ?? ''
+    console.log(`[global-setup] refund accounting released${last ? ` (${last})` : ''}`)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `[global-setup] refund accounting could not be released: ${detail}\n` +
+        'Run `cd refund-api && direnv exec . bun run accounting:release` against the database refund-api uses (its migrations applied: ' +
+        '`bun run db:deploy`), or set E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 for specs that never approve a refund request.',
+    )
+  }
+}
+
 export default async function globalSetup(): Promise<void> {
+  releaseRefundAccounting()
   if (process.env['E2E_SKIP_LEGAL_ENTITIES_SETUP'] === '1') {
     console.error('[global-setup] E2E_SKIP_LEGAL_ENTITIES_SETUP=1: the legal-entity registry and its people are NOT prepared')
     return

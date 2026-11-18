@@ -10,10 +10,10 @@ import { isAccountingReleased, RELEASE_MARKER_KEY } from "./release";
 const actor = { createdByUserId: "system:accounting-release", createdByEmail: "system-accounting-release@welld.ch" };
 
 beforeEach(async () => {
-  await truncateRefundTables();
+  await truncateRefundTables({ released: false });
 });
 afterAll(async () => {
-  await truncateRefundTables();
+  await truncateRefundTables({ released: false });
 });
 
 describe("isAccountingReleased", () => {

@@ -13,9 +13,24 @@
  *
  * Every mutation writes an append-only audit row (audit.ts, AC-8.1) inside
  * the SAME transaction as the state change it records.
+ *
+ * specs/20261118-refund-accounting-export (T12): `approveTransaction` is also
+ * where a line's accounting is settled. In the one transaction it (1) refuses
+ * the approval until the release marker exists (409 `accounting_release_pending`,
+ * plan D6), (2) does the CAS and the existing defaulting, (3) calls
+ * `classifyAndNumber(cause: "approval")`, which resolves every non-rejected
+ * WellD CH line, freezes it, and numbers every non-rejected line of either
+ * entity. A line without an account or VAT code rolls the whole transaction
+ * back (409 `classification_missing`), so a refused approval changes nothing
+ * and consumes no number (AC-3.4, AC-4.3).
  */
 
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
+import { loadDefaultsSnapshot } from "../accounting/defaults.repo";
+import { classifyAndNumber } from "../accounting/numbering.repo";
+import { isAccountingReleased } from "../accounting/release";
+import type { MissingPart } from "../accounting/classification";
+import type { ExpenseType } from "../lib/generated/prisma/enums";
 import { db } from "../lib/db";
 import { ownershipOwn, requestInScope, type EntityScope } from "../authz/conditions";
 import {
@@ -175,17 +190,54 @@ export function setApprovedTotal(
   );
 }
 
-// ─── POST .../approve (AC-7.2) ──────────────────────────────────────────────
+// ─── POST .../approve (AC-7.2; specs/20261118-refund-accounting-export T12) ──
+
+/**
+ * 409 `classification_missing` (AC-3.4): at least one non-rejected WellD CH
+ * line has no account or no VAT code once resolved. The approval was rolled
+ * back, so nothing changed and no number was consumed. `lines` is what the
+ * review page needs to point at each value: id, date and type are always
+ * present (plan § API contracts).
+ */
+export class ClassificationMissingError extends Data.TaggedError("ClassificationMissingError")<{
+  readonly message: string;
+  readonly lines: readonly {
+    readonly lineId: string;
+    readonly date: string;
+    readonly type: ExpenseType;
+    readonly missing: readonly MissingPart[];
+  }[];
+}> {}
+
+/** Thrown inside the approve transaction to roll it back with a typed refusal. */
+class ApprovalRefused extends Error {
+  constructor(readonly refusal: ConflictError | ClassificationMissingError) {
+    super(refusal.message);
+  }
+}
 
 function approveTransaction(
   requestId: string,
   actorUserId: string,
   actorEmail: string,
   actorName?: string,
-): Effect.Effect<void, DatabaseError | ConflictError> {
+): Effect.Effect<void, DatabaseError | ConflictError | ClassificationMissingError> {
   return Effect.tryPromise({
     try: () =>
       db.$transaction(async (tx) => {
+        // D6: nothing is numbered before the release script has numbered the
+        // legacy lines (by expense date) and loaded any offsets. Read inside the
+        // transaction, before anything is written; the marker only ever appears.
+        if (!(await isAccountingReleased(tx))) {
+          throw new ApprovalRefused(
+            new ConflictError({
+              message: "Accounting has not been released yet: approvals are refused until the release script has run",
+              code: "accounting_release_pending",
+            }),
+          );
+        }
+
+        // The CAS locks the request row for the rest of the transaction.
         const { count } = await tx.refundRequest.updateMany({
           where: { id: requestId, status: "submitted" },
           data: {
@@ -218,9 +270,39 @@ function approveTransaction(
           actorEmail,
           action: "approved",
         });
+
+        // Freeze the classification and issue the receipt numbers, in this
+        // transaction (AC-3.5, AC-4.1 to AC-4.5, AC-4.10). A WellD CH line that
+        // cannot be resolved refuses everything: the throw below rolls back the
+        // CAS above, the defaulted totals, the counters and the audit rows.
+        const owner = await tx.refundRequest.findUniqueOrThrow({
+          where: { id: requestId },
+          select: { ownerUserId: true, ownerEmail: true, ownerName: true },
+        });
+        const numbered = await classifyAndNumber(tx, {
+          owner: { userId: owner.ownerUserId, name: owner.ownerName, email: owner.ownerEmail },
+          requestIds: [requestId],
+          cause: "approval",
+          actor: { userId: actorUserId, email: actorEmail },
+          snapshot: await loadDefaultsSnapshot(tx),
+        });
+        if (!numbered.ok) {
+          throw new ApprovalRefused(
+            new ClassificationMissingError({
+              message: "Some lines have no ledger account or VAT code: classify them before approving",
+              lines: numbered.missing.map((m) => ({
+                lineId: m.lineId,
+                date: m.date,
+                type: m.type,
+                missing: m.missing,
+              })),
+            }),
+          );
+        }
         return true;
       }),
-    catch: toDbErr("Failed to approve refund request"),
+    catch: (cause) =>
+      cause instanceof ApprovalRefused ? cause.refusal : toDbErr("Failed to approve refund request")(cause),
   }).pipe(
     Effect.flatMap((ok) =>
       ok
@@ -255,7 +337,7 @@ export function approveRequest(
   actorName?: string,
 ): Effect.Effect<
   void,
-  DatabaseError | NotFoundError | ConflictError | SelfApprovalDeniedError
+  DatabaseError | NotFoundError | ConflictError | SelfApprovalDeniedError | ClassificationMissingError
 > {
   return fetchScopeCheckRow(requestId).pipe(
     Effect.flatMap(

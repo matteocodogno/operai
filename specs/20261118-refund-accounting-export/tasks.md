@@ -237,7 +237,7 @@ Reading the list:
     - `--dry-run` writes nothing;
     - an offset on a numbered pair is refused.
 
-- [ ] T12: refund-api — approve: release gate, classification check and freeze, numbering, the two new 409 codes; test and e2e setup carry the release marker — refs: AC-2.3, AC-3.4, AC-3.5, AC-3.9, AC-4.1, AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.6, AC-4.10 — deps: T7, T8, T11
+- [x] T12: refund-api — approve: release gate, classification check and freeze, numbering, the two new 409 codes; test and e2e setup carry the release marker — refs: AC-2.3, AC-3.4, AC-3.5, AC-3.9, AC-4.1, AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.6, AC-4.10 — deps: T7, T8, T11
   - touch: `refund-api/src/review/decide.repo.ts`, `refund-api/src/review/decide.routes.ts`, `refund-api/src/review/decide.routes.test.ts`, `refund-api/src/review/approve-accounting.test.ts`, `refund-api/src/test-support/dbCleanup.ts`, `refund-api/src/test-support/accountingRelease.ts`, `shell/e2e/global-setup.ts`
   - agent: backend-dev · backend
   - Details:

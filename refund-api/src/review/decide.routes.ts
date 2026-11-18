@@ -46,6 +46,7 @@ import {
 import type { RequestDetail } from "../requests/requests.schemas";
 import {
   approveRequest,
+  ClassificationMissingError,
   rejectLine,
   rejectRequest,
   restoreLine,
@@ -364,7 +365,10 @@ const approveRoute = createRoute({
     "finalized to its set value, defaulting to the requested amount for " +
     "any line left untouched (AC-7.2). Whole-request, including lines for " +
     "an entity outside the caller's own scope (AC-7.6). Writes an " +
-    "'approved' audit row (AC-8.1). specs/20260721-self-approval-control: if the " +
+    "'approved' audit row (AC-8.1). specs/20261118-refund-accounting-export: in the " +
+    "same transaction every non-rejected WellD CH line is classified and frozen " +
+    "(AC-3.4/3.5) and every non-rejected line, of either entity, gets its receipt " +
+    "number (AC-4.1). specs/20260721-self-approval-control: if the " +
     "caller's `request:approve` grant carries the self-approval restriction " +
     "and the caller owns the request, denied with 403 " +
     "`code: self_approval_forbidden` BEFORE the entity-scope 404 and the " +
@@ -394,7 +398,11 @@ const approveRoute = createRoute({
       content: { "application/json": { schema: ProblemSchema } },
       description:
         "Request is not submitted (already decided), or every line is " +
-        "rejected (`code: all_lines_rejected`)",
+        "rejected (`code: all_lines_rejected`), or (specs/20261118-refund-accounting-export) " +
+        "`code: accounting_release_pending` (the release script has not run yet), or " +
+        "`code: classification_missing` with `lines: [{ lineId, date, type, missing: " +
+        "(\"account\" | \"vatCode\")[] }]` (a non-rejected WellD CH line has no ledger " +
+        "account or no VAT code; nothing was changed and no receipt number consumed)",
     },
   },
 });
@@ -426,6 +434,20 @@ decideRouter.openapi(approveRoute, async (c) => {
     }
     if (cause._tag === "Fail" && cause.error instanceof NotFoundError) {
       return c.json(notFoundProblem(c.req.path, cause.error.message), 404);
+    }
+    if (cause._tag === "Fail" && cause.error instanceof ClassificationMissingError) {
+      return c.json(
+        {
+          ...conflictProblem(c.req.path, cause.error.message, "classification_missing"),
+          lines: cause.error.lines.map((l) => ({
+            lineId: l.lineId,
+            date: l.date,
+            type: l.type,
+            missing: [...l.missing],
+          })),
+        },
+        409,
+      );
     }
     if (cause._tag === "Fail" && cause.error instanceof ConflictError) {
       return c.json(conflictProblem(c.req.path, cause.error.message, cause.error.code), 409);

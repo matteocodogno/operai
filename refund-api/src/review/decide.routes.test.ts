@@ -32,6 +32,7 @@ import { describe, it, expect, beforeEach, afterAll } from "bun:test";
 import type { ResolveResponse } from "../authz/resolveClient";
 import { setupTestAuth } from "../test-support/testAuth";
 import { truncateRefundTables } from "../test-support/dbCleanup";
+import { seedAccountingFixtures } from "../test-support/accountingRelease";
 
 process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] = "http://localhost:3001/auth/jwks";
@@ -266,6 +267,9 @@ async function createSubmittedRequest(
 
 beforeEach(async () => {
   await truncateRefundTables();
+  // specs/20261118-refund-accounting-export (T12): approving a WellD CH line needs an account and a VAT code
+  // (AC-3.4). The fixtures give every type a default, so the approve tests below stay about the decision itself.
+  await seedAccountingFixtures(db);
   __resetAuthzCacheForTests();
   notifyCalls = [];
   notifyShouldFail = false;
@@ -541,7 +545,8 @@ describe("POST /review/requests/:id/approve", () => {
     expect(byId.get(lines[1]!.id)).toBe(2000); // untouched — defaulted to requested
 
     const auditRows = await db.refundAuditEntry.findMany({ where: { requestId: request.id } });
-    expect(auditRows.map((r) => r.action)).toEqual(["approved"]);
+    // specs/20261118-refund-accounting-export (AC-4.1): approval also numbers every line, and audits each number.
+    expect(auditRows.map((r) => r.action).sort()).toEqual(["approved", "receipt_number_assigned", "receipt_number_assigned"]);
     expect(auditRows[0]?.actorUserId).toBe("acct-1");
   });
 

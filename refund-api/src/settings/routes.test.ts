@@ -98,12 +98,12 @@ const authHeaders = (token: string) => ({
 const KEY = "accounting-distribution-email";
 
 beforeEach(async () => {
-  await truncateRefundTables();
+  await truncateRefundTables({ released: false });
   __resetAuthzCacheForTests();
 });
 
 afterAll(async () => {
-  await truncateRefundTables();
+  await truncateRefundTables({ released: false });
 });
 
 describe(`GET /settings/${KEY}`, () => {

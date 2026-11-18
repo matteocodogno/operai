@@ -50,11 +50,11 @@ async function makeSettingRow() {
 
 describe("RefundSetting immutability (specs/20260722-refund-settings, ADR 20260722-refund-settings-append-only-self-auditing-store)", () => {
   beforeEach(async () => {
-    await truncateRefundTables();
+    await truncateRefundTables({ released: false });
   });
 
   afterAll(async () => {
-    await truncateRefundTables();
+    await truncateRefundTables({ released: false });
   });
 
   it("(AC-5.2) a raw-SQL UPDATE on refund_setting is rejected by the trigger", async () => {
