@@ -215,12 +215,12 @@ Reading the list:
   - done when: both spec files carry the owner's decision (amendment applied or rejected, dated); if D8 is
     rejected, T36's status labels are re-synced before T36 starts.
 
-- [ ] T15: **[OWNER]** Early check R2 — read both IBANs in production CRM Settings and note whether grouping in fours changes their print — refs: AC-7.5 — deps: none
+- [x] T15: **[OWNER]** Early check R2 — read both IBANs in production CRM Settings and note whether grouping in fours changes their print — refs: AC-7.5 — deps: none
   - touch: `specs/20261117-legal-entities/release-log.md`
   - agent: owner
   - done when: the release log says, per entity, "IBAN print unchanged / changes" (no IBAN written in it).
 
-- [ ] T16: **[OWNER]** Release push 1 (expand): merge the push-1 tasks to `main`, cut the release, push — refs: AC-1.1, AC-3.1, AC-4.1 — deps: T13, T15, T45, T69, T70, T79, T82, T85, T86
+- [x] T16: **[OWNER]** Release push 1 (expand): merge the push-1 tasks to `main`, cut the release, push — refs: AC-1.1, AC-3.1, AC-4.1 — deps: T13, T15, T45, T69, T70, T79, T82, T85, T86
   - touch: `CHANGELOG.md`, `*/CHANGELOG.md`, `*/package.json`, `shell/src/lib/suiteVersion.generated.json`, `.changeset/*`, `specs/20261117-legal-entities/release-log.md`
   - agent: owner (RELEASING.md)
   - note (T29 report, 2026-11-17): the feature branch interleaves push-2 commits (crm-api T29 onwards) with push-1
@@ -237,13 +237,13 @@ Reading the list:
     the push-1 version (the library change is live, E10); `railway config plan` shows no drift; logged in the
     release log.
 
-- [ ] T17: **[OWNER]** Release step 2 — credentials: auth `SERVICE_CLIENTS` (crm-api scope += `legal-entities:read`; new `letterhead-api` entry), the shared secret, letterhead-api `SERVICE_CLIENT_ID`/`SECRET` — refs: AC-3.2 — deps: T16, T12
+- [x] T17: **[OWNER]** Release step 2 — credentials: auth `SERVICE_CLIENTS` (crm-api scope += `legal-entities:read`; new `letterhead-api` entry), the shared secret, letterhead-api `SERVICE_CLIENT_ID`/`SECRET` — refs: AC-3.2 — deps: T16, T12
   - touch: `specs/20261117-legal-entities/release-log.md`
   - agent: owner (devops may prepare the commands)
   - done when: auth restarted healthy with the new `SERVICE_CLIENTS`; `mise run env:doctor -- --env production
     --resolve` green; logged (no secret in the log).
 
-- [ ] T18: **[OWNER]** Release step 3 — the copy: announce the CRM-settings freeze; dry run, `--apply`, dry run; read the flags and sign off the IBAN print — refs: AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5 — deps: T17, T15, T9
+- [x] T18: **[OWNER]** Release step 3 — the copy: announce the CRM-settings freeze; dry run, `--apply`, dry run; read the flags and sign off the IBAN print — refs: AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5 — deps: T17, T15, T9
   - touch: `specs/20261117-legal-entities/release-log.md`
   - agent: owner (production credentials in the environment only)
   - done when: the last dry run reports both entities `present` (or `resolved`) and `mismatched` 0; the release
@@ -491,7 +491,7 @@ Reading the list:
 
 ## Push 2 — release plumbing
 
-- [ ] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each) and auth (minor: US-9 notices), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2, AC-9.7 — deps: T13, T16, T23, T28, T29, T31, T32, T40, T58, T59, T60, T61, T62, T63, T64, T65, T66, T83
+- [x] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each) and auth (minor: US-9 notices), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2, AC-9.7 — deps: T13, T16, T23, T28, T29, T31, T32, T40, T58, T59, T60, T61, T62, T63, T64, T65, T66, T83
   - touch: `.changeset/*`
   - agent: backend-dev · push 2
   - status 2026-11-18 (eval round 1): the six changesets are PREPARED on the branch (`87a24dee`); the task stays
@@ -532,7 +532,7 @@ Reading the list:
 
 ## Owner steps: the switch
 
-- [ ] T48: **[OWNER]** Release steps 4–5 — pre-switch dry run, merge push 2, cut the release, push; the freeze ends when crm-api is live — refs: AC-5.1, AC-6.1, AC-6.2, AC-7.4 — deps: T18, T44, T45, T46, T14, T70, T80, T81, T84, T85, T86, T87
+- [x] T48: **[OWNER]** Release steps 4–5 — pre-switch dry run, merge push 2, cut the release, push; the freeze ends when crm-api is live — refs: AC-5.1, AC-6.1, AC-6.2, AC-7.4 — deps: T18, T44, T45, T46, T14, T70, T80, T81, T84, T85, T86, T87
   - touch: `CHANGELOG.md`, `*/CHANGELOG.md`, `*/package.json`, `shell/src/lib/suiteVersion.generated.json`, `.changeset/*`, `specs/20261117-legal-entities/release-log.md`
   - agent: owner (RELEASING.md)
   - note (2026-11-17, G15): push 2 now also carries auth (the US-9 notice duty and dispatcher, T58/T59, and its
