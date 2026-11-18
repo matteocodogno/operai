@@ -500,7 +500,7 @@ Reading the list:
 
 ## QE, security, eval
 
-- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74, T75, T76
+- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74, T75, T76, D2
   - touch: `specs/20261117-legal-entities/qe-report.md`
   - agent: quality-engineer
   - done when: `qe-report.md` maps every AC to passing evidence, records the MIG rehearsal (counts and flags,
@@ -768,6 +768,14 @@ same files.
     refreshes at most once per second and at most a fixed budget per 10 minutes (well under auth's allowance, e.g.
     100), beyond which it gets the 409 at once; tests prove both; fmt, clippy, api tests green.
 
+- [ ] D2: letterhead-api engine — the preview's text alternative keeps `⟦ ⟧` around a missing label that wraps onto a second line (QE T43 defect D-T43-1) — refs: AC-5.4 — deps: T20
+  - touch: `letterhead-api/engine/src/output/text.rs`, `letterhead-api/engine/src/output/mod.rs`, `letterhead-api/engine/src/render.rs`, `letterhead-api/engine/src/layout/frame/tests.rs`
+  - agent: backend-dev (Rust) · push 2
+  - failing e2e: `shell/e2e/letterheads.spec.ts` "a missing label that wraps onto a second line keeps its brackets in
+    English too (AC-5.4)" — footer line `{iban} {contacts}`, contacts empty, English: text reads "… Contacts / line"
+    without brackets; Italian ("⟦Riga / contatti⟧") and `{contacts}` alone are fine.
+  - done when: an engine test reproduces the English wrap and passes; real-document output unchanged; engine tests green.
+
 ## Follow-ups found during implementation (orchestrator, 2026-11-17)
 
 - FU-1 (T31): crm-ui `letterhead.overflow.body` / `bodyAskAdmin` still say "Shorten the value in CRM Settings"; the
@@ -1010,7 +1018,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 ### End-to-end, review, owner
 
 - [ ] T68: e2e — protected details: confirm and cancel on save, the restore dialog's list, no dialog for an address-only change, the notice in the notification centre (it and en) — refs: AC-9.1, AC-9.2, AC-9.3, AC-9.5, AC-9.6, AC-9.7, AC-9.13, AC-9.17 — deps: T41, T57, T59, T60, T67
-  - touch: `shell/e2e/protected-legal-details.spec.ts`, `shell/e2e/helpers/legalEntitiesFixtures.ts`
+  - touch: `shell/e2e/protected-legal-details.spec.ts`, `shell/e2e/helpers/legalEntitiesFixtures.ts`, `shell/e2e/legal-entities.spec.ts` (added 2026-11-18, QE T43: make T42's history tests independent of the number of versions — version 1 may be on a later page — and restore `before.ibanPrint` in the refusal test)
   - agent: quality-engineer · push 2
   - done when: Playwright green — an admin changes the IBAN typed with spaces and lower case: the dialog shows Old
     and New grouped, Cancel is focused; Escape → nothing saved (the history unchanged); Confirm → saved, and within
@@ -1104,3 +1112,7 @@ Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T
   editable by its holder and appears in the notice) is an OWNER decision left open for the morning: options are
   making the name read-only for registry managers, or adding the actor's email to the notice. N3–N7 info, see
   security-review-2.md; N4 is checked at release step 7 (T71).
+- FU-13 (QE T43): `shell/e2e/crm-offer-wizard-pages.spec.ts:380` needs ink in the page-number corner of the
+  letterhead fixture `shell/e2e/fixtures/letterhead-a4.pdf`, which has none — pre-existing, unrelated to this
+  feature. AC-6.3's e2e reaches an incomplete entity by a direct DB insert, because AC-1.2 makes the API refuse one;
+  in production the only incomplete state is a moved version 1 (AC-7.3), which T45's move rehearsal covers.
