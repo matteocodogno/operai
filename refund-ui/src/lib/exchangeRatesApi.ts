@@ -38,8 +38,15 @@ export type ExchangeRateMonth = {
   rates: Record<RateCurrency, Rate>
 }
 
-/** `ok` recorded something or nothing new, `failed` the source did not give a usable answer, `not_fetchable` the month is not published yet, `disabled` fetching is switched off. */
-export type FetchOutcome = 'ok' | 'failed' | 'not_fetchable' | 'disabled'
+/**
+ * `ok` recorded something or nothing new, `failed` the source did not give a usable answer, `not_fetchable` the month is
+ * not published yet, `disabled` fetching is switched off, `throttled` it was asked again within 15 minutes and nothing was
+ * written (informational, not an error).
+ */
+export type FetchOutcome = 'ok' | 'failed' | 'not_fetchable' | 'disabled' | 'throttled'
+
+/** Who asks, for the server's attempt log: the Settings view's automatic fetch, or an administrator pressing Fetch now. */
+export type FetchTrigger = 'admin' | 'settings_view'
 
 export type LastFetch = {
   at: string
@@ -65,7 +72,12 @@ export type FetchAttempt = {
   recorded: Record<string, number> | null
 }
 
-export type FetchResult = { attempts: FetchAttempt[]; lastFetch: LastFetch | null }
+export type FetchResult = {
+  attempts: FetchAttempt[]
+  /** Months over the server's limit of six per call, not attempted: fetching again continues with them. Absent reads as none. */
+  deferredMonths?: string[]
+  lastFetch: LastFetch | null
+}
 
 /** `GET /exchange-rates?from=YYYY-MM&to=YYYY-MM`: with no window, the server's default (from 2026-01 to the last completed month). */
 export const listExchangeRates = (window: { from?: string; to?: string } = {}): Promise<ExchangeRates> => {
@@ -77,8 +89,8 @@ export const listExchangeRates = (window: { from?: string; to?: string } = {}): 
 }
 
 /** `POST /exchange-rates/fetch` (`settings:manage`). With no months: every fetchable month that lacks a rate. */
-export const fetchExchangeRates = (months?: string[]): Promise<FetchResult> =>
-  sendJson<FetchResult>('/exchange-rates/fetch', 'POST', months ? { months } : {})
+export const fetchExchangeRates = (months?: string[], trigger?: FetchTrigger): Promise<FetchResult> =>
+  sendJson<FetchResult>('/exchange-rates/fetch', 'POST', { ...(months ? { months } : {}), ...(trigger ? { trigger } : {}) })
 
 /**
  * `PUT /exchange-rates/:month/:currency` (`settings:manage`): `rate` is a string (`^\d{1,4}(\.\d{1,6})?$`, > 0).

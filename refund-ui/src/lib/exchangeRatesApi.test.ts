@@ -74,6 +74,26 @@ describe('fetchExchangeRates', () => {
     expect(lastCall().body).toEqual({ months: ['2026-10'] })
   })
 
+  it('says who asks, for the attempt log', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { attempts: [], deferredMonths: [], lastFetch: null }))
+    await fetchExchangeRates(undefined, 'settings_view')
+    expect(lastCall().body).toEqual({ trigger: 'settings_view' })
+    vi.mocked(apiFetch).mockClear()
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { attempts: [], deferredMonths: [], lastFetch: null }))
+    await fetchExchangeRates(['2026-10'], 'admin')
+    expect(lastCall().body).toEqual({ months: ['2026-10'], trigger: 'admin' })
+  })
+
+  it('returns throttled attempts and the deferred months as they come', async () => {
+    const result = {
+      attempts: [{ month: '2026-10', outcome: 'throttled', errorCode: null, recorded: null }],
+      deferredMonths: ['2026-01'],
+      lastFetch: null,
+    }
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, result))
+    await expect(fetchExchangeRates()).resolves.toEqual(result)
+  })
+
   it('returns a failed attempt as a 200 result, not an error (AC-5.6)', async () => {
     const result = {
       attempts: [{ month: '2026-10', outcome: 'failed', errorCode: 'timeout', recorded: null }],

@@ -127,7 +127,8 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
       setSuccess(null)
       let result: FetchResult
       try {
-        result = await fetchExchangeRates()
+        // Which fetch it is goes in the server's attempt log (the view's automatic one, or an administrator's).
+        result = await fetchExchangeRates(undefined, kind === 'auto' ? 'settings_view' : 'admin')
       } catch (error) {
         setFetching(null)
         setNotices({
@@ -140,10 +141,17 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
       // from the server when something was recorded.
       replace((current) => ({ ...current, lastFetch: result.lastFetch }))
       if (recordedSomething(result)) reload()
+      const deferred = result.deferredMonths?.length ?? 0
       setNotices({
-        notes: result.attempts
-          .filter((attempt) => attempt.outcome === 'not_fetchable')
-          .map((attempt) => t.notFetchable(monthLabel(attempt.month))),
+        notes: [
+          ...result.attempts
+            .filter((attempt) => attempt.outcome === 'not_fetchable')
+            .map((attempt) => t.notFetchable(monthLabel(attempt.month))),
+          // Asked again within 15 minutes: nothing was written, which is information and not an error.
+          ...(result.attempts.some((attempt) => attempt.outcome === 'throttled') ? [t.throttled] : []),
+          // Only six months are fetched per call: say that more remain.
+          ...(deferred > 0 ? [t.deferred(deferred)] : []),
+        ],
         disabled: result.attempts.some((attempt) => attempt.outcome === 'disabled'),
         error: null,
       })

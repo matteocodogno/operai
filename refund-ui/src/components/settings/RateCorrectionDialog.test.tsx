@@ -137,6 +137,18 @@ describe('RateCorrectionDialog', () => {
   })
 
   it.each([
+    [422, 'Could not save. Try again.', 'invalid_month'],
+    [404, 'Could not save. Try again.', undefined],
+  ])('a %i (%s) is a general error, not a field error', async (status, message, code) => {
+    vi.mocked(exchangeRatesApi.putExchangeRate).mockRejectedValue(problem(status, code))
+    setup()
+    type('0.95')
+    submit()
+    expect(await screen.findByText(message)).not.toBeNull()
+    expect(screen.queryByTestId('rate-correction-value-error')).toBeNull()
+  })
+
+  it.each([
     [403, "You don't have permission to do this."],
     [500, 'Could not save. Try again.'],
   ])('a %i answers with its own message, and the value stays for another try', async (status, message) => {

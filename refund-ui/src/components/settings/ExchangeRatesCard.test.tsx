@@ -235,7 +235,7 @@ describe('ExchangeRatesCard: the auto-fetch (UX-11)', () => {
     await waitFor(() => expect(within(cell('2026-03', 'GBP')).getByText('1.0100')).not.toBeNull())
     expect(screen.queryByTestId('settings-fx-checking')).toBeNull()
     expect(exchangeRatesApi.fetchExchangeRates).toHaveBeenCalledTimes(1)
-    expect(exchangeRatesApi.fetchExchangeRates).toHaveBeenCalledWith()
+    expect(exchangeRatesApi.fetchExchangeRates).toHaveBeenCalledWith(undefined, 'settings_view')
   })
 
   it('says "No new rates to record." when the fetch recorded nothing', async () => {
@@ -380,6 +380,39 @@ describe('ExchangeRatesCard: Fetch now and the persistent failure banner (AC-5.6
     expect(screen.queryByTestId('settings-fx-success')).toBeNull()
     expect(screen.queryByTestId('settings-fx-failed')).toBeNull()
     expect(screen.queryByTestId('settings-fx-fetch-error')).toBeNull()
+  })
+
+  it('Fetch now tells the server an administrator asked', async () => {
+    vi.mocked(exchangeRatesApi.fetchExchangeRates).mockResolvedValue(result('ok'))
+    await renderCard()
+    fireEvent.click(fetchNow())
+    await screen.findByTestId('settings-fx-success')
+    expect(exchangeRatesApi.fetchExchangeRates).toHaveBeenCalledWith(undefined, 'admin')
+  })
+
+  it('a throttled fetch is information: nothing recorded, no error, no "no new rates"', async () => {
+    vi.mocked(exchangeRatesApi.fetchExchangeRates).mockResolvedValue(result('throttled'))
+    await renderCard()
+    fireEvent.click(fetchNow())
+    expect((await screen.findByTestId('settings-fx-note')).textContent).toBe(
+      'The rates were checked a moment ago. Try again in a few minutes.',
+    )
+    expect(screen.queryByTestId('settings-fx-success')).toBeNull()
+    expect(screen.queryByTestId('settings-fx-fetch-error')).toBeNull()
+    expect(screen.queryByTestId('settings-fx-failed')).toBeNull()
+  })
+
+  it('tells the administrator that more months remain when the server deferred some', async () => {
+    vi.mocked(exchangeRatesApi.fetchExchangeRates).mockResolvedValue({
+      ...result('ok', { recorded: { GBP: 1 } }),
+      deferredMonths: ['2026-01', '2026-02'],
+    })
+    await renderCard()
+    fireEvent.click(fetchNow())
+    expect((await screen.findByTestId('settings-fx-success')).textContent).toBe('Recorded the rates for 1 month.')
+    expect(screen.getByTestId('settings-fx-note').textContent).toBe(
+      '2 more months are still to fetch. Fetch again to continue.',
+    )
   })
 
   it('says fetching is switched off in this environment', async () => {

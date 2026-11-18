@@ -313,6 +313,11 @@ const en = {
       checking: 'Checking for new rates…',
       fetchedOk: (n: number) => (n === 1 ? 'Recorded the rates for 1 month.' : `Recorded the rates for ${n} months.`),
       nothingNew: 'No new rates to record.',
+      throttled: 'The rates were checked a moment ago. Try again in a few minutes.',
+      deferred: (n: number) =>
+        n === 1
+          ? '1 more month is still to fetch. Fetch again to continue.'
+          : `${n} more months are still to fetch. Fetch again to continue.`,
       fetchError: 'Could not fetch the rates. Try again.',
       notFetchable: (month: string) => `The rates for ${month} are not published yet.`,
       disabled: 'Automatic fetching is turned off in this environment. Enter the rates by hand.',
@@ -1390,6 +1395,11 @@ const it: Strings = {
       checking: 'Verifica di nuovi tassi…',
       fetchedOk: (n: number) => (n === 1 ? 'Registrati i tassi di 1 mese.' : `Registrati i tassi di ${n} mesi.`),
       nothingNew: 'Nessun nuovo tasso da registrare.',
+      throttled: 'I tassi sono stati controllati poco fa. Riprovare tra qualche minuto.',
+      deferred: (n: number) =>
+        n === 1
+          ? 'Resta ancora 1 mese da recuperare. Recuperare di nuovo per continuare.'
+          : `Restano ancora ${n} mesi da recuperare. Recuperare di nuovo per continuare.`,
       fetchError: 'Impossibile recuperare i tassi. Riprovare.',
       notFetchable: (month: string) => `I tassi di ${month} non sono ancora pubblicati.`,
       disabled: 'Il recupero automatico è disattivato in questo ambiente. Inserire i tassi a mano.',
