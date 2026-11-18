@@ -48,8 +48,9 @@ pub const FORCED_REFRESH_EVERY: Duration = Duration::from_secs(1);
 
 /// The pin retry reads `auth` at most this many times in [`PIN_REFRESH_WINDOW`], per process (security re-review
 /// N2, delta review T76-2). `auth` allows the `letterhead-api` client 300 reads in 10 minutes in all, and that
-/// allowance is shared by every replica of the service, while this budget is per process: 30 keeps ten replicas,
-/// forced reads and the natural ones together, inside it. A legitimate save needs one or two.
+/// allowance is shared by every replica of the service, while this budget is per process. Per replica, forced reads
+/// are at most 30 in 10 minutes and natural ones at most about 20 (one per 30 s), so about 50 together: the 300
+/// hold up to about six replicas (today there is one). A legitimate save needs one or two.
 pub const PIN_REFRESH_BUDGET: usize = 30;
 
 /// The window of [`PIN_REFRESH_BUDGET`], sliding: no 10 minutes hold more than the budget.
