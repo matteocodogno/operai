@@ -36,7 +36,7 @@ Reading the list:
 
 ## Backend — foundations
 
-- [ ] T1: refund-api — schema and the single migration: catalog, defaults, line columns, counters, FX, export log, triggers, checks — refs: AC-1.5, AC-1.8, AC-2.1, AC-2.5, AC-3.7, AC-4.7, AC-5.3, AC-6.10 — deps: none
+- [x] T1: refund-api — schema and the single migration: catalog, defaults, line columns, counters, FX, export log, triggers, checks — refs: AC-1.5, AC-1.8, AC-2.1, AC-2.5, AC-3.7, AC-4.7, AC-5.3, AC-6.10 — deps: none
   - touch: `refund-api/prisma/schema.prisma`, `refund-api/prisma/migrations/*`, `refund-api/src/lib/db.accounting-*.test.ts`, `refund-api/src/test-support/dbCleanup.ts`
   - agent: backend-dev · backend
   - Details:

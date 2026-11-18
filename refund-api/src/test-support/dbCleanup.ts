@@ -9,6 +9,11 @@
  * under test elsewhere in the suite (mirrors `src/lib/db.audit-immutability.
  * test.ts`'s own `afterAll`).
  *
+ * specs/20261118-refund-accounting-export (T1): the eight accounting tables
+ * (catalog, status history, type defaults, receipt counter, exchange rates,
+ * fetch attempts, export log) are listed for the same reason; the triggers on
+ * them are likewise not fired by TRUNCATE.
+ *
  * `refund_batch`, `mileage_rate`, and `refund_setting` are all listed
  * explicitly (not just left to CASCADE): each sits on the "referenced" side
  * of an `onDelete: Restrict` FK, or has no incoming FK at all
@@ -24,6 +29,6 @@ import { db } from "../lib/db";
 
 export async function truncateRefundTables(): Promise<void> {
   await db.$executeRawUnsafe(
-    'TRUNCATE TABLE "refund_audit_entry", "attachment", "refund_line", "refund_batch_item", "refund_request", "refund_batch", "mileage_rate", "refund_setting" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "refund_audit_entry", "attachment", "refund_line", "refund_batch_item", "refund_request", "refund_batch", "mileage_rate", "refund_setting", "ledger_account", "vat_code", "accounting_catalog_status", "expense_type_default", "receipt_counter", "exchange_rate_entry", "exchange_rate_fetch_attempt", "refund_batch_export" RESTART IDENTITY CASCADE',
   );
 }
