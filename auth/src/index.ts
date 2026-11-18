@@ -142,7 +142,9 @@ setupOpenAPI(app);
 // ─── Global error handler (RFC 7807 Problem JSON) ───────────────────────────
 
 app.onError((err: Error, c: Context) => {
-  console.error("[uncaught]", err);
+  // Name and code only (D9-3): a message or the object can carry a database call's arguments, an address among them.
+  const code = (err as { code?: unknown } | null)?.code;
+  console.error("[uncaught]", err instanceof Error ? err.name : "UnknownError", typeof code === "string" || typeof code === "number" ? code : "");
 
   const status =
     "status" in err && typeof (err as { status: number }).status === "number"

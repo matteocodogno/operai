@@ -11,7 +11,8 @@
  *     counts the attempt, so two replicas (or a kick and a sweep) never send the same row;
  *   - each claimed row is sent on its own (4 at a time, 5 s per call): one recipient's or one channel's failure never
  *     stops or delays another's call. The content is rebuilt from versions n and n - 1 (`content.ts`) and the row's own
- *     `authorEmail` (claimed with it, D9; never updated, never logged), so a retry sends the same words;
+ *     `authorEmail` (claimed with it, D9; written once at capture, cleared once at the terminal status, never otherwise
+ *     updated, never logged), so a retry sends the same words;
  *   - a failure is retried at +1, +3, +5, +10 and +20 minutes, then every 30, never later than 24 h after the version
  *     was stored (`createdAt`), when the row is given up;
  *   - the outcome and its audit entry are one transaction: `notice_failed` (the FIRST failure of a row only),
@@ -208,7 +209,8 @@ export function createNoticeDispatcher(options: NoticeDispatcherOptions = {}): N
       mutate: async (tx) => {
         const result = await tx.legalEntityNotice.updateMany({
           where: sameClaim(row),
-          data: { status: "delivered", deliveredAt: at, leaseUntil: null },
+          // authorEmail: cleared in the same update as the terminal status (D9-1); every send before it read the captured value.
+          data: { status: "delivered", deliveredAt: at, leaseUntil: null, authorEmail: null },
         });
         return result.count === 1;
       },
@@ -235,7 +237,7 @@ export function createNoticeDispatcher(options: NoticeDispatcherOptions = {}): N
             lastReason: reason,
             leaseUntil: null,
             ...(first ? { firstFailedAt: at } : {}),
-            ...(givingUp ? { status: "given_up", givenUpAt: at } : { nextAttemptAt }),
+            ...(givingUp ? { status: "given_up", givenUpAt: at, authorEmail: null } : { nextAttemptAt }),
           },
         });
         return result.count === 1;

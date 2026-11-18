@@ -150,8 +150,12 @@ async function managerCookie(): Promise<string> {
   createdRoleIds.push(role.id);
   await db.permissionRule.create({ data: { roleId: role.id, resource: "legal-entity", action: "manage" } });
   await db.userRole.create({ data: { userId: user.id, roleId: role.id } });
+  return sessionCookieFor(user.id);
+}
 
-  const session = await (await auth.$context).internalAdapter.createSession(user.id, false);
+/** The signed session cookie of a real Better Auth session for `userId`. */
+async function sessionCookieFor(userId: string): Promise<string> {
+  const session = await (await auth.$context).internalAdapter.createSession(userId, false);
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.BETTER_AUTH_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(session.token));
   const signed = `${session.token}.${btoa(String.fromCharCode(...new Uint8Array(sig)))}`;
@@ -199,4 +203,40 @@ describe("CORS exposes Retry-After (T74)", () => {
     const res = await app.request("/health", { headers: { origin: "https://evil.example" } });
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
+});
+
+// ─── The account email cannot be changed by its holder (T88, security review D9-2) ──────────────────────────────────
+// The author of a legal-entity change is identified in the notice by `user.email`; "the holder cannot set it" rests on
+// Better Auth's defaults (`user.changeEmail` off, `update-user` ignoring `email`). This pins the premise.
+
+describe("a signed-in holder cannot change user.email (D9-2)", () => {
+  const attempts: Array<[string, string, Record<string, unknown>]> = [
+    ["POST /auth/change-email", "/auth/change-email", { newEmail: "attacker-chosen@legalentities.test" }],
+    ["POST /auth/change-email (callbackURL)", "/auth/change-email", { newEmail: "attacker-chosen@legalentities.test", callbackURL: "/" }],
+    ["POST /auth/update-user with an email member", "/auth/update-user", { email: "attacker-chosen@legalentities.test" }],
+    ["POST /auth/update-user with email and name", "/auth/update-user", { email: "attacker-chosen@legalentities.test", name: "Renamed" }],
+  ];
+
+  for (const [label, path, body] of attempts) {
+    test(`${label} leaves the stored email unchanged`, async () => {
+      const email = `t88-email-${RUN_ID}-${crypto.randomUUID()}@legalentities.test`;
+      const user = await db.user.create({ data: { name: "T88 fixture", email, emailVerified: true } });
+      createdUserIds.push(user.id);
+      const cookie = await sessionCookieFor(user.id);
+
+      const res = await app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN, cookie },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      // Recorded, not asserted: what Better Auth answers (it may refuse, or accept the request and ignore the member).
+      console.info(`[T88] ${label} -> ${res.status} ${text.slice(0, 160)}`);
+
+      const after = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+      expect(after.email).toBe(email);
+      expect(after.emailVerified).toBe(true);
+      expect(await db.user.count({ where: { email: { contains: "attacker-chosen" } } })).toBe(0);
+    });
+  }
 });

@@ -431,7 +431,8 @@ model LegalEntityNotice {
   givenUpAt     DateTime?
   createdAt     DateTime  @default(now()) // = the version's createdAt (the transaction time), set by the writer
   /// The actor's account email when the version was stored (AC-9.11, amendment D9); null = none on record.
-  /// Personal data: content of the notice only; never in a log line or an audit entry. Written once, never updated.
+  /// Personal data: content of the notice only; never in a log line or an audit entry. Written once at capture, cleared once at the terminal status
+  /// (delivered / given_up, D9-1; a trigger allows no other change), never otherwise updated.
   /// CHECK not empty (no CHECK on the form: a failing CHECK must not turn a valid save into a 500).
   authorEmail   String?
 

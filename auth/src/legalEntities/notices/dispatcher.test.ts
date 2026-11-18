@@ -877,8 +877,8 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
       const notDue = await addRow({ recipient: a.id, channel: "in_app", nextAttemptAt: new Date(T0.getTime() + 5 * MIN) });
       const done = await addRow({ recipient: b.id, channel: "in_app" });
       const gone = await addRow({ recipient: c.id, channel: "in_app" });
-      await db.legalEntityNotice.update({ where: { id: done.id }, data: { status: "delivered", deliveredAt: T0 } });
-      await db.legalEntityNotice.update({ where: { id: gone.id }, data: { status: "given_up", givenUpAt: T0 } });
+      await db.legalEntityNotice.update({ where: { id: done.id }, data: { status: "delivered", deliveredAt: T0, authorEmail: null } });
+      await db.legalEntityNotice.update({ where: { id: gone.id }, data: { status: "given_up", givenUpAt: T0, authorEmail: null } });
       await makeDispatcher().sweep();
       expect(fake.calls).toHaveLength(0);
       expect((await reload(notDue.id)).attempts).toBe(0);
@@ -980,7 +980,9 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
       // log line does; and no request carries it outside a body (in-app `body`, `it.body`) or the email's `actorEmail`.
       expect(audit).not.toContain(SENTINEL.author);
       expect(logged).not.toContain(SENTINEL.author);
-      expect(stored).toContain(SENTINEL.author);
+      // Every row is terminal after the sweeps, so the stored rows no longer hold it (D9-1); the sends did carry it.
+      expect(stored).not.toContain(SENTINEL.author);
+      expect(fake.calls.some((c) => c.raw.includes(SENTINEL.author))).toBe(true);
       const bodiesOnly = fake.calls.map((c) => {
         const copy = JSON.parse(c.raw) as Record<string, any>;
         if (c.kind === "notification") {
@@ -1150,27 +1152,64 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
       expect((await reload(rows[4]!.id)).status).toBe("delivered");
     });
 
-    test("nothing updates `authorEmail`: it is the same on every row after deliveries, failures and give-ups, and no update statement names it", async () => {
+    test("`authorEmail` is read for every send, kept byte-identical across retries, and cleared in the same update as the terminal status (delivered or given_up)", async () => {
       const p = await makeUser("immutable");
       const gone = await makeUser("immutable-gone");
-      const rows = [...(await addPerson(p.id)), ...(await addPerson(gone.id, { authorEmail: null })), await addRow({ recipient: "outside", channel: "email", authorEmail: "keep.me@operai.test" })];
+      const retried = await addRow({ recipient: p.id, channel: "in_app" });
+      const doomed = await addRow({ recipient: p.id, channel: "email", authorEmail: "keep.me@operai.test" });
+      const goneRow = await addRow({ recipient: gone.id, channel: "in_app" });
       await db.user.update({ where: { id: gone.id }, data: { deletedAt: T0 } });
-      let n = 0;
-      fake.behave = () => (++n % 2 === 0 ? { status: 500 } : "ok");
+      // The notification fails twice, then succeeds; the email always fails (retry, then give up at 24 h).
+      let notifications = 0;
+      fake.behave = (call) => (call.kind === "email" ? { status: 500 } : ++notifications <= 2 ? { status: 500 } : "ok");
       const dispatcher = makeDispatcher();
-      for (const minutes of [0, 1, 4, 9]) {
+      const seen: Array<string | null> = [];
+      for (const minutes of [0, 1, 4]) {
         setClock(T0.getTime() + minutes * MIN);
         await dispatcher.sweep();
+        seen.push((await reload(retried.id)).authorEmail);
+        // A row still pending keeps the captured value untouched.
+        expect((await reload(doomed.id)).authorEmail).toBe("keep.me@operai.test");
       }
+      // Attempts 1 and 2 failed (value kept), attempt 3 delivered (value cleared with the status).
+      expect(seen).toEqual([SENTINEL.author, SENTINEL.author, null]);
+      expect(await reload(retried.id)).toMatchObject({ status: "delivered", authorEmail: null });
+      const notes = fake.calls.filter((c) => c.kind === "notification" && c.body["recipientId"] === p.id);
+      expect(notes).toHaveLength(3);
+      for (const call of notes) expect(String(call.body["body"])).toContain(SENTINEL.author);
+      expect(notes[1]!.raw).toBe(notes[0]!.raw);
+      expect(notes[2]!.raw).toBe(notes[0]!.raw);
+
       setClock(T0.getTime() + GIVE_UP_AFTER_MS + 1);
       await dispatcher.sweep();
-      const after = await db.legalEntityNotice.findMany({ where: { id: { in: rows.map((r) => r.id) } } });
-      expect(new Map(after.map((r) => [r.id, r.authorEmail]))).toEqual(new Map(rows.map((r, i) => [r.id, i < 2 ? SENTINEL.author : i < 4 ? null : "keep.me@operai.test"])));
+      expect(await reload(doomed.id)).toMatchObject({ status: "given_up", authorEmail: null });
+      // A row given up without any send (the recipient is deleted) is cleared too.
+      expect(await reload(goneRow.id)).toMatchObject({ status: "given_up", lastReason: "recipient_deleted", authorEmail: null });
+      // The audit entries and logs never carry the address.
+      expect(JSON.stringify(await noticeAudit())).not.toContain("keep.me@operai.test");
 
+      // Only the two terminal updates write the column, and only to null; the claim statement never names it in SET.
       const source = readFileSync(join(import.meta.dir, "dispatcher.ts"), "utf8");
-      for (const block of source.split("updateMany(").slice(1)) expect(block.slice(0, block.indexOf("});"))).not.toContain("authorEmail");
+      for (const block of source.split("updateMany(").slice(1)) {
+        const data = block.slice(block.indexOf("data:"), block.indexOf("});"));
+        for (const match of data.matchAll(/authorEmail:\s*([^,}\s]+)/g)) expect(match[1]).toBe("null");
+      }
       const set = source.slice(source.indexOf('SET "leaseUntil"'), source.indexOf("WHERE n.\"id\" IN"));
       expect(set).not.toContain("authorEmail");
+    });
+
+    test("the database allows `authorEmail` to change only to null on a row that is terminal after the update, and holds no address on a terminal row", async () => {
+      const p = await makeUser("guard");
+      const row = await addRow({ recipient: p.id, channel: "in_app" });
+      const attempt = async (data: Record<string, unknown>) => await db.legalEntityNotice.update({ where: { id: row.id }, data });
+      await expect(attempt({ authorEmail: "other@operai.test" })).rejects.toThrow(); // rewritten while pending
+      await expect(attempt({ authorEmail: null })).rejects.toThrow(); // cleared while pending
+      await expect(attempt({ status: "delivered", deliveredAt: T0 })).rejects.toThrow(); // terminal still holding it
+      await expect(attempt({ status: "delivered", deliveredAt: T0, authorEmail: "other@operai.test" })).rejects.toThrow();
+      expect((await reload(row.id)).authorEmail).toBe(SENTINEL.author);
+      await attempt({ status: "given_up", givenUpAt: T0, authorEmail: null });
+      await expect(attempt({ authorEmail: SENTINEL.author })).rejects.toThrow(); // never set again
+      expect(await reload(row.id)).toMatchObject({ status: "given_up", authorEmail: null });
     });
 
     test("a pre-D9 row (the column was never written) reads null: the notice says so and names no one", async () => {
