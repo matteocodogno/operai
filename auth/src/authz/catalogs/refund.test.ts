@@ -25,11 +25,11 @@ describe("REFUND_CATALOG (T2, AC-1.1/5.4/7.5/8.2)", () => {
     });
   });
 
-  test("declares the `request` resource with exactly create/read/review/set-approved-total/approve/reject", () => {
+  test("declares the `request` resource with exactly create/read/review/set-approved-total/approve/reject/reclassify", () => {
     const requestResource = REFUND_CATALOG.resources.find((r) => r.key === "request");
     expect(requestResource).toBeDefined();
     expect(requestResource?.actions.map((a) => a.key).sort()).toEqual(
-      ["approve", "create", "read", "reject", "review", "set-approved-total"].sort(),
+      ["approve", "create", "read", "reclassify", "reject", "review", "set-approved-total"].sort(),
     );
   });
 
@@ -57,6 +57,29 @@ describe("REFUND_CATALOG (T2, AC-1.1/5.4/7.5/8.2)", () => {
     expect(REFUND_CATALOG.resources.map((r) => r.key).sort()).toEqual(
       ["rate", "refund", "request", "settings"].sort(),
     );
+  });
+});
+
+describe("REFUND_CATALOG `request:reclassify` (T2, specs/20261118-refund-accounting-export — AC-3.6; plan D5)", () => {
+  const reclassify = () =>
+    REFUND_CATALOG.resources
+      .find((r) => r.key === "request")
+      ?.actions.find((a) => a.key === "reclassify");
+
+  test("is declared, labelled \"Reclassify approved line\"", () => {
+    expect(reclassify()).toBeDefined();
+    expect(reclassify()?.label).toBe("Reclassify approved line");
+  });
+
+  test("supports the `entity` condition and nothing else — in particular never `self-approval`", () => {
+    expect(reclassify()?.supportedConditions).toEqual(["entity"]);
+  });
+
+  test("is declared exactly once, on `request` only", () => {
+    const declaring = REFUND_CATALOG.resources.flatMap((resource) =>
+      resource.actions.filter((a) => a.key === "reclassify").map(() => resource.key),
+    );
+    expect(declaring).toEqual(["request"]);
   });
 });
 

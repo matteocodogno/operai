@@ -48,9 +48,10 @@
  *      this same role, via the resolver's widest-wins union).
  *   6. {@link seedRefundAdminRole} (post-close follow-up, specs/20260716-refund-
  *      service) — a distinct, explicit `refund-admin` system role bundling
- *      EVERY refund capability at once (`refund:access` + all six `request`
- *      actions), the entity-scoped four (`review`/`set-approved-total`/
- *      `approve`/`reject`) each granted UNCONDITIONED — i.e. global scope via
+ *      EVERY refund capability at once (`refund:access` + all seven `request`
+ *      actions; `reclassify` added by T2, specs/20261118-refund-accounting-export),
+ *      the entity-scoped five (`review`/`set-approved-total`/
+ *      `approve`/`reject`/`reclassify`) each granted UNCONDITIONED — i.e. global scope via
  *      the resolver's pre-existing widest-wins union, the SAME mechanism
  *      Gate-2 decision D3 already established, just pre-composed into a role
  *      instead of left to a per-admin manual grant. This mirrors, but is
@@ -327,14 +328,22 @@ export const ALL_APP_IDS: readonly string[] = [
 const REFUND_ENTITY_CONDITION = { attributes: [{ key: "entity", match: "user" }] };
 
 /** The `request` resource actions the `accounting` role is granted, entity-scoped (ADR 20260716-entity-scoped-abac-refund-api). */
-const ACCOUNTING_REQUEST_ACTIONS = ["review", "set-approved-total", "approve", "reject"] as const;
+const ACCOUNTING_REQUEST_ACTIONS = [
+  "review",
+  "set-approved-total",
+  "approve",
+  "reject",
+  // specs/20261118-refund-accounting-export (T2, D5): re-booking an approved line, granted like `approve`.
+  "reclassify",
+] as const;
 
 /**
  * Seeds the `accounting` role's refund grants (T2, specs/20260716-refund-service
  * — AC-5.4, AC-6.4, AC-7.5; plan.md "Role → permission mapping"; ADR 20260716-entity-scoped-abac-refund-api).
  * Grants `refund:access` (unconditional — same shape as every other app-
  * access grant) plus `request:review`/`set-approved-total`/`approve`/
- * `reject`, each carrying the entity condition {@link REFUND_ENTITY_CONDITION}
+ * `reject`/`reclassify` (the last one from specs/20261118-refund-accounting-export,
+ * T2, D5: granted like `approve`), each carrying the entity condition {@link REFUND_ENTITY_CONDITION}
  * — an `accounting` user is scoped to their own `user.entity`. Deliberately
  * does NOT touch:
  *   - `employee` — refund access is fully admin-assigned (Gate-2 decision
@@ -381,7 +390,7 @@ export async function seedAccountingRoleGrants(): Promise<void> {
   }
 }
 
-/** The `request` resource actions the `refund-admin` role is granted — ALL six, every one UNCONDITIONED (global). */
+/** The `request` resource actions the `refund-admin` role is granted — ALL seven, every one UNCONDITIONED (global). */
 const REFUND_ADMIN_REQUEST_ACTIONS = [
   "create",
   "read",
@@ -389,13 +398,15 @@ const REFUND_ADMIN_REQUEST_ACTIONS = [
   "set-approved-total",
   "approve",
   "reject",
+  // specs/20261118-refund-accounting-export (T2, D5)
+  "reclassify",
 ] as const;
 
 /**
  * Seeds the `refund-admin` role (post-close follow-up, specs/20260716-refund-
  * service — "assign everything at once"): one role that grants EVERY refund
  * capability, unconditioned, to whoever an admin assigns it to. Grants
- * `refund:access` plus all six `request` actions — `create`/`read` the same
+ * `refund:access` plus all seven `request` actions — `create`/`read` the same
  * way every grant of theirs already is (the catalog declares no supported
  * condition for `create`, and `read`'s ownership check is enforced in code
  * regardless of any condition value, so omitting `conditions` here changes
@@ -422,6 +433,11 @@ const REFUND_ADMIN_REQUEST_ACTIONS = [
  * `request:read` is still granted (matching the catalog's full action set,
  * so admin-ui's rule composer shows this role holding it) but is NOT what
  * makes cross-user reads work — see the paragraph above.
+ *
+ * `admin` is deliberately given NO `request` action by any seed step (only
+ * `refund:access`, `rate:*` and `settings:*`): `reclassify` follows `approve`'s
+ * pattern exactly, so an admin who must re-book a line holds `refund-admin`
+ * (specs/20261118-refund-accounting-export, D5).
  *
  * Deliberately does NOT create an `accounting-global` role (Gate-2 decision
  * D3, reaffirmed by {@link seedAccountingRoleGrants}'s doc comment) —

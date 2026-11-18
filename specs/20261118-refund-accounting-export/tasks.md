@@ -60,7 +60,7 @@ Reading the list:
     deleted, that a paid request's line classification cannot change, and that the counter
     refuses to decrease; the whole refund-api suite (`bun test`) is green.
 
-- [ ] T2: auth — `request:reclassify` (entity condition) in the refund catalog, granted like `approve` — refs: AC-3.6 — deps: none
+- [x] T2: auth — `request:reclassify` (entity condition) in the refund catalog, granted like `approve` — refs: AC-3.6 — deps: none
   - touch: `auth/src/authz/catalogs/refund.ts`, `auth/src/authz/catalogs/refund.test.ts`, `auth/src/authz/seed.ts`, `auth/src/authz/seed.test.ts`
   - agent: backend-dev · backend
   - Details: plan D5. Action `reclassify`, label "Reclassify approved line",

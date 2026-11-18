@@ -25,6 +25,17 @@
  * Extended by T1, specs/20260722-refund-settings (plan.md "Architecture §auth",
  * Decision D2; ADR 20260722-settings-catalog-permission-config-not-rate) with a FOURTH resource, `settings` — see below.
  *
+ * Extended by T2, specs/20261118-refund-accounting-export (plan.md "auth", Decision D5;
+ * ADR 20261118-accounting-classification-is-live-until-approval-then-frozen-and-...):
+ * `request` gains a SEVENTH action, `reclassify` — changing the accounting
+ * classification (ledger account, VAT code) of a line of an `approved`, not yet
+ * `paid` request. Before approval the same change needs `set-approved-total`;
+ * after approval it needs this one, so that who may re-book an approved line is a
+ * role edit in admin-ui, with no deploy (open question 5 of that spec). Entity
+ * condition only, like `approve`; never `self-approval`. DEPLOY ORDER: auth goes
+ * out BEFORE refund-api (plan R13): until this catalog is registered nobody holds
+ * `reclassify`, so refund-api fails closed (403) on a post-approval change.
+ *
  * `refund` was previously an access-only stub registered by
  * `seedAppAccessCatalog`'s `SUITE_APPS` list (spec 004). This is refund's
  * FULL catalog — `refund` moves OUT of `SUITE_APPS` (exactly as `estimai`
@@ -37,7 +48,8 @@
  *     single `access` action, no conditions. Same shape every suite app's
  *     access resource gets.
  *   - `request` — the domain resource — with the six actions plan.md's
- *     "Authz integration" section enumerates. `supportedConditions` per
+ *     "Authz integration" section enumerates (plus `reclassify`, T2 of
+ *     specs/20261118-refund-accounting-export, described above). `supportedConditions` per
  *     action, exactly as specified there:
  *       - `create`             — `[]` (an employee owns whatever they create;
  *                                  no condition needed to gate creation itself)
@@ -50,6 +62,9 @@
  *                                  ADR 20260721-self-approval-condition-and-403-exception — the self-approval SoD condition
  *                                  is declared here ONLY)
  *       - `reject`              — `["entity"]`
+ *       - `reclassify`          — `["entity"]` (specs/20261118-refund-accounting-export;
+ *                                  granted to the same holders as `approve`, WITHOUT
+ *                                  `self-approval`: it is not an approval)
  *     Submit/withdraw/edit/delete of a draft are authorized by `create` +
  *     ownership of the request (the creator) per plan.md — they are
  *     deliberately NOT separate catalog actions.
@@ -123,6 +138,13 @@ export const REFUND_CATALOG: AppCatalogInput = {
           supportedConditions: [...ENTITY_SCOPED_CONDITIONS, "self-approval"],
         },
         { key: "reject", label: "Reject", supportedConditions: ENTITY_SCOPED_CONDITIONS },
+        {
+          key: "reclassify",
+          label: "Reclassify approved line",
+          // Entity condition only (D5, AC-3.6): the same scope as the other
+          // accounting actions. `self-approval` stays on `approve` ONLY.
+          supportedConditions: ENTITY_SCOPED_CONDITIONS,
+        },
       ],
     },
     {
