@@ -489,9 +489,11 @@ Reading the list:
 
 ## Push 2 — release plumbing
 
-- [x] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each) and auth (minor: US-9 notices), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2, AC-9.7 — deps: T13, T16, T23, T28, T29, T31, T32, T40, T58, T59, T60, T61, T62, T63, T64, T65, T66
+- [ ] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each) and auth (minor: US-9 notices), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2, AC-9.7 — deps: T13, T16, T23, T28, T29, T31, T32, T40, T58, T59, T60, T61, T62, T63, T64, T65, T66
   - touch: `.changeset/*`
   - agent: backend-dev · push 2
+  - status 2026-11-18 (eval round 1): the six changesets are PREPARED on the branch (`87a24dee`); the task stays
+    open until it is consumed after T16 in the release session, as its dep says.
   - note (2026-11-17): T16 now runs at the end (G15), so this task follows it in the same release session; the dep on
     T16 stays (push-2 changesets must not be consumed by the push-1 cut).
   - done when: `changeset status --verbose` lists the six packages; `check-changeset.mjs` exits 0 for the push-2

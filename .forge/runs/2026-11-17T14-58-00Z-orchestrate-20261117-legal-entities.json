@@ -1,0 +1,919 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-11-17T14-58-00Z-orchestrate-20261117-legal-entities",
+  "command": "orchestrate",
+  "feature": "20261117-legal-entities",
+  "rigor": "production",
+  "started": "2026-11-17T14:58:00Z",
+  "finished": "2026-11-18T07:00:00Z",
+  "agents": [
+    {
+      "agent": "product-owner",
+      "tasks": [],
+      "outcome": "spec draft via /wellforge:spec (main loop), approved 2026-11-17",
+      "commits": []
+    },
+    {
+      "agent": "architect",
+      "tasks": [],
+      "outcome": "plan.md + amendments D1-D6, approved",
+      "commits": []
+    },
+    {
+      "agent": "designer",
+      "tasks": [],
+      "outcome": "design.md with visual companion; owner picked B/B/B",
+      "commits": []
+    },
+    {
+      "agent": "adr-writer",
+      "tasks": [],
+      "outcome": "4 ADRs (registry, letterhead reads issuer, admin by capability, CRM move)",
+      "commits": []
+    },
+    {
+      "agent": "architect",
+      "tasks": [],
+      "outcome": "plan amendment after design (E1-E14) + tasks.md T1-T50",
+      "commits": []
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T1"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "1ee1417b"
+      ],
+      "worktree": "le/T1"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T2"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "89b04e27"
+      ],
+      "worktree": "le/T2"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T3"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "7df2fda4"
+      ],
+      "worktree": "le/T3"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T10"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "6a690d02"
+      ],
+      "worktree": "le/T10"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T11"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "96b4d771"
+      ],
+      "worktree": "le/T11"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T29"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "07a94b83"
+      ],
+      "worktree": "le/T29"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T33"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "f8277c78"
+      ],
+      "worktree": "le/T33"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T4"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "9b16fa7d"
+      ],
+      "worktree": "le/T4"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T9"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "579ff6c0"
+      ],
+      "worktree": "le/T9"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T5"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "9c7afee6"
+      ],
+      "worktree": "le/T5"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T6"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "a6a83a8d"
+      ],
+      "worktree": "le/T6"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T30"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "323ff0d0"
+      ],
+      "worktree": "le/T30"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T34"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "7ba92bcd"
+      ],
+      "worktree": "le/T34"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T24"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "78d2be25"
+      ],
+      "worktree": "le/T24"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T7"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "0959669c"
+      ],
+      "worktree": "le/T7"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T12"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "4981c151",
+        "87a8bdb9",
+        "4363fc10"
+      ],
+      "worktree": "le/T12"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T25"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "8677032a"
+      ],
+      "worktree": "le/T25"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T8"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "58433c1c"
+      ],
+      "worktree": "le/T8"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T35"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "50e2f650"
+      ],
+      "worktree": "le/T35"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T19"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "a0eec815"
+      ],
+      "worktree": "le/T19"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T20"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "49b68a50",
+        "313f7727"
+      ],
+      "worktree": "le/T20"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T21"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "f09600e8"
+      ],
+      "worktree": "le/T21"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T26"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "3dcc97fe"
+      ],
+      "worktree": "le/T26"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T13"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "4fa47dfa"
+      ],
+      "worktree": "le/T13"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T41"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "5f60e3ee"
+      ],
+      "worktree": "le/T41"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T36"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "175ba14f"
+      ],
+      "worktree": "le/T36"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T27"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "ab5defb6"
+      ],
+      "worktree": "le/T27"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T31"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "524018f7"
+      ],
+      "worktree": "le/T31"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T22"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "a95db783"
+      ],
+      "worktree": "le/T22"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T37"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "71865e48"
+      ],
+      "worktree": "le/T37"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T38"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "d819a082"
+      ],
+      "worktree": "le/T38"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T39"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "94ee78ed"
+      ],
+      "worktree": "le/T39"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T23"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "0665efa3"
+      ],
+      "worktree": "le/T23"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T28"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "b061d220"
+      ],
+      "worktree": "le/T28"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T32"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "00fb06e9"
+      ],
+      "worktree": "le/T32"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T42"
+      ],
+      "outcome": "specs 15/15 with a scratch workaround; found D1 (blocking)",
+      "commits": [
+        "b9927fab"
+      ],
+      "worktree": "le/T42"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "D1"
+      ],
+      "outcome": "fixed (auth mount pattern)",
+      "commits": [
+        "62babb4e"
+      ],
+      "worktree": "le/D1"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "tasks": [
+        "T46"
+      ],
+      "outcome": "REVIEW REQUIRED: 1 medium (F1), 6 low, 8 info",
+      "commits": [
+        "b8ab613c"
+      ]
+    },
+    {
+      "agent": "product-owner",
+      "tasks": [],
+      "outcome": "US-9 (AC-9.1-9.17) after F1, owner approved",
+      "commits": []
+    },
+    {
+      "agent": "architect",
+      "tasks": [],
+      "outcome": "plan amendment after security review (G1-G16) + T51-T71, owner approved",
+      "commits": []
+    },
+    {
+      "agent": "designer",
+      "tasks": [
+        "T51"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "bb77cdde"
+      ],
+      "worktree": "le/T51"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T52"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "86bf2319"
+      ],
+      "worktree": "le/T52"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T54"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "1f1be518"
+      ],
+      "worktree": "le/T54"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T56"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "6191f34b"
+      ],
+      "worktree": "le/T56"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T62"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "6ceda757"
+      ],
+      "worktree": "le/T62"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T64"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "bf3de5ff"
+      ],
+      "worktree": "le/T64"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T66"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "ed0ece5c"
+      ],
+      "worktree": "le/T66"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T53"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "aa39804a"
+      ],
+      "worktree": "le/T53"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T55"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "3df7f4cb"
+      ],
+      "worktree": "le/T55"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T67"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "fdeca5b9"
+      ],
+      "worktree": "le/T67"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T72"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "aa345b64"
+      ],
+      "worktree": "le/T72"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T57"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "1d4c86da",
+        "c945227e"
+      ],
+      "worktree": "le/T57"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T58"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "4b7d05ca"
+      ],
+      "worktree": "le/T58"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T60"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "232c12bd",
+        "3a9e65c8"
+      ],
+      "worktree": "le/T60"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T63"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "59299b8f",
+        "4e5fb40f"
+      ],
+      "worktree": "le/T63"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T65"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "4208f111"
+      ],
+      "worktree": "le/T65"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T59"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "72f13fdd"
+      ],
+      "worktree": "le/T59"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T69"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "dc8e5868"
+      ],
+      "worktree": "le/T69"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T74"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "e531ab30"
+      ],
+      "worktree": "le/T74"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T61"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "4fda5796"
+      ],
+      "worktree": "le/T61"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T73"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "bbc1e27c",
+        "5ffee437"
+      ],
+      "worktree": "le/T73"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T40"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "660b0222",
+        "7a6731c3"
+      ],
+      "worktree": "le/T40"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T75"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "815d58eb"
+      ],
+      "worktree": "le/T75"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T76"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "fcaedf07"
+      ],
+      "worktree": "le/T76"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T44"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "87a24dee"
+      ],
+      "worktree": "le/T44"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "tasks": [
+        "T70"
+      ],
+      "outcome": "PASS WITH NOTES (0 medium+); N2 to T76; N1 open for the owner",
+      "commits": []
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T43"
+      ],
+      "outcome": "FAIL: D-T43-1 (to D2)",
+      "commits": [
+        "b5189297"
+      ],
+      "worktree": "le/T43"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "D2"
+      ],
+      "outcome": "fixed",
+      "commits": [
+        "c63a0681"
+      ],
+      "worktree": "le/D2"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T68"
+      ],
+      "outcome": "FAIL: D-T68-1 high, D-T68-2 medium (to D3)",
+      "commits": [
+        "dc39b858"
+      ],
+      "worktree": "le/T68"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "D3"
+      ],
+      "outcome": "fixed",
+      "commits": [
+        "95ebd129"
+      ],
+      "worktree": "le/D3"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T45"
+      ],
+      "outcome": "PASS: 52/52 ACs, MIG and US-9 rehearsals, skew pairings",
+      "commits": [
+        "569ea44b",
+        "49628190"
+      ],
+      "worktree": "le/T45"
+    },
+    {
+      "agent": "adr-writer",
+      "tasks": [],
+      "outcome": "6 ADRs (notices, notify-api repeats, check-backed confirmation, missing mark, nested form, pin refresh)",
+      "commits": []
+    },
+    {
+      "agent": "evaluator",
+      "tasks": [
+        "T47"
+      ],
+      "outcome": "FAIL 76.5 (round 1; trajectory 2 - no trace)",
+      "commits": []
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "architect",
+      "artifact": "spec.md",
+      "summary": "D1-D6 (supersedes letterhead AC-6.3/8.5/10.10; IBAN print; moved invalid values; restore guard; CRM link; entity condition)",
+      "resolved": true
+    },
+    {
+      "agent": "architect",
+      "artifact": "spec.md",
+      "summary": "D7 (letterhead AC-1.8 for the issuer), D8 (Needs correction)",
+      "resolved": true
+    },
+    {
+      "agent": "designer",
+      "artifact": "plan.md",
+      "summary": "DR-1 to DR-12 into plan amendment E1-E14",
+      "resolved": true
+    },
+    {
+      "agent": "owasp-reviewer",
+      "artifact": "spec.md",
+      "summary": "F1 medium into US-9 (owner approved); F2-F7 into T52-T62",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev",
+      "artifact": "tasks.md",
+      "summary": "touch lists widened (T12, T57, T59, T60, T61, T63) and tasks T72-T76, D1-D3 added from agent reports",
+      "resolved": true
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "code",
+      "summary": "D1 auth routes 404; D2 wrapped missing label; D3 Confirm did not save (nested forms) and dialog description",
+      "resolved": true
+    },
+    {
+      "agent": "orchestrator",
+      "artifact": "tasks.md",
+      "summary": "gate R13 on specs/20261116 lifted by owner; push 1 released at the end with push 2 (owner)",
+      "resolved": true
+    }
+  ],
+  "collision_events": [],
+  "env_faults": [
+    {
+      "agent": "all",
+      "class": "toolchain",
+      "detail": "mise refuses the untrusted worktree config",
+      "resolved_by": "pinned node 24 and toolchains by PATH; no mise trust"
+    },
+    {
+      "agent": "backend-dev",
+      "class": "databases",
+      "detail": "tests need isolated databases",
+      "resolved_by": "per-task *_le_t* databases on the compose Postgres"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "browser",
+      "detail": "Playwright wants chromium 1228, 1208 installed",
+      "resolved_by": "scratch config with executablePath, deleted after"
+    },
+    {
+      "agent": "backend-dev",
+      "class": "hooks",
+      "detail": "a Bash hook blocks command text naming secret-like files; the classifier refused some out-of-touch edits",
+      "resolved_by": "not worked around; routed through task touch widening by the orchestrator"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "databases",
+      "detail": "letterhead-api tests exhaust Postgres connections under parallel load (FU-12)",
+      "resolved_by": "rerun; recommendation recorded"
+    }
+  ],
+  "verdicts": {
+    "qe": "PASS (T45; T42/T43/T68 FAIL rounds fixed by D1-D3)",
+    "owasp": "T46 REVIEW REQUIRED, then T70 PASS WITH NOTES; delta review of T76/D2/D3 in eval round 1 fixes",
+    "eval": "FAIL 76.5 (round 1); round 2 follows"
+  },
+  "result": "partial",
+  "notes": "Owner asked for an unattended overnight run from 2026-11-17 evening. Owner steps outstanding: T15-T18, T48, T49, T71 (release, Railway credentials, CRM copy). Owner decision open: N1/O-1 (actor's display name in the notice). T44 prepared ahead of T16 by orchestrator decision.",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
