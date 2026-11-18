@@ -1179,7 +1179,7 @@ notify-api is push 1, and auth's notices are push 2.
 
 ### Design
 
-- [ ] T78: design — N1 copy with the author's account email: no display name, the "no email address on record" sentence (in-app en/it, email en) — refs: AC-9.11, AC-9.12, AC-9.13 — deps: none
+- [x] T78: design — N1 copy with the author's account email: no display name, the "no email address on record" sentence (in-app en/it, email en) — refs: AC-9.11, AC-9.12, AC-9.13 — deps: none
   - touch: `specs/20261117-legal-entities/design.md`
   - agent: designer
   - Details: plan J5 (binding contract, recommended wording "the account …", slot `{author}`), J4 (longest case,
@@ -1199,7 +1199,7 @@ notify-api is push 1, and auth's notices are push 2.
 
 ### Push 1 — notify-api
 
-- [ ] T79: notify-api — `legal_entity_change` data: `actorName` → `actorEmail` (strict, an email address ≤ 320 or null), rendered as escaped text with T78's sentences, no display name, no name fallback — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T78
+- [x] T79: notify-api — `legal_entity_change` data: `actorName` → `actorEmail` (strict, an email address ≤ 320 or null), rendered as escaped text with T78's sentences, no display name, no name fallback — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T78
   - touch: `notify-api/src/system/emails.schemas.ts`, `notify-api/src/system/emailTemplates.ts`, `notify-api/src/system/emailTemplates.test.ts`, `notify-api/src/system/emails.routes.test.ts`, `notify-api/src/system/systemAuth.logPrivacy.test.ts`
   - agent: backend-dev · push 1 (one commit touching notify-api only, so the push-1 cut can cherry-pick it)
   - Details:
@@ -1220,7 +1220,7 @@ notify-api is push 1, and auth's notices are push 2.
     - Every other `legal_entity_change` test still passes with `actorEmail`.
     - notify-api typecheck and suite are green.
 
-- [ ] T82: Changeset text — `.changeset/legal-entities-notify-system-routes.md` says the template names the author by account email (or "no email address on record") and never by a display name — refs: AC-9.11, AC-9.13 — deps: T79
+- [x] T82: Changeset text — `.changeset/legal-entities-notify-system-routes.md` says the template names the author by account email (or "no email address on record") and never by a display name — refs: AC-9.11, AC-9.13 — deps: T79
   - touch: `.changeset/legal-entities-notify-system-routes.md`
   - agent: backend-dev · push 1
   - done when:
@@ -1230,7 +1230,7 @@ notify-api is push 1, and auth's notices are push 2.
 
 ### Push 2 — auth
 
-- [ ] T80: auth — capture the author's account email in the version's transaction: `legal_entity_notice.authorEmail` (additive migration), read from the `user` row inside the transaction, written on every row, never updated — refs: AC-9.11, AC-9.10, AC-9.16 — deps: none
+- [x] T80: auth — capture the author's account email in the version's transaction: `legal_entity_notice.authorEmail` (additive migration), read from the `user` row inside the transaction, written on every row, never updated — refs: AC-9.11, AC-9.10, AC-9.16 — deps: none
   - touch: `auth/prisma/schema.prisma`, `auth/prisma/migrations/*`, `auth/src/legalEntities/notices/duty.ts`, `auth/src/legalEntities/notices/duty.test.ts`
   - agent: backend-dev · push 2
   - Details:
@@ -1251,7 +1251,7 @@ notify-api is push 1, and auth's notices are push 2.
     - The CHECK refuses `''`.
     - `bun run db:deploy` applies on compose; the auth suite is green, with the T75 guard kept.
 
-- [ ] T81: auth — the notice states the captured email: the dispatcher claims `authorEmail`, `content.ts` (`noticeAuthorEmail` rule, R-D9a), `copy.ts` (T78's keys en/it), `emailData.actorEmail`; no read of `createdByName` in the notice code — refs: AC-9.11, AC-9.12, AC-9.13, AC-9.10 — deps: T78, T79, T80
+- [x] T81: auth — the notice states the captured email: the dispatcher claims `authorEmail`, `content.ts` (`noticeAuthorEmail` rule, R-D9a), `copy.ts` (T78's keys en/it), `emailData.actorEmail`; no read of `createdByName` in the notice code — refs: AC-9.11, AC-9.12, AC-9.13, AC-9.10 — deps: T78, T79, T80
   - touch: `auth/src/legalEntities/notices/content.ts`, `auth/src/legalEntities/notices/content.test.ts`, `auth/src/legalEntities/notices/copy.ts`, `auth/src/legalEntities/notices/copy.test.ts`, `auth/src/legalEntities/notices/dispatcher.ts`, `auth/src/legalEntities/notices/dispatcher.test.ts`
   - agent: backend-dev · push 2
   - Details:
@@ -1279,7 +1279,7 @@ notify-api is push 1, and auth's notices are push 2.
     - A grep test: `createdByName` does not appear in `notices/`.
     - The auth suite is green.
 
-- [ ] T83: Changeset text — `.changeset/legal-entities-auth-notices.md` says a notice names its author by the account email captured when the version is stored (no display name), and the migration adds one column — refs: AC-9.11, AC-9.12 — deps: T81
+- [x] T83: Changeset text — `.changeset/legal-entities-auth-notices.md` says a notice names its author by the account email captured when the version is stored (no display name), and the migration adds one column — refs: AC-9.11, AC-9.12 — deps: T81
   - touch: `.changeset/legal-entities-auth-notices.md`
   - agent: backend-dev · push 2
   - done when:
@@ -1289,7 +1289,7 @@ notify-api is push 1, and auth's notices are push 2.
 
 ### End-to-end, review, owner
 
-- [ ] T84: e2e — `protected-legal-details.spec.ts`: the notice states the actor's account email and no display name; an actor renamed to a sentinel through `POST /auth/update-user` before a protected save is still named by email — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T79, T81
+- [x] T84: e2e — `protected-legal-details.spec.ts`: the notice states the actor's account email and no display name; an actor renamed to a sentinel through `POST /auth/update-user` before a protected save is still named by email — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T79, T81
   - touch: `shell/e2e/protected-legal-details.spec.ts`, `shell/e2e/helpers/legalEntitiesFixtures.ts`
   - agent: quality-engineer · push 2
   - Details:
@@ -1304,7 +1304,7 @@ notify-api is push 1, and auth's notices are push 2.
     - the existing AC-9.12 value checks still pass;
     - the notice still arrives within 60 s.
 
-- [ ] T85: QE — delta for D9: the changed ACs, the push skew of plan J7, regressions of the notice path — refs: AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.16 — deps: T79, T80, T81, T82, T83, T84
+- [x] T85: QE — delta for D9: the changed ACs, the push skew of plan J7, regressions of the notice path — refs: AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.16 — deps: T79, T80, T81, T82, T83, T84
   - touch: `specs/20261117-legal-entities/qe-report.md`
   - agent: quality-engineer
   - done when a dated delta section in `qe-report.md`:
