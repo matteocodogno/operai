@@ -102,7 +102,7 @@ Reading the list:
     - override on an inactive account → kept, `active: false`;
     - IT line and rejected line → `null`.
 
-- [ ] T5: refund-api — pure FX parser (BAZG XML) and the month window (fetchable months, display window) — refs: AC-5.1, AC-5.5 — deps: none
+- [x] T5: refund-api — pure FX parser (BAZG XML) and the month window (fetchable months, display window) — refs: AC-5.1, AC-5.5 — deps: none
   - touch: `refund-api/src/fx/parse.ts`, `refund-api/src/fx/parse.test.ts`, `refund-api/src/fx/months.ts`, `refund-api/src/fx/months.test.ts`, `refund-api/src/fx/fixtures/*`
   - agent: backend-dev · backend
   - Details:
