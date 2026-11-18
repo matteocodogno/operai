@@ -93,7 +93,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FocusEvent } from 'react'
+import type { FocusEvent, ReactNode } from 'react'
 import {
   Button,
   ConfirmDialog,
@@ -127,6 +127,7 @@ import { useLineDraftValidation } from '../lib/useLineDraftValidation'
 import AttachmentList from './AttachmentList'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
 import MileageAmountField from './MileageAmountField'
+import ReceiptNumber from './ReceiptNumber'
 
 export type ExpenseLineRowMode = 'edit' | 'readOnly' | 'readOnlyApproved' | 'review'
 
@@ -158,6 +159,12 @@ export type ExpenseLineRowProps = {
   onRejectLine?: (reason: string) => Promise<void>
   /** `review` mode — `DELETE .../lines/:lineId/reject`, taking the rejection back. */
   onRestoreLine?: () => Promise<void>
+  /**
+   * Read-only family only (`readOnly`, `readOnlyApproved`, `review`): content the page puts at the foot of the row,
+   * under the attachments. The review page uses it for the line's classification panel
+   * (specs/20261118-refund-accounting-export, design component #29); the row knows nothing about what it holds.
+   */
+  footer?: ReactNode
 }
 
 const ENTITY_OPTIONS: Entity[] = ['welld_it', 'welld_ch']
@@ -187,6 +194,7 @@ export default function ExpenseLineRow({
   onApprovedTotalChange,
   onRejectLine,
   onRestoreLine,
+  footer,
 }: ExpenseLineRowProps) {
   const t = strings.pages.requestDetail.lines
   const composerStrings = strings.pages.requestDetail.composer
@@ -497,6 +505,8 @@ export default function ExpenseLineRow({
       <div className="flex min-w-0 flex-col gap-2">
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="text-soft">{formatDate(line.date)}</span>
+          {/* Never in `edit` mode (design S9); nothing at all for an unnumbered line. */}
+          {mode !== 'edit' && <ReceiptNumber value={line.receiptNumber} />}
           <span className="text-text">{typeLabel(line.type)}</span>
           <EntityBadge entity={line.entity} />
           <CurrencyBadge currency={line.currency} />
@@ -761,6 +771,8 @@ export default function ExpenseLineRow({
           mode="readOnly"
           onDownload={onDownloadAttachment}
         />
+
+        {footer}
       </div>
     )
   }

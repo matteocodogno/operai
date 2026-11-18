@@ -129,4 +129,39 @@ describe('BatchEmployeeGroupList — detail mode', () => {
     const row1 = screen.getByTestId('batch-employee-group-u1-request-req-1')
     expect(row1.getAttribute('aria-label')).toBe('Open Alice’s request, Approved, EUR 9.10')
   })
+
+  it('lists the request\u2019s receipt numbers in full under the row, and the accessible name includes them (AC-4.6)', async () => {
+    await renderDetailAt([
+      {
+        ...detailGroup,
+        requests: [
+          { ...detailGroup.requests[0], receiptNumbers: ['MC26/014', 'MC26/015', 'MC26/017'] },
+          detailGroup.requests[1],
+        ],
+      },
+    ])
+
+    const row = screen.getByTestId('batch-employee-group-u1-request-req-1')
+    const receipts = screen.getByTestId('batch-employee-group-u1-request-req-1-receipts')
+    expect(row.contains(receipts)).toBe(true)
+    // In full: no "MC26/014\u2013017" run.
+    expect(receipts.textContent).toBe('Receipts MC26/014, MC26/015, MC26/017')
+    expect(row.getAttribute('aria-label')).toBe(
+      'Open Alice\u2019s request, Approved, EUR 9.10, receipts MC26/014, MC26/015, MC26/017',
+    )
+  })
+
+  it('shows no receipts line for a request with none, or with the key absent', async () => {
+    await renderDetailAt([
+      {
+        ...detailGroup,
+        requests: [{ ...detailGroup.requests[0], receiptNumbers: [] }, detailGroup.requests[1]],
+      },
+    ])
+    expect(screen.queryByTestId('batch-employee-group-u1-request-req-1-receipts')).toBeNull()
+    expect(screen.queryByTestId('batch-employee-group-u1-request-req-2-receipts')).toBeNull()
+    expect(screen.getByTestId('batch-employee-group-u1-request-req-1').getAttribute('aria-label')).toBe(
+      'Open Alice\u2019s request, Approved, EUR 9.10',
+    )
+  })
 })

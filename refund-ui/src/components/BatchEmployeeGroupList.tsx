@@ -34,7 +34,7 @@
  */
 
 import { Link } from '@tanstack/react-router'
-import { Card, ListRows, listRowClassName } from '@operai/ui'
+import { Card, ListRows, listRowClassName, listRowMetaClassName } from '@operai/ui'
 import { ownerDisplay, strings } from '../strings'
 import type { BatchEmployeeGroup, BatchSubtotal, CandidateEmployeeGroup } from '../lib/batchesApi'
 import type { Currency } from '../lib/money'
@@ -67,6 +67,7 @@ const aggregateRowSubtotals = (rows: readonly { subtotals: readonly BatchSubtota
 
 export default function BatchEmployeeGroupList(props: BatchEmployeeGroupListProps) {
   const t = strings.components.batchEmployeeGroupList
+  const tPage = strings.pages.batchDetail
   const statusLabels = strings.badges.requestStatus
 
   if (props.groups.length === 0) return null
@@ -105,17 +106,36 @@ export default function BatchEmployeeGroupList(props: BatchEmployeeGroupListProp
               <ListRows testId={`batch-employee-group-${group.owner.userId}-requests`}>
                 {group.requests.map((row) => {
                   const amount = formatBatchSubtotalsPreview(row.subtotals)
+                  // UX-8: the numbers in full, never compressed; none, no line at all (S9).
+                  const receipts = (row.receiptNumbers ?? []).join(', ')
+                  const summary = (
+                    <>
+                      <RequestStatusBadge status={row.status} />
+                      {amount && <span className="text-sm font-mono">{amount}</span>}
+                    </>
+                  )
                   return (
                     <Link
                       key={row.id}
                       to="/review/$id"
                       params={{ id: row.id }}
                       data-testid={`batch-employee-group-${group.owner.userId}-request-${row.id}`}
-                      aria-label={t.openRequestLabel(ownerName, statusLabels[row.status], amount)}
-                      className={listRowClassName}
+                      aria-label={t.openRequestLabel(ownerName, statusLabels[row.status], amount, receipts || undefined)}
+                      className={receipts ? `${listRowClassName} flex-col items-stretch gap-1` : listRowClassName}
                     >
-                      <RequestStatusBadge status={row.status} />
-                      {amount && <span className="text-sm font-mono">{amount}</span>}
+                      {receipts ? (
+                        <>
+                          <span className="flex items-center justify-between gap-4">{summary}</span>
+                          <span
+                            className={`${listRowMetaClassName} font-mono break-words`}
+                            data-testid={`batch-employee-group-${group.owner.userId}-request-${row.id}-receipts`}
+                          >
+                            {tPage.receiptNumbers(receipts)}
+                          </span>
+                        </>
+                      ) : (
+                        summary
+                      )}
                     </Link>
                   )
                 })}

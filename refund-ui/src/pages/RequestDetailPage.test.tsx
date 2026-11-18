@@ -45,6 +45,9 @@ vi.mock('../lib/attachmentsApi', async (importOriginal) => {
   }
 })
 
+vi.mock('../lib/accountingApi', () => ({ getRequestAccounting: vi.fn(), getAccountingOptions: vi.fn() }))
+
+import * as accountingApi from '../lib/accountingApi'
 import * as requestsApi from '../lib/requestsApi'
 import { SubmitValidationApiError } from '../lib/requestsApi'
 import * as attachmentsApi from '../lib/attachmentsApi'
@@ -568,5 +571,46 @@ describe('RequestDetailPage — attachment wiring (T17)', () => {
 
     fireEvent.click(screen.getByTestId('attachment-download-a1'))
     await waitFor(() => expect(attachmentsApi.getDownloadUrl).toHaveBeenCalledWith('req-1', 'line-1', 'a1'))
+  })
+})
+
+describe('RequestDetailPage — receipt numbers, no accounting copy (specs/20261118-refund-accounting-export, AC-3.10, AC-4.9)', () => {
+  const numberedRequest = (status: 'approved' | 'paid') => ({
+    ...baseRequest,
+    status,
+    lines: [
+      { ...oneLine, entity: 'welld_ch' as const, approvedTotalCents: 800, receiptNumber: 'MC26/014' },
+      { ...oneLine, id: 'line-2', entity: 'welld_ch' as const, approvedTotalCents: 500, receiptNumber: null },
+    ],
+    subtotals: [{ currency: 'EUR' as const, requestedCents: 2000, approvedCents: 1300 }],
+    decidedAt: '2026-07-05T00:00:00.000Z',
+    decidedBy: { email: 'acct@welld.ch' },
+    paidAt: status === 'paid' ? '2026-07-16T00:00:00.000Z' : null,
+    paidBy: status === 'paid' ? 'acct@welld.ch' : null,
+  })
+
+  it.each(['approved', 'paid'] as const)(
+    'a %s request shows the number on the numbered line and nothing on the other',
+    async (status) => {
+      vi.mocked(requestsApi.get).mockResolvedValue(numberedRequest(status))
+      renderRequestDetailPage()
+
+      await waitFor(() => expect(screen.getByTestId(`request-detail-${status}`)).not.toBeNull())
+      expect(screen.getByTestId('expense-line-row-line-1').textContent).toContain('MC26/014')
+      expect(screen.getByTestId('expense-line-row-line-2').querySelector('[data-testid="receipt-number"]')).toBeNull()
+    },
+  )
+
+  it('renders no account, VAT, classification or exchange-rate text, and never calls the accounting endpoint', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(numberedRequest('approved'))
+    renderRequestDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('request-detail-approved')).not.toBeNull())
+    const text = screen.getByTestId('request-detail-approved').textContent ?? ''
+    // "accounting" itself appears in the monthly-processing note, so the pattern names the new copy only.
+    expect(text).not.toMatch(/ledger|account number|VAT|classification|exchange rate/i)
+    expect(screen.queryByRole('group', { name: /classification/i })).toBeNull()
+    expect(accountingApi.getRequestAccounting).not.toHaveBeenCalled()
+    expect(accountingApi.getAccountingOptions).not.toHaveBeenCalled()
   })
 })

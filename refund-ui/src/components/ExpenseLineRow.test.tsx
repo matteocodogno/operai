@@ -1096,3 +1096,84 @@ describe('ExpenseLineRow — review mode approved-total input (INC-16/17)', () =
     expect(screen.queryByTestId('row-line-1-approved-total-error')).toBeNull()
   })
 })
+
+describe('ExpenseLineRow — receipt number and footer slot (specs/20261118-refund-accounting-export, S9)', () => {
+  const numbered: RefundLine = { ...line, id: 'line-n', receiptNumber: 'MC26/014', approvedTotalCents: 1000 }
+
+  it.each(['readOnly', 'readOnlyApproved', 'review'] as const)('shows the number in full in %s mode', (mode) => {
+    render(
+      <ExpenseLineRow
+        line={numbered}
+        mode={mode}
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={vi.fn()}
+      />,
+    )
+    const number = screen.getByTestId('receipt-number')
+    expect(number.textContent).toContain('MC26/014')
+    // The hidden label tells a screen reader what the code is.
+    expect(number.textContent).toContain('Receipt number')
+    expect(screen.getByTestId('expense-line-row-line-n').contains(number)).toBe(true)
+  })
+
+  it.each([null, undefined])('shows nothing at all when the receipt number is %s (no dash)', (value) => {
+    render(
+      <ExpenseLineRow
+        line={{ ...line, receiptNumber: value }}
+        mode="readOnlyApproved"
+        onDownloadAttachment={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('receipt-number')).toBeNull()
+    expect(screen.getByTestId('expense-line-row-line-1').textContent).not.toContain('—')
+  })
+
+  it('never shows a number in edit mode, collapsed or expanded', () => {
+    render(
+      <ExpenseLineRow
+        line={numbered}
+        mode="edit"
+        onCommit={vi.fn()}
+        onDelete={vi.fn()}
+        onUploadAttachment={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('receipt-number')).toBeNull()
+    fireEvent.click(screen.getByTestId('row-line-n-edit'))
+    expect(screen.queryByTestId('receipt-number')).toBeNull()
+  })
+
+  it('renders the footer slot inside the row in the read-only family, after the attachments', () => {
+    render(
+      <ExpenseLineRow
+        line={{ ...numbered, attachments: [attachment] }}
+        mode="review"
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={vi.fn()}
+        footer={<p data-testid="slot">panel</p>}
+      />,
+    )
+    const row = screen.getByTestId('expense-line-row-line-n')
+    const slot = screen.getByTestId('slot')
+    expect(row.contains(slot)).toBe(true)
+    expect(row.lastElementChild).toBe(slot)
+  })
+
+  it('renders no footer in edit mode', () => {
+    render(
+      <ExpenseLineRow
+        line={numbered}
+        mode="edit"
+        onCommit={vi.fn()}
+        onDelete={vi.fn()}
+        onUploadAttachment={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+        footer={<p data-testid="slot">panel</p>}
+      />,
+    )
+    expect(screen.queryByTestId('slot')).toBeNull()
+  })
+})
