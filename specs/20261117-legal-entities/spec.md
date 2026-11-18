@@ -280,7 +280,8 @@ AC-6.4).
     the notice is sent or retried (AC-9.14) changes nothing of what the notice says. When the account had no email
     address at that moment, the notice states, in the language of the notice, that the author has no email address
     on record, and still states everything else of this list; it never falls back to the display name
-    *(amendment D9, owner 2026-11-18, security re-review N1)*;
+    *(amendment D9, owner 2026-11-18, security re-review N1)*. An email address that is not a valid email address
+    counts as no email address on record *(R-D9a, orchestrator 2026-11-18)*;
   - when, as date, time and time zone;
   - the version number it created;
   - which protected details changed, by name only;
