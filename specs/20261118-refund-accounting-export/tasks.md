@@ -83,7 +83,7 @@ Reading the list:
     with every vector, including `Matteo Codogno` → `MC`, `matteo.codogno@…`/`mcodogno@…`/`m.c@…` →
     `MC`, `Cher` → email fallback, `x@…` → `XX`, `Élise Würth` → `EW`, and seq 1000 → `MC26/1000`.
 
-- [ ] T4: refund-api — pure `resolveClassification` (live defaults, foreign-currency VAT code, inactive = none, stored values kept) — refs: AC-1.3, AC-1.6, AC-2.7, AC-3.1, AC-3.2, AC-3.4, AC-3.9 — deps: none
+- [x] T4: refund-api — pure `resolveClassification` (live defaults, foreign-currency VAT code, inactive = none, stored values kept) — refs: AC-1.3, AC-1.6, AC-2.7, AC-3.1, AC-3.2, AC-3.4, AC-3.9 — deps: none
   - touch: `refund-api/src/accounting/classification.ts`, `refund-api/src/accounting/classification.test.ts`
   - agent: backend-dev · backend
   - Details:
