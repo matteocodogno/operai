@@ -135,12 +135,27 @@ describe('Everyone’s hours in Italian', () => {
     expect(screen.queryByText("You can't see everyone's hours")).toBeNull()
   })
 
-  it('a Custom range before 01.01.2000 is refused in Italian on its field', async () => {
+  it('a Custom range before 01.01.2000 is refused in Italian on its field, each field naming itself', async () => {
     await setup('it', '/hours/all?period=custom&from=1999-12-31&to=2026-11-13')
     const from = screen.getByLabelText('Dal')
     from.focus()
     await userEvent.tab()
-    expect(await screen.findByText('La data non può essere precedente al 01.01.2000.')).not.toBeNull()
+    expect(await screen.findByText('La data di inizio non può precedere il 01.01.2000.')).not.toBeNull()
+    expect(screen.getByLabelText('Dal').getAttribute('aria-invalid')).toBe('true')
+    expect(screen.queryByText('La data non può essere precedente al 01.01.2000.')).toBeNull()
+  })
+
+  it('a Custom To before 01.01.2000 says "data di fine", and both wrong show two different alerts', async () => {
+    await setup('it', '/hours/all?period=custom&from=1999-01-01&to=1999-12-31')
+    screen.getByLabelText('Dal').focus()
+    await userEvent.tab()
+    await userEvent.tab()
+    expect(await screen.findByText('La data di fine non può precedere il 01.01.2000.')).not.toBeNull()
+    const filters = within(screen.getByTestId('hours-filters'))
+    expect(filters.getAllByRole('alert').map((alert) => alert.textContent)).toEqual([
+      'La data di inizio non può precedere il 01.01.2000.',
+      'La data di fine non può precedere il 01.01.2000.',
+    ])
   })
 
   it('in English the same page says the English words (the catalog is chosen, not mixed)', async () => {

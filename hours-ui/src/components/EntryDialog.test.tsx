@@ -551,7 +551,9 @@ describe('the client rules (AC-1.2, AC-1.3, AC-1.7, AC-2.1, AC-3.6): nothing is 
 })
 
 describe('the Day (plan § Entries "A day", amendment 4 of 2026-11-13)', () => {
-  const FLOOR_TEXT = e.errors.dayTooEarly('01.01.2000')
+  // Written out, not read from the catalog: design.md § Date rules — copy is the source of these words (D-2).
+  const FLOOR_TEXT = 'The day cannot be before 01.01.2000.'
+  const INVALID_TEXT = 'Choose a valid day.'
 
   const readyForSave = async () => {
     await typeDuration(durationField(), '1:00')
@@ -596,15 +598,42 @@ describe('the Day (plan § Entries "A day", amendment 4 of 2026-11-13)', () => {
   it('a date that is not on the calendar (30.02.2026) is a Day field error, and nothing is sent', async () => {
     renderDialog()
     await readyForSave()
-    // A date field holds nothing for a day the calendar does not have, which reads as "choose a day".
+    // A date field holds nothing for a day the calendar does not have, which reads as an empty field: the design
+    // table gives the empty field and the impossible day one sentence.
     fireEvent.change(dayField(), { target: { value: '2026-02-30' } })
     expect(dayField().value).toBe('')
     await save()
 
     expect(onSubmit).not.toHaveBeenCalled()
     expect(dayField().getAttribute('aria-invalid')).toBe('true')
-    expect(screen.getByText(e.errors.dayRequired)).not.toBeNull()
+    expect(screen.getByText(INVALID_TEXT).getAttribute('role')).toBe('alert')
+    expect(describedBy(dayField())).toContain(INVALID_TEXT)
     expect(document.activeElement).toBe(dayField())
+  })
+
+  it('a year the calendar math cannot place (0050) says the same words as an empty field, on the Day field', async () => {
+    renderDialog()
+    await readyForSave()
+    fireEvent.change(dayField(), { target: { value: '0050-01-01' } })
+    fireEvent.blur(dayField())
+
+    const message = screen.getByText(INVALID_TEXT)
+    expect(message.getAttribute('role')).toBe('alert')
+    expect(dayField().getAttribute('aria-invalid')).toBe('true')
+    expect(describedBy(dayField())).toContain(INVALID_TEXT)
+    expect(screen.queryByText(FLOOR_TEXT)).toBeNull()
+    await save()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('an empty Day says it too, not a separate "Choose a day."', async () => {
+    renderDialog()
+    await readyForSave()
+    fireEvent.change(dayField(), { target: { value: '' } })
+    await save()
+
+    expect(screen.getByText(INVALID_TEXT)).not.toBeNull()
+    expect(screen.queryByText('Choose a day.')).toBeNull()
   })
 })
 

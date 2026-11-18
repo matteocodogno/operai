@@ -144,44 +144,55 @@ describe('the Custom range’s field errors (nothing is sent while one shows)', 
   })
 
   describe('a day before 01.01.2000 (plan amendment 4: the floor hours-api holds)', () => {
-    const floor = t.rangeErrors.tooEarly('01.01.2000')
+    // Written out, not read from the catalog: design.md § Date rules — copy is the source of these words (D-2).
+    const FROM_FLOOR = 'The start date cannot be before 01.01.2000.'
+    const TO_FLOOR = 'The end date cannot be before 01.01.2000.'
 
-    it('says so in the suite’s date format, and in words', () => {
-      expect(floor).toBe('The date cannot be before 01.01.2000.')
+    it('says so in the suite’s date format, and in words, naming the field that is wrong', () => {
+      expect(t.rangeErrors.fromTooEarly('01.01.2000')).toBe(FROM_FLOOR)
+      expect(t.rangeErrors.toTooEarly('01.01.2000')).toBe(TO_FLOOR)
     })
 
     it('From before it is an error on From, once the person has left the field (typing a year passes through 0002, 0020, 0202)', () => {
       renderFilters({ state: { ...custom, from: '0202-10-09', to: '2026-10-12' }, rangeErrors: { from: 'too-early' } })
-      expect(screen.queryByText(floor)).toBeNull()
+      expect(screen.queryByText(FROM_FLOOR)).toBeNull()
 
       fireEvent.blur(screen.getByLabelText(t.from))
 
-      const message = screen.getByText(floor)
+      const message = screen.getByText(FROM_FLOOR)
       expect(message.getAttribute('role')).toBe('alert')
       expect(screen.getByLabelText(t.from).getAttribute('aria-invalid')).toBe('true')
       expect(screen.getByLabelText(t.from).getAttribute('aria-describedby')).toBe(message.id)
       expect(screen.getByLabelText(t.to).getAttribute('aria-invalid')).toBeNull()
+      expect(screen.queryByText(TO_FLOOR)).toBeNull()
     })
 
     it('To before it is an error on To, once the person has left that field', () => {
       renderFilters({ state: { ...custom, from: '2026-10-05', to: '1999-12-31' }, rangeErrors: { to: 'too-early' } })
-      expect(screen.queryByText(floor)).toBeNull()
+      expect(screen.queryByText(TO_FLOOR)).toBeNull()
 
       fireEvent.blur(screen.getByLabelText(t.to))
 
-      expect(screen.getByText(floor)).not.toBeNull()
+      const message = screen.getByText(TO_FLOOR)
+      expect(message.getAttribute('role')).toBe('alert')
       expect(screen.getByLabelText(t.to).getAttribute('aria-invalid')).toBe('true')
+      expect(screen.getByLabelText(t.to).getAttribute('aria-describedby')).toBe(message.id)
       expect(screen.getByLabelText(t.from).getAttribute('aria-invalid')).toBeNull()
+      expect(screen.queryByText(FROM_FLOOR)).toBeNull()
     })
 
-    it('each field says it for itself: both before the floor, both fields have the error', () => {
+    it('both before it: two different alerts, each on its own field (D-2: they used to repeat one sentence)', () => {
       renderFilters({
         state: { ...custom, from: '1990-01-01', to: '1990-01-05' },
         rangeErrors: { from: 'too-early', to: 'too-early' },
       })
       fireEvent.blur(screen.getByLabelText(t.from))
       fireEvent.blur(screen.getByLabelText(t.to))
-      expect(screen.getAllByText(floor)).toHaveLength(2)
+
+      const alerts = screen.getAllByRole('alert').map((alert) => alert.textContent)
+      expect(alerts).toEqual([FROM_FLOOR, TO_FLOOR])
+      expect(screen.getByLabelText(t.from).getAttribute('aria-describedby')).toBe(screen.getByText(FROM_FLOOR).id)
+      expect(screen.getByLabelText(t.to).getAttribute('aria-describedby')).toBe(screen.getByText(TO_FLOOR).id)
     })
   })
 })

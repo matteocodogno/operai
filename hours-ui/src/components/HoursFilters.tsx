@@ -93,13 +93,13 @@ export default function HoursFilters({
 
   // "Required" and "too early" wait for the person to leave the field: a year typed digit by digit passes
   // through 0002, 0020 and 0202, which would otherwise flash the error at every key.
-  const tooEarly = t.rangeErrors.tooEarly(formatDate(MIN_DAY))
+  const earliest = formatDate(MIN_DAY)
   const fromError = !touched.from
     ? undefined
     : rangeErrors.from === 'required'
       ? t.rangeErrors.fromRequired
       : rangeErrors.from === 'too-early'
-        ? tooEarly
+        ? t.rangeErrors.fromTooEarly(earliest)
         : undefined
   const toError =
     rangeErrors.to === 'before-from'
@@ -111,7 +111,7 @@ export default function HoursFilters({
           : rangeErrors.to === 'required'
             ? t.rangeErrors.toRequired
             : rangeErrors.to === 'too-early'
-              ? tooEarly
+              ? t.rangeErrors.toTooEarly(earliest)
               : undefined
 
   /** What the first option of a list select says: the wait, or "all". */

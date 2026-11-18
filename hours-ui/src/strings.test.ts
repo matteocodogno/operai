@@ -84,3 +84,49 @@ describe('strings catalogs (AC-5.5)', () => {
     expect(strings).toBe(en)
   })
 })
+
+/**
+ * design.md § "Date rules — copy" (plan amendment 4), word for word, in both languages. The screens' own tests read
+ * these through the catalog, which cannot tell a wrong sentence from a right one; this is the one place the table's
+ * words are written out, so a catalog edit that drifts from the design fails here and nowhere else.
+ */
+describe('the date rules copy is the design table, word for word (design.md § Date rules — copy)', () => {
+  const FLOOR = '01.01.2000'
+
+  it.each([
+    ['en', en.entry.errors, 'Choose a valid day.', 'The day cannot be before 01.01.2000.'],
+    ['it', italian.entry.errors, 'Scegli un giorno valido.', 'Il giorno non può precedere il 01.01.2000.'],
+  ] as const)('S2 Day (%s): not a calendar day, and before the floor', (_language, errors, invalid, tooEarly) => {
+    expect(errors.dayInvalid).toBe(invalid)
+    expect(errors.dayTooEarly(FLOOR)).toBe(tooEarly)
+  })
+
+  it.each([
+    ['en', en.entry.errors, 'Choose a valid day.'],
+    ['it', italian.entry.errors, 'Scegli un giorno valido.'],
+  ] as const)(
+    'S2 Day (%s): an empty field is "not a calendar day" in the table, so it says the same words',
+    (_language, errors, invalid) => {
+      expect(errors.dayRequired).toBe(invalid)
+    },
+  )
+
+  it.each([
+    [
+      'en',
+      en.filters.rangeErrors,
+      'The start date cannot be before 01.01.2000.',
+      'The end date cannot be before 01.01.2000.',
+    ],
+    [
+      'it',
+      italian.filters.rangeErrors,
+      'La data di inizio non può precedere il 01.01.2000.',
+      'La data di fine non può precedere il 01.01.2000.',
+    ],
+  ] as const)('S1 and S4 Custom (%s): From and To each name their own field', (_language, errors, from, to) => {
+    expect(errors.fromTooEarly(FLOOR)).toBe(from)
+    expect(errors.toTooEarly(FLOOR)).toBe(to)
+    expect(errors.fromTooEarly(FLOOR)).not.toBe(errors.toTooEarly(FLOOR))
+  })
+})

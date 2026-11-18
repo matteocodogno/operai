@@ -8,7 +8,7 @@
  * this proves each page uses them. Its own file because it renders both pages, and My hours' tests are T27's.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router'
 
@@ -24,6 +24,10 @@ import { fakeApi, listsHandler, requests } from '../test-support/fakeApi'
 import { LISTS, TODAY_INSTANT } from '../test-support/fixtures/myHours'
 
 const f = strings.filters
+
+// Written out, not read from the catalog: design.md § Date rules — copy is the source of these words (D-2).
+const FROM_FLOOR = 'The start date cannot be before 01.01.2000.'
+const TO_FLOOR = 'The end date cannot be before 01.01.2000.'
 
 beforeEach(() => {
   apiFetch.mockReset()
@@ -59,12 +63,13 @@ describe.each(VIEWS)('%s', (_name, path, testId) => {
   it('a Custom From before 01.01.2000 is an error on From once the field is left, and nothing is sent', async () => {
     const api = await open('period=custom&from=1999-12-31&to=2026-11-13')
     expect(asked(api)).toHaveLength(0)
-    expect(screen.queryByText(f.rangeErrors.tooEarly('01.01.2000'))).toBeNull()
+    expect(screen.queryByText(FROM_FLOOR)).toBeNull()
 
     screen.getByLabelText(f.from).focus()
     await userEvent.tab()
 
-    expect(await screen.findByText(f.rangeErrors.tooEarly('01.01.2000'))).not.toBeNull()
+    expect(await screen.findByText(FROM_FLOOR)).not.toBeNull()
+    expect(screen.queryByText(TO_FLOOR)).toBeNull()
     expect(screen.getByLabelText(f.from).getAttribute('aria-invalid')).toBe('true')
     expect(screen.getByLabelText(f.to).getAttribute('aria-invalid')).toBeNull()
     expect(asked(api)).toHaveLength(0)
@@ -75,9 +80,24 @@ describe.each(VIEWS)('%s', (_name, path, testId) => {
     screen.getByLabelText(f.to).focus()
     await userEvent.tab()
 
-    expect(await screen.findByText(f.rangeErrors.tooEarly('01.01.2000'))).not.toBeNull()
+    expect(await screen.findByText(TO_FLOOR)).not.toBeNull()
+    expect(screen.queryByText(FROM_FLOOR)).toBeNull()
     expect(screen.queryByText(f.rangeErrors.toBeforeFrom)).toBeNull()
     expect(screen.getByLabelText(f.to).getAttribute('aria-invalid')).toBe('true')
+    expect(asked(api)).toHaveLength(0)
+  })
+
+  it('From and To both before 01.01.2000: two different alerts, one on each field, and nothing is sent', async () => {
+    const api = await open('period=custom&from=1999-01-01&to=1999-12-31')
+    screen.getByLabelText(f.from).focus()
+    await userEvent.tab() // leaves From, lands on To
+    await userEvent.tab() // leaves To
+
+    expect(await screen.findByText(TO_FLOOR)).not.toBeNull()
+    const filters = within(screen.getByTestId('hours-filters'))
+    expect(filters.getAllByRole('alert').map((alert) => alert.textContent)).toEqual([FROM_FLOOR, TO_FLOOR])
+    expect(screen.getByLabelText(f.from).getAttribute('aria-describedby')).toBe(filters.getByText(FROM_FLOOR).id)
+    expect(screen.getByLabelText(f.to).getAttribute('aria-describedby')).toBe(filters.getByText(TO_FLOOR).id)
     expect(asked(api)).toHaveLength(0)
   })
 
@@ -85,6 +105,7 @@ describe.each(VIEWS)('%s', (_name, path, testId) => {
     const api = await open('period=custom&from=2000-01-01&to=2000-06-30')
     await vi.waitFor(() => expect(requests(api, 'GET /time-entries')).toHaveLength(1))
     expect(requests(api, 'GET /time-entries')[0]!.query).toMatchObject({ from: '2000-01-01', to: '2000-06-30' })
-    expect(screen.queryByText(f.rangeErrors.tooEarly('01.01.2000'))).toBeNull()
+    expect(screen.queryByText(FROM_FLOOR)).toBeNull()
+    expect(screen.queryByText(TO_FLOOR)).toBeNull()
   })
 })

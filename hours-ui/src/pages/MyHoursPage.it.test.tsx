@@ -153,6 +153,23 @@ describe('My hours in Italian', () => {
     expect(await screen.findByText('Il periodo non può superare 366 giorni.')).not.toBeNull()
   })
 
+  it('a Custom range before 01.01.2000 names the wrong field in Italian: "data di inizio" and "data di fine"', async () => {
+    await setup('it', '/hours?period=custom&from=1999-01-01&to=1999-12-31')
+    screen.getByLabelText('Dal').focus()
+    await userEvent.tab() // leaves Dal
+    await userEvent.tab() // leaves Al
+
+    expect(await screen.findByText('La data di fine non può precedere il 01.01.2000.')).not.toBeNull()
+    const filters = within(screen.getByTestId('hours-filters'))
+    expect(filters.getAllByRole('alert').map((alert) => alert.textContent)).toEqual([
+      'La data di inizio non può precedere il 01.01.2000.',
+      'La data di fine non può precedere il 01.01.2000.',
+    ])
+    expect(screen.getByLabelText('Dal').getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByLabelText('Al').getAttribute('aria-invalid')).toBe('true')
+    expect(screen.queryByText('La data non può essere precedente al 01.01.2000.')).toBeNull()
+  })
+
   it('the project picker says its states in Italian', async () => {
     await setup('it')
     await userEvent.type(screen.getByRole('combobox', { name: 'Progetto' }), 'zzz')
@@ -276,6 +293,30 @@ describe('the entry dialog in Italian (AC-5.5, AC-3.8; specs/20261112-time-track
     expect(inside.getByText('Scegli una categoria.')).not.toBeNull()
     expect(screen.queryByText('Write a duration such as 2:30, 2,5 or 2h30.')).toBeNull()
     expect(screen.queryByText('Save entry')).toBeNull()
+  })
+
+  it('says the Day rules as design.md § Date rules — copy writes them: an empty or impossible day, and a day before 01.01.2000', async () => {
+    await setup('it')
+    await userEvent.click(screen.getByRole('button', { name: 'Registra ore' }))
+    const inside = within(screen.getByRole('dialog', { name: 'Registra ore' }))
+    const day = inside.getByLabelText(/^Giorno/) as HTMLInputElement
+
+    fireEvent.change(day, { target: { value: '' } })
+    fireEvent.blur(day)
+    expect(inside.getByText('Scegli un giorno valido.').getAttribute('role')).toBe('alert')
+    expect(day.getAttribute('aria-invalid')).toBe('true')
+
+    fireEvent.change(day, { target: { value: '0050-01-01' } })
+    fireEvent.blur(day)
+    expect(inside.getByText('Scegli un giorno valido.')).not.toBeNull()
+
+    fireEvent.change(day, { target: { value: '1999-12-31' } })
+    fireEvent.blur(day)
+    expect(inside.getByText('Il giorno non può precedere il 01.01.2000.').getAttribute('role')).toBe('alert')
+    expect(inside.queryByText('Scegli un giorno valido.')).toBeNull()
+    // None of the words the build used to say.
+    expect(screen.queryByText('Scegli un giorno che esista nel calendario.')).toBeNull()
+    expect(screen.queryByText('Il giorno non può essere precedente al 01.01.2000.')).toBeNull()
   })
 
   it('says the pickers and a refusal in Italian', async () => {

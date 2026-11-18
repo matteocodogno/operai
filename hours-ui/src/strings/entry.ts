@@ -130,9 +130,14 @@ const en = {
   /** The lists could not be read: the category and work type selects cannot be filled until they are. */
   listsRetry: 'Try again',
   errors: {
-    dayRequired: 'Choose a day.',
+    /**
+     * design.md § Date rules — copy puts an empty field with an impossible day, a year of more than four digits and
+     * a half-typed date: one sentence. A native date field holds nothing for an impossible or half-typed day, so
+     * the person meets this one, and it says the same words as `dayInvalid`.
+     */
+    dayRequired: 'Choose a valid day.',
     /** Not a day on the calendar (30 February): the browser's field cannot hold one, so this is a backstop. */
-    dayInvalid: 'Choose a real calendar day.',
+    dayInvalid: 'Choose a valid day.',
     /** Before the product's floor (plan § Entries "A day"): a mistyped year would be saved and then missing from every period. */
     dayTooEarly: (floor: string) => `The day cannot be before ${floor}.`,
     /** `future_day` (AC-1.3), the client rule and the server's refusal alike. */
@@ -295,9 +300,9 @@ const it: typeof en = {
   },
   listsRetry: 'Riprova',
   errors: {
-    dayRequired: 'Scegli un giorno.',
-    dayInvalid: 'Scegli un giorno che esista nel calendario.',
-    dayTooEarly: (floor: string) => `Il giorno non può essere precedente al ${floor}.`,
+    dayRequired: 'Scegli un giorno valido.',
+    dayInvalid: 'Scegli un giorno valido.',
+    dayTooEarly: (floor: string) => `Il giorno non può precedere il ${floor}.`,
     dayFuture: 'Il giorno non può essere successivo a oggi.',
     durationUnreadable: 'Scrivi una durata come 2:30, 2,5 o 2h30.',
     durationSteps: 'In passi di 30 minuti (per esempio 2:00 o 2:30).',

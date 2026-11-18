@@ -49,8 +49,12 @@ const en = {
     toRequired: 'Choose an end date.',
     toBeforeFrom: 'The end date cannot be before the start date.',
     tooLong: 'The period cannot be longer than 366 days.',
-    /** The earliest day hours-api takes, in the suite's date format (the caller formats it): a mistyped year. */
-    tooEarly: (earliest: string) => `The date cannot be before ${earliest}.`,
+    /**
+     * The earliest day hours-api takes, in the suite's date format (the caller formats it): a mistyped year. One
+     * sentence per field (design.md § Date rules — copy), so two wrong fields never show the same alert twice.
+     */
+    fromTooEarly: (earliest: string) => `The start date cannot be before ${earliest}.`,
+    toTooEarly: (earliest: string) => `The end date cannot be before ${earliest}.`,
   },
   project: {
     label: 'Project',
@@ -130,7 +134,8 @@ const it: typeof en = {
     toRequired: 'Scegli la data di fine.',
     toBeforeFrom: 'La data di fine non può precedere quella di inizio.',
     tooLong: 'Il periodo non può superare 366 giorni.',
-    tooEarly: (earliest: string) => `La data non può essere precedente al ${earliest}.`,
+    fromTooEarly: (earliest: string) => `La data di inizio non può precedere il ${earliest}.`,
+    toTooEarly: (earliest: string) => `La data di fine non può precedere il ${earliest}.`,
   },
   project: {
     label: 'Progetto',
