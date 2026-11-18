@@ -298,7 +298,7 @@ Reading the list:
     - an inactive entry refused, and accepted again after reactivation (AC-1.9/1.10);
     - withdraw clears overrides and audits them.
 
-- [ ] T15: refund-api — receipt numbers on the API: `RefundLineResponse.receiptNumber`, `BatchDetail…requests[].receiptNumbers`; owner key-set test — refs: AC-3.10, AC-4.6, AC-4.9 — deps: T12
+- [x] T15: refund-api — receipt numbers on the API: `RefundLineResponse.receiptNumber`, `BatchDetail…requests[].receiptNumbers`; owner key-set test — refs: AC-3.10, AC-4.6, AC-4.9 — deps: T12
   - touch: `refund-api/src/requests/requests.schemas.ts`, `refund-api/src/requests/requests.service.ts`, `refund-api/src/requests/requests.routes.test.ts`, `refund-api/src/batches/batches.schemas.ts`, `refund-api/src/batches/batches.service.ts`, `refund-api/src/batches/batches.repo.ts`, `refund-api/src/batches/batches.routes.test.ts`
   - agent: backend-dev · backend
   - done when: `bun test src/requests/requests.routes.test.ts src/batches/batches.routes.test.ts`

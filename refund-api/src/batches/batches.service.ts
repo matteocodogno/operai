@@ -126,6 +126,25 @@ export interface BatchPdfLinkInput {
 }
 
 /**
+ * The receipt numbers of a request's lines (specs/20261118-refund-accounting-export T15, AC-4.6, AC-4.9), in order:
+ * by prefix (initials and year), then by the NUMBER of the sequence, so `MC26/999` comes before `MC26/1000`.
+ * A rejected or not yet numbered line has none and contributes nothing.
+ */
+export function receiptNumbersOf(lines: readonly { readonly receiptNumber?: string | null }[]): string[] {
+  const parse = (value: string) => {
+    const match = /^(.*)\/(\d+)$/.exec(value);
+    return match ? { prefix: match[1]!, seq: Number(match[2]) } : { prefix: value, seq: 0 };
+  };
+  return lines
+    .flatMap((l) => (l.receiptNumber ? [l.receiptNumber] : []))
+    .sort((a, b) => {
+      const pa = parse(a);
+      const pb = parse(b);
+      return pa.prefix < pb.prefix ? -1 : pa.prefix > pb.prefix ? 1 : pa.seq - pb.seq;
+    });
+}
+
+/**
  * Shared BatchDetail mapper — used by POST /batches' 201 response (T3),
  * `GET /batches/:id` (T4), and the post-mark-paid/discard responses (T6/T8).
  * Every field (`status`/`email`/`paidAt`/`paidBy`/`discardedAt`/
@@ -163,6 +182,7 @@ export function mapBatchDetail(
             id: r.id,
             status: r.status,
             subtotals: computeSubtotals(r.lines),
+            receiptNumbers: receiptNumbersOf(r.lines),
           }))
           .sort((a, b) => a.id.localeCompare(b.id)),
         subtotals: toBatchSubtotals(computeSubtotals(lines)),

@@ -150,6 +150,10 @@ export const RefundLineResponseSchema = z.object({
   rejection: LineRejectionSchema.nullable(),
   attachments: z.array(AttachmentResponseSchema),
   mileage: MileageInfoSchema.nullable(),
+  // specs/20261118-refund-accounting-export (T15, AC-4.9): the line's receipt number, `null` until the request
+  // is approved and for a rejected line. The ONLY accounting field this response carries: no account, VAT code or
+  // CHF amount is ever added here (AC-3.10), they live behind `GET /review/requests/{id}/accounting`.
+  receiptNumber: z.string().nullable(),
 });
 export type RefundLineResponse = z.infer<typeof RefundLineResponseSchema>;
 

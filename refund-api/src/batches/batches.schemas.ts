@@ -114,6 +114,9 @@ export const BatchRequestSummarySchema = z.object({
   id: z.string(),
   status: z.string(),
   subtotals: z.array(SubtotalSchema),
+  // specs/20261118-refund-accounting-export (T15, AC-4.6, AC-4.9): the request's receipt numbers, in order, in
+  // full (the batch PDF compresses runs, the API does not). Empty for a request with no numbered line.
+  receiptNumbers: z.array(z.string()),
 });
 export type BatchRequestSummary = z.infer<typeof BatchRequestSummarySchema>;
 

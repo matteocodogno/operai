@@ -952,6 +952,117 @@ describe("DELETE /requests/:id (draft-only — AC-1.4/2.3)", () => {
   });
 });
 
+// ─── Receipt numbers on the line (T15, specs/20261118-refund-accounting-export, AC-3.10, AC-4.6, AC-4.9) ───
+
+describe("GET /requests/:id — receiptNumber, and nothing else of the accounting data (AC-3.10)", () => {
+  /** The exact key set of a line in this response: a new key is a deliberate change of this list. */
+  const LINE_KEYS = [
+    "approvedTotalCents",
+    "attachments",
+    "currency",
+    "date",
+    "entity",
+    "id",
+    "km",
+    "mileage",
+    "motivo",
+    "receiptNumber",
+    "rejection",
+    "requestedAmountCents",
+    "type",
+  ];
+
+  async function accountingFixtures() {
+    const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
+    const account = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "6101", name: "Ufficio", ...by } });
+    const vat = await db.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...by } });
+    return { account, vat };
+  }
+
+  /** A request in `status` with a classified, numbered line, a classified line with no number, and a rejected line. */
+  async function fixtureRequest(status: "draft" | "submitted" | "approved" | "rejected" | "paid", numbered: boolean) {
+    const { account, vat } = await accountingFixtures();
+    const request = await db.refundRequest.create({
+      data: { ownerUserId: "emp-1", ownerEmail: "emp1@x.com", ownerName: "Matteo Codogno", status },
+    });
+    const stored = { ledgerAccountId: account.id, ledgerAccountIsDefault: true, vatCodeId: vat.id, vatCodeIsDefault: true };
+    const base = {
+      requestId: request.id,
+      date: new Date("2026-03-02T00:00:00.000Z"),
+      type: "office_material" as const,
+      motivo: "Test",
+      entity: "welld_ch" as const,
+      currency: "EUR" as const,
+      requestedAmountCents: 1040,
+      approvedTotalCents: 1040,
+    };
+    const first = await db.refundLine.create({
+      data: {
+        ...base,
+        ...stored,
+        ...(numbered ? { receiptNumber: "MC26/001", receiptOwnerUserId: "emp-1", receiptYear: 2026, receiptSeq: 1, numberedAt: new Date() } : {}),
+      },
+    });
+    const second = await db.refundLine.create({ data: { ...base, ...stored } });
+    const rejected = await db.refundLine.create({
+      data: { ...base, approvedTotalCents: 0, rejectionReason: "no", rejectedAt: new Date(), rejectedByUserId: "a", rejectedByEmail: "a@x" },
+    });
+    // a rate in effect, so there is a CHF figure that could leak
+    await db.exchangeRateEntry.create({
+      data: { currency: "EUR", month: new Date("2026-03-01T00:00:00.000Z"), rateMicros: 924_600, origin: "fetched", createdByUserId: "system:fx-fetch", createdByEmail: "x@welld.ch", sourceUrl: "https://example.test", sourceMonth: "2026-03", fetchedAt: new Date() },
+    });
+    return { request, first, second, rejected };
+  }
+
+  async function readAs(perms: ResolveResponse, sub: string, requestId: string) {
+    harness.setResolve(async () => perms);
+    const token = await harness.signToken({ sub, email: `${sub}@x.com` });
+    const res = await requestsRouter.request(`/requests/${requestId}`, { headers: authHeaders(token) });
+    return { status: res.status, body: (await res.json()) as { lines: Record<string, unknown>[] } };
+  }
+
+  for (const status of ["draft", "submitted", "approved", "rejected", "paid"] as const) {
+    it(`(AC-3.10) the owner's line JSON has exactly the known keys, none of them accounting, when the request is ${status}`, async () => {
+      const f = await fixtureRequest(status, status === "approved" || status === "paid");
+      const { status: http, body } = await readAs(EMPLOYEE_PERMS, "emp-1", f.request.id);
+      expect(http).toBe(200);
+      expect(body.lines).toHaveLength(3);
+      for (const line of body.lines) {
+        expect(Object.keys(line).sort()).toEqual(LINE_KEYS);
+        expect(Object.keys(line).filter((k) => /ledger|vat|chf|account|rate/i.test(k) && k !== "mileage")).toEqual([]);
+      }
+      expect(JSON.stringify(body)).not.toMatch(/IMP81|ledgerAccount|vatCode|chf/i);
+    });
+  }
+
+  it("(AC-3.10) an owner who ALSO holds request:review still gets no accounting key on their own request", async () => {
+    const f = await fixtureRequest("submitted", false);
+    const both: ResolveResponse = { ...EMPLOYEE_PERMS, permissions: [...EMPLOYEE_PERMS.permissions, ...accountingPerms(null).permissions.filter((p) => p.action === "review")] };
+    const { body } = await readAs(both, "emp-1", f.request.id);
+    for (const line of body.lines) expect(Object.keys(line).sort()).toEqual(LINE_KEYS);
+  });
+
+  it("(AC-3.10) an in-scope accounting reader gets the same line shape from this route (the accounting data is one separate endpoint)", async () => {
+    const f = await fixtureRequest("submitted", false);
+    const { body } = await readAs(accountingPerms("welld_ch"), "acct-1", f.request.id);
+    for (const line of body.lines) expect(Object.keys(line).sort()).toEqual(LINE_KEYS);
+  });
+
+  it("(AC-4.9) receiptNumber is null before the request is approved, set once numbered, and null on a rejected line", async () => {
+    const before = await fixtureRequest("submitted", false);
+    const pre = await readAs(EMPLOYEE_PERMS, "emp-1", before.request.id);
+    expect(pre.body.lines.map((l) => l["receiptNumber"])).toEqual([null, null, null]);
+
+    await truncateRefundTables();
+    const after = await fixtureRequest("approved", true);
+    const post = await readAs(EMPLOYEE_PERMS, "emp-1", after.request.id);
+    const byId = new Map(post.body.lines.map((l) => [l["id"], l["receiptNumber"]]));
+    expect(byId.get(after.first.id)).toBe("MC26/001");
+    expect(byId.get(after.second.id)).toBeNull(); // a numbered request's unnumbered line is simply null
+    expect(byId.get(after.rejected.id)).toBeNull();
+  });
+});
+
 // ─── bodyLimit middleware — OWASP A04 fix ───────────────────────────────────
 
 describe("bodyLimit middleware — raw request body > 4 KiB → 413 before handler logic", () => {

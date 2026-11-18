@@ -953,6 +953,103 @@ describe("GET /batches/:id", () => {
   });
 });
 
+// ─── GET /batches/:id — receipt numbers (T15, specs/20261118-refund-accounting-export, AC-4.6, AC-4.9) ───
+
+describe("GET /batches/:id — receiptNumbers per request", () => {
+  /** A line numbered the way approval does it (the five receipt columns together). */
+  async function addNumberedLine(
+    requestId: string,
+    owner: string,
+    date: string,
+    number: string | null,
+    seq: number,
+    opts: { rejected?: boolean } = {},
+  ) {
+    return db.refundLine.create({
+      data: {
+        requestId,
+        date: new Date(date),
+        type: "office_material",
+        motivo: "Numbered",
+        entity: "welld_ch",
+        currency: "CHF",
+        requestedAmountCents: 1000,
+        approvedTotalCents: opts.rejected ? 0 : 1000,
+        ...(number
+          ? { receiptNumber: number, receiptOwnerUserId: owner, receiptYear: Number(date.slice(0, 4)), receiptSeq: seq, numberedAt: new Date() }
+          : {}),
+        ...(opts.rejected ? { rejectionReason: "no", rejectedAt: new Date(), rejectedByUserId: "a", rejectedByEmail: "a@x" } : {}),
+      },
+    });
+  }
+
+  async function batchOf(requestIds: string[]) {
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(CUTOFF),
+        status: "compiled",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+      },
+    });
+    for (const requestId of requestIds) {
+      await db.refundBatchItem.create({ data: { batchId: batch.id, requestId } });
+      await db.refundRequest.update({ where: { id: requestId }, data: { batchId: batch.id } });
+    }
+    return batch;
+  }
+
+  async function detail(batchId: string) {
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+    const res = await batchesRouter.request(`/batches/${batchId}`, { headers: authHeaders(token) });
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      employees: { owner: { email: string; name: string | null }; requests: { id: string; status: string; subtotals: unknown[]; receiptNumbers: string[] }[] }[];
+    };
+  }
+
+  it("lists the request's numbers in order, next to the employee, skipping a rejected line and an unnumbered one", async () => {
+    const a = await createApprovedRequest([], { ownerUserId: "emp-1", ownerEmail: "mc@x.com", ownerName: "Matteo Codogno" });
+    // created out of order on purpose: the answer is by number, not by insertion
+    await addNumberedLine(a.id, "emp-1", "2026-03-05", "MC26/016", 16);
+    await addNumberedLine(a.id, "emp-1", "2026-03-03", "MC26/014", 14);
+    await addNumberedLine(a.id, "emp-1", "2026-03-04", "MC26/015", 15);
+    await addNumberedLine(a.id, "emp-1", "2026-03-06", null, 0, { rejected: true });
+    const b = await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-2", ownerEmail: "other@x.com" });
+    const batch = await batchOf([a.id, b.id]);
+
+    const body = await detail(batch.id);
+    const mc = body.employees.find((e) => e.owner.email === "mc@x.com")!;
+    expect(mc.owner.name).toBe("Matteo Codogno");
+    expect(mc.requests).toEqual([{ id: a.id, status: "approved", subtotals: expect.any(Array), receiptNumbers: ["MC26/014", "MC26/015", "MC26/016"] }]);
+    const other = body.employees.find((e) => e.owner.email === "other@x.com")!;
+    expect(other.requests[0]!.receiptNumbers).toEqual([]); // an old, unnumbered request: an empty list, not a missing key
+  });
+
+  it("orders by year first and by the NUMBER of the sequence, so 999 comes before 1000", async () => {
+    const a = await createApprovedRequest([], { ownerUserId: "emp-1", ownerEmail: "mc@x.com" });
+    await addNumberedLine(a.id, "emp-1", "2026-03-05", "MC26/1000", 1000);
+    await addNumberedLine(a.id, "emp-1", "2026-03-04", "MC26/999", 999);
+    await addNumberedLine(a.id, "emp-1", "2025-12-30", "MC25/002", 2);
+    const batch = await batchOf([a.id]);
+    const body = await detail(batch.id);
+    expect(body.employees[0]!.requests[0]!.receiptNumbers).toEqual(["MC25/002", "MC26/999", "MC26/1000"]);
+  });
+
+  it("a discarded batch still shows the numbers its requests carry", async () => {
+    const a = await createApprovedRequest([], { ownerUserId: "emp-1", ownerEmail: "mc@x.com" });
+    await addNumberedLine(a.id, "emp-1", "2026-03-05", "MC26/001", 1);
+    const batch = await batchOf([a.id]);
+    await db.refundBatch.update({ where: { id: batch.id }, data: { status: "discarded", discardedAt: new Date(), discardedByEmail: "a@x" } });
+    await db.refundRequest.update({ where: { id: a.id }, data: { batchId: null } });
+    const body = await detail(batch.id);
+    expect(body.employees[0]!.requests[0]!.receiptNumbers).toEqual(["MC26/001"]);
+  });
+});
+
 // ─── GET /batches/:id/pdf-url (T4) ──────────────────────────────────────────
 
 describe("GET /batches/:id/pdf-url", () => {

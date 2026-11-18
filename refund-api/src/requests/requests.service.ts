@@ -48,6 +48,9 @@ export interface LineRow {
   readonly rejectionReason?: string | null;
   readonly rejectedAt?: Date | null;
   readonly rejectedByEmail?: string | null;
+  // specs/20261118-refund-accounting-export (T15): optional for the same reason as the rejection fields; `undefined`
+  // reads as "not numbered". Nothing else of the line's accounting data is ever read by `mapLine` (AC-3.10).
+  readonly receiptNumber?: string | null;
   readonly attachments?: readonly {
     readonly id: string;
     readonly fileName: string;
@@ -237,6 +240,7 @@ export function mapLine(line: LineRow, requestStatus: string): RefundLineRespons
       sizeBytes: a.sizeBytes,
     })),
     mileage: buildMileageInfo(line, requestStatus === "draft"),
+    receiptNumber: line.receiptNumber ?? null,
   };
 }
 

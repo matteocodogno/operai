@@ -191,6 +191,7 @@ describe("renderRequestExportPdf", () => {
             computedAmountCents: 1050,
             snapshotted: true,
           },
+          receiptNumber: null,
         },
       ],
     });
