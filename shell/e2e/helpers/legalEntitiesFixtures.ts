@@ -20,11 +20,16 @@
  *     (AC-4.3).
  *
  * Registry state is shared and never reset: a journey reads the version it starts from and never assumes a number.
+ *
+ * The notice of a protected change (US-9, T68) is read where a person reads it and where the service records it, never faked:
+ * the person's own notification centre through notify-api's `GET /notifications` (as that person), and the delivery outbox of
+ * `auth` (`legal_entity_notice`, one row per recipient and channel) through the one direct database access the suite already
+ * has to `auth`'s database (the same `bun -e` bridge `grantRole` uses). Neither read ever prints a legal value.
  */
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { applySessionCookie, seedAdminSession, seedUserSession, type SeededSession } from './adminSession'
-import { authCall, type Call } from '../fixtures/letterheads'
+import { AUTH_URL, authCall, ibanWithCheckDigits, type Call } from '../fixtures/letterheads'
 
 export type { Call, SeededSession }
 export { applySessionCookie }
@@ -330,4 +335,214 @@ export async function setUpLegalEntityPeople(): Promise<LegalEntityPeople> {
     sessions[persona] = spec.role ? await seedUserSession(spec.email, spec.name) : first
   }
   return sessions as LegalEntityPeople
+}
+
+
+// ─── US-9: protected details and their notice (T68) ──────────────────────────────────────────────────────────────────────
+
+/** The time the spec gives a notice to be handed over for sending after the save (AC-9.7). */
+export const NOTICE_WITHIN_MS = 60_000
+
+const NOTIFY_API_URL = (
+  process.env['E2E_NOTIFY_API_URL'] ?? process.env['VITE_NOTIFY_API_URL'] ?? 'http://localhost:8081'
+).replace(/\/$/, '')
+
+const AUTH_DIR = fileURLToPath(new URL('../../../auth/', import.meta.url))
+const NOTIFY_API_DIR = fileURLToPath(new URL('../../../notify-api/', import.meta.url))
+
+/** An IBAN in groups of four, upper case: how the page shows one (AC-5.1). Empty stays empty. */
+export const groupIban = (iban: string): string =>
+  iban.replace(/\s+/g, '').toUpperCase().replace(/(.{4})(?=.)/g, '$1 ')
+
+/** The last four characters of an IBAN in its electronic form: the one part of it a notice may show (AC-9.11). */
+export const ibanLast4 = (iban: string): string => iban.replace(/\s+/g, '').toUpperCase().slice(-4)
+
+let ibanCounter = 0
+
+/**
+ * A valid Swiss IBAN (correct check digits) that no earlier call and no earlier run has produced: its 12 account digits come
+ * from the clock and a counter. Electronic form. The registry only checks the shape and the check digits (AC-1.4).
+ */
+export function freshIban(): string {
+  ibanCounter += 1
+  const account = String((Date.now() * 1000 + ibanCounter) % 1_000_000_000_000).padStart(12, '0')
+  return ibanWithCheckDigits('CH', `00762${account}`)
+}
+
+/** How a person might type an IBAN: lower case, spaced in groups of five (not four), as read from a letter. */
+export const typedIban = (iban: string): string => iban.toLowerCase().replace(/(.{5})(?=.)/g, '$1 ')
+
+// ── the notification centre, as the person (notify-api) ──
+
+export interface NoticeItem {
+  id: string
+  title: string
+  body: string
+  severity: string
+  originApp: string
+  link?: { href: string; label?: string }
+  it: { title: string; body: string } | null
+  readAt: string | null
+  createdAt: string
+}
+
+/** A bearer token for `session`, minted now (the one the seeding minted may be old by the time a long journey asks). */
+async function bearerOf(session: SeededSession): Promise<string> {
+  const response = await fetch(`${AUTH_URL}/auth/token`, { headers: { Cookie: session.cookieHeader } })
+  if (!response.ok) throw new Error(`[legalEntitiesFixtures] GET /auth/token answered ${response.status}`)
+  return ((await response.json()) as { token: string }).token
+}
+
+/** The newest notifications of `session` (notify-api scopes the list to the caller). */
+export async function notificationsOf(session: SeededSession, limit = 100): Promise<NoticeItem[]> {
+  const response = await fetch(`${NOTIFY_API_URL}/notifications?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${await bearerOf(session)}` },
+  })
+  if (!response.ok) throw new Error(`[legalEntitiesFixtures] GET /notifications answered ${response.status}`)
+  return ((await response.json()) as { items: NoticeItem[] }).items
+}
+
+/** The link every notice of `entity` carries: the history of that entity on the Legal entities page (AC-9.11). */
+export const historyLink = (entity: EntityId): string => `/admin/legal-entities?entity=${entity}&view=history`
+
+/** Whether `item` is the notice of version `version` of `entity` (the history link, and the version it names in its body). */
+export const isNoticeOf = (item: NoticeItem, entity: EntityId, version: number): boolean =>
+  item.originApp === 'admin' && item.link?.href === historyLink(entity) && item.body.includes(`New version: ${version}.`)
+
+/**
+ * Waits for the notice of `version` to be in `session`'s notification centre and returns it with the time it took from
+ * `since` (a `Date.now()` taken just before the save was confirmed). Throws, with the elapsed time, past `within`.
+ */
+export async function waitForNotice(
+  session: SeededSession,
+  entity: EntityId,
+  version: number,
+  since: number,
+  within = NOTICE_WITHIN_MS,
+): Promise<{ notice: NoticeItem; elapsedMs: number }> {
+  for (;;) {
+    const found = (await notificationsOf(session)).find((item) => isNoticeOf(item, entity, version))
+    if (found) return { notice: found, elapsedMs: Date.now() - since }
+    if (Date.now() - since > within) {
+      throw new Error(`[legalEntitiesFixtures] no notice of ${entity} version ${version} in ${session.email}'s notification centre ${Math.round((Date.now() - since) / 1000)} s after the save`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+}
+
+/** Whether `session`'s notification centre holds the notice of `version` of `entity` right now. */
+export async function hasNotice(session: SeededSession, entity: EntityId, version: number): Promise<boolean> {
+  return (await notificationsOf(session)).some((item) => isNoticeOf(item, entity, version))
+}
+
+// ── the delivery outbox of auth, and notify-api's email deliveries ──
+
+export interface OutboxRow {
+  recipient: string
+  recipientKind: string
+  channel: string
+  status: string
+  attempts: number
+  lastReason: string | null
+}
+
+/** The last JSON line a script printed (Prisma's dev logging shares stdout). */
+function lastJson(output: string, what: string): unknown {
+  const line = output
+    .split('\n')
+    .map((l) => l.trim())
+    .reverse()
+    .find((l) => l.startsWith('{') || l.startsWith('['))
+  if (!line) throw new Error(`[legalEntitiesFixtures] no JSON from ${what}: ${output.slice(0, 400)}`)
+  return JSON.parse(line)
+}
+
+/**
+ * The outbox rows `auth` wrote for one version (`legal_entity_notice`: one per recipient and channel, stored in the version's
+ * transaction). Direct to `auth`'s database (the one access the suite already has: `DATABASE_URL` of `auth`, as `grantRole`
+ * reads it). No value is in a row: ids, a channel, a status, a closed reason.
+ */
+export function noticeRows(entity: EntityId, version: number): OutboxRow[] {
+  const script = `
+    import { db } from ${JSON.stringify(`${AUTH_DIR}src/lib/db`)}
+    const rows = await db.legalEntityNotice.findMany({
+      where: { entity: ${JSON.stringify(entity)}, version: ${Number(version)} },
+      select: { recipient: true, recipientKind: true, channel: true, status: true, attempts: true, lastReason: true },
+      orderBy: [{ recipient: 'asc' }, { channel: 'asc' }],
+    })
+    console.log(JSON.stringify(rows))
+    await db.$disconnect()
+  `
+  const output = execFileSync('bun', ['-e', script], { cwd: AUTH_DIR, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return lastJson(output, 'the notice outbox read') as OutboxRow[]
+}
+
+/** The rows of one recipient. */
+export const rowsOf = (rows: readonly OutboxRow[], userId: string): OutboxRow[] => rows.filter((row) => row.recipient === userId)
+
+/**
+ * Waits until every row of the version has been tried and either is delivered or says why not (an email channel that notify-api
+ * says is not configured stays pending with that reason), within `within` of `since`. Returns the rows then.
+ */
+export async function waitForOutbox(entity: EntityId, version: number, since: number, within = NOTICE_WITHIN_MS): Promise<OutboxRow[]> {
+  for (;;) {
+    const rows = noticeRows(entity, version)
+    if (rows.length > 0 && rows.every((row) => row.status === 'delivered' || (row.attempts >= 1 && row.lastReason !== null))) return rows
+    if (Date.now() - since > within) {
+      throw new Error(
+        `[legalEntitiesFixtures] the notices of ${entity} version ${version} are not all tried ${Math.round((Date.now() - since) / 1000)} s after the save: ` +
+          JSON.stringify(rows.map((row) => `${row.channel}:${row.status}:${row.attempts}:${row.lastReason ?? '-'}`)),
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+}
+
+/**
+ * The `email_delivery` rows notify-api recorded for the `legal_entity_change` template since `sinceIso`, or `null` when the
+ * database of notify-api is not named (`E2E_NOTIFY_DATABASE_URL`). With `EMAIL_ENABLED=false` (the local default) notify-api
+ * stubs the send and still records a `sent` row with no provider: nothing leaves the machine. The row holds the address, the
+ * template, a status and an error: never the content.
+ */
+export function emailDeliveriesSince(sinceIso: string): Array<{ to: string; status: string; error: string | null; callerSub: string | null }> | null {
+  const url = process.env['E2E_NOTIFY_DATABASE_URL']
+  if (!url) return null
+  const script = `
+    import { db } from ${JSON.stringify(`${NOTIFY_API_DIR}src/lib/db`)}
+    const rows = await db.emailDelivery.findMany({
+      where: { template: 'legal_entity_change', createdAt: { gte: new Date(${JSON.stringify(sinceIso)}) } },
+      select: { to: true, status: true, error: true, callerSub: true },
+    })
+    console.log(JSON.stringify(rows))
+    await db.$disconnect()
+  `
+  const output = execFileSync('bun', ['-e', script], {
+    cwd: NOTIFY_API_DIR,
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, DATABASE_URL: url },
+  })
+  return lastJson(output, 'the email deliveries read') as Array<{ to: string; status: string; error: string | null; callerSub: string | null }>
+}
+
+/** How many audit entries the registry holds for `entity` (an administrator reads them: AC-2.5, AC-9.15). */
+export async function auditCount(admin: SeededSession, entity: EntityId): Promise<number> {
+  const result = await authCall<{ total: number }>(admin, 'GET', `/admin/audit?targetType=legal_entity&targetId=${entity}&pageSize=1`)
+  if (result.status !== 200) throw new Error(`[legalEntitiesFixtures] GET /admin/audit answered ${result.status}`)
+  return result.body.total
+}
+
+/**
+ * Every value a notice or a record of one must never carry (AC-9.12) for the two versions it is about: the full IBAN of each (electronic and
+ * grouped), the legal name, the VAT number, every address line and the contacts lines. Values too short to be told from the words
+ * around them (under 6 characters) are left out.
+ */
+export function forbiddenValues(...reads: readonly RegistryEntity[]): string[] {
+  const values = new Set<string>()
+  for (const read of reads) {
+    for (const value of [read.legalName, read.vatNumber, read.iban, read.ibanPrint, ...read.address.it, ...read.address.en, read.contacts.it, read.contacts.en]) {
+      if (value.trim().length >= 6) values.add(value)
+    }
+  }
+  return [...values]
 }

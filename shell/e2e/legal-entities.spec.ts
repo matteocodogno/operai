@@ -21,7 +21,13 @@
  * The capability journeys (who sees Admin and what, the role editor) are legal-entities-access.spec.ts.
  *
  * Registry state is shared and never reset (versions are append-only, AC-2.7): every journey reads the version it starts from and
- * never assumes a number, and every value it saves carries this run's tag so a save always changes something.
+ * never assumes a number, and every value it saves carries this run's tag so a save always changes something. Nor does any journey
+ * assume how MANY versions there are: the history is paged (the page asks for 50 at a time), so version 1 is on the first page only
+ * on a young registry; a journey that needs an old row presses "Show older versions" until it is there (`showOlderUntil`).
+ *
+ * A change of the legal name, the VAT number or the IBAN is a protected change (US-9): the page asks for a confirmation first. The
+ * journeys here that save the IBAN confirm it in one click and leave the dialog itself, the cancel paths and the notice to
+ * protected-legal-details.spec.ts.
  */
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { authCall, contextFor, tabTo, typeIntoFocused } from './fixtures/letterheads'
@@ -81,6 +87,38 @@ async function versionOf(session: SeededSession, entity: EntityId, n: number): P
   return result.body
 }
 
+/** The versions the page asks for at a time (admin-ui `LegalEntityHistory`, plan G11): the table's first page is this many rows. */
+const HISTORY_PAGE_SIZE = 50
+
+/** The first page of the history, as the page asks for it: the newest `HISTORY_PAGE_SIZE` versions. */
+async function historyFirstPage(session: SeededSession, entity: EntityId): Promise<HistoryItem[]> {
+  const result = await authCall<{ items: HistoryItem[]; nextBefore: number | null }>(
+    session,
+    'GET',
+    `/legal-entities/${entity}/versions?limit=${HISTORY_PAGE_SIZE}`,
+  )
+  expect(result.status).toBe(200)
+  return result.body.items
+}
+
+/** EVERY version, newest first, read page by page through `nextBefore`: what the history holds, however many versions there are. */
+async function fullHistory(session: SeededSession, entity: EntityId): Promise<HistoryItem[]> {
+  const all: HistoryItem[] = []
+  let before: number | null = null
+  for (let pages = 0; pages < 100; pages += 1) {
+    const result: { status: number; body: { items: HistoryItem[]; nextBefore: number | null } } = await authCall(
+      session,
+      'GET',
+      `/legal-entities/${entity}/versions?limit=100${before === null ? '' : `&before=${before}`}`,
+    )
+    expect(result.status).toBe(200)
+    all.push(...result.body.items)
+    if (result.body.nextBefore === null) return all
+    before = result.body.nextBefore
+  }
+  throw new Error('[legal-entities] the history has more than 100 pages of 100 versions')
+}
+
 /** A save by API as `session`: the next version, with `edit` applied to what is current. Returns the new version number. */
 async function saveViaApi(session: SeededSession, entity: EntityId, edit: (details: LegalDetails) => void): Promise<number> {
   const read = await getRegistryEntity(session, entity)
@@ -110,6 +148,24 @@ const saveButton = (page: Page) => page.getByTestId('admin-legal-save')
 const savedNote = (page: Page) => page.getByTestId('admin-legal-saved')
 const rowButton = (page: Page, n: number, what: 'open' | 'restore') => page.getByTestId(`admin-legal-version-row-${n}-${what}`)
 const entityHeading = (page: Page) => page.getByTestId('admin-legal-entity-heading')
+const openButtons = (page: Page) => page.locator('[data-testid^="admin-legal-version-row-"][data-testid$="-open"]')
+
+/**
+ * Presses "Show older versions" until the row of version `n` is in the table. The history is paged (the newest 50 first), so an
+ * old version, version 1 above all, is on the first page only while the registry is young: a journey that needs that row asks
+ * for it here and never assumes how many versions there are.
+ */
+async function showOlderUntil(page: Page, n: number): Promise<void> {
+  const more = page.getByTestId('admin-legal-history-more')
+  for (let presses = 0; presses < 100; presses += 1) {
+    if ((await rowButton(page, n, 'open').count()) > 0) return
+    await expect(more, `version ${n} is on no page of the history: no "Show older versions" is left`).toBeVisible()
+    const shown = await openButtons(page).count()
+    await more.click()
+    await expect.poll(() => openButtons(page).count(), { message: 'the next page of the history arrives', timeout: 20_000 }).toBeGreaterThan(shown)
+  }
+  throw new Error(`[legal-entities] version ${n} not reached after 100 pages of the history`)
+}
 
 async function openEntity(page: Page, entity: EntityId, query = ''): Promise<void> {
   await page.goto(`/admin/legal-entities?entity=${entity}${query}`)
@@ -230,6 +286,8 @@ test.describe('specs/20261117-legal-entities T42: reach, edit, refusal (AC-1.1 t
     await expect(save).toHaveText(`Save as version ${next}`)
 
     await save.click()
+    // The IBAN is a protected detail (US-9): the page asks first. The dialog's own journeys are protected-legal-details.spec.ts's.
+    await page.getByTestId('admin-legal-protected-confirm').click()
     await expect(savedNote(page)).toHaveText(`Version ${next} saved. Every tool uses it within a minute.`)
     // Focus stays on Save (it is not disabled, never lost), the form is the version just saved.
     await expect(save).toBeFocused()
@@ -318,7 +376,8 @@ test.describe('specs/20261117-legal-entities T42: reach, edit, refusal (AC-1.1 t
     await input(page, 'legalName').fill(before.legalName)
     await expect(input(page, 'legalName')).not.toHaveAttribute('aria-invalid', 'true')
     await expect(page.getByTestId('admin-legal-summary-title')).toHaveText('Nothing was saved. 2 values need your attention.')
-    await input(page, 'iban').fill('')
+    // The IBAN as the registry holds it (grouped; empty when it holds none), not an empty one: the entity may well have an IBAN.
+    await input(page, 'iban').fill(before.ibanPrint)
     await expect(page.getByTestId('admin-legal-summary-title')).toHaveText('Nothing was saved. 1 value needs your attention.')
     await line(page, 'it', 1).fill(originalLine2)
     await expect(summary).toHaveCount(0)
@@ -429,7 +488,8 @@ test.describe('specs/20261117-legal-entities T42: two people editing the same en
     const useTheirs = b.page.getByTestId('admin-legal-use-theirs-contacts.it')
     await expect(useTheirs).toHaveText('Use theirs')
     await expect(b.page.getByTestId('admin-legal-applied')).toHaveText(
-      `Your changes were applied to version ${v0 + 1}. Contacts line (Italian) to review, then save as version ${v0 + 2}.`,
+      // The count, not the names (design.md `conflict.applied`/`flagged`, FU-7): the flagged value itself is announced by its own note above.
+      `Your changes were applied to version ${v0 + 1}. 1 value to review, then save as version ${v0 + 2}.`,
     )
     await expect(saveButton(b.page)).toHaveText(`Save as version ${v0 + 2}`)
     await expect(saveButton(b.page)).not.toHaveAttribute('aria-disabled', 'true')
@@ -499,12 +559,16 @@ test.describe('specs/20261117-legal-entities T42: history, an old version, resto
     // Every version, newest first (AC-2.2): who, when, what changed.
     const table = page.getByRole('table', { name: 'Versions of WellD Italia' })
     await expect(table).toBeVisible({ timeout: 15_000 })
-    const listed = await historyOf(people.admin, 'welld_it')
-    expect(listed.map((item) => item.version)).toEqual([...listed.map((item) => item.version)].sort((x, y) => y - x))
-    const opens = await page.locator('[data-testid^="admin-legal-version-row-"][data-testid$="-open"]').evaluateAll((nodes) =>
+    // Every version of the registry, newest first, however many pages that is; the table starts with the first page of them.
+    const listed = await fullHistory(people.admin, 'welld_it')
+    const versions = listed.map((item) => item.version)
+    expect(versions).toEqual([...versions].sort((x, y) => y - x))
+    expect(new Set(versions).size, 'no version twice').toBe(versions.length)
+    expect(versions[versions.length - 1], 'the oldest version is the move').toBe(1)
+    const opens = await openButtons(page).evaluateAll((nodes) =>
       nodes.map((node) => Number((node as HTMLElement).dataset['testid']!.split('-')[4])),
     )
-    expect(opens).toEqual(listed.map((item) => item.version))
+    expect(opens).toEqual(versions.slice(0, HISTORY_PAGE_SIZE))
     expect(opens[0]).toBe(n)
     const newestRow = table.getByRole('row').filter({ has: rowButton(page, n, 'open') })
     await expect(newestRow).toContainText('Current')
@@ -516,7 +580,8 @@ test.describe('specs/20261117-legal-entities T42: history, an old version, resto
     await expect(rowButton(page, c, 'restore')).toBeVisible()
     await expect(rowButton(page, c, 'open')).toHaveAccessibleName(`Open version ${c}`)
     await expect(rowButton(page, c, 'restore')).toHaveAccessibleName(`Restore version ${c}`)
-    // The first version is the move from the CRM, by the system.
+    // The first version is the move from the CRM, by the system (on a later page once the registry holds more than one page).
+    await showOlderUntil(page, 1)
     const first = table.getByRole('row').filter({ has: rowButton(page, 1, 'open') })
     await expect(first).toContainText('Moved from the CRM')
     await expect(first).toContainText('System')
@@ -573,8 +638,8 @@ test.describe('specs/20261117-legal-entities T42: history, an old version, resto
     expect(restored.version).toBe(n + 1)
     expect(detailsOf(restored)).toEqual(detailsOf(old))
     // The versions in between stay, unchanged (AC-2.4, AC-2.7); the new one says where it came from.
-    const after = await historyOf(people.admin, 'welld_it')
-    expect(after.map((item) => item.version)).toEqual([n + 1, ...listed.map((item) => item.version)])
+    const after = await fullHistory(people.admin, 'welld_it')
+    expect(after.map((item) => item.version)).toEqual([n + 1, ...versions])
     expect(after[0]).toMatchObject({ version: n + 1, action: 'restore', restoredFrom: c })
     expect((await versionOf(people.admin, 'welld_it', n)).contacts.it).toBe(`Hist ${RUN}`)
     await viewTab(page, 'welld_it', 'History').click()
@@ -586,7 +651,8 @@ test.describe('specs/20261117-legal-entities T42: history, an old version, resto
 
   test('a manager who may not change welld_it reads its history and its versions, and is offered no restore (AC-4.2)', async ({ browser }) => {
     test.setTimeout(120_000)
-    const versions = (await historyOf(people.chManager, 'welld_it')).map((item) => item.version)
+    // The rows the table starts with: the newest page of the history (50 versions at most, however many the registry holds).
+    const versions = (await historyFirstPage(people.chManager, 'welld_it')).map((item) => item.version)
     expect(versions.length).toBeGreaterThan(2)
     const { context, page } = await signedIn(browser, people.chManager)
     await openEntity(page, 'welld_it', '&view=history')
@@ -818,6 +884,8 @@ test.describe('specs/20261117-legal-entities T42: Italian, once (AC-8.2)', () =>
       await expect(table.getByRole('columnheader', { name: header, exact: true })).toBeVisible()
     }
     await expect(table.getByText('Corrente', { exact: true })).toBeVisible()
+    // The move is version 1: on a later page once the registry holds more than one page of versions.
+    await showOlderUntil(page, 1)
     await expect(table.getByText('Portata dal CRM')).toBeVisible()
     await expect(table.getByText('Sistema', { exact: true })).toBeVisible()
     await expect(rowButton(page, before.version, 'open')).toHaveAccessibleName(`Apri la versione ${before.version}`)
