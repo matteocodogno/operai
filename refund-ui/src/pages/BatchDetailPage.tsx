@@ -17,6 +17,7 @@ import BatchSubtotalsPanel from '../components/BatchSubtotalsPanel'
 import BatchEmployeeGroupList from '../components/BatchEmployeeGroupList'
 import BatchPdfLink from '../components/BatchPdfLink'
 import MarkPaidDialog from '../components/MarkPaidDialog'
+import AccountingExportCard from '../components/AccountingExportCard'
 
 const route = getRouteApi('/batches/$id')
 
@@ -170,6 +171,12 @@ export default function BatchDetailPage() {
       // Best-effort — the last known-good state stays on screen; explicit Retry remains available.
     }
   }, [id])
+
+  /** The export card found the batch discarded (409 `batch_discarded`): say so, and reload so the card goes (AC-6.9). */
+  const handleExportBatchDiscarded = useCallback(() => {
+    setLiveMessage(t.accountingExport.discardedAnnouncement)
+    void reloadBatch()
+  }, [reloadBatch, t.accountingExport.discardedAnnouncement])
 
   // ---------------------------------------------------------------------------
   // Resend email (design.md F3 step 2)
@@ -393,6 +400,15 @@ export default function BatchDetailPage() {
                 <ToastBanner message={emailToast.message} tone={emailToast.tone} onDismiss={dismissEmailToast} />
               )}
             </Card>
+
+            {/* Not for a discarded batch (AC-6.9): nothing of it is exported. The card loads on its own. */}
+            {pageState.batch.status !== 'discarded' && (
+              <AccountingExportCard
+                batchId={pageState.batch.id}
+                cutoff={pageState.batch.cutoff}
+                onBatchDiscarded={handleExportBatchDiscarded}
+              />
+            )}
 
             <BatchEmployeeGroupList mode="detail" groups={pageState.batch.employees} />
 

@@ -15,7 +15,7 @@
  * the PDF mint affordance, and the one-shot post-compile confirmation.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import BatchDetailPage from './BatchDetailPage'
@@ -34,7 +34,14 @@ vi.mock('../lib/batchesApi', async (importOriginal) => {
   }
 })
 
+vi.mock('../lib/accountingExportApi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/accountingExportApi')>()
+  return { ...original, getAccountingExport: vi.fn(), downloadAccountingCsv: vi.fn() }
+})
+
 import * as batchesApi from '../lib/batchesApi'
+import * as exportApi from '../lib/accountingExportApi'
+import type { AccountingExportSummary } from '../lib/accountingExportApi'
 import { ApiError } from '../lib/refundApi'
 
 function pendingPromise<T>(): Promise<T> {
@@ -57,6 +64,22 @@ function renderBatchDetailPage(id = 'batch-1', search = '') {
   const router = createRouter({ routeTree })
   return render(<RouterProvider router={router} />)
 }
+
+const exportSummary = (overrides: Partial<AccountingExportSummary> = {}): AccountingExportSummary => ({
+  batchId: 'batch-1',
+  batchStatus: 'compiled',
+  exportable: true,
+  rowCount: 4,
+  excludedLineCount: 0,
+  blockers: { missingRates: [], unclassifiedLines: [], unnumberedLines: [] },
+  fetchAttempted: false,
+  ...overrides,
+})
+
+beforeEach(() => {
+  vi.mocked(exportApi.getAccountingExport).mockReset()
+  vi.mocked(exportApi.getAccountingExport).mockResolvedValue(exportSummary())
+})
 
 afterEach(() => {
   cleanup()
@@ -349,5 +372,78 @@ describe('BatchDetailPage — post-compile confirmation (design.md F1 step 6)', 
     const banner = screen.getByTestId('batch-detail-confirmation')
     expect(banner.textContent).toContain('Batch compiled — 2 requests')
     expect(banner.getAttribute('aria-live')).toBe('off')
+  })
+})
+
+describe('BatchDetailPage — accounting export card (T30, specs/20261118-refund-accounting-export, F9; AC-6.1, AC-6.5, AC-6.9)', () => {
+  it.each([
+    ['compiled', compiledBatch],
+    ['paid', paidBatch],
+  ])('a %s batch shows the card under the summary and above the employee groups', async (_status, batch) => {
+    vi.mocked(batchesApi.get).mockResolvedValue(batch)
+    renderBatchDetailPage()
+
+    const card = await screen.findByTestId('accounting-export-card')
+    await screen.findByTestId('accounting-export-ready')
+    const groups = screen.getByTestId('batch-employee-group-list')
+    const summary = screen.getByRole('heading', { name: 'Summary' })
+    expect(summary.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(card.compareDocumentPosition(groups) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(exportApi.getAccountingExport).toHaveBeenCalledWith('batch-1')
+  })
+
+  it('a discarded batch has no card, and the export is never asked (AC-6.9)', async () => {
+    vi.mocked(batchesApi.get).mockResolvedValue(discardedBatch)
+    renderBatchDetailPage()
+
+    await screen.findByTestId('batch-detail-loaded')
+    expect(screen.queryByTestId('accounting-export-card')).toBeNull()
+    expect(exportApi.getAccountingExport).not.toHaveBeenCalled()
+  })
+
+  it('the card does not hold the page back: the batch shows while the check is still running', async () => {
+    vi.mocked(batchesApi.get).mockResolvedValue(compiledBatch)
+    vi.mocked(exportApi.getAccountingExport).mockReturnValue(pendingPromise())
+    renderBatchDetailPage()
+
+    expect(await screen.findByTestId('batch-detail-mark-paid')).not.toBeNull()
+    expect(screen.getByTestId('batch-employee-group-list')).not.toBeNull()
+    expect(screen.getByTestId('accounting-export-skeleton')).not.toBeNull()
+  })
+
+  it('a blocked export leaves Mark as paid and Discard working (AC-6.5)', async () => {
+    vi.mocked(batchesApi.get).mockResolvedValue(compiledBatch)
+    vi.mocked(batchesApi.markPaid).mockResolvedValue(paidBatch)
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(
+      exportSummary({
+        exportable: false,
+        blockers: { missingRates: [{ currency: 'EUR', month: '2026-03' }], unclassifiedLines: [], unnumberedLines: [] },
+      }),
+    )
+    renderBatchDetailPage()
+
+    await screen.findByTestId('accounting-export-blocked')
+    expect((screen.getByTestId('batch-detail-mark-paid') as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByTestId('batch-detail-discard') as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByTestId('batch-detail-mark-paid'))
+    fireEvent.click(await screen.findByTestId('mark-paid-dialog-checkbox'))
+    fireEvent.click(screen.getByTestId('mark-paid-dialog-confirm'))
+    await waitFor(() => expect(batchesApi.markPaid).toHaveBeenCalledWith('batch-1'))
+  })
+
+  it('a batch found discarded by the export removes the card and says so politely', async () => {
+    vi.mocked(batchesApi.get).mockResolvedValueOnce(compiledBatch).mockResolvedValue(discardedBatch)
+    vi.mocked(exportApi.getAccountingExport).mockRejectedValue(
+      new ApiError({ type: 't', title: 'Conflict', status: 409, code: 'batch_discarded' }),
+    )
+    renderBatchDetailPage()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('batch-detail-live-message').textContent).toBe(
+        'This batch has been discarded; the export is no longer available.',
+      ),
+    )
+    await waitFor(() => expect(screen.queryByTestId('accounting-export-card')).toBeNull())
+    expect(screen.getByTestId('batch-detail-discarded-line')).not.toBeNull()
   })
 })
