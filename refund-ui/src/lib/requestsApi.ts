@@ -88,6 +88,13 @@ export type RefundLine = {
    * contract always sends the key (plan.md), null for non-travel_km.
    */
   mileage?: MileageInfo | null
+  /**
+   * The line's receipt number (`MC26/014`), assigned when the request is approved
+   * (specs/20261118-refund-accounting-export AC-4.x); `null` before that and for a rejected line. Optional on the TYPE for
+   * the same reason as `mileage`: older fixtures keep compiling, and a missing key reads as `null`.
+   * The wire contract always sends it.
+   */
+  receiptNumber?: string | null
 }
 
 export type RequestListItem = {

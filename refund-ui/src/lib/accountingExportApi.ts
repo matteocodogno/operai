@@ -1,0 +1,128 @@
+/**
+ * accountingExportApi — the batch accounting export (specs/20261118-refund-accounting-export, plan.md § API contracts
+ * → Export): the pre-download summary and the CSV itself. `request:review` with a scope covering WellD CH.
+ *
+ * `downloadAccountingCsv` returns `response.blob()`, never `.text()`: the file starts with a UTF-8 byte-order
+ * mark that `exportFormat.ts` writes on purpose, and `.text()` would drop it (UX-12). The filename is built by
+ * the caller (`accountingExportFileName`), not read from `Content-Disposition`, which a browser on another
+ * origin cannot read unless the server exposes it (G9).
+ *
+ * Refusals are `ApiError`s: 403 `accounting_export_out_of_scope` (AC-6.11), 409 `batch_discarded` (AC-6.9),
+ * 404, and, on the CSV only, 409 `accounting_export_blocked` whose body IS the summary (G10). `blockedSummary`
+ * reads that body with a guard.
+ */
+
+import { apiFetch } from 'shell/session'
+import type { MissingValue } from './accountingApi'
+import { ApiError, getJson, refundApiBase, throwFromResponse } from './refundApi'
+import type { RateCurrency } from './exchangeRatesApi'
+
+export type MissingRateBlocker = { currency: RateCurrency; month: string }
+
+export type UnclassifiedLineBlocker = {
+  lineId: string
+  requestId: string
+  date: string
+  type: string
+  employee: string
+  receiptNumber: string | null
+  missing: MissingValue[]
+}
+
+export type UnnumberedLineBlocker = { lineId: string; requestId: string; employee: string }
+
+export type ExportBlockers = {
+  missingRates: MissingRateBlocker[]
+  unclassifiedLines: UnclassifiedLineBlocker[]
+  unnumberedLines: UnnumberedLineBlocker[]
+}
+
+export type AccountingExportSummary = {
+  batchId: string
+  batchStatus: string
+  exportable: boolean
+  rowCount: number
+  /** WellD Italia lines left out (AC-6.6). */
+  excludedLineCount: number
+  blockers: ExportBlockers
+  /** True when the server just tried to fetch the missing rates from the official source. */
+  fetchAttempted: boolean
+}
+
+/** `GET /batches/:id/accounting-export`: may call the official source and take several seconds. */
+export const getAccountingExport = (batchId: string): Promise<AccountingExportSummary> =>
+  getJson<AccountingExportSummary>(`/batches/${encodeURIComponent(batchId)}/accounting-export`)
+
+/**
+ * `GET /batches/:id/accounting-export/csv`: the bytes, BOM included. Every export is logged by the server, and
+ * a failed log write is a 500 with no file (AC-6.10), so any non-2xx here means no file was produced.
+ */
+export const downloadAccountingCsv = async (batchId: string): Promise<Blob> => {
+  const response = await apiFetch(`${refundApiBase()}/batches/${encodeURIComponent(batchId)}/accounting-export/csv`)
+  if (!response.ok) return throwFromResponse(response)
+  return response.blob()
+}
+
+/** `refund-accounting-<cutoff YYYY-MM-DD>-<batchId>.csv`; the cutoff is the batch's ISO instant, only its date is used. */
+export const accountingExportFileName = (cutoff: string, batchId: string): string =>
+  `refund-accounting-${cutoff.slice(0, 10)}-${batchId}.csv`
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const asList = (value: unknown): Record<string, unknown>[] => (Array.isArray(value) ? value.filter(isRecord) : [])
+
+const str = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+
+const isMissingValue = (value: unknown): value is MissingValue => value === 'account' || value === 'vatCode'
+
+/**
+ * The summary a 409 `accounting_export_blocked` carries, or `null` when `error` is anything else or its body
+ * is not a summary. Entries that are malformed are dropped; the result is always `exportable: false` (the
+ * server just refused to export). `null` tells the caller to fall back to a fresh `getAccountingExport`.
+ */
+export const blockedSummary = (error: unknown): AccountingExportSummary | null => {
+  if (!(error instanceof ApiError) || error.code !== 'accounting_export_blocked') return null
+  const { batchId, batchStatus, rowCount, excludedLineCount, blockers, fetchAttempted } = error.extras
+  if (typeof batchId !== 'string' || !isRecord(blockers)) return null
+
+  const missingRates: MissingRateBlocker[] = []
+  for (const entry of asList(blockers.missingRates)) {
+    const month = str(entry.month)
+    if (month !== null && (entry.currency === 'EUR' || entry.currency === 'USD' || entry.currency === 'GBP')) {
+      missingRates.push({ currency: entry.currency, month })
+    }
+  }
+  const unclassifiedLines: UnclassifiedLineBlocker[] = []
+  for (const entry of asList(blockers.unclassifiedLines)) {
+    const lineId = str(entry.lineId)
+    const requestId = str(entry.requestId)
+    if (lineId === null || requestId === null) continue
+    unclassifiedLines.push({
+      lineId,
+      requestId,
+      date: str(entry.date) ?? '',
+      type: str(entry.type) ?? '',
+      employee: str(entry.employee) ?? '',
+      receiptNumber: str(entry.receiptNumber),
+      missing: Array.isArray(entry.missing) ? entry.missing.filter(isMissingValue) : [],
+    })
+  }
+  const unnumberedLines: UnnumberedLineBlocker[] = []
+  for (const entry of asList(blockers.unnumberedLines)) {
+    const lineId = str(entry.lineId)
+    const requestId = str(entry.requestId)
+    if (lineId !== null && requestId !== null)
+      unnumberedLines.push({ lineId, requestId, employee: str(entry.employee) ?? '' })
+  }
+
+  return {
+    batchId,
+    batchStatus: typeof batchStatus === 'string' ? batchStatus : '',
+    exportable: false,
+    rowCount: typeof rowCount === 'number' ? rowCount : 0,
+    excludedLineCount: typeof excludedLineCount === 'number' ? excludedLineCount : 0,
+    blockers: { missingRates, unclassifiedLines, unnumberedLines },
+    fetchAttempted: fetchAttempted === true,
+  }
+}

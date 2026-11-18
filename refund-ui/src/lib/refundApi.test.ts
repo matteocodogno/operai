@@ -93,6 +93,31 @@ describe('getJson', () => {
     })
   })
 
+  it('keeps the problem members beyond the RFC 7807 ones in `extras` (specs/20261118-refund-accounting-export)', async () => {
+    const lines = [{ lineId: 'l1', date: '2026-03-19', type: 'travel_train', missing: ['account'] }]
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      makeResponse(409, { title: 'Conflict', status: 409, code: 'classification_missing', lines }),
+    )
+
+    const error = await getJson('/review/requests/r1/approve').catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).code).toBe('classification_missing')
+    expect((error as ApiError).extras).toEqual({ lines })
+  })
+
+  it('has empty extras when the problem carries nothing extra, or the body is not an object', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(makeResponse(404, { title: 'Not Found', status: 404 }))
+    expect(((await getJson('/x').catch((c: unknown) => c)) as ApiError).extras).toEqual({})
+
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      new Response('null', { status: 500, statusText: 'Internal Server Error' }),
+    )
+    const error = (await getJson('/x').catch((c: unknown) => c)) as ApiError
+    expect(error.status).toBe(500)
+    expect(error.extras).toEqual({})
+  })
+
   it('synthesizes a Problem from the HTTP status when the error body is not valid JSON', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(
       new Response('not json', { status: 503, statusText: 'Service Unavailable' }),

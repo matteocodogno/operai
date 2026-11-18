@@ -61,7 +61,14 @@ export const listQueue = (): Promise<ReviewQueueItem[]> => getJson<ReviewQueueIt
 export const setApprovedTotal = (id: string, lineId: string, approvedTotalCents: number): Promise<RefundLine> =>
   sendJson<RefundLine>(`/review/requests/${id}/lines/${lineId}/approved-total`, 'PUT', { approvedTotalCents })
 
-/** `POST /review/requests/:id/approve` — whole-request, defaults untouched lines to their requested amount (AC-7.2). */
+/**
+ * `POST /review/requests/:id/approve` — whole-request, defaults untouched lines to their requested amount (AC-7.2).
+ *
+ * specs/20261118-refund-accounting-export adds two 409s with their own `code`, which a caller must tell apart from
+ * the "already decided" 409 and from `all_lines_rejected` by `error.code`, never by status alone:
+ * `classification_missing` (the refused lines are read with `classificationMissingLines` from `./accountingApi`) and
+ * `accounting_release_pending` (approvals are off until the release script has run).
+ */
 export const approve = (id: string): Promise<RefundRequestDetail> =>
   sendJson<RefundRequestDetail>(`/review/requests/${id}/approve`, 'POST', undefined)
 

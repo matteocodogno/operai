@@ -85,8 +85,15 @@ export class ApiError extends Error {
   readonly detail: string | undefined
   readonly instance: string | undefined
   readonly code: string | undefined
+  /**
+   * The problem's members beyond the RFC 7807 ones and `code` (specs/20261118-refund-accounting-export):
+   * `classification_missing` carries `lines`, `accounting_export_blocked` carries the whole export summary.
+   * Empty for an error with none. Unvalidated wire data: read it through a typed guard
+   * (`classificationMissingLines`, `blockedSummary`), never by indexing.
+   */
+  readonly extras: Readonly<Record<string, unknown>>
 
-  constructor(problem: ApiProblem) {
+  constructor(problem: ApiProblem, extras: Readonly<Record<string, unknown>> = {}) {
     super(problem.title)
     this.name = 'ApiError'
     this.status = problem.status
@@ -94,8 +101,15 @@ export class ApiError extends Error {
     this.detail = problem.detail
     this.instance = problem.instance
     this.code = problem.code
+    this.extras = extras
   }
 }
+
+const PROBLEM_MEMBERS = new Set(['type', 'title', 'status', 'detail', 'instance', 'code'])
+
+/** The members of a parsed problem body that are not part of the standard shape. */
+const extraMembers = (body: object): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(body).filter(([key]) => !PROBLEM_MEMBERS.has(key)))
 
 /**
  * Parses a non-2xx Response as an RFC 7807 Problem and throws an `ApiError`.
@@ -103,10 +117,14 @@ export class ApiError extends Error {
  * Problem is constructed from the HTTP status (mirrors adminApi.ts/
  * estimatesApi.ts's `throwFromResponse` verbatim).
  */
-const throwFromResponse = async (response: Response): Promise<never> => {
+export const throwFromResponse = async (response: Response): Promise<never> => {
   let problem: ApiProblem
+  let extras: Record<string, unknown> = {}
   try {
     const body = (await response.json()) as Partial<ApiProblem>
+    // A JSON body that is not an object (`null`, a number) is as unusable as one that does not parse.
+    if (typeof body !== 'object' || body === null) throw new TypeError('problem body is not an object')
+    extras = extraMembers(body)
     problem = {
       type: body.type ?? `https://httpstatuses.com/${response.status}`,
       title: body.title ?? response.statusText,
@@ -122,7 +140,7 @@ const throwFromResponse = async (response: Response): Promise<never> => {
       status: response.status,
     }
   }
-  throw new ApiError(problem)
+  throw new ApiError(problem, extras)
 }
 
 const jsonHeaders = { 'Content-Type': 'application/json' }

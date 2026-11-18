@@ -88,6 +88,11 @@ export type BatchRequestRow = {
   id: string
   status: RequestStatus
   subtotals: BatchSubtotal[]
+  /**
+   * The receipt numbers of this request's numbered lines, in full (specs/20261118-refund-accounting-export AC-4.6); `[]` when none.
+   * Optional on the TYPE so older fixtures keep compiling; a missing key reads as `[]`.
+   */
+  receiptNumbers?: string[]
 }
 
 export type BatchEmployeeGroup = {
