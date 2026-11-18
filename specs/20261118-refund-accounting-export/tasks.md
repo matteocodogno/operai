@@ -260,7 +260,7 @@ Reading the list:
     - full refund-api suite green;
     - `cd shell && pnpm e2e refund-headline` green.
 
-- [ ] T13: refund-api — accounting view `GET /review/requests/{id}/accounting` and `GET /accounting/options` — refs: AC-1.3, AC-1.6, AC-2.7, AC-3.1, AC-3.2, AC-3.8, AC-3.9, AC-3.10, AC-4.6 — deps: T4, T9, T10, T12
+- [x] T13: refund-api — accounting view `GET /review/requests/{id}/accounting` and `GET /accounting/options` — refs: AC-1.3, AC-1.6, AC-2.7, AC-3.1, AC-3.2, AC-3.8, AC-3.9, AC-3.10, AC-4.6 — deps: T4, T9, T10, T12
   - touch: `refund-api/src/accounting/classification.repo.ts`, `refund-api/src/accounting/classification.routes.ts`, `refund-api/src/accounting/classification.schemas.ts`, `refund-api/src/accounting/classification.routes.test.ts`, `refund-api/src/index.ts`
   - agent: backend-dev · backend
   - Details:

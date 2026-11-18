@@ -22,6 +22,7 @@ import { settingsRouter } from "./settings/routes";
 import { catalogRouter } from "./accounting/catalog.routes";
 import { defaultsRouter } from "./accounting/defaults.routes";
 import { fxRouter } from "./fx/fx.routes";
+import { classificationRouter } from "./accounting/classification.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -105,6 +106,9 @@ app.route("/", defaultsRouter);
 // fxRouter: monthly exchange rates (list, fetch now, admin correction), gated by
 // settings:read / settings:manage — specs/20261118-refund-accounting-export (T10).
 app.route("/", fxRouter);
+// classificationRouter: a request's accounting view and the active classification options, gated by
+// request:review + entity scope — specs/20261118-refund-accounting-export (T13; T14 adds the PUT).
+app.route("/", classificationRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
