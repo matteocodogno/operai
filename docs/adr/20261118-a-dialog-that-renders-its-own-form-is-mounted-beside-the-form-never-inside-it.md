@@ -1,7 +1,7 @@
 # 20261118 — A dialog from `@operai/ui` that renders its own `<form>` (`ConfirmDialog`, `FormDialog`) is mounted beside the page's form, never inside it, and its Confirm is proved by a journey in a real browser
 
 **Date:** 2026-11-18  
-**Status:** Accepted (owner, 2026-11-18) — decided by the orchestrator during the owner-requested unattended run 2026-11-17/18, approved by the owner on 2026-11-18. Rule drawn from fix D3 of specs/20261117-legal-entities (QE T68 defect D-T68-1, high; commit `95ebd129`; tasks.md D3). It is an engineering rule of the shared library's use, not a product decision of the spec, and no separate owner approval is recorded; the owner may amend it. Not a plan ADR candidate: found by QE after the plan was approved.  
+**Status:** Accepted (owner, 2026-11-18) — decided by the orchestrator during the owner-requested unattended run 2026-11-17/18, approved by the owner on 2026-11-18. Rule drawn from fix D3 of specs/20261117-legal-entities (QE T68 defect D-T68-1, high; commit `95ebd129`; tasks.md D3). It is an engineering rule of the shared library's use, not a product decision of the spec; the owner approved it on 2026-11-18 with the other orchestrator decisions of the run (tasks.md) and may amend it. Not a plan ADR candidate: found by QE after the plan was approved.  
 **Deciders:** the orchestrator, on the owner's standing instruction (unattended run 2026-11-17/18); Matteo Codogno (product owner) confirmed 2026-11-18  
 **Project:** operai
 

@@ -1809,6 +1809,12 @@ a display-name input alive in the template, against "no display name anywhere in
 - notify-api rolled back below D9 while push-2 auth runs: as above (retried, then given up with audit entries; the
   in-app channel works).
 - auth rolled back to push 1: the dispatcher stops and the rows wait. This is unchanged.
+- **auth code older than T88 against a database that has the T88 migration** (QE §16.4): that code never clears
+  `authorEmail`, so the T88 trigger and the CHECK (`status = 'pending' OR "authorEmail" IS NULL`) refuse its
+  terminal update and no notice row can be delivered; the rows stay pending and are retried. No shipped order
+  produces this (no release ships T80 without T88). A rollback of auth past T88 must therefore either accept that
+  pending rows fail until auth is upgraded again (they are delivered at once when it is), or revert the T88
+  migration too. The preferred rollback after push 2 is to redeploy the head build, not an earlier one.
 
 **Checks.**
 
@@ -1860,13 +1866,15 @@ it still shows in the history, which is out of D9's scope (OQ-16).
 
 ### J11 — Spec drift and readings
 
-- **R-D9a (reading, proposed for the owner; not blocking).** The spec defines what a notice says when the account
+- **R-D9a (reading, applied as an orchestrator reading on 2026-11-18, pending the owner's confirmation; not
+  blocking).** It is not owner-approved: the owner's approval of 2026-11-18 covered the decisions made before their
+  review, and R-D9a came after it. spec.md AC-9.11 carries it marked "R-D9a, orchestrator 2026-11-18". The spec defines what a notice says when the account
   had **no** email address, but not when the recorded address is not a well-formed one. The plan reads it as "no
   email address on record", because it must never fall back to the display name. A notice must still go out, since
   it is the safeguard. The case is believed unreachable (R26, T87).
 
   Proposed sentence for AC-9.11: *"An email address that is not a valid email address counts as no email address on
-  record."* Until the owner decides, the plan applies this reading.
+  record."* It is in AC-9.11 as an orchestrator reading; until the owner confirms or rejects it, the plan applies it.
 - design.md, for the designer (T78), not spec drift: commit `d1da2ecc` left three contradictions in it. The
   "Decided by the orchestrator …, approved by the owner on 2026-11-18 (built as decided; not owner-approved yet)"
   heading, the unticked DR-14/DR-17 boxes, and the open "N1 / O-1" item.
