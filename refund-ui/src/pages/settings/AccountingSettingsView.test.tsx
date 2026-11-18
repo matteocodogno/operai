@@ -10,7 +10,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
-  return { ...original, listLedgerAccounts: vi.fn(), listVatCodes: vi.fn() }
+  return { ...original, listLedgerAccounts: vi.fn(), listVatCodes: vi.fn(), getExpenseTypeDefaults: vi.fn() }
 })
 
 vi.mock('shell/session', async (importOriginal) => {
@@ -35,6 +35,13 @@ const grant = (...actions: string[]): Permissions => ({
 beforeEach(() => {
   vi.mocked(accountingApi.listLedgerAccounts).mockResolvedValue([])
   vi.mocked(accountingApi.listVatCodes).mockResolvedValue([])
+  vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue({
+    entity: 'welld_ch',
+    foreignCurrencyVatCode: null,
+    foreignCurrencyVatCodeUsable: false,
+    foreignCurrencyVatCodeHistory: [],
+    types: [],
+  })
 })
 
 afterEach(() => {
@@ -43,14 +50,15 @@ afterEach(() => {
 })
 
 describe('AccountingSettingsView', () => {
-  it('shows the ledger accounts and VAT codes cards with their Add buttons for settings:manage', async () => {
+  it('shows the ledger accounts, VAT codes and default classification cards, with Add and Change for settings:manage', async () => {
     vi.mocked(session.usePermissions).mockReturnValue(grant('read', 'manage'))
     render(<AccountingSettingsView />)
     expect(await screen.findByTestId('settings-accounts-add')).not.toBeNull()
     expect(screen.getByTestId('settings-vat-codes-add')).not.toBeNull()
+    expect(await screen.findByTestId('settings-foreign-vat-change')).not.toBeNull()
   })
 
-  it('shows both cards read-only with settings:read alone', async () => {
+  it('shows all cards read-only with settings:read alone', async () => {
     vi.mocked(session.usePermissions).mockReturnValue(grant('read'))
     render(<AccountingSettingsView />)
     expect(await screen.findByTestId('settings-accounts-card')).not.toBeNull()
@@ -58,6 +66,8 @@ describe('AccountingSettingsView', () => {
     await screen.findAllByText('No ledger accounts yet')
     expect(screen.queryByTestId('settings-accounts-add')).toBeNull()
     expect(screen.queryByTestId('settings-vat-codes-add')).toBeNull()
+    expect(await screen.findByTestId('settings-defaults-card')).not.toBeNull()
+    expect(screen.queryByTestId('settings-foreign-vat-change')).toBeNull()
   })
 
   it('has no <form> of its own for a dialog to nest in', async () => {

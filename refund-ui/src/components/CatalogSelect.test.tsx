@@ -6,6 +6,7 @@
  * field wiring passing through.
  */
 
+import { createRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Field } from '@operai/ui'
@@ -169,6 +170,12 @@ describe('CatalogSelect', () => {
     expect(select.getAttribute('aria-describedby')).toBeTruthy()
     expect(select.getAttribute('aria-busy')).toBe('true')
     expect(screen.getByTestId('classification-account-l1')).toBe(select)
+  })
+
+  it('hands its select to a ref, so a page can focus it', () => {
+    const ref = createRef<HTMLSelectElement>()
+    render(<CatalogSelect ref={ref} kind="account" options={accounts} value="a1" onChange={vi.fn()} aria-label="A" />)
+    expect(ref.current).toBe(screen.getByRole('combobox'))
   })
 
   it('stays focusable and keeps its value while disabled is not set (aria-busy only)', () => {

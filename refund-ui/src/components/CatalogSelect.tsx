@@ -19,7 +19,7 @@
  * (`aria-busy`, `disabled`, `data-testid`) passes through.
  */
 
-import type { SelectHTMLAttributes } from 'react'
+import type { Ref, SelectHTMLAttributes } from 'react'
 import { strings } from '../strings'
 import { CATALOG_NONE, accountText, vatCodeText } from '../lib/catalogLabels'
 
@@ -34,6 +34,8 @@ type CatalogSelectCommon = SelectAttributes & {
   onChange: (value: string) => void
   noneLabel?: string
   placeholder?: string
+  /** For moving focus to the select (the first invalid field after a refused save). */
+  ref?: Ref<HTMLSelectElement>
 }
 
 export type CatalogSelectProps = CatalogSelectCommon &
@@ -43,7 +45,7 @@ export type CatalogSelectProps = CatalogSelectCommon &
   )
 
 export default function CatalogSelect(props: CatalogSelectProps) {
-  const { kind, options, current, value, onChange, noneLabel, placeholder, ...selectAttributes } = props
+  const { kind, options, current, value, onChange, noneLabel, placeholder, ref, ...selectAttributes } = props
   const t = strings.pages.reviewDetail.classification
 
   const textOf = (entry: AccountEntry | VatEntry): string =>
@@ -52,7 +54,7 @@ export default function CatalogSelect(props: CatalogSelectProps) {
   const currentIsInactive = current != null && !current.active && !options.some((option) => option.id === current.id)
 
   return (
-    <select {...selectAttributes} value={value} onChange={(event) => onChange(event.target.value)}>
+    <select {...selectAttributes} ref={ref} value={value} onChange={(event) => onChange(event.target.value)}>
       {placeholder !== undefined && (
         <option value="" disabled>
           {placeholder}

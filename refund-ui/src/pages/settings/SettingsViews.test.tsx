@@ -27,7 +27,7 @@ vi.mock('../../lib/settingsApi', async (importOriginal) => {
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
-  return { ...original, listLedgerAccounts: vi.fn(), listVatCodes: vi.fn() }
+  return { ...original, listLedgerAccounts: vi.fn(), listVatCodes: vi.fn(), getExpenseTypeDefaults: vi.fn() }
 })
 
 vi.mock('shell/session', async (importOriginal) => {
@@ -70,6 +70,13 @@ beforeEach(() => {
   vi.mocked(ratesApi.listRates).mockResolvedValue({ entities: [] })
   vi.mocked(accountingApi.listLedgerAccounts).mockResolvedValue([])
   vi.mocked(accountingApi.listVatCodes).mockResolvedValue([])
+  vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue({
+    entity: 'welld_ch',
+    foreignCurrencyVatCode: null,
+    foreignCurrencyVatCodeUsable: false,
+    foreignCurrencyVatCodeHistory: [],
+    types: [],
+  })
   vi.mocked(settingsApi.getSetting).mockResolvedValue({
     key: 'accounting-distribution-email',
     value: null,
