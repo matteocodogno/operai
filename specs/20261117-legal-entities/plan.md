@@ -1868,13 +1868,13 @@ it still shows in the history, which is out of D9's scope (OQ-16).
 
 - **R-D9a (reading, applied as an orchestrator reading on 2026-11-18, confirmed by the owner on 2026-11-18; not
   blocking).** The owner confirmed it separately on 2026-11-18, after it was applied
-  (their earlier approval had covered only the decisions made before their review). spec.md AC-9.11 carries it marked "R-D9a, orchestrator 2026-11-18". The spec defines what a notice says when the account
+  (their earlier approval had covered only the decisions made before their review). spec.md AC-9.11 carries it marked "R-D9a, orchestrator 2026-11-18, confirmed by the owner 2026-11-18". The spec defines what a notice says when the account
   had **no** email address, but not when the recorded address is not a well-formed one. The plan reads it as "no
   email address on record", because it must never fall back to the display name. A notice must still go out, since
   it is the safeguard. The case is believed unreachable (R26, T87).
 
   Proposed sentence for AC-9.11: *"An email address that is not a valid email address counts as no email address on
-  record."* It is in AC-9.11 as an orchestrator reading; until the owner confirms or rejects it, the plan applies it.
+  record."* It is in AC-9.11, confirmed by the owner on 2026-11-18.
 - design.md, for the designer (T78), not spec drift: commit `d1da2ecc` left three contradictions in it. The
   "Decided by the orchestrator …, approved by the owner on 2026-11-18 (built as decided; not owner-approved yet)"
   heading, the unticked DR-14/DR-17 boxes, and the open "N1 / O-1" item.

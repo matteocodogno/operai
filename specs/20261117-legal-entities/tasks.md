@@ -523,7 +523,7 @@ Reading the list:
   - done when: the review covers every surface the plan lists (incl. the derived `apps` entry, the import script's
     credentials, letterhead-api's token client and `entityData` discarded) and has no open high or critical finding.
 
-- [ ] T47: Eval — LM-judge verdict on the feature — refs: AC-1.1, AC-2.4, AC-3.3, AC-4.3, AC-5.4, AC-6.3, AC-7.5, AC-8.1, AC-9.1, AC-9.7, AC-9.12, AC-9.14 — deps: T45, T46, T70, T85, T86
+- [x] T47: Eval — LM-judge verdict on the feature — refs: AC-1.1, AC-2.4, AC-3.3, AC-4.3, AC-5.4, AC-6.3, AC-7.5, AC-8.1, AC-9.1, AC-9.7, AC-9.12, AC-9.14 — deps: T45, T46, T70, T85, T86
   - touch: `specs/20261117-legal-entities/eval-report.md`
   - agent: evaluator
   - done when: `eval-report.md` is fresh and passing (`/wellforge:eval 20261117-legal-entities`).
@@ -1375,3 +1375,4 @@ notify-api is push 1, and auth's notices are push 2.
 Then T47 (eval round 3), with the release chain alongside it: T16 → T17 → T18 → T87 → T44 → T48 → T49 → T71 → T50.
 Critical path: T78 → T79 → T81 → T84 → T85 → T16 → T17 → T18 → T87 → T48 → T49 → T71 → T50.
 - Owner, 2026-11-18: R-D9a confirmed (a malformed author email counts as no email address on record); eval round 4 requested.
+- Eval: round 3 FAIL 78.3 (c8290ae1); round 4 PASS 80.0 (owner-requested, 2026-11-18). The rewritten auth email-change test (ea65ad2a) was run by its author: auth suite 1396 pass, 0 fail (report of 2026-11-18).
