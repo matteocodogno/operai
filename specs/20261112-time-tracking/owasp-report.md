@@ -354,3 +354,67 @@ The reviewer did not run the hours-api DB suite (it truncates tables), betterlea
 the zod 4 behaviour rests on reading the library source plus typecheck, and the dependency picture on `bun audit` and
 `pnpm audit`. operai-ui's `SearchPicker` and `ExportButton` were outside this delta and not re-read. The QE run of
 2026-11-18 runs the suites and the browser flows.
+
+## Re-check 2026-11-18 (T46, identity cache, 8686a68f)
+
+Reviewer: owasp-reviewer (fresh agent), read-only. T46 fixes QE D-1: hours-api reads people's names through a 60 s
+in-process cache keyed by user id, one map for every viewer (plan amendment of 2026-11-18, § Sequences "Names").
+
+### Verdict: PASS
+
+0 critical · 0 high · 0 medium · 1 low (F1) · 4 informational (I1–I4).
+
+### Scope
+
+`hours-api/src/lib/identities.ts` in full; its only caller `labels/resolve.ts:136` and the routes that reach it
+(`entries/list.routes.ts:145-162`, `entries/entries.routes.ts:313-368`, `totals/totals.ts:36`); the scope and viewer-id
+plumbing (`oversight/scope.ts`, `entries/filters.ts`, `entries/view.ts`); auth's `authz/identities.routes.ts` and
+`resolveAuth.middleware.ts`. Run: typecheck clean; `identities.test.ts` + `identities.budget.test.ts` on `hours_test`
+37/37; a probe file outside the repo (13 tests: real `Bun.serve` failure modes, redirects, stalled bodies, key
+confusion, concurrency, growth).
+
+### Findings
+
+| # | Sev | OWASP | Where | Status |
+|---|---|---|---|---|
+| F1 | Low | A02 | `identities.ts:138-140`, `:169-172` | fixed in 2650fa89 — an expired entry is now deleted at lookup |
+| I1 | Info | A04 | `identities.ts:177` | fixed in 2650fa89 — an older-sent answer no longer replaces a newer one |
+| I2 | Info | A04 | `identities.ts:138-141`, `:169-172` | accepted — no single flight, no hard cap; growth bounded by design (keys only from rows written under a verified `sub`) |
+| I3 | Info | A04 | `identities.ts:130,147` | accepted — wall-clock TTL, as the sibling caches |
+| I4 | Info | doc | `identities.ts:107-109` | fixed in 2650fa89 — an `active` item with a non-string name is not kept |
+
+- **F1.** After 61 s and a failing refresh the read answered `unknown` but the old `active` entry with the name stayed
+  in the map until overwritten or swept at 5 000; plan § Security promises names "at most 60 s from the question". Never
+  served, logged or returned (heap only), hence Low.
+- **I1.** Batch A sent at t0 and held, batch B sent at t0+10 s answers `deleted`, then A answers `active` and overwrote
+  B; the 60 s bound still held (expiry counts from send).
+- **I2.** Three concurrent cold reads of one id made three auth calls; 5 600 live ids stayed 5 600 entries. Bounded:
+  the key is never a request value (`userId` only from the verified `sub`, `entries.routes.ts:319`; a `userId` body key is
+  a 400), a page holds ≤ 500 rows, auth is invitation-only; the budget test covers concurrency.
+- **I3.** A backwards clock step lengthens an entry's life; `performance.now()` is the optional fix.
+- **I4.** `{status:"active", name:42}` was kept as `active`/`null`; unreachable through auth's schema
+  (`identities.routes.ts:87`).
+
+### Checked, no finding
+
+- **Viewer independence (A01).** auth's answer depends only on the ids and the user rows (`identities.routes.ts:181-186`
+  reads the caller only for the limiter; the answer is built at `:210-226` from the rows, `name` only for `active`). The
+  ids a response names come from database rows after the scope is fixed: `readScope` first (`whose=mine` = own `sub`;
+  `whose=all` and `userId` behind live `time-entry:read-all`), then `entryWhere`, then `resolveIdentities`. The key is
+  never a request value, so a hit/miss timing difference exposes nothing.
+- **Failures never cached (A05, A09).** 401, 403, 429, 500, 503; a 307 to a second host (`redirect: "error"`, no Bearer
+  reached it); a stalled body (aborted < 1.5 s); malformed JSON; non-object bodies; wrong `users`; bad items; numeric
+  id; unknown status — each `unknown` for that read, 0 entries added. Omitted ids not kept; unasked items dropped; an
+  expired entry never served even when the refresh fails.
+- **Poisoning, key confusion (A03, A08).** All `Map`s; `__proto__`, `constructor`, NUL, `../../etc` are plain keys;
+  `Object.prototype` untouched; ids empty or > 64 characters never sent nor kept.
+- **Deactivation.** `deleted` kept with `name: null`; an `active` name shows at most 60 s after the change (ADR
+  20260807 § 3).
+- **Bearer forwarding (A02).** Only the viewer's header to `AUTH_BASE_URL`, `redirect: "error"`, 2 s timeout; a hit
+  sends nothing; the failure log holds the status or error name only.
+- **Test seams (A05).** `__resetIdentityCacheForTests` and `__identityCacheSizeForTests` are imported only by tests and
+  `test-support/hosts.ts`, which nothing in the runtime graph loads.
+
+### SELF-CRITIQUE
+Cross-viewer isolation rests on reading the scope code, auth's route and the tests, not on a two-user run against the
+real stack; the full DB suite and multi-replica behaviour (per process by design) were not exercised.
