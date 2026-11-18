@@ -1352,7 +1352,8 @@ This supersedes decision 8's "refreshes when its entry is older", G10 F6, and th
   - the entry itself was sent less than 1 s ago;
   - 30 forced refreshes started in the last 600 s (`PIN_REFRESH_BUDGET = 30`, `PIN_REFRESH_WINDOW`, a sliding
     window, per process; 100 under T76, lowered by T77 because auth's 300 per 10 min is shared by every replica:
-    30 keeps about ten replicas, forced and natural reads together, inside it).
+    one replica makes at most 30 forced plus about 20 natural reads (one per 30 s) ≈ 50 per 600 s, so 300 holds
+    up to about 6 replicas; there is one today, `.railway/railway.ts`).
 
   A started refresh counts against the budget whatever its outcome. A refused one does not count. When no refresh is
   made, the read uses the held entry or joins the refresh already in flight, and a pin that still differs is the
@@ -1382,10 +1383,13 @@ This supersedes decision 8's "refreshes when its entry is older", G10 F6, and th
   (`docs/adr/20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds.md`),
   which now points forward to it (`43850795`). The pin ADR's "Amendment 2026-11-18" records T77: wherever it, its
   title or its file name says 100, read 30.
-- **For the owner to review:** the numbers (1 s, 30 per 600 s, 1.1 s) were set by the orchestrator from the
-  re-review's recommendation. No separate owner approval is recorded (the ADR's Status line says so).
+- **Pending the owner's review:** the numbers (1 s, 30 per 600 s, 1.1 s; T72, T76, T77) were decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review,
+  from the re-review's recommendation. No owner approval of them is recorded; the ADR's Status is Proposed.
 
 ### H2 — ADR candidates: all written
+
+The eight plan candidates are Accepted (approved with the plan and its amendments). The two records of 2026-11-18
+are **Proposed**: decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review.
 
 | Candidate | Record |
 | --- | --- |
@@ -1397,8 +1401,8 @@ This supersedes decision 8's "refreshes when its entry is older", G10 F6, and th
 | 6 (notify-api idempotency and template binding; amends 20260714, 20261101) | `docs/adr/20261117-notify-api-system-routes-protect-against-repeats-by-a-caller-scoped-idempotency-key-and-bind-a-template-to-its-caller-with-closed-typed-data.md` |
 | 7 (confirmation backed by a read-only check) | `docs/adr/20261117-a-confirmation-is-backed-by-a-read-only-server-check-it-is-admin-uis-and-the-registry-does-not-enforce-it-and-when-the-check-cannot-be-made-nothing-is-saved.md` |
 | 8 (FU-5, the missing mark) | `docs/adr/20261117-a-layout-draws-the-configurators-missing-mark-through-a-runtime-patch-of-one-template-line-the-label-only-in-the-drawing-and-the-brackets-only-in-the-page-text-and-a-layout-that-cannot-is-refused.md` |
-| not a candidate (D3 rule) | `docs/adr/20261118-a-dialog-that-renders-its-own-form-is-mounted-beside-the-form-never-inside-it.md` |
-| not a candidate (F6/N2, H1) | `docs/adr/20261118-a-pin-ahead-of-the-held-version-forces-one-registry-refresh-at-most-once-a-second-and-100-times-in-10-minutes-per-process-and-any-other-mismatching-pin-is-answered-409-at-once.md` (amended 2026-11-18: budget 30, T77) |
+| not a candidate (D3 rule; **Proposed**, pending the owner's review) | `docs/adr/20261118-a-dialog-that-renders-its-own-form-is-mounted-beside-the-form-never-inside-it.md` |
+| not a candidate (F6/N2, H1; **Proposed**, pending the owner's review) | `docs/adr/20261118-a-pin-ahead-of-the-held-version-forces-one-registry-refresh-at-most-once-a-second-and-100-times-in-10-minutes-per-process-and-any-other-mismatching-pin-is-answered-409-at-once.md` (amended 2026-11-18: budget 30, T77) |
 
 - `AGENTS.md` gained one line for each of the six new records (`caf5564a`).
 - The new records state their amendments in their Status lines, and the older ADRs (20260714, 20260716, 20261101,
@@ -1459,7 +1463,7 @@ No AC is affected. AC-9.12 and AC-9.14 are covered as G5 intended, and the stric
 
   A unit test asserts that there is no nested `<form>` and drives a real `requestSubmit`. The rule is recorded as
   `docs/adr/20261118-a-dialog-that-renders-its-own-form-is-mounted-beside-the-form-never-inside-it.md`.
-- **S12 busy state (orchestrator decision, 2026-11-18, T40 report; recorded for review).** design.md S12 says both
+- **S12 busy state (2026-11-18, T40 report; decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review).** design.md S12 says both
   buttons are `aria-disabled` while the confirmation is busy. `@operai/ui` `ConfirmDialog` disables Confirm
   **natively** while `busy`, which is shared library behaviour for every dialog in the suite.
   - Accepted as is: the busy state is short and announced, and axe is clean on both dialogs.
@@ -1483,11 +1487,13 @@ documents' output is unchanged, and the golden corpus stays byte-identical. This
 
 ### H7 — Design decisions taken unattended (orchestrator, 2026-11-17; recorded in tasks.md for the owner's review)
 
+Each item below was decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review. None is owner-approved yet.
+
 - **DR-14.** An effective administrator can always open the notice's history link. The reason: the `admin` role holds
   `legal-entity:manage` unconditioned by seed (T3), and department admins inherit that role. No design change.
   Consistent with G3, which notifies effective administrators whether or not they hold the grant.
 - **DR-17.** The push text on a lock screen may show the actor's name and the two IBAN tails. This is allowed by
-  AC-9.12 and by reading R-a (push text in English, R20). Accepted.
+  AC-9.12 and by reading R-a (push text in English, R20). Accepted by the orchestrator, pending the owner's review.
 - DR-13, DR-15, DR-16 and DR-18 stand as design.md says; DR-18 was done in T63.
 - Still open with the owner (not plan decisions):
   - **N1 / O-1:** the actor's display name can be edited by its holder through `POST /auth/update-user`, and the
@@ -1563,7 +1569,7 @@ No product code changes, and no AC depends on it. It weakens the R-int level's r
 | R15 (closed) | A duplicate email after an ambiguous failure. | The Resend key goes through the SDK option (H3). |
 | R23 | The pin budget is used up (30 forced refreshes per 10 min per process) by abuse or a crm-api bug. A pin newer than the held entry then gets 409 at once, crm-api's one retry after 1.1 s also gets 409, and that offer fails with 503 `layout_service_unavailable`. | Bounded per registry save to at most 30 s: the ordinary 30 s refresh is not budgeted, so the held entry catches up and the next pin matches (security-review-2.md T76-3). Unpinned and matching renders are unaffected. Residual: the budget's refusal writes no log line, so exhaustion is visible only as those 503s (T76-3's A09 note; not fixed). |
 | R25 | An auth fault during a forced refresh. | T77: the held entry stays the fallback, so other renders keep working within 60 s of its send and a newer pin gets 409 (`currentVersion` = held), not 503. After 60 s, 503 as AC-5.5 requires. |
-| R24 | The budget is per process: N replicas of letterhead-api make N × 30 against auth's 300 per service, plus about 20 natural reads per process. | 30 keeps about ten replicas inside 300 (T77, the constant's comment). Every service in `.railway/railway.ts` declares one replica today. If letterhead-api is scaled near ten, or auth's `LEGAL_ENTITIES_SERVICE_LIMIT` is lowered, revisit H1 (the pin ADR's own trigger). |
+| R24 | The budget is per process: N replicas of letterhead-api make N × 30 against auth's 300 per service, plus about 20 natural reads per process. | One replica makes at most 30 forced + about 20 natural (one per 30 s) ≈ 50 reads per 600 s, so 300 holds up to about 6 replicas (10 replicas would make about 500; 10 × 30 forced alone is the whole allowance). Every service in `.railway/railway.ts` declares one replica today. If letterhead-api is scaled beyond one replica (and before it nears six), or auth's `LEGAL_ENTITIES_SERVICE_LIMIT` is lowered, revisit H1 (the pin ADR's own trigger). |
 
 ### H12 — Spec drift
 

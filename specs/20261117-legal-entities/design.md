@@ -769,11 +769,16 @@ Resolved:
 - [x] Plan amendments that this design assumes: DR-1, DR-2, DR-4, DR-5, DR-9, DR-10, DR-11 (plan "Amendment 2026-11-17 after design", E1-E14, approved).
 - [x] DR-12 library change (wrapping tab list): done; FU-3 verified at 320 px in a real browser by QE T45 (`scrollWidth` 320 = `clientWidth` 320, both themes; QE section 8).
 - [x] The copy added by T51 landed in the code through T40, T60, T63, T65 and T59 (S12, S7 additions, the 429 and paging texts, the notice, FU-1, FU-4, FU-7, FU-9); QE saw it on the real pages (section 8, section 10).
-- [x] DR-13, DR-15, DR-16, DR-17 and DR-18: orchestrator decisions "as the design says" (tasks.md, 2026-11-17; DR-18 went to T63).
-- [x] DR-14 (administrators without the grant get a link that redirects): orchestrator decision in tasks.md: the `admin` role holds `legal-entity:manage` by seed (T3) and department admins inherit it, so every effective administrator can open the history link; no design change. The owner may still choose to show `PermissionDenied` instead of a redirect; that is a new request, not an open item of this design.
 - [x] Contrast: the page's 47 text elements measure at least 5.01:1 in both themes; axe (WCAG 2.1 A/AA) is 0 violations on every screen and both dialogs (QE T45, section 8).
-- [x] S12 busy reading, S7 `confirmDisabledReason`, the list's description and the dialog's place beside the form: this document now says what was built (sections S7 and S12 and their accessibility notes).
+- [x] S7 `confirmDisabledReason`, the list's description and the dialog's place beside the form: this document now says what was built (sections S7 and S12 and their accessibility notes). The S12 busy reading is written here as built too; the decision itself is listed below, pending the owner's review.
 - [x] FU-5 (no design change): the ADR for how a layout draws the missing mark is written: `docs/adr/20261117-a-layout-draws-the-configurators-missing-mark-through-a-runtime-patch-of-one-template-line-the-label-only-in-the-drawing-and-the-brackets-only-in-the-page-text-and-a-layout-that-cannot-is-refused.md` (commit `caf5564a`).
+
+Decided by the orchestrator during the owner-requested unattended run 2026-11-17/18 (recorded in tasks.md), pending the owner's review (built as decided; not owner-approved yet):
+
+- [ ] DR-14 (administrators without the grant get a link that redirects): the `admin` role holds `legal-entity:manage` by seed (T3) and department admins inherit it, so every effective administrator can open the history link; no design change. The owner may instead choose to show `PermissionDenied` rather than a redirect.
+- [ ] DR-17 (the lock-screen push may show the actor's name and the two IBAN tails): accepted as AC-9.12 and reading R-a allow. The owner may ask for a shorter push (a notify-api change).
+- [ ] DR-13, DR-15, DR-16 and DR-18: "as the design says" (2026-11-17; DR-18 went to T63).
+- [ ] S12 busy reading (2026-11-18, T40 report): the library disables Confirm natively while busy; S12 is read as "Confirm unavailable while busy", no library change.
 
 Still open, for the owner:
 
