@@ -2,10 +2,12 @@
  * What a change notice says (specs/20261117-legal-entities, T59; US-9 AC-9.11, AC-9.12, AC-9.13; design.md N1;
  * plan amendment 2026-11-17 G5), rebuilt at SEND time from the two stored versions it is about: the version that was
  * stored (n) and the one before it (n - 1). Both are immutable, so a retry sends the same words, and the outbox row
- * (`legal_entity_notice`) can hold no value at all.
+ * (`legal_entity_notice`) holds no value of a detail: its one personal value is the author's account email
+ * (`authorEmail`, captured in the version's transaction by `duty.ts`, plan amendment 2026-11-18 D9, J2).
  *
- * The only values a notice may carry (AC-9.12) are the closed ones: the entity, the actor's name (the one free-text
- * slot: controls and bidi characters stripped, bounded to 200), the stored time, two version numbers, names from two
+ * The only values a notice may carry (AC-9.12) are the closed ones: the entity, the author's account email (the one
+ * free-text slot, accepted only if it passes {@link noticeAuthorEmail}; NO display name is ever read: the version's
+ * name column is not a fact of a notice, and a static test scans this folder for it), the stored time, two version numbers, names from two
  * closed sets, and an IBAN token that is at most its last four characters (`ibanTail`, T54, the one rule for it).
  * `noticeFacts` is the ONLY place that reads a stored version; everything after it works from those facts, and no
  * fact holds a legal name, a VAT number, an address, a contacts line or an IBAN. That is why no function below can
@@ -15,6 +17,7 @@
  * history) and the email's typed `data` (notify-api's `legal_entity_change`, English; it renders and bounds it again).
  */
 
+import { z } from "zod";
 import type { LegalEntity } from "../entities";
 import { type IbanTail, ibanTail } from "../ibanTail";
 import type { HistoryRow } from "../repo";
@@ -24,8 +27,25 @@ import { fill, joinList, NOTICE_LANGUAGES, type NoticeCopyKey, type NoticeLangua
 /** notify-api's limits for the in-app notice (`ItVariantSchema`, `SystemNotificationRequestSchema`). */
 export const NOTICE_TITLE_MAX = 200;
 export const NOTICE_BODY_MAX = 2000;
-/** The actor's name as the email's data takes it (`LegalEntityChangeDataSchema`: 1 to 200). */
-export const ACTOR_NAME_MAX = 200;
+
+/**
+ * The one rule for an author address (plan J4): the rule of notify-api's `ToSchema` (`emails.schemas.ts`), of the
+ * email's `data.actorEmail` and of auth's `LEGAL_ENTITY_NOTICE_EMAIL`. It refuses blanks, control and format
+ * characters. An address that fails it is "no email address on record" (reading R-D9a, plan J11), never sent, so a
+ * malformed stored value can never make notify-api answer 400 on every retry.
+ */
+export const noticeAuthorEmail = z.string().email().max(320);
+
+/** The address as a notice states it: verbatim when it passes {@link noticeAuthorEmail}, else null. */
+export function usableAuthorEmail(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  return noticeAuthorEmail.safeParse(value).success ? value : null;
+}
+
+/** True when an address is present but cannot be stated (R-D9a): the dispatcher logs that, without the value. */
+export function isUnusableAuthorEmail(value: string | null | undefined): boolean {
+  return value != null && usableAuthorEmail(value) === null;
+}
 
 export type OtherField = "address.it" | "address.en" | "contacts.it" | "contacts.en";
 /** Closed order = the order a notice lists them in. */
@@ -45,8 +65,8 @@ export interface NoticeFacts {
   action: "save" | "restore";
   /** The version a restore copied from; null for a save. */
   restoredFrom: number | null;
-  /** Controls and bidi characters stripped, at most {@link ACTOR_NAME_MAX} UTF-16 units; null when nothing is left. */
-  actorName: string | null;
+  /** The author's account email as stored with the notice row, if it passes {@link noticeAuthorEmail}; else null. */
+  authorEmail: string | null;
   storedAt: Date;
   /** Closed order: legalName, vatNumber, iban. At least one. */
   protectedNames: ProtectedField[];
@@ -56,32 +76,11 @@ export interface NoticeFacts {
 }
 
 /**
- * The actor's name as a notice may show it: line breaks and other control characters become a space, format characters
- * (bidi marks and embeddings, zero-width characters, tags) are dropped, runs of blanks collapse, and the result is cut
- * to 200 UTF-16 units without splitting a character. Empty after all that = null.
- */
-export function sanitizeActorName(name: string | null | undefined): string | null {
-  if (name == null) return null;
-  const cleaned = name
-    .normalize("NFC")
-    .replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, " ")
-    .replace(/\p{Cf}/gu, "")
-    .replace(/\s+/gu, " ")
-    .trim();
-  let out = "";
-  for (const char of cleaned) {
-    if (out.length + char.length > ACTOR_NAME_MAX) break;
-    out += char;
-  }
-  out = out.trim();
-  return out === "" ? null : out;
-}
-
-/**
  * The facts of a protected change from the stored version `current` and the one it replaced. `changedFields` is what the
  * save stored against its predecessor (for a restore: against the version it replaced, the spec's "version before it").
+ * `authorEmail` is the notice row's captured value, never read from the version (which holds a display name only).
  */
-export function noticeFacts(current: HistoryRow, previous: HistoryRow | null): NoticeFacts {
+export function noticeFacts(current: HistoryRow, previous: HistoryRow | null, authorEmail: string | null): NoticeFacts {
   if (current.action !== "save" && current.action !== "restore") {
     throw new NoticeContentError("a notice is only written for a save or a restore");
   }
@@ -93,7 +92,7 @@ export function noticeFacts(current: HistoryRow, previous: HistoryRow | null): N
     version: current.version,
     action: current.action,
     restoredFrom: current.action === "restore" ? current.restoredFrom : null,
-    actorName: sanitizeActorName(current.createdByName),
+    authorEmail: usableAuthorEmail(authorEmail),
     storedAt: current.createdAt,
     protectedNames,
     otherNames: OTHER_FIELDS.filter((f) => changed.includes(f)),
@@ -175,16 +174,26 @@ export interface NoticeText {
   body: string;
 }
 
+/** "Change saved by the account <email>." and its restore, or the no-email sentence (never a name). */
+function byActionLine(facts: NoticeFacts, language: NoticeLanguage): string {
+  const from = facts.restoredFrom as number;
+  if (facts.authorEmail === null) {
+    return facts.action === "restore"
+      ? fill(language, "notice.byAction.restoreNoEmail", { from })
+      : fill(language, "notice.byAction.saveNoEmail");
+  }
+  return facts.action === "restore"
+    ? fill(language, "notice.byAction.restore", { from, author: facts.authorEmail })
+    : fill(language, "notice.byAction.save", { author: facts.authorEmail });
+}
+
 /** One language of the notice: title and body, every body line a whole sentence (the centre may show breaks as spaces). */
 export function noticeText(facts: NoticeFacts, language: NoticeLanguage): NoticeText {
   const entity = fill(language, `notice.entity.${facts.entity}`);
-  const actor = facts.actorName ?? fill(language, "notice.unknownActor");
   const names = (list: readonly (ProtectedField | OtherField)[]) => joinList(language, list.map((n) => fill(language, NAME_KEY[n])));
   const lines = [
     fill(language, "notice.lead", { entity }),
-    facts.action === "restore"
-      ? fill(language, "notice.byAction.restore", { from: facts.restoredFrom as number, actor })
-      : fill(language, "notice.byAction.save", { actor }),
+    byActionLine(facts, language),
     fill(language, "notice.when", { date: formatStoredAt(facts.storedAt, language) }),
     fill(language, "notice.version", { n: facts.version }),
     fill(language, "notice.changed", { list: names(facts.protectedNames) }),
@@ -229,7 +238,8 @@ export interface LegalEntityChangeEmailData {
   entity: LegalEntity;
   action: "save" | "restore";
   restoredFrom: number | null;
-  actorName: string;
+  /** An address by the rule of notify-api's `to` (at most 320), or null = "no email address on record". */
+  actorEmail: string | null;
   storedAt: string;
   version: number;
   protectedChanged: ProtectedField[];
@@ -237,13 +247,13 @@ export interface LegalEntityChangeEmailData {
   iban?: { old: IbanTail; new: IbanTail };
 }
 
-/** The email is English for everyone (AC-9.13): a person without a name reads the English fallback. */
+/** The email is English for everyone (AC-9.13); notify-api words the no-address case itself. */
 export function emailData(facts: NoticeFacts): LegalEntityChangeEmailData {
   return {
     entity: facts.entity,
     action: facts.action,
     restoredFrom: facts.restoredFrom,
-    actorName: facts.actorName ?? fill("en", "notice.unknownActor"),
+    actorEmail: facts.authorEmail,
     storedAt: facts.storedAt.toISOString(),
     version: facts.version,
     protectedChanged: facts.protectedNames,

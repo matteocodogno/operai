@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { db } from "../../lib/db";
 import { committedTransactionsSkipReason, committedVersionCount, insertSql, validImportRow } from "../testDb";
+import { z } from "zod";
 import type { LegalEntity } from "../entities";
 
 type FakeSession = { user: { id: string; email: string; name: string }; session: { id: string } } | null;
@@ -107,6 +108,10 @@ const SENTINEL = {
   address: "Sentinel Address Lane 12",
   contacts: "sentinel.contact@example.invalid",
   outside: "outside-sentinel@example.invalid",
+  /** The author's account email (D9): allowed only in the J6 places, never in a log line, audit entry, title, subject or key. */
+  author: "d9-sentinel-author@operai.test",
+  /** The author's display name (D9): allowed nowhere in a notice. */
+  displayName: "D9 Sentinel Display Name",
 };
 
 async function makeUser(label: string) {
@@ -135,10 +140,11 @@ interface VersionSeed {
   iban: string;
   createdAt: Date;
   createdByName?: string | null;
+  createdByUserId?: string;
 }
 
 async function seedVersion(v: VersionSeed) {
-  const by = v.action === "import" ? null : { id: "u-seeded", name: v.createdByName === undefined ? "Anna Rossi" : v.createdByName };
+  const by = v.action === "import" ? null : { id: v.createdByUserId ?? "u-seeded", name: v.createdByName === undefined ? SENTINEL.displayName : v.createdByName };
   await db.$executeRaw`
     INSERT INTO legal_entity_version
       ("entity","version","legalName","addressIt","addressEn","vatNumber","iban","contactsIt","contactsEn",
@@ -174,6 +180,8 @@ interface RowSeed {
   nextAttemptAt?: Date;
   attempts?: number;
   leaseUntil?: Date | null;
+  /** The captured author email; omitted = the sentinel address, null = none on record. */
+  authorEmail?: string | null;
 }
 
 async function addRow(seed: RowSeed) {
@@ -189,6 +197,7 @@ async function addRow(seed: RowSeed) {
       nextAttemptAt: seed.nextAttemptAt ?? createdAt,
       ...(seed.attempts !== undefined ? { attempts: seed.attempts } : {}),
       ...(seed.leaseUntil !== undefined ? { leaseUntil: seed.leaseUntil } : {}),
+      authorEmail: seed.authorEmail === undefined ? SENTINEL.author : seed.authorEmail,
     },
   });
 }
@@ -218,7 +227,10 @@ interface Call {
 const KEY_PATTERN = /^[A-Za-z0-9._:-]{1,200}$/;
 const NOTIFICATION_KEYS = ["recipientId", "originApp", "severity", "title", "body", "link", "it", "email", "idempotencyKey"];
 const EMAIL_KEYS = ["template", "to", "recipientId", "data", "idempotencyKey"];
-const DATA_KEYS = ["entity", "action", "restoredFrom", "actorName", "storedAt", "version", "protectedChanged", "otherChanged", "iban"];
+const DATA_KEYS = ["entity", "action", "restoredFrom", "actorEmail", "storedAt", "version", "protectedChanged", "otherChanged", "iban"];
+
+/** T79's `data.actorEmail`: `z.string().email().max(320).nullable()` (notify-api `emails.schemas.ts`), the very rule. */
+const ActorEmailSchema = z.string().email().max(320).nullable();
 
 /** The contract of notify-api's schemas (`notifications.schemas.ts`, `emails.schemas.ts`), strict where they are strict. */
 function contractProblem(kind: Call["kind"], body: Record<string, unknown>): string | null {
@@ -243,10 +255,9 @@ function contractProblem(kind: Call["kind"], body: Record<string, unknown>): str
   if (("to" in body) === ("recipientId" in body)) return "exactly one of to and recipientId";
   const data = body["data"] as Record<string, unknown> | undefined;
   if (!data || Object.keys(data).some((k) => !DATA_KEYS.includes(k))) return "data has an unknown member";
-  for (const k of ["entity", "action", "restoredFrom", "actorName", "storedAt", "version", "protectedChanged", "otherChanged"]) if (!(k in data)) return `data.${k} missing`;
+  for (const k of ["entity", "action", "restoredFrom", "actorEmail", "storedAt", "version", "protectedChanged", "otherChanged"]) if (!(k in data)) return `data.${k} missing`;
   if (!["welld_it", "welld_ch"].includes(String(data["entity"]))) return "data.entity";
-  const actor = data["actorName"];
-  if (typeof actor !== "string" || actor.length < 1 || actor.length > 200) return "data.actorName";
+  if (!ActorEmailSchema.safeParse(data["actorEmail"]).success) return "data.actorEmail";
   if (Number.isNaN(Date.parse(String(data["storedAt"])))) return "data.storedAt";
   const closed = (list: unknown, names: string[], min: number) =>
     Array.isArray(list) && list.length >= min && new Set(list).size === list.length && list.every((n) => names.includes(String(n)));
@@ -389,7 +400,7 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
       await makeDispatcher().sweep();
 
       expect(fake.calls).toHaveLength(3);
-      const facts = noticeFacts((await versionOf("welld_ch", 2))!, await versionOf("welld_ch", 1));
+      const facts = noticeFacts((await versionOf("welld_ch", 2))!, await versionOf("welld_ch", 1), SENTINEL.author);
       const notice = inAppNotice(facts);
 
       const n = fake.calls.find((c) => c.kind === "notification")!;
@@ -428,9 +439,9 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
       await makeDispatcher().sweep();
       expect(fake.calls).toHaveLength(2);
       const note = fake.calls.find((c) => c.kind === "notification")!;
-      expect(String(note.body["body"])).toContain("Version 1 restored by Anna Rossi.");
+      expect(String(note.body["body"])).toContain(`Version 1 restored by the account ${SENTINEL.author}.`);
       expect(String(note.body["body"])).toContain("When: 1 July 2026, 11:12 CEST (Europe/Zurich).");
-      expect((note.body["it"] as { body: string }).body).toContain("Versione 1 ripristinata da Anna Rossi.");
+      expect((note.body["it"] as { body: string }).body).toContain(`Versione 1 ripristinata dall'account ${SENTINEL.author}.`);
       const email = fake.calls.find((c) => c.kind === "email")!;
       expect(email.body["data"]).toMatchObject({ action: "restore", restoredFrom: 1, version: 3, protectedChanged: ["legalName", "iban"] });
     });
@@ -547,7 +558,8 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
       expect((await mine()).every((r) => r.status === "delivered")).toBe(true);
 
       // The timer keeps sweeping: a row added later is picked up without any kick.
-      const late = await addRow({ recipient: (await makeUser("late")).id, channel: "in_app", createdAt: T0 });
+      // Stored "now" by the real clock: a fixed T0 here would age past the 24 h give-up as the real date moves on.
+      const late = await addRow({ recipient: (await makeUser("late")).id, channel: "in_app", createdAt: new Date() });
       const until = Date.now() + 3000;
       while (Date.now() < until && (await reload(late.id)).status !== "delivered") await Bun.sleep(20);
       expect((await reload(late.id)).status).toBe("delivered");
@@ -576,7 +588,7 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
     test("a kick during a run is not lost: the run looks again before it ends", async () => {
       const first = await makeUser("again-1");
       const second = await makeUser("again-2");
-      await addRow({ recipient: first.id, channel: "in_app" });
+      await addRow({ recipient: first.id, channel: "in_app", createdAt: new Date() });
       let release!: () => void;
       const gate = new Promise<void>((resolve) => (release = resolve));
       fake.behave = async (call): Promise<Behaviour> => {
@@ -586,7 +598,7 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
       const dispatcher = makeDispatcher();
       const run1 = dispatcher.kick();
       await Bun.sleep(30);
-      const late = await addRow({ recipient: second.id, channel: "in_app" });
+      const late = await addRow({ recipient: second.id, channel: "in_app", createdAt: new Date() });
       const run2 = dispatcher.kick();
       release();
       await Promise.all([run1, run2]);
@@ -951,6 +963,9 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
         SENTINEL.ibanNew,
         SENTINEL.ibanOld.slice(0, -4),
         SENTINEL.ibanNew.slice(0, -4),
+        // D9: no display name anywhere (the versions and the notices' recipients were seeded with it).
+        SENTINEL.displayName,
+        "Sentinel Display",
       ];
       const requests = fake.calls.map((c) => c.raw).join("\n");
       const stored = JSON.stringify(await db.legalEntityNotice.findMany());
@@ -961,6 +976,25 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
         for (const value of forbidden) expect([where, value, text.includes(value)]).toEqual([where, value, false]);
         if (where !== "a request") expect([where, text.includes(SENTINEL.outside)]).toEqual([where, false]);
       }
+      // D9: the author's address is notice content only (plan J6). Rows hold it (the outbox column); no audit entry or
+      // log line does; and no request carries it outside a body (in-app `body`, `it.body`) or the email's `actorEmail`.
+      expect(audit).not.toContain(SENTINEL.author);
+      expect(logged).not.toContain(SENTINEL.author);
+      expect(stored).toContain(SENTINEL.author);
+      const bodiesOnly = fake.calls.map((c) => {
+        const copy = JSON.parse(c.raw) as Record<string, any>;
+        if (c.kind === "notification") {
+          delete copy["body"];
+          delete copy["it"].body;
+        } else {
+          delete copy["data"].actorEmail;
+        }
+        return JSON.stringify(copy);
+      });
+      for (const text of bodiesOnly) expect(text).not.toContain(SENTINEL.author);
+      const withAuthor = fake.calls.filter((c) => c.raw.includes(SENTINEL.author));
+      expect(withAuthor.length).toBeGreaterThan(0);
+      expect(fake.calls.filter((c) => c.kind === "notification").every((c) => String(c.body["title"]).includes("@") === false)).toBe(true);
       // What a notice may carry of an IBAN is there: the last four characters.
       expect(requests).toContain("7766");
       expect(requests).toContain("5599");
@@ -994,6 +1028,161 @@ realSuite("the dispatcher (committed; the registry and the notices are emptied a
       setClock(T0.getTime() + GIVE_UP_AFTER_MS);
       await makeDispatcher().sweep();
       expect((await reload(row.id)).status).toBe("given_up");
+    });
+  });
+
+  // ─── D9: the notice states the captured author email ────────────────────────────────────────────────────────────────
+
+  describe("the author's account email (AC-9.11, AC-9.12, AC-9.13; plan D9 J4, J6, J8, R-D9a)", () => {
+    const emailOf = (call: Call) => (call.body["data"] as { actorEmail: string | null }).actorEmail;
+    const logFor = (event: string) => logs.filter((l) => l.startsWith(event));
+
+    test("the in-app body (en, it) and the email data state the row's address, once; titles, keys and links never do; the outside row's data carries the same address", async () => {
+      const p = await makeUser("author");
+      await addPerson(p.id);
+      await addRow({ recipient: "outside", channel: "email" });
+      await makeDispatcher().sweep();
+
+      const note = fake.calls.find((c) => c.kind === "notification")!;
+      expect(String(note.body["body"]).split("\n")[1]).toBe(`Change saved by the account ${SENTINEL.author}.`);
+      const it = note.body["it"] as { title: string; body: string };
+      expect(it.body.split("\n")[1]).toBe(`Modifica salvata dall'account ${SENTINEL.author}.`);
+      expect(String(note.body["body"]).split(SENTINEL.author)).toHaveLength(2);
+      expect(it.body.split(SENTINEL.author)).toHaveLength(2);
+      expect([note.body["title"], it.title, note.body["link"], note.body["idempotencyKey"]].join("\n")).not.toContain(SENTINEL.author);
+
+      const emails = fake.calls.filter((c) => c.kind === "email");
+      expect(emails).toHaveLength(2);
+      expect(emails.map(emailOf)).toEqual([SENTINEL.author, SENTINEL.author]);
+      expect(emails.some((c) => "to" in c.body)).toBe(true);
+      for (const call of emails) {
+        expect(JSON.stringify({ ...(call.body["data"] as object), actorEmail: null })).not.toContain(SENTINEL.author);
+        expect(String(call.body["idempotencyKey"])).not.toContain(SENTINEL.author);
+        expect(call.raw).not.toContain(SENTINEL.displayName);
+        expect(call.body["data"]).not.toHaveProperty("actorName");
+      }
+      expect(logs.join("\n")).not.toContain(SENTINEL.author);
+    });
+
+    test("a row with no address on record (null) sends null and the no-email sentence in both languages, and is delivered", async () => {
+      const p = await makeUser("noemail");
+      const rows = await addPerson(p.id, { authorEmail: null });
+      await makeDispatcher().sweep();
+      const note = fake.calls.find((c) => c.kind === "notification")!;
+      expect(String(note.body["body"]).split("\n")[1]).toBe("Change saved by an account with no email address on record.");
+      expect((note.body["it"] as { body: string }).body.split("\n")[1]).toBe("Modifica salvata da un account senza indirizzo email registrato.");
+      expect(emailOf(fake.calls.find((c) => c.kind === "email")!)).toBeNull();
+      for (const row of rows) expect((await reload(row.id)).status).toBe("delivered");
+      expect(logFor("legal_entity_notice_author_email_unusable")).toHaveLength(0);
+    });
+
+    test("an unusable stored address (R-D9a) is sent as null, once per attempt a line WITHOUT the value, and the row is delivered, not refused in a loop", async () => {
+      const p = await makeUser("unusable");
+      const BAD = "not an email, d9-bad-author-value";
+      const [inApp, email] = await addPerson(p.id, { authorEmail: BAD });
+      const outside = await addRow({ recipient: "outside", channel: "email", authorEmail: `${BAD}\nBcc: x@y.z` });
+      await makeDispatcher().sweep();
+
+      // The fake enforces notify-api's strict `actorEmail` rule: a raw value would have been a 400 (notify_refused).
+      for (const row of [inApp!, email!, outside]) expect(await reload(row.id)).toMatchObject({ status: "delivered", attempts: 1, firstFailedAt: null });
+      expect(emailOf(fake.calls.find((c) => c.kind === "email" && "recipientId" in c.body)!)).toBeNull();
+      expect(emailOf(fake.calls.find((c) => c.kind === "email" && "to" in c.body)!)).toBeNull();
+      const note = fake.calls.find((c) => c.kind === "notification")!;
+      expect(String(note.body["body"]).split("\n")[1]).toBe("Change saved by an account with no email address on record.");
+
+      const lines = logFor("legal_entity_notice_author_email_unusable");
+      expect(lines).toHaveLength(3);
+      expect(JSON.parse(lines.find((l) => l.includes(inApp!.id))!.slice(lines[0]!.indexOf("{")))).toEqual({
+        id: inApp!.id,
+        entity: "welld_ch",
+        version: 2,
+        channel: "in_app",
+      });
+      for (const text of [logs.join("\n"), fake.calls.map((c) => c.raw).join("\n"), JSON.stringify(await noticeAudit())]) {
+        expect(text).not.toContain("d9-bad-author-value");
+        expect(text).not.toContain("Bcc:");
+      }
+      expect(await noticeAudit()).toHaveLength(0);
+    });
+
+    test("the actor's email and name change and the actor is soft-deleted after the version is stored: other recipients still read the captured address, a retry sends the same words, the actor's own rows end given_up", async () => {
+      const actor = await makeUser("actor");
+      await db.user.update({ where: { id: actor.id }, data: { name: SENTINEL.displayName } });
+      await seedVersion({ entity: "welld_it", version: 3, action: "save", changedFields: ["vatNumber"], iban: "", createdAt: T0, createdByUserId: actor.id });
+      const captured = actor.email;
+      const other = await makeUser("reader");
+      const rows = [
+        ...(await addPerson(other.id, { entity: "welld_it", version: 3, authorEmail: captured })),
+        ...(await addPerson(actor.id, { entity: "welld_it", version: 3, authorEmail: captured })),
+        await addRow({ entity: "welld_it", version: 3, recipient: "outside", channel: "email", authorEmail: captured }),
+      ];
+      const sentOf = (reader: string) => fake.calls.filter((c) => c.body["recipientId"] === reader || (reader === "outside" && "to" in c.body));
+
+      // The account changes under the notice, then is deleted.
+      await db.user.update({ where: { id: actor.id }, data: { email: `changed-${actor.email}`, name: "Somebody Else Entirely", deletedAt: new Date(T0.getTime() + 1000) } });
+      fake.behave = (call) => (call.kind === "notification" ? { status: 500 } : "ok");
+      const dispatcher = makeDispatcher();
+      setClock(T0.getTime() + 2000);
+      await dispatcher.sweep();
+      const firstTry = sentOf(other.id).find((c) => c.kind === "notification")!;
+
+      // The reader's own address changes too before the retry.
+      await db.user.update({ where: { id: other.id }, data: { name: "Renamed Reader" } });
+      fake.behave = () => "ok";
+      setClock(T0.getTime() + 2000 + MIN);
+      await dispatcher.sweep();
+
+      const readerCalls = sentOf(other.id);
+      const note = readerCalls.filter((c) => c.kind === "notification");
+      expect(note).toHaveLength(2);
+      for (const call of note) expect(String(call.body["body"]).split("\n")[1]).toBe(`Change saved by the account ${captured}.`);
+      // A retry sends the same words (the request is identical, key included).
+      expect(note[1]!.raw).toBe(firstTry.raw);
+      expect(emailOf(readerCalls.find((c) => c.kind === "email")!)).toBe(captured);
+      expect(emailOf(sentOf("outside").find((c) => c.kind === "email")!)).toBe(captured);
+      expect(fake.calls.some((c) => c.raw.includes(`changed-${actor.email}`) || c.raw.includes("Somebody Else") || c.raw.includes(SENTINEL.displayName))).toBe(false);
+
+      // The deleted actor is never sent to.
+      expect(fake.calls.some((c) => c.body["recipientId"] === actor.id)).toBe(false);
+      for (const row of [rows[2]!, rows[3]!]) expect(await reload(row.id)).toMatchObject({ status: "given_up", lastReason: "recipient_deleted" });
+      expect((await reload(rows[0]!.id)).status).toBe("delivered");
+      expect((await reload(rows[1]!.id)).status).toBe("delivered");
+      expect((await reload(rows[4]!.id)).status).toBe("delivered");
+    });
+
+    test("nothing updates `authorEmail`: it is the same on every row after deliveries, failures and give-ups, and no update statement names it", async () => {
+      const p = await makeUser("immutable");
+      const gone = await makeUser("immutable-gone");
+      const rows = [...(await addPerson(p.id)), ...(await addPerson(gone.id, { authorEmail: null })), await addRow({ recipient: "outside", channel: "email", authorEmail: "keep.me@operai.test" })];
+      await db.user.update({ where: { id: gone.id }, data: { deletedAt: T0 } });
+      let n = 0;
+      fake.behave = () => (++n % 2 === 0 ? { status: 500 } : "ok");
+      const dispatcher = makeDispatcher();
+      for (const minutes of [0, 1, 4, 9]) {
+        setClock(T0.getTime() + minutes * MIN);
+        await dispatcher.sweep();
+      }
+      setClock(T0.getTime() + GIVE_UP_AFTER_MS + 1);
+      await dispatcher.sweep();
+      const after = await db.legalEntityNotice.findMany({ where: { id: { in: rows.map((r) => r.id) } } });
+      expect(new Map(after.map((r) => [r.id, r.authorEmail]))).toEqual(new Map(rows.map((r, i) => [r.id, i < 2 ? SENTINEL.author : i < 4 ? null : "keep.me@operai.test"])));
+
+      const source = readFileSync(join(import.meta.dir, "dispatcher.ts"), "utf8");
+      for (const block of source.split("updateMany(").slice(1)) expect(block.slice(0, block.indexOf("});"))).not.toContain("authorEmail");
+      const set = source.slice(source.indexOf('SET "leaseUntil"'), source.indexOf("WHERE n.\"id\" IN"));
+      expect(set).not.toContain("authorEmail");
+    });
+
+    test("a pre-D9 row (the column was never written) reads null: the notice says so and names no one", async () => {
+      const p = await makeUser("legacy");
+      const row = await db.legalEntityNotice.create({
+        data: { entity: "welld_ch", version: 2, recipient: p.id, recipientKind: "person", channel: "in_app", createdAt: T0, nextAttemptAt: T0 },
+      });
+      expect(row.authorEmail).toBeNull();
+      await makeDispatcher().sweep();
+      const note = fake.calls[0]!;
+      expect(String(note.body["body"])).toContain("Change saved by an account with no email address on record.");
+      expect(note.raw).not.toContain(SENTINEL.displayName);
     });
   });
 

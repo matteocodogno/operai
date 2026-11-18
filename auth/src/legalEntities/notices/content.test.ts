@@ -5,20 +5,28 @@
 import { describe, expect, test } from "bun:test";
 import type { HistoryRow } from "../repo";
 import type { Field } from "../rules";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import {
-  ACTOR_NAME_MAX,
   emailData,
   formatStoredAt,
   historyHref,
   inAppNotice,
+  isUnusableAuthorEmail,
   type NoticeFacts,
   NOTICE_BODY_MAX,
   NOTICE_TITLE_MAX,
   NoticeContentError,
-  noticeFacts,
+  noticeAuthorEmail,
+  noticeFacts as noticeFactsOf,
   noticeText,
-  sanitizeActorName,
+  usableAuthorEmail,
 } from "./content";
+
+const EMAIL = "anna.rossi@welld.ch";
+/** The display name on every fixture version: it must appear in no notice, no data, nowhere (D9, AC-9.12). */
+const DISPLAY_NAME = "D9 Sentinel Display Name";
+const noticeFacts = (current: HistoryRow, prev: HistoryRow | null, authorEmail: string | null = EMAIL) => noticeFactsOf(current, prev, authorEmail);
 
 const SENTINEL = {
   legalName: "SentinelLegalNameQx7 SA",
@@ -45,7 +53,7 @@ function row(over: Partial<HistoryRow> = {}): HistoryRow {
     restoredFrom: null,
     changedFields: ["iban"] as Field[],
     createdByUserId: "u1",
-    createdByName: "Anna Rossi",
+    createdByName: DISPLAY_NAME,
     ...over,
   };
 }
@@ -59,7 +67,7 @@ describe("the worked example of design N1 (AC-9.11)", () => {
     expect(text.body).toBe(
       [
         "The legal details of WellD CH were changed.",
-        "Change saved by Anna Rossi.",
+        "Change saved by the account anna.rossi@welld.ch.",
         "When: 17 November 2026, 10:12 CET (Europe/Zurich).",
         "New version: 8.",
         "Details changed: IBAN.",
@@ -80,7 +88,7 @@ describe("the worked example of design N1 (AC-9.11)", () => {
     const it = noticeText(facts, "it");
     expect(it.title).toBe("Dati legali di WellD CH modificati: ragione sociale e IBAN");
     const lines = it.body.split("\n");
-    expect(lines[1]).toBe("Versione 5 ripristinata da Anna Rossi.");
+    expect(lines[1]).toBe("Versione 5 ripristinata dall'account anna.rossi@welld.ch.");
     expect(lines[2]).toBe("Quando: 1 luglio 2026, 11:12 CEST (Europe/Zurich).");
     expect(lines[4]).toBe("Dati modificati: ragione sociale e IBAN.");
     expect(lines[5]).toBe("IBAN precedente: nessuno.");
@@ -158,65 +166,170 @@ describe("the time (design N1, R-d, DR-15)", () => {
   });
 });
 
-describe("the actor's name, the one free-text slot (AC-9.12)", () => {
-  test("controls, line breaks and bidi/format characters go; blanks collapse", () => {
-    expect(sanitizeActorName("  Anna\n\tRossi  ")).toBe("Anna Rossi");
-    expect(sanitizeActorName("‮Anna‬ Ros​si⁦")).toBe("Anna Rossi");
-    expect(sanitizeActorName("A B C\u0000D")).toBe("A B C D");
+describe("the author's account email, the one personal slot (AC-9.11, AC-9.12; plan D9 J4)", () => {
+  const SAVE = { en: "Change saved by the account d9-sentinel-author@operai.test.", it: "Modifica salvata dall'account d9-sentinel-author@operai.test." };
+  const ADDRESS = "d9-sentinel-author@operai.test";
+
+  test("the save line and the restore line carry the address verbatim, in English and in Italian", () => {
+    const save = noticeFacts(row(), previous(), ADDRESS);
+    expect(noticeText(save, "en").body.split("\n")[1]).toBe(SAVE.en);
+    expect(noticeText(save, "it").body.split("\n")[1]).toBe(SAVE.it);
+    const restore = noticeFacts(row({ action: "restore", restoredFrom: 5 }), previous(), ADDRESS);
+    expect(noticeText(restore, "en").body.split("\n")[1]).toBe("Version 5 restored by the account d9-sentinel-author@operai.test.");
+    expect(noticeText(restore, "it").body.split("\n")[1]).toBe("Versione 5 ripristinata dall'account d9-sentinel-author@operai.test.");
   });
 
-  test("nothing left is null, and the notice reads the fallback in the reader's language", () => {
-    expect(sanitizeActorName("‮​ \n")).toBeNull();
-    expect(sanitizeActorName(null)).toBeNull();
-    const facts = noticeFacts(row({ createdByName: "\n" }), previous());
-    expect(noticeText(facts, "en").body).toContain("Change saved by an unnamed person.");
-    expect(noticeText(facts, "it").body).toContain("Modifica salvata da una persona senza nome.");
-    expect(emailData(facts).actorName).toBe("an unnamed person");
+  test("the address is stated as stored: no lowercasing or rewriting", () => {
+    const facts = noticeFacts(row(), previous(), "Anna.Rossi+Tag@WellD.ch");
+    expect(noticeText(facts, "en").body).toContain("the account Anna.Rossi+Tag@WellD.ch.");
+    expect(emailData(facts).actorEmail).toBe("Anna.Rossi+Tag@WellD.ch");
   });
 
-  test("bounded to 200 UTF-16 units without splitting a character", () => {
-    expect(sanitizeActorName("x".repeat(500))).toHaveLength(ACTOR_NAME_MAX);
-    const emoji = sanitizeActorName("\u{1F600}".repeat(150))!;
-    expect(emoji.length).toBe(200);
-    expect(Array.from(emoji)).toHaveLength(100);
-    expect(emoji.endsWith("\u{1F600}")).toBe(true);
-  });
-
-  test("it appears once, in the body, never in a title", () => {
-    const facts = noticeFacts(row({ createdByName: "Zed Zorro" }), previous());
+  test("it appears once, in the body, never in a title; the email's data carries it as the one member", () => {
+    const facts = noticeFacts(row(), previous(), ADDRESS);
     for (const language of ["en", "it"] as const) {
       const text = noticeText(facts, language);
-      expect(text.title).not.toContain("Zorro");
-      expect(text.body.match(/Zorro/g)).toHaveLength(1);
+      expect(text.title).not.toContain("sentinel-author");
+      expect(text.body.match(/d9-sentinel-author@operai\.test/g)).toHaveLength(1);
+    }
+    const notice = inAppNotice(facts);
+    expect(notice.title).not.toContain(ADDRESS);
+    expect(notice.it.title).not.toContain(ADDRESS);
+    expect(notice.link.href).not.toContain(ADDRESS);
+    expect(emailData(facts).actorEmail).toBe(ADDRESS);
+    // The address is the only place in the data it is found.
+    expect(JSON.stringify({ ...emailData(facts), actorEmail: "" })).not.toContain("sentinel-author");
+  });
+
+  test("null gives the no-email sentence in both languages, with the rest of the list intact; the data says null", () => {
+    for (const [action, restoredFrom] of [["save", null], ["restore", 5]] as const) {
+      const withEmail = noticeFacts(row({ action, restoredFrom }), previous(), EMAIL);
+      const without = noticeFacts(row({ action, restoredFrom }), previous(), null);
+      for (const language of ["en", "it"] as const) {
+        const a = noticeText(withEmail, language).body.split("\n");
+        const b = noticeText(without, language).body.split("\n");
+        expect(b).toHaveLength(a.length);
+        expect(b.filter((_, i) => i !== 1)).toEqual(a.filter((_, i) => i !== 1));
+        expect(noticeText(without, language).title).toBe(noticeText(withEmail, language).title);
+      }
+      expect(noticeText(without, "en").body.split("\n")[1]).toBe(
+        action === "save" ? "Change saved by an account with no email address on record." : "Version 5 restored by an account with no email address on record.",
+      );
+      expect(noticeText(without, "it").body.split("\n")[1]).toBe(
+        action === "save" ? "Modifica salvata da un account senza indirizzo email registrato." : "Versione 5 ripristinata da un account senza indirizzo email registrato.",
+      );
+      expect(emailData(without).actorEmail).toBeNull();
+    }
+  });
+
+  test("an unusable address (R-D9a) reads as no address on record and is never stated or sent", () => {
+    const unusable = [
+      "not an email",
+      "",
+      " anna@welld.ch",
+      "anna@welld.ch ",
+      "anna@welld.ch\nBcc: x@y.z",
+      "anna@welld.ch\u0000",
+      "an\u202ena@welld.ch",
+      "anna@@welld.ch",
+      "anna",
+      `${"a".repeat(312)}@welld.ch`,
+      "Anna Rossi <anna@welld.ch>",
+    ];
+    const none = noticeFacts(row(), previous(), null);
+    for (const value of unusable) {
+      expect([value, isUnusableAuthorEmail(value) || value === ""]).toEqual([value, true]);
+      expect(usableAuthorEmail(value)).toBeNull();
+      const facts = noticeFacts(row(), previous(), value);
+      expect(facts.authorEmail).toBeNull();
+      expect(noticeText(facts, "en")).toEqual(noticeText(none, "en"));
+      expect(noticeText(facts, "it")).toEqual(noticeText(none, "it"));
+      expect(emailData(facts).actorEmail).toBeNull();
+    }
+  });
+
+  test("the rule is the rule of notify-api's `to`: an address, at most 320 characters", () => {
+    expect(noticeAuthorEmail.safeParse("anna.rossi@welld.ch").success).toBe(true);
+    expect(isUnusableAuthorEmail(null)).toBe(false);
+    expect(isUnusableAuthorEmail(undefined)).toBe(false);
+    expect(usableAuthorEmail(undefined)).toBeNull();
+    const longest = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.${"e".repeat(63)}`;
+    expect(longest).toHaveLength(320);
+    expect(noticeAuthorEmail.safeParse(longest).success).toBe(true);
+    expect(noticeAuthorEmail.safeParse(`${longest}e`).success).toBe(false);
+  });
+
+  test("no display name anywhere: the version's name is in no text, no data and no fact (AC-9.12)", () => {
+    for (const email of [EMAIL, null, "garbage"]) {
+      const facts = noticeFacts(row({ action: "restore", restoredFrom: 4 }), previous(), email);
+      const everything = JSON.stringify([facts, inAppNotice(facts), emailData(facts), noticeText(facts, "en"), noticeText(facts, "it")]);
+      expect(everything).not.toContain(DISPLAY_NAME);
+      expect(everything).not.toContain("Sentinel Display");
+    }
+    // Even a version with no name at all, or a name that looks like an address, changes nothing: it is never read.
+    const a = noticeFacts(row({ createdByName: null }), previous(), EMAIL);
+    const b = noticeFacts(row({ createdByName: "someone.else@welld.ch" }), previous(), EMAIL);
+    expect(noticeText(b, "en")).toEqual(noticeText(a, "en"));
+    expect(JSON.stringify(emailData(b))).not.toContain("someone.else");
+  });
+
+  test("static: no source file of the notice code reads the display name (the version's name column)", () => {
+    const sources = readdirSync(import.meta.dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+    expect(sources).toEqual(expect.arrayContaining(["content.ts", "copy.ts", "dispatcher.ts", "duty.ts", "recipients.ts"]));
+    for (const file of sources) {
+      const text = readFileSync(join(import.meta.dir, file), "utf8");
+      expect([file, /createdByName|actorName|sanitizeActorName|unknownActor/.test(text)]).toEqual([file, false]);
     }
   });
 });
 
-describe("the limits of notify-api hold in the longest case (T51's done-when)", () => {
-  test("three protected and four other names, a 200-character actor, a restore, the largest version, a summer date", () => {
-    const facts = noticeFacts(
+describe("the limits of notify-api hold in the longest case (T51's done-when; design N1, plan J4)", () => {
+  /** 320 characters, the most `noticeAuthorEmail` accepts. */
+  const LONGEST = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.${"e".repeat(63)}`;
+  const longestFacts = () =>
+    noticeFacts(
       row({
         action: "restore",
         restoredFrom: 2147483646,
         version: 2147483647,
         createdAt: new Date("2026-07-01T09:12:00Z"),
-        createdByName: "Å".repeat(300),
         changedFields: ["legalName", "address.it", "address.en", "vatNumber", "iban", "contacts.it", "contacts.en"] as Field[],
       }),
       previous({ version: 2147483646 }),
+      LONGEST,
     );
-    const notice = inAppNotice(facts);
+
+  test("three protected and four other names, a 320-character address, a restore, the largest version, a summer date", () => {
+    expect(LONGEST).toHaveLength(320);
+    expect(noticeAuthorEmail.safeParse(LONGEST).success).toBe(true);
+    const notice = inAppNotice(longestFacts());
     for (const text of [{ title: notice.title, body: notice.body }, notice.it]) {
       expect(text.title.length).toBeLessThanOrEqual(NOTICE_TITLE_MAX);
       expect(text.body.length).toBeLessThanOrEqual(NOTICE_BODY_MAX);
+      // The address is in the body once and whole, never in the title.
+      expect(text.body.split(LONGEST)).toHaveLength(2);
+      expect(text.title).not.toContain("aaaa");
     }
-    // The design's figures for the Italian longest case (a 200-character actor): well inside the limits.
-    expect(notice.it.title.length).toBeLessThan(120);
-    expect(notice.it.body.length).toBeLessThan(1200);
+    // The design's figures for the longest case (N1, recomputed for D9): well inside the limits.
+    expect(notice.title.length).toBe(66);
+    expect(notice.it.title.length).toBe(71);
+    expect(notice.body.length).toBe(854);
+    expect(notice.it.body.length).toBe(909);
   });
 
-  test("an actor of 200 characters outside the basic plane still fits (about 1000 UTF-16 units in the body)", () => {
-    const facts = noticeFacts(row({ createdByName: "\u{1F600}".repeat(200) }), previous());
+  test("the push JSON of notify-api ({v,id,title,body,originApp,href}) is far under 3000 bytes, so the address is never cut", () => {
+    const notice = inAppNotice(longestFacts());
+    const push = JSON.stringify({ v: 1, id: crypto.randomUUID(), title: notice.title, body: notice.body, originApp: "admin", href: notice.link.href });
+    expect(new TextEncoder().encode(push).length).toBeLessThan(1300);
+    expect(push).toContain(LONGEST);
+  });
+
+  test("the email's data carries the longest address whole", () => {
+    expect(emailData(longestFacts()).actorEmail).toBe(LONGEST);
+  });
+
+  test("no address, and the longest list: still within the limits", () => {
+    const facts = { ...longestFacts(), authorEmail: null };
     expect(() => inAppNotice(facts)).not.toThrow();
   });
 });
@@ -240,7 +353,7 @@ describe("the email's data (G5; the shape of notify-api's strict legal_entity_ch
       entity: "welld_ch",
       action: "save",
       restoredFrom: null,
-      actorName: "Anna Rossi",
+      actorEmail: EMAIL,
       storedAt: "2026-11-17T09:12:00.000Z",
       version: 8,
       protectedChanged: ["iban"],
@@ -293,6 +406,6 @@ describe("what cannot be noticed", () => {
 
   test("the facts carry no value: their keys are the closed ones", () => {
     const facts: NoticeFacts = noticeFacts(row(), previous());
-    expect(Object.keys(facts).sort()).toEqual(["action", "actorName", "entity", "iban", "otherNames", "protectedNames", "restoredFrom", "storedAt", "version"]);
+    expect(Object.keys(facts).sort()).toEqual(["action", "authorEmail", "entity", "iban", "otherNames", "protectedNames", "restoredFrom", "storedAt", "version"]);
   });
 });

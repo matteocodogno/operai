@@ -6,8 +6,9 @@
  * design section so they say the same thing.
  *
  * The catalog holds templates with `{slots}`. A slot is filled by `fill`, which takes only strings the caller
- * built from CLOSED sets (an entity label, a name from a closed list, a number, a date, an IBAN token) and the actor's
- * name, the one free-text slot (`content.ts` strips and bounds it first). No key takes a legal name, a VAT number, an
+ * built from CLOSED sets (an entity label, a name from a closed list, a number, a date, an IBAN token) and the
+ * author's account email, the one personal slot (`content.ts` accepts it only if it passes `noticeAuthorEmail`: plan
+ * amendment D9, J4; no display name is ever a slot). No key takes a legal name, a VAT number, an
  * address, a contacts line or more than the last four characters of an IBAN (AC-9.12): there is nothing here to
  * pass one to.
  *
@@ -32,7 +33,8 @@ export const NOTICE_COPY_KEYS = [
   "notice.lead",
   "notice.byAction.save",
   "notice.byAction.restore",
-  "notice.unknownActor",
+  "notice.byAction.saveNoEmail",
+  "notice.byAction.restoreNoEmail",
   "notice.when",
   "notice.dateTime",
   "notice.version",
@@ -75,9 +77,10 @@ const en: Catalog = {
   "notice.name.contactsEn": "contacts line (English)",
   "notice.title": "Legal details of {entity} changed: {details}",
   "notice.lead": "The legal details of {entity} were changed.",
-  "notice.byAction.save": "Change saved by {actor}.",
-  "notice.byAction.restore": "Version {from} restored by {actor}.",
-  "notice.unknownActor": "an unnamed person",
+  "notice.byAction.save": "Change saved by the account {author}.",
+  "notice.byAction.restore": "Version {from} restored by the account {author}.",
+  "notice.byAction.saveNoEmail": "Change saved by an account with no email address on record.",
+  "notice.byAction.restoreNoEmail": "Version {from} restored by an account with no email address on record.",
   "notice.when": "When: {date}.",
   "notice.dateTime": "{day} {month} {year}, {time} {zone} (Europe/Zurich)",
   "notice.version": "New version: {n}.",
@@ -118,9 +121,10 @@ const it: Catalog = {
   "notice.name.contactsEn": "riga contatti (inglese)",
   "notice.title": "Dati legali di {entity} modificati: {details}",
   "notice.lead": "I dati legali di {entity} sono stati modificati.",
-  "notice.byAction.save": "Modifica salvata da {actor}.",
-  "notice.byAction.restore": "Versione {from} ripristinata da {actor}.",
-  "notice.unknownActor": "una persona senza nome",
+  "notice.byAction.save": "Modifica salvata dall'account {author}.",
+  "notice.byAction.restore": "Versione {from} ripristinata dall'account {author}.",
+  "notice.byAction.saveNoEmail": "Modifica salvata da un account senza indirizzo email registrato.",
+  "notice.byAction.restoreNoEmail": "Versione {from} ripristinata da un account senza indirizzo email registrato.",
   "notice.when": "Quando: {date}.",
   "notice.dateTime": "{day} {month} {year}, {time} {zone} (Europe/Zurich)",
   "notice.version": "Nuova versione: {n}.",

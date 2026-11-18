@@ -10,8 +10,8 @@
  *   - a sweep CLAIMS due rows with `FOR UPDATE SKIP LOCKED` in the one statement that sets their lease (60 s) and
  *     counts the attempt, so two replicas (or a kick and a sweep) never send the same row;
  *   - each claimed row is sent on its own (4 at a time, 5 s per call): one recipient's or one channel's failure never
- *     stops or delays another's call. The content is rebuilt from versions n and n - 1 (`content.ts`), so a retry
- *     sends the same words;
+ *     stops or delays another's call. The content is rebuilt from versions n and n - 1 (`content.ts`) and the row's own
+ *     `authorEmail` (claimed with it, D9; never updated, never logged), so a retry sends the same words;
  *   - a failure is retried at +1, +3, +5, +10 and +20 minutes, then every 30, never later than 24 h after the version
  *     was stored (`createdAt`), when the row is given up;
  *   - the outcome and its audit entry are one transaction: `notice_failed` (the FIRST failure of a row only),
@@ -45,7 +45,7 @@ import {
 } from "../../lib/notify";
 import type { LegalEntity } from "../entities";
 import { versionOf } from "../repo";
-import { emailData, inAppNotice, noticeFacts } from "./content";
+import { emailData, inAppNotice, isUnusableAuthorEmail, noticeFacts } from "./content";
 
 /** The retries: +1, +3, +5, +10, +20 minutes after the 1st to 5th failure, then every 30 (plan G6). */
 export const RETRY_DELAYS_MINUTES: readonly number[] = [1, 3, 5, 10, 20];
@@ -119,6 +119,8 @@ interface ClaimedRow {
   lastReason: NoticeReason | null;
   firstFailedAt: Date | null;
   createdAt: Date;
+  /** The author's account email captured with the version (D9, J2): content of the notice only, never logged or audited. */
+  authorEmail: string | null;
 }
 
 /** The delay after the `attempts`-th failed attempt (1-based). */
@@ -161,7 +163,7 @@ export function createNoticeDispatcher(options: NoticeDispatcherOptions = {}): N
         FOR UPDATE SKIP LOCKED
       )
       RETURNING n."id", n."entity", n."version", n."recipient", n."recipientKind", n."channel", n."attempts",
-        n."lastReason", n."firstFailedAt", n."createdAt"`;
+        n."lastReason", n."firstFailedAt", n."createdAt", n."authorEmail"`;
   }
 
   /** What an outcome records about a row, never a value (plan G4). */
@@ -260,7 +262,12 @@ export function createNoticeDispatcher(options: NoticeDispatcherOptions = {}): N
     const current = await versionOf(row.entity, row.version, database);
     const previous = row.version > 1 ? await versionOf(row.entity, row.version - 1, database) : null;
     if (current === null) return "notify_error"; // unreachable: the notice names its version by a foreign key
-    const facts = noticeFacts(current, previous);
+    // An address that is present but unusable is "no email address on record" (R-D9a, J11): the row is sent, never
+    // looped on a 400. The line names the row only, never the value.
+    if (isUnusableAuthorEmail(row.authorEmail)) {
+      log("legal_entity_notice_author_email_unusable", { id: row.id, entity: row.entity, version: row.version, channel: row.channel });
+    }
+    const facts = noticeFacts(current, previous, row.authorEmail);
     const key = `legal-entity-notice:${row.id}`;
     let result: NoticeSendResult;
     if (row.channel === "in_app") {
