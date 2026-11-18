@@ -2,7 +2,8 @@
  * The accounting view and the classification options (T13, specs/20261118-
  * refund-accounting-export; T14 extends this file with the PUT).
  *
- * Real Postgres, jwt/authz mocked (`test-support/testAuth.ts`). Plan rows:
+ * Real Postgres, jwt/authz mocked (`test-support/testAuth.ts`). T14 adds the PUT: AC-3.3, AC-3.6, AC-3.7, AC-3.9,
+ * AC-1.3/1.6/1.9/1.10, and the status decided on the locked request row (R7). Plan rows:
  *   AC-3.1  CHF line: type defaults, marked as defaults
  *   AC-3.2  foreign-currency line: the type's account + the foreign-currency VAT code
  *   AC-3.8  CHF and VAT amounts derived on read; no rate is `rateMissing`, never 0
@@ -454,5 +455,381 @@ describe("GET /accounting/options", () => {
     __resetAuthzCacheForTests();
     const res = await get("/accounting/options", "emp-1");
     expect(res.status).toBe(403);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PUT /review/requests/{id}/lines/{lineId}/classification (T14)
+// ═════════════════════════════════════════════════════════════════════════════
+
+type Action = "review" | "set-approved-total" | "reclassify";
+const grants = (actions: Action[], entity: string | null = null): ResolveResponse => ({
+  sub: "",
+  epoch: 1,
+  permissions: [
+    { resource: "refund", action: "access", conditions: null },
+    ...actions.map((action) => ({
+      resource: "request",
+      action,
+      conditions: entity ? { attributes: [{ key: "entity", match: "user" }] } : null,
+    })),
+  ],
+  entity,
+  jobTitle: null,
+});
+const FULL = grants(["review", "set-approved-total", "reclassify"]);
+const SET_ONLY = grants(["review", "set-approved-total"]);
+const RECLASSIFY_ONLY = grants(["review", "reclassify"]);
+
+async function put(requestId: string, lineId: string, body: unknown, perms: ResolveResponse = FULL, sub = "acct-1") {
+  harness.setResolve(async () => perms);
+  __resetAuthzCacheForTests();
+  const token = await harness.signToken({ sub, email: `${sub}@welld.ch` });
+  const res = await classificationRouter.request(`/review/requests/${requestId}/lines/${lineId}/classification`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed: Record<string, any> = {};
+  try {
+    parsed = JSON.parse(text) as Record<string, any>;
+  } catch {
+    parsed = { text }; // Hono answers a body that is not JSON with plain text
+  }
+  return { status: res.status, body: parsed };
+}
+
+const auditOf = (requestId: string, action = "line_classified") =>
+  db.refundAuditEntry.findMany({ where: { requestId, action: action as never }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+const lineRow = (id: string) => db.refundLine.findUniqueOrThrow({ where: { id } });
+
+describe("PUT classification while submitted (AC-3.3)", () => {
+  it("stores the chosen account as not-default, answers with the line, and audits who changed what from which value to which", async () => {
+    const r = await createRequest([{ type: "travel_train" }]);
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id });
+    expect(res.status).toBe(200);
+    expect(res.body["lineId"]).toBe(r.lineIds[0]!);
+    expect(res.body["classification"].account).toEqual({ id: accountOffice.id, number: "6101", name: "Ufficio", active: true });
+    expect(res.body["classification"].accountIsDefault).toBe(false);
+    // the other half still follows its default
+    expect(res.body["classification"].vatCodeIsDefault).toBe(true);
+    expect(res.body["vatAmountCents"]).toBe(156);
+
+    const stored = await lineRow(r.lineIds[0]!);
+    expect(stored).toMatchObject({ ledgerAccountId: accountOffice.id, ledgerAccountIsDefault: false, vatCodeId: null, vatCodeIsDefault: null });
+
+    const audit = await auditOf(r.id);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ actorUserId: "acct-1", actorEmail: "acct-1@welld.ch", lineId: r.lineIds[0]! });
+    expect(audit[0]!.detail).toEqual({
+      cause: "review",
+      account: { from: { id: accountTrain.id, number: "5901" }, to: { id: accountOffice.id, number: "6101" }, fromDefault: true, toDefault: false },
+      vatCode: {
+        from: { id: imp81.id, code: "IMP81", rateBasisPoints: 810 },
+        to: { id: imp81.id, code: "IMP81", rateBasisPoints: 810 },
+        fromDefault: true,
+        toDefault: true,
+      },
+    });
+  });
+
+  it("changes both halves in one call, with one audit row", async () => {
+    const r = await createRequest([{ type: "travel_train" }]);
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id, vatCodeId: novat.id });
+    expect(res.status).toBe(200);
+    expect(res.body["classification"]).toMatchObject({ accountIsDefault: false, vatCodeIsDefault: false, vatCode: { code: "NOVAT" } });
+    expect(res.body["vatAmountCents"]).toBe(0);
+    expect(await auditOf(r.id)).toHaveLength(1);
+  });
+
+  it("a second change records the first one as its 'from', not a default", async () => {
+    const r = await createRequest([{ type: "travel_train" }]);
+    await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id });
+    await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountTrain.id });
+    const audit = await auditOf(r.id);
+    expect(audit).toHaveLength(2);
+    expect((audit[1]!.detail as any).account).toEqual({
+      from: { id: accountOffice.id, number: "6101" },
+      to: { id: accountTrain.id, number: "5901" },
+      fromDefault: false,
+      toDefault: false,
+    });
+  });
+
+  it("a value the line already stores is a no-op: 200, nothing written, no audit row", async () => {
+    const r = await createRequest([{ stored: { ledgerAccountId: accountOffice.id, ledgerAccountIsDefault: false } }]);
+    const before = await lineRow(r.lineIds[0]!);
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id });
+    expect(res.status).toBe(200);
+    expect(await lineRow(r.lineIds[0]!)).toEqual(before);
+    expect(await auditOf(r.id)).toHaveLength(0);
+  });
+
+  it("the money and the decision are never touched", async () => {
+    const r = await createRequest([{ requestedAmountCents: 1000, approvedTotalCents: 700 }]);
+    const before = await db.refundRequest.findUniqueOrThrow({ where: { id: r.id } });
+    await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id });
+    const after = await db.refundRequest.findUniqueOrThrow({ where: { id: r.id } });
+    expect(after).toEqual(before); // status, decided*, updatedAt: the request row is not written at all
+    const line = await lineRow(r.lineIds[0]!);
+    expect([line.approvedTotalCents, line.requestedAmountCents]).toEqual([700, 1000]);
+  });
+
+  it("approving afterwards freezes the override as chosen (not-default), and audits the approval's own row after the review row", async () => {
+    const { classifyAndNumber } = await import("./numbering.repo");
+    const { loadDefaultsSnapshot } = await import("./defaults.repo");
+    const r = await createRequest([{ type: "travel_train" }]);
+    await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id });
+    const result = await db.$transaction(async (tx) =>
+      classifyAndNumber(tx, {
+        owner: { userId: "emp-1", name: "Matteo Codogno", email: "emp-1@welld.ch" },
+        requestIds: [r.id],
+        cause: "approval",
+        actor: { userId: "acct-1", email: "acct-1@welld.ch" },
+        snapshot: await loadDefaultsSnapshot(tx),
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(await lineRow(r.lineIds[0]!)).toMatchObject({ ledgerAccountId: accountOffice.id, ledgerAccountIsDefault: false, vatCodeId: imp81.id, vatCodeIsDefault: true });
+    expect((await auditOf(r.id)).map((a) => (a.detail as any).cause)).toEqual(["review", "approval"]);
+  });
+});
+
+describe("PUT classification: refusals (AC-3.9, AC-1.3, AC-1.6, AC-1.9, AC-1.10)", () => {
+  it("(AC-3.9) a WellD Italia line: 422 line_not_welld_ch, nothing written", async () => {
+    const r = await createRequest([{ entity: "welld_it", currency: "EUR" }]);
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id });
+    expect(res.status).toBe(422);
+    expect(res.body["code"]).toBe("line_not_welld_ch");
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBeNull();
+    expect(await auditOf(r.id)).toHaveLength(0);
+  });
+
+  it("a rejected line: 409 line_rejected", async () => {
+    const r = await createRequest([{ rejected: true }, {}]);
+    const res = await put(r.id, r.lineIds[0]!, { vatCodeId: novat.id });
+    expect(res.status).toBe(409);
+    expect(res.body["code"]).toBe("line_rejected");
+  });
+
+  it("(AC-1.3, AC-1.9) an inactive account is refused, and accepted again once reactivated, with nothing changed in between", async () => {
+    await db.accountingCatalogStatus.create({ data: { ledgerAccountId: accountOffice.id, active: false, ...by } });
+    const r = await createRequest([{ type: "travel_train" }]);
+    const refused = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id });
+    expect(refused.status).toBe(422);
+    expect(refused.body["code"]).toBe("ledger_account_inactive");
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBeNull();
+    expect(await auditOf(r.id)).toHaveLength(0);
+
+    await db.accountingCatalogStatus.create({ data: { ledgerAccountId: accountOffice.id, active: true, ...by } });
+    const accepted = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body["classification"].account).toMatchObject({ number: "6101", active: true });
+  });
+
+  it("(AC-1.6, AC-1.10) an inactive VAT code is refused, and accepted again once reactivated", async () => {
+    await db.accountingCatalogStatus.create({ data: { vatCodeId: novat.id, active: false, ...by } });
+    const r = await createRequest([{}]);
+    const refused = await put(r.id, r.lineIds[0]!, { vatCodeId: novat.id });
+    expect([refused.status, refused.body["code"]]).toEqual([422, "vat_code_inactive"]);
+    await db.accountingCatalogStatus.create({ data: { vatCodeId: novat.id, active: true, ...by } });
+    expect((await put(r.id, r.lineIds[0]!, { vatCodeId: novat.id })).status).toBe(200);
+  });
+
+  it("one bad half refuses the whole call: the good half is not written either", async () => {
+    await db.accountingCatalogStatus.create({ data: { vatCodeId: novat.id, active: false, ...by } });
+    const r = await createRequest([{}]);
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id, vatCodeId: novat.id });
+    expect(res.status).toBe(422);
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBeNull();
+  });
+
+  it("an unknown id: 422 unknown_ledger_account / unknown_vat_code", async () => {
+    const r = await createRequest([{}]);
+    expect((await put(r.id, r.lineIds[0]!, { ledgerAccountId: "nope" })).body["code"]).toBe("unknown_ledger_account");
+    expect((await put(r.id, r.lineIds[0]!, { vatCodeId: "nope" })).body["code"]).toBe("unknown_vat_code");
+  });
+
+  it("a line that keeps a deactivated value may be re-sent with it (not a new classification) while the other half changes", async () => {
+    const r = await createRequest([{ stored: { ledgerAccountId: accountOffice.id, ledgerAccountIsDefault: false } }]);
+    await db.accountingCatalogStatus.create({ data: { ledgerAccountId: accountOffice.id, active: false, ...by } });
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id, vatCodeId: novat.id });
+    expect(res.status).toBe(200);
+    expect(res.body["classification"].account).toMatchObject({ number: "6101", active: false });
+    expect(res.body["classification"].vatCode.code).toBe("NOVAT");
+  });
+
+  for (const [name, body] of [
+    ["an empty body", {}],
+    ["null for the account (there is no back-to-default)", { ledgerAccountId: null }],
+    ["null for the VAT code", { vatCodeId: null }],
+    ["a number", { ledgerAccountId: 12 }],
+    ["an empty id", { vatCodeId: "" }],
+    ["an unknown key", { ledgerAccountId: "x", note: "y" }],
+  ] as const) {
+    it(`422 for ${name}`, async () => {
+      const r = await createRequest([{}]);
+      const res = await put(r.id, r.lineIds[0]!, body);
+      expect(res.status).toBe(422);
+      expect(await auditOf(r.id)).toHaveLength(0);
+    });
+  }
+
+  it("a body that is not JSON is refused (400), and one over 4 KiB is 413; nothing is written", async () => {
+    const r = await createRequest([{}]);
+    expect((await put(r.id, r.lineIds[0]!, "{not json")).status).toBe(400);
+    expect((await put(r.id, r.lineIds[0]!, JSON.stringify({ ledgerAccountId: "x".repeat(5000) }))).status).toBe(413);
+    expect(await auditOf(r.id)).toHaveLength(0);
+  });
+});
+
+describe("PUT classification: who, and on which request (AC-3.6, R7)", () => {
+  it("no request:set-approved-total and no request:reclassify: 403", async () => {
+    const r = await createRequest([{}]);
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, grants(["review"]));
+    expect(res.status).toBe(403);
+    const none = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, NO_GRANTS);
+    expect(none.status).toBe(403);
+  });
+
+  it("a submitted request needs set-approved-total: reclassify alone is 403", async () => {
+    const r = await createRequest([{}]);
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, RECLASSIFY_ONLY);
+    expect(res.status).toBe(403);
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBeNull();
+  });
+
+  it("(AC-3.6) an approved request needs request:reclassify: 200 with it, 403 without, and the approved total, status and decision stay", async () => {
+    const decidedAt = new Date("2026-04-01T10:00:00Z");
+    const r = await createRequest(
+      [{ receiptNumber: "MC26/001", requestedAmountCents: 1000, approvedTotalCents: 800, stored: { ledgerAccountId: accountTrain.id, ledgerAccountIsDefault: true, vatCodeId: imp81.id, vatCodeIsDefault: true } }],
+      { status: "approved" },
+    );
+    await db.refundRequest.update({ where: { id: r.id }, data: { decidedAt, decidedByUserId: "boss", decidedByEmail: "boss@welld.ch" } });
+    const before = await db.refundRequest.findUniqueOrThrow({ where: { id: r.id } });
+
+    const without = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, SET_ONLY);
+    expect(without.status).toBe(403); // set-approved-total is not what an approved line needs
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBe(accountTrain.id);
+    expect(await auditOf(r.id)).toHaveLength(0);
+
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id, vatCodeId: novat.id }, RECLASSIFY_ONLY);
+    expect(res.status).toBe(200);
+    expect(res.body["classificationState"]).toBeUndefined(); // the answer is the line, not the view
+    expect(res.body["classification"]).toMatchObject({ accountIsDefault: false, vatCodeIsDefault: false });
+    expect(res.body["receiptNumber"]).toBe("MC26/001");
+
+    expect(await db.refundRequest.findUniqueOrThrow({ where: { id: r.id } })).toEqual(before);
+    const line = await lineRow(r.lineIds[0]!);
+    expect([line.approvedTotalCents, line.requestedAmountCents, line.receiptNumber]).toEqual([800, 1000, "MC26/001"]);
+    expect(line).toMatchObject({ ledgerAccountId: accountOffice.id, vatCodeId: novat.id });
+
+    const audit = await auditOf(r.id);
+    expect(audit).toHaveLength(1);
+    expect((audit[0]!.detail as any).cause).toBe("post_approval");
+    expect((audit[0]!.detail as any).account).toEqual({
+      from: { id: accountTrain.id, number: "5901" },
+      to: { id: accountOffice.id, number: "6101" },
+      fromDefault: true,
+      toDefault: false,
+    });
+  });
+
+  it("(AC-3.6) an approved request in a COMPILED batch is still reclassifiable, and the batch is untouched", async () => {
+    const batch = await createBatch("compiled");
+    const r = await createRequest([{ receiptNumber: "MC26/001", stored: { ledgerAccountId: accountTrain.id, ledgerAccountIsDefault: true, vatCodeId: imp81.id, vatCodeIsDefault: true } }], {
+      status: "approved",
+      batchId: batch.id,
+    });
+    const res = await put(r.id, r.lineIds[0]!, { vatCodeId: novat.id }, RECLASSIFY_ONLY);
+    expect(res.status).toBe(200);
+    expect(await db.refundBatch.findUniqueOrThrow({ where: { id: batch.id } })).toEqual(batch);
+    expect((await db.refundRequest.findUniqueOrThrow({ where: { id: r.id } })).batchId).toBe(batch.id);
+  });
+
+  it("an approved line writes only the named half: the other half is not resolved from the live defaults and written along", async () => {
+    // left unclassified at release for want of a default (AC-7.2); a default exists NOW
+    const r = await createRequest([{ receiptNumber: "MC26/001", type: "travel_train", stored: { vatCodeId: imp81.id, vatCodeIsDefault: true } }], { status: "approved" });
+    const res = await put(r.id, r.lineIds[0]!, { vatCodeId: novat.id }, RECLASSIFY_ONLY);
+    expect(res.status).toBe(200);
+    expect(res.body["classification"].account).toBeNull(); // 5901 is travel_train's live default; it is not applied to a booked line
+    expect(res.body["classification"].vatCode.code).toBe("NOVAT");
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBeNull();
+    // the audit says so too: the account half is "from null to null"
+    expect(((await auditOf(r.id))[0]!.detail as any).account).toEqual({ from: null, to: null, fromDefault: false, toDefault: false });
+    // and accounting can then set it
+    const second = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, RECLASSIFY_ONLY);
+    expect(second.body["classification"].account.number).toBe("6101");
+  });
+
+  it("(AC-3.7) a paid request: 409 classification_locked, whoever asks, nothing written", async () => {
+    const batch = await createBatch("paid");
+    const r = await createRequest([{ receiptNumber: "MC26/001", stored: { ledgerAccountId: accountTrain.id, ledgerAccountIsDefault: true, vatCodeId: imp81.id, vatCodeIsDefault: true } }], {
+      status: "paid",
+      batchId: batch.id,
+    });
+    for (const perms of [FULL, RECLASSIFY_ONLY, SET_ONLY]) {
+      const res = await put(r.id, r.lineIds[0]!, { vatCodeId: novat.id }, perms);
+      expect([res.status, res.body["code"]]).toEqual([409, "classification_locked"]);
+    }
+    expect((await lineRow(r.lineIds[0]!)).vatCodeId).toBe(imp81.id);
+    expect(await auditOf(r.id)).toHaveLength(0);
+  });
+
+  it("a draft or rejected request: 409 not_classifiable_status", async () => {
+    for (const status of ["draft", "rejected"] as const) {
+      const r = await createRequest([{}], { status });
+      const res = await put(r.id, r.lineIds[0]!, { vatCodeId: novat.id });
+      expect([res.status, res.body["code"]]).toEqual([409, "not_classifiable_status"]);
+    }
+  });
+
+  it("404: out of the caller's entity scope, an unknown request, an unknown line, a line of ANOTHER request", async () => {
+    const mine = await createRequest([{ entity: "welld_ch" }]);
+    const other = await createRequest([{ entity: "welld_ch" }], { owner: "emp-2" });
+    const italian = grants(["review", "set-approved-total", "reclassify"], "welld_it");
+    expect((await put(mine.id, mine.lineIds[0]!, { vatCodeId: novat.id }, italian)).status).toBe(404);
+    expect((await put("nope", mine.lineIds[0]!, { vatCodeId: novat.id })).status).toBe(404);
+    expect((await put(mine.id, "nope", { vatCodeId: novat.id })).status).toBe(404);
+    expect((await put(mine.id, other.lineIds[0]!, { vatCodeId: novat.id })).status).toBe(404);
+    expect((await lineRow(other.lineIds[0]!)).vatCodeId).toBeNull();
+  });
+
+  it("a stranger learns nothing from the status: out of scope is 404 whatever the request's state and the caller's grants", async () => {
+    const approved = await createRequest([{ entity: "welld_ch", receiptNumber: "MC26/001" }], { status: "approved" });
+    const italianSetOnly = grants(["review", "set-approved-total"], "welld_it");
+    // an approved request would be a 403 ("needs reclassify") for someone who can see it; for a stranger it is a 404
+    expect((await put(approved.id, approved.lineIds[0]!, { vatCodeId: novat.id }, italianSetOnly)).status).toBe(404);
+  });
+
+  it("no token is 401", async () => {
+    const r = await createRequest([{}]);
+    const res = await classificationRouter.request(`/review/requests/${r.id}/lines/${r.lineIds[0]!}/classification`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vatCodeId: novat.id }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("(R7) the status is decided on the LOCKED request row: a PUT that waits for an approval is judged as approved", async () => {
+    const r = await createRequest([{ type: "travel_train" }]);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    // another transaction approves the request and holds the row lock a moment
+    const approving = db.$transaction(async (tx) => {
+      await tx.refundRequest.updateMany({ where: { id: r.id, status: "submitted" }, data: { status: "approved", decidedAt: new Date() } });
+      await held;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const waiting = put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, SET_ONLY);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    release();
+    await approving;
+    const res = await waiting;
+    // set-approved-total was enough while it was submitted, and is not now: no override lands under the wrong grant
+    expect(res.status).toBe(403);
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBeNull();
   });
 });

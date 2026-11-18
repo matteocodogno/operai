@@ -98,3 +98,20 @@ export const ClassificationProblemSchema = z.object({
   instance: z.string(),
   code: z.string().optional(),
 });
+
+// ─── PUT …/lines/{lineId}/classification ─────────────────────────────────────
+
+const IdSchema = z.string().min(1).max(64);
+
+/**
+ * At least one of the two ids, and ids ONLY: there is no `null` and so no "back to the default" (G8). A line
+ * that follows a default keeps following it until accounting picks a value, and a picked value stays picked.
+ * Unknown keys are refused rather than ignored, so a typo cannot read as success.
+ */
+export const ClassifyBodySchema = z
+  .object({ ledgerAccountId: IdSchema.optional(), vatCodeId: IdSchema.optional() })
+  .strict()
+  .refine((body) => body.ledgerAccountId !== undefined || body.vatCodeId !== undefined, {
+    message: "give ledgerAccountId, vatCodeId, or both",
+  });
+export type ClassifyBody = z.infer<typeof ClassifyBodySchema>;

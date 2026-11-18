@@ -28,19 +28,22 @@
  * reported as `rateMissing`, and only the export fetches on demand.
  */
 
+import { requestInScope, type EntityScope } from "../authz/conditions";
 import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
+import { writeAuditEntry } from "../requests/audit";
 import type { Currency } from "../lib/generated/prisma/enums";
 import { dateToMonth, type RateCurrency, type RateEntry } from "../fx/fx.repo";
 import { formatRate } from "../fx/fx.routes";
 import { fxService, rateKey } from "../fx/fx.service";
 import { chfCents, vatCents } from "./amounts";
 import { basisPointsToPercent, listLedgerAccounts, listVatCodes, loadActiveFlags } from "./catalog.repo";
-import { resolveClassification, type TypeDefaultsByType } from "./classification";
+import { resolveClassification, type ClassifiableLine, type TypeDefaultsByType } from "./classification";
 import type {
   AccountingLine,
   AccountingOptions,
   ClassificationState,
+  ClassifyBody,
   RequestAccounting,
 } from "./classification.schemas";
 import { loadDefaultsSnapshot } from "./defaults.repo";
@@ -99,6 +102,26 @@ export function classificationStateOf(status: string, batchStatus: string | null
   if (status === "approved") return batchStatus === "paid" ? "locked" : "post_approval";
   if (status === "paid") return "locked";
   return "none";
+}
+
+/** What `resolveClassification` needs of a line: its facts, and what is stored on it with the entry's current `active`. */
+export function classifiableInput(
+  line: AccountingLineRow,
+  accountFlags: ReadonlyMap<string, boolean>,
+  vatFlags: ReadonlyMap<string, boolean>,
+): ClassifiableLine {
+  return {
+    entity: line.entity,
+    currency: line.currency,
+    type: line.type,
+    rejected: line.rejectionReason !== null,
+    ledgerAccount: line.ledgerAccount
+      ? { ...line.ledgerAccount, active: accountFlags.get(line.ledgerAccount.id) ?? true }
+      : null,
+    ledgerAccountIsDefault: line.ledgerAccountIsDefault,
+    vatCode: line.vatCode ? { ...line.vatCode, active: vatFlags.get(line.vatCode.id) ?? true } : null,
+    vatCodeIsDefault: line.vatCodeIsDefault,
+  };
 }
 
 // ─── Building the view ───────────────────────────────────────────────────────
@@ -168,18 +191,7 @@ export async function buildAccountingView(
       return { ...base, classification: null, chf: { ...NO_CHF }, vatAmountCents: null };
     }
 
-    const input = {
-      entity: line.entity,
-      currency: line.currency,
-      type: line.type,
-      rejected: false,
-      ledgerAccount: line.ledgerAccount
-        ? { ...line.ledgerAccount, active: accountFlags.get(line.ledgerAccount.id) ?? true }
-        : null,
-      ledgerAccountIsDefault: line.ledgerAccountIsDefault,
-      vatCode: line.vatCode ? { ...line.vatCode, active: vatFlags.get(line.vatCode.id) ?? true } : null,
-      vatCodeIsDefault: line.vatCodeIsDefault,
-    };
+    const input = classifiableInput(line, accountFlags, vatFlags);
     const classification = resolveClassification(input, defaults, foreignVat);
     if (classification === null) return { ...base, classification: null, chf: { ...NO_CHF }, vatAmountCents: null };
 
@@ -241,3 +253,157 @@ export async function loadAccountingOptions(client: Client = db): Promise<Accoun
   };
 }
 
+
+// ─── Changing a line's classification (T14) ──────────────────────────────────
+
+/**
+ * What the caller may do, per action: `undefined` = no such grant at all, `null` = a conditioned grant with no
+ * resolved entity (matches nothing), otherwise the entity scope of the grant.
+ */
+export type ActionScope = EntityScope | null | undefined;
+
+export interface ClassifyCaller {
+  readonly userId: string;
+  readonly email: string;
+  /** `request:set-approved-total`: what may change a line while the request is `submitted`. */
+  readonly setApprovedTotal: ActionScope;
+  /** `request:reclassify`: what may change a line once the request is `approved` (D5). */
+  readonly reclassify: ActionScope;
+}
+
+export type ClassifyRefusal =
+  | "ledger_account_inactive"
+  | "vat_code_inactive"
+  | "unknown_ledger_account"
+  | "unknown_vat_code";
+
+export type ClassifyOutcome =
+  | { readonly kind: "ok"; readonly line: AccountingLine; readonly changed: boolean }
+  /** No such request or line, or the caller is not in scope: one answer, so nothing is revealed (404). */
+  | { readonly kind: "not_found" }
+  /** The grant the request's CURRENT status needs is missing (403). */
+  | { readonly kind: "forbidden"; readonly needs: "request:set-approved-total" | "request:reclassify" }
+  /** The request is paid (409 `classification_locked`). */
+  | { readonly kind: "locked" }
+  /** The request is a draft or rejected (409 `not_classifiable_status`). */
+  | { readonly kind: "not_classifiable" }
+  | { readonly kind: "line_rejected" }
+  | { readonly kind: "not_welld_ch" }
+  | { readonly kind: "refused"; readonly code: ClassifyRefusal };
+
+const accountSummary = (a: { id: string; number: string } | null) => (a ? { id: a.id, number: a.number } : null);
+const vatSummary = (v: { id: string; code: string; rateBasisPoints: number } | null) =>
+  v ? { id: v.id, code: v.code, rateBasisPoints: v.rateBasisPoints } : null;
+
+/**
+ * Sets the account and/or the VAT code of one line (AC-3.3, AC-3.6, AC-3.7, AC-3.9, AC-1.3, AC-1.6).
+ *
+ * The whole decision is taken INSIDE one transaction, on the status read AFTER
+ * `SELECT … FOR UPDATE` of the request row. Approve (CAS on the same row), mark-paid and withdraw
+ * all update that row, so they serialize with this: a change lands either before the freeze
+ * (an override the approval then freezes, audited `review`), or after it, when the request is `approved` and
+ * needs `request:reclassify`, or not at all once it is paid (R7). Which grant is needed depends on that
+ * locked status, never on the status the caller saw.
+ *
+ * Only the named half is written, and only a half that really changes. On an approved line the other half is
+ * NOT resolved from the live defaults and written along: an approved line shows what is stored, and a half left
+ * unclassified at release (AC-7.2) stays so until accounting sets it (see the header of this module).
+ * `approvedTotalCents`, the status and `decided*` are never touched (AC-3.6), nor is the request row.
+ */
+export async function classifyLine(
+  requestId: string,
+  lineId: string,
+  body: ClassifyBody,
+  caller: ClassifyCaller,
+): Promise<ClassifyOutcome> {
+  // No grant of either kind: nothing to look up (403 whatever the request is).
+  if (caller.setApprovedTotal === undefined && caller.reclassify === undefined) {
+    return { kind: "forbidden", needs: "request:set-approved-total" };
+  }
+
+  const outcome = await db.$transaction(async (tx): Promise<ClassifyOutcome | { kind: "written"; changed: boolean }> => {
+    const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "refund_request" WHERE "id" = ${requestId} FOR UPDATE`;
+    if (locked.length === 0) return { kind: "not_found" };
+    const request = await readAccountingRequest(requestId, tx);
+    if (!request) return { kind: "not_found" };
+
+    // Visible at all? In scope under one of the two grants the caller holds, else it is a stranger's request.
+    const inScope = (scope: ActionScope) => scope !== undefined && scope !== null && requestInScope(request.lines, scope);
+    if (!inScope(caller.setApprovedTotal) && !inScope(caller.reclassify)) return { kind: "not_found" };
+
+    // The grant THIS status needs, evaluated on the locked status.
+    if (request.status === "paid") return { kind: "locked" };
+    if (request.status !== "submitted" && request.status !== "approved") return { kind: "not_classifiable" };
+    const needs = request.status === "submitted" ? ("request:set-approved-total" as const) : ("request:reclassify" as const);
+    const scope = request.status === "submitted" ? caller.setApprovedTotal : caller.reclassify;
+    if (scope === undefined) return { kind: "forbidden", needs };
+    if (!inScope(scope)) return { kind: "not_found" };
+    const cause = request.status === "submitted" ? ("review" as const) : ("post_approval" as const);
+
+    const line = request.lines.find((l) => l.id === lineId);
+    if (!line) return { kind: "not_found" };
+    if (line.entity !== "welld_ch") return { kind: "not_welld_ch" };
+    if (line.rejectionReason !== null) return { kind: "line_rejected" };
+
+    // A value the line already stores is no change (and is not re-validated: it is not a new classification).
+    const newAccountId = body.ledgerAccountId !== undefined && body.ledgerAccountId !== line.ledgerAccountId ? body.ledgerAccountId : null;
+    const newVatId = body.vatCodeId !== undefined && body.vatCodeId !== line.vatCodeId ? body.vatCodeId : null;
+
+    let account: { id: string; number: string; name: string } | null = null;
+    if (newAccountId !== null) {
+      account = await tx.ledgerAccount.findFirst({ where: { id: newAccountId, entity: "welld_ch" }, select: { id: true, number: true, name: true } });
+      if (!account) return { kind: "refused", code: "unknown_ledger_account" };
+      if (!(await loadActiveFlags(tx, "ledger_account", [account.id])).get(account.id)) return { kind: "refused", code: "ledger_account_inactive" };
+    }
+    let vat: { id: string; code: string; label: string; rateBasisPoints: number } | null = null;
+    if (newVatId !== null) {
+      vat = await tx.vatCode.findFirst({ where: { id: newVatId, entity: "welld_ch" }, select: { id: true, code: true, label: true, rateBasisPoints: true } });
+      if (!vat) return { kind: "refused", code: "unknown_vat_code" };
+      if (!(await loadActiveFlags(tx, "vat_code", [vat.id])).get(vat.id)) return { kind: "refused", code: "vat_code_inactive" };
+    }
+    if (account === null && vat === null) return { kind: "written", changed: false };
+
+    // What the accountant saw before, for the audit row: live while under review, stored once approved.
+    const accountFlags = await loadActiveFlags(tx, "ledger_account", line.ledgerAccountId ? [line.ledgerAccountId] : []);
+    const vatFlags = await loadActiveFlags(tx, "vat_code", line.vatCodeId ? [line.vatCodeId] : []);
+    const snapshot = request.status === "submitted" ? await loadDefaultsSnapshot(tx) : null;
+    const before = resolveClassification(classifiableInput(line, accountFlags, vatFlags), snapshot?.defaults ?? {}, snapshot?.foreignCurrencyVatCode ?? null);
+
+    await tx.refundLine.update({
+      where: { id: lineId },
+      data: {
+        ...(account ? { ledgerAccountId: account.id, ledgerAccountIsDefault: false } : {}),
+        ...(vat ? { vatCodeId: vat.id, vatCodeIsDefault: false } : {}),
+      },
+    });
+    await writeAuditEntry(tx, {
+      requestId,
+      lineId,
+      actorUserId: caller.userId,
+      actorEmail: caller.email,
+      action: "line_classified",
+      detail: {
+        cause,
+        account: {
+          from: accountSummary(before?.account ?? null),
+          to: accountSummary(account ?? before?.account ?? null),
+          fromDefault: before?.accountIsDefault ?? false,
+          toDefault: account ? false : (before?.accountIsDefault ?? false),
+        },
+        vatCode: {
+          from: vatSummary(before?.vatCode ?? null),
+          to: vatSummary(vat ?? before?.vatCode ?? null),
+          fromDefault: before?.vatCodeIsDefault ?? false,
+          toDefault: vat ? false : (before?.vatCodeIsDefault ?? false),
+        },
+      },
+    });
+    return { kind: "written", changed: true };
+  });
+
+  if (outcome.kind !== "written") return outcome;
+  const row = await readAccountingRequest(requestId);
+  const line = row ? (await buildAccountingView(row)).lines.find((l) => l.lineId === lineId) : undefined;
+  if (!line) return { kind: "not_found" };
+  return { kind: "ok", line, changed: outcome.changed };
+}

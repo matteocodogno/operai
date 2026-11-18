@@ -278,7 +278,7 @@ Reading the list:
     - AC-3.10: owner without review → 404;
     - rejected line → `classification: null`.
 
-- [ ] T14: refund-api — `PUT …/lines/{lineId}/classification` (status-dependent gate, row lock, audit) and withdraw clearing overrides — refs: AC-1.3, AC-1.6, AC-1.9, AC-1.10, AC-3.3, AC-3.6, AC-3.7, AC-3.9 — deps: T13
+- [x] T14: refund-api — `PUT …/lines/{lineId}/classification` (status-dependent gate, row lock, audit) and withdraw clearing overrides — refs: AC-1.3, AC-1.6, AC-1.9, AC-1.10, AC-3.3, AC-3.6, AC-3.7, AC-3.9 — deps: T13
   - touch: `refund-api/src/accounting/classification.repo.ts`, `refund-api/src/accounting/classification.routes.ts`, `refund-api/src/accounting/classification.schemas.ts`, `refund-api/src/accounting/classification.routes.test.ts`, `refund-api/src/requests/lifecycle.repo.ts`, `refund-api/src/requests/lifecycle.routes.test.ts`
   - agent: backend-dev · backend
   - Details:

@@ -345,6 +345,58 @@ export function withdrawRequest(
                   approvedTotalCents: null,
                 },
               });
+              // specs/20261118-refund-accounting-export (T14, plan D12) — accounting's classification
+              // OVERRIDES do not survive withdraw-to-draft either: the employee may now change the line's
+              // expense type, and an override picked for the old type would silently stay on the new one.
+              // The line goes back to following the live defaults; one `line_classified` row per cleared
+              // line (cause `withdrawn`) keeps what was set. Nothing is numbered before approval, so the
+              // receipt columns are untouched and the database guard has nothing to refuse.
+              const overridden = await tx.refundLine.findMany({
+                where: { requestId, OR: [{ ledgerAccountId: { not: null } }, { vatCodeId: { not: null } }] },
+                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                select: {
+                  id: true,
+                  ledgerAccountIsDefault: true,
+                  vatCodeIsDefault: true,
+                  ledgerAccount: { select: { id: true, number: true } },
+                  vatCode: { select: { id: true, code: true, rateBasisPoints: true } },
+                },
+              });
+              if (overridden.length > 0) {
+                await tx.refundLine.updateMany({
+                  where: { id: { in: overridden.map((l) => l.id) } },
+                  data: {
+                    ledgerAccountId: null,
+                    ledgerAccountIsDefault: null,
+                    vatCodeId: null,
+                    vatCodeIsDefault: null,
+                  },
+                });
+                for (const line of overridden) {
+                  await writeAuditEntry(tx, {
+                    requestId,
+                    lineId: line.id,
+                    actorUserId: ownerUserId,
+                    actorEmail,
+                    action: "line_classified",
+                    detail: {
+                      cause: "withdrawn",
+                      account: {
+                        from: line.ledgerAccount,
+                        to: null,
+                        fromDefault: line.ledgerAccount === null ? true : line.ledgerAccountIsDefault === true,
+                        toDefault: true,
+                      },
+                      vatCode: {
+                        from: line.vatCode,
+                        to: null,
+                        fromDefault: line.vatCode === null ? true : line.vatCodeIsDefault === true,
+                        toDefault: true,
+                      },
+                    },
+                  });
+                }
+              }
               await writeAuditEntry(tx, {
                 requestId,
                 actorUserId: ownerUserId,

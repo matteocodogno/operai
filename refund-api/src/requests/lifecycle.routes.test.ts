@@ -305,6 +305,51 @@ describe("POST /requests/:id/withdraw", () => {
     expect(after.approvedTotalCents).toBeNull();
   });
 
+  it("(specs/20261118-refund-accounting-export D12) withdraw clears accounting's classification overrides, one audited row per cleared line, and leaves untouched lines alone", async () => {
+    const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
+    const account = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "6101", name: "Ufficio", ...by } });
+    const vat = await db.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...by } });
+    const request = await makeRequest();
+    const both = await addCompleteLine(request.id);
+    const onlyVat = await addCompleteLine(request.id);
+    const plain = await addCompleteLine(request.id);
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+    await lifecycleRouter.request(`/requests/${request.id}/submit`, { method: "POST", headers: authHeaders(token) });
+    // what accounting set during the review that never concluded
+    await db.refundLine.update({ where: { id: both.id }, data: { ledgerAccountId: account.id, ledgerAccountIsDefault: false, vatCodeId: vat.id, vatCodeIsDefault: false } });
+    await db.refundLine.update({ where: { id: onlyVat.id }, data: { vatCodeId: vat.id, vatCodeIsDefault: false } });
+
+    const res = await lifecycleRouter.request(`/requests/${request.id}/withdraw`, { method: "POST", headers: authHeaders(token) });
+    expect(res.status).toBe(200);
+
+    for (const id of [both.id, onlyVat.id, plain.id]) {
+      const line = await db.refundLine.findUniqueOrThrow({ where: { id } });
+      expect(line).toMatchObject({ ledgerAccountId: null, ledgerAccountIsDefault: null, vatCodeId: null, vatCodeIsDefault: null });
+      expect(line.receiptNumber).toBeNull();
+    }
+    const rows = await db.refundAuditEntry.findMany({ where: { requestId: request.id, action: "line_classified" } });
+    expect(rows.map((r) => r.lineId).sort()).toEqual([both.id, onlyVat.id].sort()); // none for the line that had nothing set
+    const detailOf = (lineId: string) => rows.find((r) => r.lineId === lineId)!.detail as Record<string, any>;
+    expect(rows.every((r) => r.actorUserId === OWNER_SUB && r.actorEmail === OWNER_EMAIL)).toBe(true);
+    expect(detailOf(both.id)).toEqual({
+      cause: "withdrawn",
+      account: { from: { id: account.id, number: "6101" }, to: null, fromDefault: false, toDefault: true },
+      vatCode: { from: { id: vat.id, code: "IMP81", rateBasisPoints: 810 }, to: null, fromDefault: false, toDefault: true },
+    });
+    expect(detailOf(onlyVat.id).account).toEqual({ from: null, to: null, fromDefault: true, toDefault: true });
+    // the withdrawal itself is still audited, once
+    expect(await db.refundAuditEntry.count({ where: { requestId: request.id, action: "withdrawn" } })).toBe(1);
+  });
+
+  it("(D12) a request with no overrides writes no line_classified row on withdraw", async () => {
+    const request = await makeRequest();
+    await addCompleteLine(request.id);
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+    await lifecycleRouter.request(`/requests/${request.id}/submit`, { method: "POST", headers: authHeaders(token) });
+    await lifecycleRouter.request(`/requests/${request.id}/withdraw`, { method: "POST", headers: authHeaders(token) });
+    expect(await db.refundAuditEntry.count({ where: { requestId: request.id, action: "line_classified" } })).toBe(0);
+  });
+
   it("(AC-2.2) submitted → draft round-trip, writes a 'withdrawn' audit row, leaves it editable", async () => {
     const request = await makeRequest();
     const line = await addCompleteLine(request.id);
