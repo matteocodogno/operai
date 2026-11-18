@@ -5,7 +5,8 @@
  *
  * The entry's own columns (day, minutes, note, the category and work type) come from the row. Everything
  * that belongs to another service — the person's name, the project, deal or meeting, the activity, and
- * the deal a meeting's hours count for — is read live through `src/labels/` AS THE VIEWER and shows only
+ * the deal a meeting's hours count for — is read through `src/labels/` AS THE VIEWER (live, except the person's name,
+ * which may be up to 60 s old: plan § Sequences "Names", src/lib/identities.ts) and shows only
  * what the viewer may read: a thing they may not read keeps its type and its minutes and loses its name, link,
  * subject and, unless the entry is the viewer's own, its id (AC-4.10, D44); a source that did not answer
  * degrades only the part it covers and is named in `unavailable` (AC-4.7). The entry is always listed and counted.

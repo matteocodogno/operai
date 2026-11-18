@@ -5,8 +5,9 @@
  * Reading one's own hours needs only a session (AC-5.1): `whose=mine` is scoped to the JWT subject in the
  * statement itself and asks `auth` nothing. What the request SAYS is validated first (src/entries/filters.ts and
  * the `limit` and `cursor` here), then the entries are read in the order `day desc, createdAt desc, id desc`, and
- * every name next to them is read live as the viewer through `viewEntries` (src/entries/view.ts), each source
- * failing soft and named in `unavailable`.
+ * every name next to them is read as the viewer through `viewEntries` (src/entries/view.ts), each source
+ * failing soft and named in `unavailable`. Live, except a person's name, which may be up to 60 s old (plan § Sequences
+ * "Names", the cache in src/lib/identities.ts).
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";

@@ -13,10 +13,15 @@
  * - One map serves every viewer: `auth`'s answer for an id is a function of that user's row alone, and which ids an answer
  *   names is decided by the caller's own scope before this module is asked, so a viewer served from the cache gets what
  *   `auth` would tell them. No key is ever a value from a query.
- * - Only an item of a 200 answer is kept, with a status `active`, `deleted` or `unknown`, for an id that was asked. A refusal
- *   (a 429 included), an outage, a timeout, an unreadable body, an item of any other shape and an id the answer left out
- *   degrade the people they covered to `unknown` for THIS read only and are asked again on the next: a transient failure
- *   must never become a lasting "Unknown user". An entry past its 60 s is never served, not even when the refresh fails.
+ * - Only an item of a 200 answer is kept, with a status `active`, `deleted` or `unknown`, for an id that was asked, and for an
+ *   `active` one a `name` that is a string or null (what `auth` sends). A refusal (a 429 included), an outage, a timeout, an
+ *   unreadable body, an item of any other shape and an id the answer left out degrade the people they covered for THIS read
+ *   only (to `unknown`; an `active` item with an unreadable name reads as no name) and are asked again on the next: a
+ *   transient failure must never become a lasting "Unknown user".
+ * - An entry past its 60 s is never served, not even when the refresh fails, and it is forgotten by the lookup that finds it
+ *   past (names live in memory at most 60 s from the question, plan § Security "Names are cached across viewers"); the sweep
+ *   below only reaches the ones nobody asks about again. An answer is stored only when nothing sent later is held for the
+ *   id: two reads of one id can be in flight at once and the earlier-sent batch may answer last.
  * - FAILS SOFT: an outage, a refusal or an unreadable answer degrades the people it covered to
  *   `{status:"unknown", name:null}`; the entries stay listed and counted and the caller names
  *   `identities` in `unavailable` (AC-4.7).
@@ -44,7 +49,7 @@ const MAX_ID_LENGTH = 64;
 const REQUEST_TIMEOUT_MS = 2_000;
 /** How long an identity is kept, from when the batch that read it was sent (ADR 20260807 § 3). Not a setting. */
 const CACHE_TTL_MS = 60_000;
-/** Expired entries are swept when the map reaches this many (the siblings' threshold); one is never served. */
+/** Expired entries nobody asks about again are swept at this many (the siblings' threshold); one is never served. */
 const CACHE_SWEEP_THRESHOLD = 5_000;
 
 interface CacheEntry {
@@ -105,7 +110,12 @@ function readItem(raw: unknown): ReadItem | null {
   const { id, status, name } = raw as Record<string, unknown>;
   if (typeof id !== "string" || id === "") return null;
   if (status === "active") {
-    return { identity: { id, status, name: typeof name === "string" && name !== "" ? name : null }, keep: true };
+    // `auth` sends `name` as a string or null (`z.string().nullable()`); anything else is an item of another shape: this read
+    // shows an active person with no readable name, and it is never kept.
+    return {
+      identity: { id, status, name: typeof name === "string" && name !== "" ? name : null },
+      keep: name === null || typeof name === "string",
+    };
   }
   if (status === "deleted") return { identity: { id, status, name: null }, keep: true };
   return { identity: unknown(id), keep: status === "unknown" };
@@ -136,8 +146,14 @@ export async function resolveIdentities(
       continue;
     }
     const cached = cache.get(id);
-    if (cached !== undefined && cached.expiresAt > now) result.set(id, cached.identity);
-    else toFetch.push(id);
+    if (cached !== undefined && cached.expiresAt > now) {
+      result.set(id, cached.identity);
+      continue;
+    }
+    // Past its 60 s: forgotten here, not left until a refresh overwrites it or the sweep runs, so a refresh that fails
+    // (a 429, an outage) leaves no name in memory beyond the 60 s the plan promises (§ Security, "Names are cached").
+    if (cached !== undefined) cache.delete(id);
+    toFetch.push(id);
   }
 
   // Sequential, not Promise.all: `auth` rate-limits this route per caller, and a burst of
@@ -174,7 +190,15 @@ export async function resolveIdentities(
         const item = answered.get(id);
         // Asked but not answered (or answered unreadably): unknown for this read, and NOT kept — the omission may be transient.
         result.set(id, item?.identity ?? unknown(id));
-        if (item?.keep) cache.set(id, { identity: item.identity, expiresAt: sentAt + CACHE_TTL_MS });
+        if (item?.keep) {
+          // Only when nothing newer is held: two reads of one id can be in flight at once, and the batch SENT earlier may
+          // answer last. Its answer is the older question's, so it must not replace the later one's (a `deleted` read at
+          // t0+10 s overwritten by an `active` read at t0), and it would also cut the later one's life short.
+          const held = cache.get(id);
+          if (held === undefined || held.expiresAt <= sentAt + CACHE_TTL_MS) {
+            cache.set(id, { identity: item.identity, expiresAt: sentAt + CACHE_TTL_MS });
+          }
+        }
       }
     } catch (error) {
       console.error("[identities] could not resolve a batch from auth — degrading it to 'unknown':", describeFailure(error));

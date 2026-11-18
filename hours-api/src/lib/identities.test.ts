@@ -224,6 +224,73 @@ describe("the cache (T46: ADR 20260807 § 3, 60 s, keyed by user id, counted fro
     expect(calls[2]?.ids).toEqual(ids.slice(0, 100));
   });
 
+  describe("two reads of one id in flight at once: what the later-sent batch said is kept, in whatever order they answer", () => {
+    /** A promise whose answer the test gives when it chooses: the first call is held until `release`. */
+    const held = () => {
+      let release: (response: Response) => void = () => {};
+      const promise = new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+      return { promise, release };
+    };
+    const only = (status: "active" | "deleted", name: string | null) => () => Response.json({ users: [{ id: "alice", status, name }] });
+
+    it("an answer to the batch sent EARLIER, arriving after the later one's, does not replace it", async () => {
+      const first = held();
+      answer = (_ids, call) => (call === 1 ? first.promise : only("deleted", null)());
+      at(0);
+      const a = resolveIdentities(BEARER, ["alice"]); // sent at t = 0, held
+      at(10_000);
+      const b = await resolveIdentities(BEARER, ["alice"]); // sent at t = 10 s, answers `deleted` at once
+      expect(calls).toHaveLength(2);
+      expect(b.get("alice")).toEqual({ id: "alice", status: "deleted", name: null });
+      at(20_000);
+      first.release(only("active", "Old")());
+      // The read that was waiting shows what its own answer said ...
+      expect((await a).get("alice")).toEqual({ id: "alice", status: "active", name: "Old" });
+      // ... but memory holds the later question's answer (a person deleted must not read active again) ...
+      expect((await resolveIdentities(BEARER, ["alice"])).get("alice")).toEqual({ id: "alice", status: "deleted", name: null });
+      expect(calls).toHaveLength(2);
+      // ... for the 60 s counted from ITS send.
+      at(69_999);
+      expect((await resolveIdentities(BEARER, ["alice"])).get("alice")).toEqual({ id: "alice", status: "deleted", name: null });
+      expect(calls).toHaveLength(2);
+      at(70_000);
+      await resolveIdentities(BEARER, ["alice"]);
+      expect(calls).toHaveLength(3);
+    });
+
+    it("an answer to the batch sent LATER replaces what an earlier-sent one's brought, when it answers second", async () => {
+      const first = held();
+      const second = held();
+      answer = (_ids, call) => (call === 1 ? first.promise : second.promise);
+      at(0);
+      const a = resolveIdentities(BEARER, ["alice"]); // sent at t = 0, held
+      at(10_000);
+      const b = resolveIdentities(BEARER, ["alice"]); // sent at t = 10 s (A has not answered: nothing is held), held
+      expect(calls).toHaveLength(2);
+      at(20_000);
+      first.release(only("active", "Old")());
+      await a;
+      second.release(only("deleted", null)());
+      await b;
+      expect((await resolveIdentities(BEARER, ["alice"])).get("alice")).toEqual({ id: "alice", status: "deleted", name: null });
+      expect(calls).toHaveLength(2);
+    });
+
+    it("equal send instants are not 'older': the answer that comes last is the one kept", async () => {
+      const first = held();
+      answer = (_ids, call) => (call === 1 ? first.promise : only("deleted", null)());
+      at(0);
+      const a = resolveIdentities(BEARER, ["alice"]); // sent at t = 0, held
+      await resolveIdentities(BEARER, ["alice"]); // also sent at t = 0, `deleted`
+      first.release(only("active", "Last")());
+      await a;
+      expect((await resolveIdentities(BEARER, ["alice"])).get("alice")).toEqual({ id: "alice", status: "active", name: "Last" });
+      expect(calls).toHaveLength(2);
+    });
+  });
+
   it.each([["active"], ["deleted"], ["unknown"]] as const)("keeps a person `auth` answers %s with a 200", async (status) => {
     answer = (ids) => Response.json({ users: ids.map((id) => ({ id, status, name: status === "active" ? "Ada Rossi" : null })) });
     const first = await resolveIdentities(BEARER, ["p"]);
@@ -261,6 +328,37 @@ describe("the cache (T46: ADR 20260807 § 3, 60 s, keyed by user id, counted fro
     expect(second.get("alice")).toEqual(ALICE);
   });
 
+  it.each<[string, Record<string, unknown>]>([
+    ["a number", { id: "alice", status: "active", name: 42 }],
+    ["an object", { id: "alice", status: "active", name: { first: "Alice" } }],
+    ["a list", { id: "alice", status: "active", name: ["Alice"] }],
+    ["a boolean", { id: "alice", status: "active", name: true }],
+    ["no name member at all", { id: "alice", status: "active" }],
+  ])("never keeps an `active` item whose name is %s (an item of any other shape): the read names no one, the next asks again", async (_label, item) => {
+    answer = () => Response.json({ users: [item] });
+    const first = await resolveIdentities(BEARER, ["alice"]);
+    // No readable name is no name; it is `auth`'s contract that is broken, and it is not remembered.
+    expect(first.get("alice")).toEqual({ id: "alice", status: "active", name: null });
+    expect(__identityCacheSizeForTests()).toBe(0);
+    answer = activeAll;
+    const second = await resolveIdentities(BEARER, ["alice"]);
+    expect(calls).toHaveLength(2);
+    expect(second.get("alice")).toEqual(ALICE);
+  });
+
+  it.each<[string, string | null, string | null]>([
+    ["a name", "Ada Rossi", "Ada Rossi"],
+    ["an empty name", "", null],
+    ["a null name", null, null],
+  ])("keeps an `active` item with %s, the two shapes `auth` sends (z.string().nullable())", async (_label, sent, read) => {
+    answer = () => Response.json({ users: [{ id: "alice", status: "active", name: sent }] });
+    const first = await resolveIdentities(BEARER, ["alice"]);
+    expect(first.get("alice")).toEqual({ id: "alice", status: "active", name: read });
+    expect(__identityCacheSizeForTests()).toBe(1);
+    await resolveIdentities(BEARER, ["alice"]);
+    expect(calls).toHaveLength(1);
+  });
+
   it("never keeps an id the answer left out, and keeps the ones it named", async () => {
     answer = () => Response.json({ users: [{ id: "alice", status: "active", name: "Alice" }] });
     const first = await resolveIdentities(BEARER, ["alice", "bob"]);
@@ -296,6 +394,24 @@ describe("the cache (T46: ADR 20260807 § 3, 60 s, keyed by user id, counted fro
     const result = await quietly(() => resolveIdentities(BEARER, ["alice"]));
     expect(result.get("alice")).toEqual({ id: "alice", status: "unknown", name: null });
     expect(calls).toHaveLength(2);
+  });
+
+  it("forgets an entry at the lookup that finds it past its 60 s, so a failing refresh leaves no name in memory (plan § Security: at most 60 s from the question)", async () => {
+    at(0);
+    await resolveIdentities(BEARER, ["alice"]);
+    expect(__identityCacheSizeForTests()).toBe(1);
+    // One millisecond short of the 60 s the entry is live: a read finds it, and must not forget it.
+    at(59_999);
+    await resolveIdentities(BEARER, ["alice"]);
+    expect(__identityCacheSizeForTests()).toBe(1);
+    expect(calls).toHaveLength(1);
+    answer = () => new Response("down", { status: 503 });
+    at(60_000);
+    const result = await quietly(() => resolveIdentities(BEARER, ["alice"]));
+    expect(result.get("alice")).toEqual({ id: "alice", status: "unknown", name: null });
+    expect(calls).toHaveLength(2);
+    // The refresh failed and nothing replaced the old name: it must not still be held, under the sweep's 5 000 or not.
+    expect(__identityCacheSizeForTests()).toBe(0);
   });
 
   it("leaves what is cached alone when another batch of the same read fails", async () => {
@@ -372,13 +488,14 @@ describe("the cache (T46: ADR 20260807 § 3, 60 s, keyed by user id, counted fro
       // 4 999 expired entries: below the threshold nothing is swept (and none is served).
       await resolveIdentities(BEARER, ["fresh-1"]);
       expect(__identityCacheSizeForTests()).toBe(5_000);
-      // At the threshold the next fetch sweeps the expired ones: `user-0` is among them, asked again and kept anew.
-      await resolveIdentities(BEARER, ["user-0"]);
-      expect(calls.at(-1)?.ids).toEqual(["user-0"]);
+      // At the threshold the next fetch sweeps the 4 999 expired ones, whose ids nobody asked about (an id that IS asked
+      // about is forgotten by its own lookup, never reaching the sweep: "forgets an entry at the lookup").
+      await resolveIdentities(BEARER, ["fresh-2"]);
+      expect(calls.at(-1)?.ids).toEqual(["fresh-2"]);
       expect(__identityCacheSizeForTests()).toBe(2);
       // Live entries are never swept: both are still answered without a call.
       const before = calls.length;
-      await resolveIdentities(BEARER, ["fresh-1", "user-0"]);
+      await resolveIdentities(BEARER, ["fresh-1", "fresh-2"]);
       expect(calls).toHaveLength(before);
     });
   });

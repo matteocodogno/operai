@@ -3,8 +3,9 @@
  * AC-2.6, AC-2.9, AC-4.7, AC-4.8, AC-4.10).
  *
  * The names next to an entry belong to other services, and what a name may be shown to depends on WHO
- * is looking. So every name is read live, as the VIEWER where an owner can answer as one, from the
- * owner that holds it, and never stored here:
+ * is looking. So every name is read from the owner that holds it, as the VIEWER where an owner can answer as one,
+ * and never stored here. Read live, every source but `identities`: people's names are kept in process memory for at most
+ * 60 s, one map for every viewer, so a rename shows within that (plan § Sequences "Names", `src/lib/identities.ts`):
  *
  *   identities      auth        people's names                       (the viewer's Authorization)
  *   projects        projects-api  project labels                     (as the viewer)
