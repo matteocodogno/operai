@@ -1,0 +1,270 @@
+{
+  "_comment": "Golden vectors of src/accounting/amounts.ts (specs/20261118-refund-accounting-export, ADR 20261118-chf-and-vat-amounts-...). Expected values computed independently with exact rational arithmetic (Python fractions), half up, one rounding per figure. Shared with the golden CSV test (T17). null = unknown, never 0.",
+  "chf": [
+    {
+      "description": "AC-6.3: 1040 EUR cents at 0.9246 = 961.584 -> 962",
+      "amountCents": 1040,
+      "currency": "EUR",
+      "rateMicros": 924600,
+      "expectedCents": 962
+    },
+    {
+      "description": "USD 1040 at 0.7808 = 812.032 -> 812",
+      "amountCents": 1040,
+      "currency": "USD",
+      "rateMicros": 780800,
+      "expectedCents": 812
+    },
+    {
+      "description": "GBP 1040 at 1.0635 = 1106.04 -> 1106",
+      "amountCents": 1040,
+      "currency": "GBP",
+      "rateMicros": 1063500,
+      "expectedCents": 1106
+    },
+    {
+      "description": "zero amount stays zero (AC-6.12)",
+      "amountCents": 0,
+      "currency": "EUR",
+      "rateMicros": 924600,
+      "expectedCents": 0
+    },
+    {
+      "description": "exact result, no rounding: 10000 at 0.9 = 9000",
+      "amountCents": 10000,
+      "currency": "EUR",
+      "rateMicros": 900000,
+      "expectedCents": 9000
+    },
+    {
+      "description": "half-up tie: 1 x 0.5 = 0.5 -> 1",
+      "amountCents": 1,
+      "currency": "EUR",
+      "rateMicros": 500000,
+      "expectedCents": 1
+    },
+    {
+      "description": "just under the tie: 1 x 0.499999 = 0.499999 -> 0",
+      "amountCents": 1,
+      "currency": "EUR",
+      "rateMicros": 499999,
+      "expectedCents": 0
+    },
+    {
+      "description": "just over the tie: 1 x 0.500001 -> 1",
+      "amountCents": 1,
+      "currency": "EUR",
+      "rateMicros": 500001,
+      "expectedCents": 1
+    },
+    {
+      "description": "half-up tie: 3 x 0.5 = 1.5 -> 2",
+      "amountCents": 3,
+      "currency": "USD",
+      "rateMicros": 500000,
+      "expectedCents": 2
+    },
+    {
+      "description": "half-up tie: 5 x 0.1 = 0.5 -> 1",
+      "amountCents": 5,
+      "currency": "GBP",
+      "rateMicros": 100000,
+      "expectedCents": 1
+    },
+    {
+      "description": "half-up tie: 2 x 0.25 = 0.5 -> 1",
+      "amountCents": 2,
+      "currency": "EUR",
+      "rateMicros": 250000,
+      "expectedCents": 1
+    },
+    {
+      "description": "half-up tie: 7 x 0.5 = 3.5 -> 4",
+      "amountCents": 7,
+      "currency": "EUR",
+      "rateMicros": 500000,
+      "expectedCents": 4
+    },
+    {
+      "description": "rate of exactly 1: amount unchanged",
+      "amountCents": 12345,
+      "currency": "EUR",
+      "rateMicros": 1000000,
+      "expectedCents": 12345
+    },
+    {
+      "description": "a very small rate rounds to 0",
+      "amountCents": 99,
+      "currency": "USD",
+      "rateMicros": 1000,
+      "expectedCents": 0
+    },
+    {
+      "description": "large amount: EUR 999999.99 at 0.9246",
+      "amountCents": 99999999,
+      "currency": "EUR",
+      "rateMicros": 924600,
+      "expectedCents": 92459999
+    },
+    {
+      "description": "large amount: 99999999 GBP at 1.0635",
+      "amountCents": 99999999,
+      "currency": "GBP",
+      "rateMicros": 1063500,
+      "expectedCents": 106349999
+    },
+    {
+      "description": "largest rate accepted by the source check, 999.999999",
+      "amountCents": 1,
+      "currency": "EUR",
+      "rateMicros": 999999999,
+      "expectedCents": 1000
+    },
+    {
+      "description": "CHF line: the amount itself, no rate needed",
+      "amountCents": 1040,
+      "currency": "CHF",
+      "rateMicros": null,
+      "expectedCents": 1040
+    },
+    {
+      "description": "CHF line: a stray rate is ignored",
+      "amountCents": 1040,
+      "currency": "CHF",
+      "rateMicros": 924600,
+      "expectedCents": 1040
+    },
+    {
+      "description": "CHF line at 0",
+      "amountCents": 0,
+      "currency": "CHF",
+      "rateMicros": null,
+      "expectedCents": 0
+    },
+    {
+      "description": "EUR line without a rate: unknown (null), never 0 and never a rate of 1",
+      "amountCents": 1040,
+      "currency": "EUR",
+      "rateMicros": null,
+      "expectedCents": null
+    },
+    {
+      "description": "0 EUR without a rate is still unknown",
+      "amountCents": 0,
+      "currency": "EUR",
+      "rateMicros": null,
+      "expectedCents": null
+    },
+    {
+      "description": "product above 2^53 (1e17): exact only with BigInt",
+      "amountCents": 99999999,
+      "currency": "USD",
+      "rateMicros": 999999999,
+      "expectedCents": 99999998900
+    }
+  ],
+  "vat": [
+    {
+      "description": "AC-6.4: 2080 CHF cents at 8.1% = 155.86 -> 156",
+      "chfCents": 2080,
+      "rateBasisPoints": 810,
+      "expectedCents": 156
+    },
+    {
+      "description": "CHF 9.62 (from AC-6.3) at 8.1% = 72.08 -> 72",
+      "chfCents": 962,
+      "rateBasisPoints": 810,
+      "expectedCents": 72
+    },
+    {
+      "description": "7.7%: 10770 at 770 bp = 770 exactly",
+      "chfCents": 10770,
+      "rateBasisPoints": 770,
+      "expectedCents": 770
+    },
+    {
+      "description": "zero amount",
+      "chfCents": 0,
+      "rateBasisPoints": 810,
+      "expectedCents": 0
+    },
+    {
+      "description": "0% VAT: nothing contained",
+      "chfCents": 5000,
+      "rateBasisPoints": 0,
+      "expectedCents": 0
+    },
+    {
+      "description": "100% VAT (10000 bp): half of the gross",
+      "chfCents": 1000,
+      "rateBasisPoints": 10000,
+      "expectedCents": 500
+    },
+    {
+      "description": "half-up tie at 100%: 1 x 10000/20000 = 0.5 -> 1",
+      "chfCents": 1,
+      "rateBasisPoints": 10000,
+      "expectedCents": 1
+    },
+    {
+      "description": "half-up tie at 100%: 3 -> 1.5 -> 2",
+      "chfCents": 3,
+      "rateBasisPoints": 10000,
+      "expectedCents": 2
+    },
+    {
+      "description": "half-up tie at 100%: 5 -> 2.5 -> 3",
+      "chfCents": 5,
+      "rateBasisPoints": 10000,
+      "expectedCents": 3
+    },
+    {
+      "description": "small amount: 1 cent at 8.1% = 0.0749 -> 0",
+      "chfCents": 1,
+      "rateBasisPoints": 810,
+      "expectedCents": 0
+    },
+    {
+      "description": "13 cents at 8.1%: 0.974 -> 1",
+      "chfCents": 13,
+      "rateBasisPoints": 810,
+      "expectedCents": 1
+    },
+    {
+      "description": "2.6% (260 bp): 10260 -> 260",
+      "chfCents": 10260,
+      "rateBasisPoints": 260,
+      "expectedCents": 260
+    },
+    {
+      "description": "large amount: 99999999 at 8.1%",
+      "chfCents": 99999999,
+      "rateBasisPoints": 810,
+      "expectedCents": 7493062
+    },
+    {
+      "description": "37 bp (0.37%) on 100000",
+      "chfCents": 100000,
+      "rateBasisPoints": 37,
+      "expectedCents": 369
+    },
+    {
+      "description": "CHF amount unknown: VAT unknown (null), never 0",
+      "chfCents": null,
+      "rateBasisPoints": 810,
+      "expectedCents": null
+    },
+    {
+      "description": "no VAT code: VAT unknown (null), never 0",
+      "chfCents": 1000,
+      "rateBasisPoints": null,
+      "expectedCents": null
+    },
+    {
+      "description": "neither known",
+      "chfCents": null,
+      "rateBasisPoints": null,
+      "expectedCents": null
+    }
+  ]
+}

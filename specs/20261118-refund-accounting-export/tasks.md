@@ -71,7 +71,7 @@ Reading the list:
     and its condition and the seed test asserting the three grants; `uniqueResourceKeys.test.ts`
     green.
 
-- [ ] T3: refund-api — pure `amounts.ts` (CHF, VAT; integer, half-up, once) and `receiptNumber.ts` (initials, format) — refs: AC-3.8, AC-4.2, AC-4.8, AC-6.3, AC-6.4, AC-6.12 — deps: none
+- [x] T3: refund-api — pure `amounts.ts` (CHF, VAT; integer, half-up, once) and `receiptNumber.ts` (initials, format) — refs: AC-3.8, AC-4.2, AC-4.8, AC-6.3, AC-6.4, AC-6.12 — deps: none
   - touch: `refund-api/src/accounting/amounts.ts`, `refund-api/src/accounting/amounts.test.ts`, `refund-api/src/accounting/amounts-vectors.json`, `refund-api/src/accounting/receiptNumber.ts`, `refund-api/src/accounting/receiptNumber.test.ts`
   - agent: backend-dev · backend
   - Details:
