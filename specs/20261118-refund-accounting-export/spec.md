@@ -9,6 +9,30 @@ approved: 2026-11-18
 
 # Refund accounting: ledger accounts, VAT, receipt numbers and the batch export
 
+## Amendments
+
+- **2026-11-18 (post-approval, unattended run, user pre-authorised):** two amendments proposed
+  by the architect in plan.md, plus two clarifications. Existing AC ids are unchanged; new ACs
+  take the next free number in their story.
+  - **A1, reactivation.** An admin can reactivate a deactivated ledger account or VAT code,
+    audited like deactivation. Reactivation is the path back after AC-1.4's refusal of a
+    duplicate code. New: AC-1.9, AC-1.10, AC-1.11 (reactivating an already active entry is
+    refused). Adjusted: AC-1.2, AC-1.4 (the duplicate refusal stays, and also covers a
+    deactivated entry), AC-1.7 and AC-1.8 (reactivation added to the denied and audited
+    actions). New Non-goal: editing or deleting accounts and VAT codes.
+  - **A2, foreign-currency VAT code.** New domain term "foreign-currency VAT code" (see Domain
+    language). AC-3.2 now refers to it. New: AC-2.5 to AC-2.8 (designating it, active codes
+    only, what happens when none is usable, admin only). Adjusted: AC-2.3 (designation changes
+    do not touch approved lines), AC-3.2, AC-3.4 (a non-CHF line with no usable
+    foreign-currency VAT code blocks approval), AC-7.1 and AC-7.2 (same rule for pre-release
+    lines in another currency); the US-2 story sentence mentions it. New Non-goal: a
+    different VAT code per foreign currency. New open question: which code is designated at
+    release.
+  - **Clarification, batch identifier.** The "batch identifier" in AC-6.2 is the batch's
+    identifier as shown in Refund. Adjusted: AC-6.2 (wording only).
+  - **Clarification, pre-release WellD Italia lines.** WellD Italia lines approved before
+    this feature stay unnumbered. New: AC-7.3 and a Non-goal.
+
 ## Problem
 
 Refund now carries an expense from the employee's request to a paid monthly batch, but the
@@ -38,6 +62,9 @@ settings). New terms:
   new code.
 - **default VAT code** — the VAT code an expense type gets unless accounting says otherwise,
   configured per expense type for WellD CH.
+- **foreign-currency VAT code** — the VAT code, designated once for WellD CH in Settings, that
+  a WellD CH line in a currency other than CHF gets by default instead of its expense type's
+  default VAT code. It is the register's "no VAT" case.
 - **classification** — a line's ledger account and VAT code together.
 - **VAT amount** — the VAT contained in a line's CHF amount: `amount − amount / (1 + rate)`,
   rounded to the cent.
@@ -64,26 +91,39 @@ that every expense is booked to an account and a VAT code that exist in the book
 - AC-1.1: Given the Settings tab, when an admin adds a ledger account with a number and a
   name, then it appears in the list of accounts and can be chosen as a default account or as a
   line's account.
-- AC-1.2: Given an existing ledger account, when an admin tries to add another account with
-  the same number, then the addition is refused with a message naming the duplicate number.
+- AC-1.2: Given an existing ledger account, active or deactivated, when an admin tries to add
+  another account with the same number, then the addition is refused with a message naming the
+  duplicate number.
 - AC-1.3: Given a ledger account, when an admin deactivates it, then it can no longer be chosen
   for a new classification, and every line already classified with it keeps it unchanged.
 - AC-1.4: Given the Settings tab, when an admin adds a VAT code with a code, a label and a rate
   between 0 % and 100 %, then it appears in the list of VAT codes; adding a code that already
-  exists is refused.
+  exists, active or deactivated, is refused (reactivation, AC-1.10, is the way back to a
+  deactivated code).
 - AC-1.5: Given an existing VAT code, when an admin tries to change its rate, then no such edit
   is offered; the admin can only deactivate the code and add a new one.
 - AC-1.6: Given a deactivated VAT code, when accounting classifies a line, then that code is
   not offered, and lines already carrying it keep it unchanged.
-- AC-1.7: Given a user without the refund admin capability, when they try to add, deactivate
-  or view the management of accounts or VAT codes, then the action is denied.
-- AC-1.8: Given any addition or deactivation of an account or VAT code, when it is saved, then
-  the audit trail records who did it, when, and the before/after state.
+- AC-1.7: Given a user without the refund admin capability, when they try to add, deactivate,
+  reactivate or view the management of accounts or VAT codes, then the action is denied.
+- AC-1.8: Given any addition, deactivation or reactivation of an account or VAT code, when it
+  is saved, then the audit trail records who did it, when, and the before/after state.
+- AC-1.9: Given a deactivated ledger account, when an admin reactivates it, then it is listed
+  as active with the same number and name, it can again be chosen as a default account or as a
+  line's account, and the classification of every existing line is unchanged.
+- AC-1.10: Given a deactivated VAT code, when an admin reactivates it, then it is listed as
+  active with the same code, label and rate, it can again be chosen as a default VAT code, as
+  the foreign-currency VAT code or as a line's VAT code, and the classification of every
+  existing line is unchanged.
+- AC-1.11: Given a ledger account or VAT code that is already active, when an admin tries to
+  reactivate it, then the action is refused with a message saying it is already active, and
+  nothing is recorded in the audit trail.
 
 ### US-2: Admin sets the default classification of each expense type
 
 As a refund admin, I want each expense type to have a default ledger account and a default VAT
-code for WellD CH, so that accounting only intervenes on the exceptions.
+code for WellD CH, and one VAT code for lines in a foreign currency, so that accounting only
+intervenes on the exceptions.
 
 **Acceptance criteria:**
 - AC-2.1: Given the Settings tab, when an admin sets the default account and the default VAT
@@ -91,10 +131,23 @@ code for WellD CH, so that accounting only intervenes on the exceptions.
   default stays visible in the history.
 - AC-2.2: Given the twelve expense types, when the Settings tab is opened, then each type shows
   its current default account and default VAT code, or that it has none.
-- AC-2.3: Given a default classification that changes, when the change is saved, then the
-  classification of every line already approved is unchanged (see AC-3.5).
+- AC-2.3: Given a default classification or the foreign-currency VAT code that changes, when
+  the change is saved, then the classification of every line already approved is unchanged (see
+  AC-3.5).
 - AC-2.4: Given only active accounts and VAT codes, when an admin chooses a default, then only
   active accounts and codes are offered.
+- AC-2.5: Given the Settings tab, when an admin designates a VAT code as the foreign-currency
+  VAT code, then the change is saved with who made it and when, the previous designation stays
+  visible in the history, and the Settings tab shows the code currently designated, or that
+  none is.
+- AC-2.6: Given an inactive VAT code, when an admin designates the foreign-currency VAT code,
+  then only active codes are offered, and an attempt to designate an inactive one is refused.
+- AC-2.7: Given a foreign-currency VAT code that is not designated, or whose designated code is
+  deactivated, when accounting opens a WellD CH line in a currency other than CHF, then the line
+  shows the default account of its expense type and no VAT code, so AC-3.4 applies unless
+  accounting classifies the line.
+- AC-2.8: Given a user without the refund admin capability, when they try to designate or view
+  the management of the foreign-currency VAT code, then the action is denied.
 
 ### US-3: Accounting reviews and corrects each line's classification
 
@@ -106,14 +159,16 @@ able to correct it, so that I book exceptions without re-keying the rule.
   the line shows the default account and default VAT code of its expense type, marked as
   defaults.
 - AC-3.2: Given a submitted request with a WellD CH line in a currency other than CHF, when
-  accounting opens it, then the line shows the default account of its expense type and the "no
-  VAT" code, marked as defaults.
+  accounting opens it, then the line shows the default account of its expense type and the
+  foreign-currency VAT code, marked as defaults.
 - AC-3.3: Given a WellD CH line under review, when accounting changes its account or VAT code
   to another active one, then the line keeps the chosen value, it is no longer marked as a
   default, and the audit trail records who changed what from which value to which value.
-- AC-3.4: Given a WellD CH line whose expense type has no default account or no default VAT
-  code, and that accounting has not classified, when accounting tries to approve the request,
-  then the approval is refused and names the lines left without an account or a VAT code.
+- AC-3.4: Given a WellD CH line that has no default account or no usable default VAT code, and
+  that accounting has not classified, when accounting tries to approve the request, then the
+  approval is refused and names the lines left without an account or a VAT code. The default
+  VAT code of a line in CHF is that of its expense type; that of a line in another currency is
+  the foreign-currency VAT code (AC-2.7).
 - AC-3.5: Given a request, when accounting approves it, then every WellD CH line that is not
   rejected keeps the account and VAT code it showed at that moment, whatever later changes to
   the defaults.
@@ -198,7 +253,8 @@ WellD CH expense, so that I can import it into the accounting system instead of 
 - AC-6.2: Given an export, then each row carries, in this order: employee name, receipt number,
   expense date, expense type, reason (`motivo`), km (empty when not a mileage line), currency,
   approved total in that currency, exchange rate used (empty for CHF), CHF amount, account
-  number, account name, VAT code, VAT rate, VAT amount in CHF, batch identifier.
+  number, account name, VAT code, VAT rate, VAT amount in CHF, batch identifier (the batch's
+  identifier as shown in Refund).
 - AC-6.3: Given a line in EUR dated 2026-03-02 with an approved total of 10.40 and an EUR rate
   in effect for March 2026 of 0.9246, when it is exported, then its CHF amount is 9.62.
 - AC-6.4: Given a CHF line of 20.80 classified with a VAT code at 8.1 %, when it is exported,
@@ -229,17 +285,25 @@ so that the first batches after the release still export.
 
 **Acceptance criteria:**
 - AC-7.1: Given a WellD CH line approved before this feature, when the feature is released,
-  then it receives the current default classification of its expense type and a receipt
-  number, numbered by the rules of US-4 in order of expense date, and the audit trail records
-  both as done by the system.
-- AC-7.2: Given a WellD CH line approved before this feature whose expense type has no default
-  at release time, when its batch is exported, then the export is refused and lists those lines
-  until accounting classifies them (AC-3.6).
+  then it receives the current default classification of its expense type (for a line in a
+  currency other than CHF: the default account of its expense type and the foreign-currency VAT
+  code) and a receipt number, numbered by the rules of US-4 in order of expense date, and the
+  audit trail records both as done by the system.
+- AC-7.2: Given a WellD CH line approved before this feature that has no default account or no
+  usable default VAT code at release time (AC-2.7 for a line in another currency), when its
+  batch is exported, then the export is refused and lists those lines until accounting
+  classifies them (AC-3.6).
+- AC-7.3: Given a WellD Italia line approved before this feature, when the feature is released
+  and afterwards, then it receives no receipt number and no classification, and it is left out
+  of the accounting export as in AC-6.6.
 
 ## Non-goals
 
 - **WellD Italia accounts and VAT.** Only WellD CH's chart of accounts is in hand; Italian
   lines are reviewed, approved, compiled and paid as today and are left out of the export.
+- **Numbering WellD Italia lines approved before this feature.** Only WellD CH lines get a
+  receipt number retroactively (AC-7.1); Italian lines are numbered only when approved after
+  the release (AC-4.1).
 - **Converting reimbursed amounts.** What the employee is paid stays in the line's own currency,
   and the batch PDF and its per-currency subtotals are unchanged. The CHF amount exists only for
   the accounting export and the VAT amount.
@@ -258,6 +322,10 @@ so that the first batches after the release still export.
 - **Showing accounts, VAT or numbers' meaning to employees** beyond the number itself.
 - **Importing the 2026 register** (`Recap_RS_2026.numbers`) into Refund.
 - **Choosing the exchange rate by any date other than the expense date's month.**
+- **Editing or deleting a ledger account or VAT code.** Deactivation and reactivation are the
+  only changes after creation; a wrong rate means a new code (AC-1.5).
+- **A different VAT code per foreign currency.** One foreign-currency VAT code covers EUR, USD
+  and GBP alike.
 
 ## Constraints
 
@@ -298,3 +366,5 @@ plan proceeds on the stated fallback in each, and accounting answers them before
   twelve expense types (a draft can be read off the register). — owner: accounting
 - [ ] Should changing a line's classification after approval (AC-3.6) be limited to a
   stricter capability than reviewing? — owner: product (Matteo Codogno)
+- [ ] Which VAT code is the foreign-currency VAT code at release (the register's "no VAT"
+  code, whose real name is not known)? — owner: accounting
