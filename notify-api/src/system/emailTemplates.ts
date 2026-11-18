@@ -105,7 +105,7 @@ export type NotificationNoticeTemplateData = {
 /**
  * `legal_entity_change` (specs/20261117-legal-entities T57, AC-9.11-9.13, design.md N1; plan "Amendment 2026-11-17
  * after security review" G5). The shape is the zod `data` (emails.schemas.ts) and is closed: the only values it can
- * carry are an entity, an action, two version numbers, an actor's name, a timestamp, names from two closed sets and
+ * carry are an entity, an action, two version numbers, the author's account email, a timestamp, names from two closed sets and
  * an IBAN token whose longest member is four characters.
  */
 export type LegalEntityIbanToken =
@@ -117,7 +117,8 @@ export type LegalEntityChangeTemplateData = {
   entity: "welld_it" | "welld_ch";
   action: "save" | "restore";
   restoredFrom: number | null;
-  actorName: string;
+  /** The author's account email as recorded (zod: an address, at most 320 characters) or null. Never a display name. */
+  actorEmail: string | null;
   storedAt: string; // ISO 8601 — validated at the zod boundary
   version: number;
   protectedChanged: readonly ("legalName" | "vatNumber" | "iban")[];
@@ -465,11 +466,19 @@ const renderLegalEntityChange = (
   // Closed values only: the subject can never hold a line break or a value (design.md N1, `email.subject`).
   const subject = `Legal details of ${entity} changed: ${details}`;
 
-  const actor = escapeHtml(stripControlsAndBidi(data.actorName) || "an unnamed user");
+  // D9 (design.md N1): the author is named by the account's email, as escaped text and never as a link, and never
+  // by a name. With no address (null) the sentence says so; nothing falls back to a name. The zod boundary already
+  // refuses controls and blanks; stripping again keeps a direct caller from smuggling a line break into the body.
+  const author = data.actorEmail === null ? "" : stripControlsAndBidi(data.actorEmail);
+  const isRestore = data.action === "restore" && data.restoredFrom !== null;
   const byAction =
-    data.action === "restore" && data.restoredFrom !== null
-      ? `Version ${data.restoredFrom} restored by ${actor}.`
-      : `Change saved by ${actor}.`;
+    author === ""
+      ? isRestore
+        ? `Version ${data.restoredFrom} restored by an account with no email address on record.`
+        : "Change saved by an account with no email address on record."
+      : isRestore
+        ? `Version ${data.restoredFrom} restored by the account ${escapeHtml(author)}.`
+        : `Change saved by the account ${escapeHtml(author)}.`;
 
   // Every line is a whole sentence ending in a full stop. Values already escaped or closed; the IBAN token holds
   // `…` and four characters of [A-Z0-9] (zod) and is escaped regardless.

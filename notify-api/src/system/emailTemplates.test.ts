@@ -318,7 +318,7 @@ describe("renderEmailTemplate — notification_notice (specs/20261101-crm-notifi
   });
 });
 
-// Bidi override (RLO) + isolate (LRI): the characters a spoofed actor name would use.
+// Bidi override (RLO) + isolate (LRI): the characters a spoofed author address would carry past the schema.
 const CTL = String.fromCodePoint(0x202e, 0x2066);
 
 describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-entities T57, AC-9.11-9.13, design.md N1)", () => {
@@ -327,7 +327,7 @@ describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-enti
     entity: "welld_ch" as const,
     action: "save" as const,
     restoredFrom: null,
-    actorName: "Anna Rossi",
+    actorEmail: "anna.rossi@welld.ch" as string | null,
     storedAt: "2026-11-17T09:12:00.000Z",
     version: 8,
     protectedChanged: ["iban" as const],
@@ -347,7 +347,7 @@ describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-enti
     expect(html).toContain("<p><strong>The legal details of WellD CH were changed</strong></p>");
     expect(html).toContain(
       [
-        "<p>Change saved by Anna Rossi.",
+        "<p>Change saved by the account anna.rossi@welld.ch.",
         "When: 17 November 2026, 10:12 CET (Europe/Zurich).",
         "New version: 8.",
         "Details changed: IBAN.",
@@ -381,7 +381,7 @@ describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-enti
 
   it("a restore in a summer date reads 'Version m restored by …' and CEST", () => {
     const { html } = render({ action: "restore", restoredFrom: 5, storedAt: "2026-07-01T09:12:00Z" });
-    expect(html).toContain("Version 5 restored by Anna Rossi.");
+    expect(html).toContain("Version 5 restored by the account anna.rossi@welld.ch.");
     expect(html).not.toContain("Change saved by");
     expect(html).toContain("When: 1 July 2026, 11:12 CEST (Europe/Zurich).");
   });
@@ -432,19 +432,67 @@ describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-enti
     }
   });
 
-  it("escapes the actor and strips controls and bidi characters; the subject never holds the actor", () => {
-    const { subject, html } = render({
-      actorName: `<script>alert(1)</script>${CTL}A${String.fromCodePoint(0x200b)}nna\r\n\t${String.fromCodePoint(0)} "R"&${String.fromCodePoint(0x2028)}`,
-    });
+  it("prints the author address as escaped text: a hostile local part is neutralised, no markup survives", () => {
+    const hostile = `<script>alert(1)</script>"&'@example.test`;
+    const { html } = render({ actorEmail: hostile });
     expect(html).not.toContain("<script>");
-    expect(html).toContain("Change saved by &lt;script&gt;alert(1)&lt;/script&gt;Anna &quot;R&quot;&amp;.");
-    expect([...html].filter((ch) => /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(ch) && ch !== "\n")).toEqual([]);
-    expect(subject).not.toContain("Anna");
-    expect(subject).not.toMatch(/[\r\n]/);
+    expect(html).toContain(
+      "Change saved by the account &lt;script&gt;alert(1)&lt;/script&gt;&quot;&amp;&#39;@example.test.",
+    );
+    expect(html).not.toContain(hostile);
   });
 
-  it("an actor name that is nothing but controls still reads as a sentence", () => {
-    expect(render({ actorName: `${String.fromCodePoint(0x202e)}${String.fromCodePoint(0)}` }).html).toContain("Change saved by an unnamed user.");
+  it("strips controls and bidi characters a direct caller might pass (the schema refuses them before)", () => {
+    const { html } = render({
+      actorEmail: `${CTL}a${String.fromCodePoint(0x200b)}b\r\n\t${String.fromCodePoint(0)}@example.test${String.fromCodePoint(0x2028)}`,
+    });
+    expect(html).toContain("Change saved by the account ab@example.test.");
+    expect([...html].filter((ch) => /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(ch) && ch !== "\n")).toEqual([]);
+  });
+
+  it("no mailto: link and no anchor around the address, in any case; the address is in the body once and never in the subject", () => {
+    for (const overrides of [
+      {},
+      { action: "restore", restoredFrom: 5 },
+      { actorEmail: null },
+      { actorEmail: "a".repeat(64) + "@" + "b".repeat(63) + ".example.test" },
+    ] as Record<string, unknown>[]) {
+      const { subject, html } = render(overrides);
+      expect(html.toLowerCase()).not.toContain("mailto");
+      // The only link in the message is the history button.
+      expect(html.match(/<a /g)).toHaveLength(1);
+      const address = "actorEmail" in overrides ? overrides["actorEmail"] : winter.actorEmail;
+      if (typeof address === "string") {
+        expect(html.split(address)).toHaveLength(2);
+        expect(subject).not.toContain(address);
+        expect(subject).not.toContain("@");
+      }
+      expect(subject).toBe("Legal details of WellD CH changed: IBAN");
+    }
+  });
+
+  it("an author with no address on record says so, for a save and for a restore; no name fallback", () => {
+    const save = render({ actorEmail: null }).html;
+    expect(save).toContain("<p>Change saved by an account with no email address on record.<br>");
+    expect(save).not.toContain("unnamed");
+    expect(save).not.toContain("Anna");
+    const restore = render({ actorEmail: null, action: "restore", restoredFrom: 5 }).html;
+    expect(restore).toContain("Version 5 restored by an account with no email address on record.");
+    expect(restore).not.toContain("Change saved by");
+    // Every other line is unchanged.
+    expect(save).toContain("New version: 8.");
+  });
+
+  it("an address that is nothing but controls reads as no address on record, never as a name", () => {
+    expect(render({ actorEmail: `${String.fromCodePoint(0x202e)}${String.fromCodePoint(0)}` }).html).toContain(
+      "Change saved by an account with no email address on record.",
+    );
+  });
+
+  it("a 320-character address is printed whole, once, in a body far under the 2000 limit of the notice", () => {
+    const longest = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.${"e".repeat(63)}.test`.slice(0, 320);
+    const { html } = render({ actorEmail: longest });
+    expect(html.split(longest)).toHaveLength(2);
   });
 
   it("refuses to render without APP_BASE_URL (the route answers `not_configured` before)", () => {

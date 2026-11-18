@@ -106,7 +106,7 @@ export const RefundDecisionRejectedDataSchema = z.object({
 
 // specs/20261117-legal-entities T57 (AC-9.11, AC-9.12; plan "Amendment 2026-11-17 after security review" G5) —
 // `legal_entity_change`'s `data`. STRICT and CLOSED: every member is an enum, a number, a timestamp, one bounded
-// name (the actor's) or an IBAN token whose only free-form member is four characters. There is no member that can
+// address (the author's account email, D9) or an IBAN token whose only free-form member is four characters. There is no member that can
 // hold a legal name, a VAT number, an address, a contacts line or more than the last 4 characters of an IBAN, so
 // AC-9.12 is enforced by the receiver as well as by the sender. An extra member is a 400 (`strictObject`).
 export const LEGAL_ENTITIES = ["welld_it", "welld_ch"] as const;
@@ -131,8 +131,11 @@ export const LegalEntityChangeDataSchema = z
     action: z.enum(["save", "restore"]),
     // The version a restore copied from; null for a save.
     restoredFrom: z.number().int().min(1).max(2147483647).nullable(),
-    // The sender strips controls and bidi characters; the template does it again and escapes (emailTemplates.ts).
-    actorName: z.string().min(1, "data.actorName is required").max(200),
+    // specs/20261117-legal-entities T79 (D9, plan J4): the author's account email as recorded when the version was
+    // stored, by the same rule as `to` (ToSchema below); null = "no email address on record". Required. There is no
+    // display name member: `actorName` is an unknown member of this strict object, so a caller that sends it gets a
+    // 400. The 400 names the path and the message only, never the value (zod issues carry no input).
+    actorEmail: z.string().email("data.actorEmail must be an email address").max(320).nullable(),
     storedAt: z.string().datetime({ offset: true, message: "data.storedAt must be ISO 8601" }),
     version: z.number().int().min(1).max(2147483647),
     protectedChanged: z.array(z.enum(LEGAL_ENTITY_PROTECTED_NAMES)).min(1).max(3).refine(isUnique, "names must be unique"),

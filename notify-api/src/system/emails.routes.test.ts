@@ -744,7 +744,7 @@ const LEGAL_DATA = {
   entity: "welld_ch",
   action: "save",
   restoredFrom: null,
-  actorName: "Anna Rossi",
+  actorEmail: "anna.rossi@welld.ch",
   storedAt: "2026-11-17T09:12:00.000Z",
   version: 8,
   protectedChanged: ["iban"],
@@ -915,8 +915,44 @@ describe("POST /system/emails — legal_entity_change", () => {
       await rejected(legalBody({ data: noVersion }));
       await rejected(withData({ version: 0 }));
       await rejected(withData({ version: 1.5 }));
-      await rejected(withData({ actorName: "" }));
-      await rejected(withData({ actorName: "a".repeat(201) }));
+    });
+    it("actorName, in any form: the display name is no longer a member (strict object)", async () => {
+      await rejected(withData({ actorName: "Anna Rossi" }));
+      await rejected(withData({ actorName: undefined, actorEmail: undefined, name: "Anna Rossi" }));
+      const { actorEmail: _e, ...noEmail } = LEGAL_DATA;
+      await rejected(legalBody({ data: { ...noEmail, actorName: "Anna Rossi" } }));
+      await rejected(withData({ actorName: "Anna Rossi", actorEmail: null }));
+    });
+    it("actorEmail missing, not an address, blank, empty or not a string", async () => {
+      const { actorEmail: _e, ...noEmail } = LEGAL_DATA;
+      await rejected(legalBody({ data: noEmail }));
+      await rejected(withData({ actorEmail: undefined }));
+      for (const actorEmail of ["Anna Rossi", "", " ", "anna.rossi", "anna@", "@welld.ch", "a b@welld.ch", "anna@welld.ch\n", "anna@welld.ch ", '<b>"&"@welld.ch', 42, false, ["anna@welld.ch"], {}]) {
+        await rejected(withData({ actorEmail }));
+      }
+    });
+    it("actorEmail of 321 characters is refused, 320 is the limit (the rule of `to`)", async () => {
+      const ofLength = (n: number) => `${"a".repeat(n - "@welld.ch".length)}@welld.ch`;
+      expect(ofLength(321)).toHaveLength(321);
+      await rejected(withData({ actorEmail: ofLength(321) }));
+      capture();
+      const ok = await postAs(buildLegalApp(), withData({ actorEmail: ofLength(320) }));
+      expect(ok.status).toBe(200);
+      expect(sentMails[0]?.html).toContain(ofLength(320));
+    });
+    it("the 400 body does not contain the refused value, for a bad address, a long one or a name", async () => {
+      capture();
+      for (const data of [
+        { actorEmail: "refused-sentinel-not-an-address" },
+        { actorEmail: `${"x".repeat(330)}@welld.ch` },
+        { actorName: "Refused Sentinel Name" },
+      ]) {
+        const res = await postAs(buildLegalApp(), withData(data));
+        expect(res.status).toBe(400);
+        const text = await res.text();
+        for (const value of Object.values(data)) expect(text).not.toContain(value);
+      }
+      expect(sentMails).toHaveLength(0);
     });
     it("another template's data", () => rejected(legalBody({ data: { inviteUrl: "https://x.test", inviterName: "A", expiresAt: "2026-07-16T10:00:00Z" } })));
   });
@@ -931,6 +967,25 @@ describe("POST /system/emails — legal_entity_change", () => {
     expect(sentMails).toHaveLength(0);
   });
 
+  it("actorEmail null is accepted: the mail says no email address is on record, with no link to an address", async () => {
+    capture();
+    const res = await postAs(buildLegalApp(), withData({ actorEmail: null }));
+    expect(res.status).toBe(200);
+    expect(sentMails).toHaveLength(1);
+    expect(sentMails[0]?.html).toContain("Change saved by an account with no email address on record.");
+    expect(sentMails[0]?.html.toLowerCase()).not.toContain("mailto");
+  });
+
+  it("a valid address reaches the mail as plain text; the subject and the stored delivery row never hold it", async () => {
+    capture();
+    const res = await postAs(buildLegalApp(), legalBody());
+    expect(res.status).toBe(200);
+    expect(sentMails[0]?.html).toContain("Change saved by the account anna.rossi@welld.ch.");
+    expect(sentMails[0]?.html.toLowerCase()).not.toContain("mailto");
+    expect(sentMails[0]?.subject).not.toContain("anna.rossi");
+    expect(JSON.stringify(await legalRows())).not.toContain("anna.rossi");
+  });
+
   it("a restore of version m sends 'Version m restored by …' and a retried key sends once", async () => {
     capture();
     const body = withData(
@@ -942,7 +997,7 @@ describe("POST /system/emails — legal_entity_change", () => {
     expect(((await first.json()) as { status: string }).status).toBe("sent");
     expect(((await second.json()) as { status: string }).status).toBe("sent");
     expect(sentMails).toHaveLength(1);
-    expect(sentMails[0]?.html).toContain("Version 5 restored by Anna Rossi.");
+    expect(sentMails[0]?.html).toContain("Version 5 restored by the account anna.rossi@welld.ch.");
     expect(sentMails[0]?.html).toContain("1 July 2026, 11:12 CEST (Europe/Zurich)");
   });
 });
