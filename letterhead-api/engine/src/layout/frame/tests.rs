@@ -1006,4 +1006,50 @@ mod mark_missing {
             );
         }
     }
+    /// D2: a missing label that the footer breaks across two lines keeps its brackets, in either language.
+    #[test]
+    fn a_missing_label_that_wraps_keeps_its_brackets_in_both_languages() {
+        let mut config = bare_config();
+        config.variants.default.footer.left = vec![plain_line("{iban} {contacts}")];
+        for (language, label) in [("it", ("Riga", "contatti")), ("en", ("Contacts", "line"))] {
+            // The IBAN's length is stepped until the label no longer fits at the end of its line.
+            let mut wrapped = false;
+            for step in 1..400 {
+                // Words of 4 characters, then a tail of 0 to 3 more, so that every width is tried.
+                let iban = format!(
+                    "{}{}",
+                    vec!["CH93"; step / 4 + 1].join(" "),
+                    "x".repeat(step % 4)
+                );
+                let Ok(c) = compile_in(
+                    &LAYOUT_1,
+                    &config,
+                    &assets(),
+                    &request_with(
+                        language,
+                        json!({ "iban": iban }),
+                        json!([paragraph("Corpo.")]),
+                    ),
+                    true,
+                ) else {
+                    break;
+                };
+                let text = crate::output::page_text_marking(&c.document.pages()[0]);
+                let lines: Vec<&str> = text.lines().collect();
+                if let Some(at) = lines
+                    .windows(2)
+                    .position(|w| w[0].ends_with(label.0) && w[1].starts_with(label.1))
+                {
+                    assert!(
+                        lines[at].ends_with(&format!(" \u{27E6}{}", label.0))
+                            && lines[at + 1].starts_with(&format!("{}\u{27E7}", label.1)),
+                        "{language}: {text}"
+                    );
+                    wrapped = true;
+                    break;
+                }
+            }
+            assert!(wrapped, "{language}: the label never wrapped");
+        }
+    }
 }

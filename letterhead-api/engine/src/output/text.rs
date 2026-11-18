@@ -39,8 +39,13 @@ pub fn page_text_marking(page: &Page) -> String {
     let mut runs = inspect::text_runs(page);
     let mut open: Option<(usize, String)> = None; // where the label started, and what it says so far
     for i in 0..runs.len() {
-        if runs[i].fill.as_deref() != Some(MARK_INK) || runs[i].text.trim().is_empty() {
+        if runs[i].fill.as_deref() != Some(MARK_INK) {
             open = None;
+            continue;
+        }
+        // The space where a label breaks is a run of its own, in the mark's ink as well (it is what the engine
+        // breaks the line at): it is part of the label being read, not the end of it (D2).
+        if runs[i].text.trim().is_empty() {
             continue;
         }
         let (start, said) = open.get_or_insert((i, String::new()));
