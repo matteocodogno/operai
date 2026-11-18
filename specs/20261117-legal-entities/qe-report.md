@@ -402,3 +402,124 @@ Unit: the commands of § 3. Stack: `db:release` of auth, `db:deploy` of crm-api,
 `activities-api`), letterhead-api's binary, `vite preview` of the shell and nine remotes as `playwright.config.ts` builds them;
 Playwright `-c` a scratch config with `executablePath` of the installed chromium (deleted afterwards). The import for the e2e registry
 was run once by hand because `mise` is not trusted in worktrees (`bun run scripts/import-crm-legal-details.ts --apply` with both URLs).
+
+## 15. QE delta 2026-11-18 (T77)
+
+Scope: the one product-code change after § 1: `da0b000c` (T77, `letterhead-api/api/src/registry/cache.rs`: a pin-forced refresh keeps the
+held entry as the fallback of that refresh; `PIN_REFRESH_BUDGET` 100 -> 30 per 10 min per process), at branch head `b682c810` (`le/QD`).
+Everything ran locally (compose Postgres :5435, local MinIO, throwaway secrets); the stack I started was stopped afterwards. No product code
+was changed and no test was added (T77 came with its own: `registry.rs` +5, `render.rs` +1).
+
+### 15.1 Delta verdict
+
+## QE delta verdict: PASS (T77); one CI red triaged as a pre-existing test race, outside this feature
+
+| Check | Threshold | Actual | Result |
+|---|---|---|---|
+| letterhead-api `cargo fmt --all --check` | exit 0 | exit 0 | ✓ |
+| letterhead-api clippy `--workspace --all-targets --locked -D warnings` | exit 0 | exit 0 | ✓ |
+| letterhead-api `cargo test --workspace --locked -- --skip conformance:: --test-threads=4`, DB required, MinIO, real `pg_dump` for the residue test | 0 fail | **713 pass** / 0 fail / 1 ignored (api unit 152, preview 21, read 15, **registry 52** (was 47), **render 41** (was 40), render_migrate 5, residue 4 (+1 `#[ignore]`), write 23, engine 376, corpus 24); was 707 at T45: +6 = T77's tests | ✓ |
+| CI "Worst-case table" step, locally: `cargo test --release -p letterhead-api --test pool --test render -- --test-threads=1` | 0 fail | pool **38 pass**, render **41 pass** (82.7 s) on an idle machine | ✓ |
+| Live AC-5.5 / AC-6.2 rehearsal of the fallback (§ 15.2) | per the T77 rule | as specified at every probe; 60 s boundary, recovery and hung-auth variant included | ✓ |
+| crm-api pin path: `issuerGolden.test.ts`, `generation.letterhead.test.ts` (+ `legalEntities.test.ts`, `letterheadClient.test.ts`) | 0 fail | 52 + 44 + 29 + 29 = **154 pass** / 0 fail | ✓ |
+| CI run 44231760303 red (`pool_replaces_a_worker_killed_while_idle`) | explained | reproduced; pre-existing, identical on `origin/main` (§ 15.3); not a defect of this feature | ✓ (triaged) |
+
+Not run (as in T45): the conformance suite (needs the pinned pdfium, so `LETTERHEAD_REQUIRE_PDFIUM` was not set; CI runs it) and `cargo audit` (no
+dependency or lockfile change since T45).
+
+### 15.2 Live rehearsal of the T77 fallback (AC-5.5, AC-6.2)
+
+Stack: auth (`bun`, `ENABLE_TEST_AUTH`, a copy of the T45 e2e database as `auth_qd_t` with `welld_it` at version 32, migrated and seeded at this head),
+letterhead-api **release build** of the head (`letterhead_qd_live`, bucket `letterhead-qd-live`, default letterhead v1 for `welld_it`),
+crm-api with `LETTERHEAD_SERVICE_ENABLED=true` (`crm_qd_t`, a copy of the T45 database) and activities-api (the estimate override needs it);
+`SERVICE_CLIENTS` throwaway (`crm-api`: `letterhead:render legal-entities:read activities.write`; `letterhead-api`: `legal-entities:read`).
+Probes of the service called it directly with `crm-api`'s service token (`POST /v1/render/pdf`, a v2 body, optional `legalEntityVersion` pin);
+the crm-api leg is `POST /deals/{id}/offer-draft/preview` (it goes through `withIssuerPin`). Sequence (clock `+t` from the held entry's send):
+
+1. 32 s idle so that no cache holds a fresh entry; **+0** direct render: the service reads auth, holds **version 32** (the auth log shows the read at that instant).
+2. +0.03 s an admin saves **version 33** (201). +1.3 s crm-api restarted (empty cache); it reads the registry through `GET .../offer-wizard/context`
+   (200: crm-api now holds 33, fresh). +1.6 s **auth stopped** (SIGTERM; health: connection refused).
+3. +2.0 s crm-api preview (pin 33, newer than the 32 held): the service answers **409 `legal_entity_version_mismatch`**
+   (crm-api log: `[letterhead] ... answered HTTP 409`), crm-api drops its cache, waits, and reads the registry again (auth down):
+   **503 `legal_entities_unavailable`, `Retry-After: 5`, 1130 ms in all** (crm-api log: the 409 at `...007.170`, the failed second read at `...008.276`: **1.106 s** between).
+
+| Held entry's age | direct unpinned | direct pin 32 (matching) | direct pin 33 (newer) |
+|---|---|---|---|
+| +3 s | 200, v32, 18 ms | 200, v32, 13 ms | **409, `currentVersion` 32**, 1 ms |
+| +20 s | 200 v32 | 200 v32 | 409, `currentVersion` 32 |
+| +45 s | 200 v32 | 200 v32 | 409, `currentVersion` 32 |
+| +57 s | 200 v32 (service log `registry_stale_used age_ms=57000`) | 200 v32 | 409, `currentVersion` 32 |
+| **+63 s** | **503 `legal_entities_unavailable`, `Retry-After: 5`** | **503** | **503** |
+| +73 s | 503 | 503 | 503 |
+
+4. +73.3 s **auth started** (healthy at once; down 71.7 s in all). +73.9 s: direct unpinned **200, v33** (42 ms), pin 33 200, pin 34 (newer than any) 409
+   `currentVersion` 33, crm-api preview **200** (27 ms). Recovery needed nothing but auth coming back.
+
+Notes on what the rehearsal showed:
+
+- **Expectation corrected.** The brief expected crm-api's retry to end in `layout_service_unavailable`. With auth fully down it ends in
+  **`legal_entities_unavailable`** (503 with `Retry-After: 5`): `withIssuerPin` drops crm-api's own registry cache before its one retry
+  (by design, so the document is rebuilt from fresh details), and the second read of the registry fails first. The safety is the same
+  (a 503, nothing printed, no offer number used); `layout_service_unavailable` is what the retry yields only when crm-api can read the
+  registry and the service still prints another version. Both are "try again later" answers; nothing to fix.
+- crm-api's own calls after +57 s answered 503 in 1 ms from its authorization (it asks auth for the caller's grants and that cache had
+  expired): crm-api's existing fail-closed behaviour with auth down, not the registry path; it says nothing about T77.
+- **Hung auth (SIGSTOP) variant**, auth accepts connections and never answers: the forced refresh waits the 5 s `REFRESH_TIMEOUT`, then the
+  caller that forced it gets **409, `currentVersion` 33, after 5004 ms**, and the unpinned and matching-pin calls that arrived meanwhile are
+  **200 (4735 ms and 4415 ms: they wait for the same flight, then use the held entry)**; later calls each cost one 5 s timeout and are 200 up to
+  the entry's 60th second (5015 ms at +52 s), **503 `legal_entities_unavailable` at +66 s (5005 ms)**; after SIGCONT 200 in 25 ms. Each call
+  through a failing auth costs 5 s: unchanged by T77 (it is the stale-entry rule of AC-3.3), noted so nobody is surprised by it.
+- A first attempt of the SIGSTOP run sent the pin within 1 s of the entry's send; the service answered 409 in 0 ms without calling auth: the
+  "entry sent less than 1 s ago" guard, working as designed (so the real run waited 1.2 s).
+- Budget (30 per 10 min): covered by T77's test `registry_a_failed_forced_refresh_still_counts_for_the_second` and the registry suite
+  (52 pass); not exercised live (30 forced refreshes would only repeat it).
+
+### 15.3 CI run 44231760303: `pool_replaces_a_worker_killed_while_idle` (`api/tests/pool.rs:1084`, `served: WorkerFailed`)
+
+**Verdict: a pre-existing race in the test (and in what it assumes of `kill -9`), not caused by T77 and not by this feature. It is not a defect of an AC.**
+
+- The run: workflow_dispatch of `feat/legal-entities` at `f2912337` (contains T77); the debug "Test" step green, the release "Worst-case table"
+  step red with 37 pass / 1 fail: exactly this test. Of the last 12 runs of the workflow it is the only one red in that step (the other red
+  one, 44151961530, failed in the "Test" step, another cause).
+- **Untouched by this feature**: `git diff origin/main -- letterhead-api/api/src/pool letterhead-api/api/tests/pool.rs` is only 30 added lines in `pool/job.rs`
+  (job fields); `Lease::ensure_worker`, the test and the harness are identical to `origin/main` (`56fbbfa3`). The test came with `f2b83fd6`.
+- **Reproduced, release mode, this machine (24 cores, macOS arm64):**
+
+| Binary | Condition | Runs | Failed | Panic |
+|---|---|---|---|---|
+| branch head (release `--test pool`) | idle | 200 | **0** | |
+| branch head | 30 busy-loop processes on 24 cores | 50 (a first batch: 100) | **18 of 50** (first batch 44 of 100) | `api/tests/pool.rs:1084:65: served: WorkerFailed`, every time |
+| `origin/main` (temporary worktree `../le-QD-qdmain`, own target dir; both removed) | 30 busy loops | 50 | **23 of 50** | the same panic, the same line |
+| `origin/main` | idle | 100 | **0** | |
+| branch head | idle | 100 more | **0** | |
+
+  Same test, same panic, same rate on `origin/main` and on the branch; it needs CPU contention (a shared CI runner).
+- **Root-cause hypothesis (supported by a measurement, not proven on the CI runner itself).** The test does `kill -9 <idle worker pid>` and, as soon as
+  the `kill` command returns, renders. `kill` returns when the signal is *queued*; the target dies when it is next scheduled. `Lease::ensure_worker`
+  (`api/src/pool/mod.rs:447`) decides "the worker died between jobs" with `child.try_wait()`, which says "still running" until the process is
+  really dead; the pool then hands the job to the dying worker, the exchange breaks (`Exchange::Broken`) and the job is answered
+  `PoolError::WorkerFailed` (a job is not retried on another worker). Independent measurement (a 20-line Rust program with the same sequence: spawn,
+  external `kill -9`, immediate `try_wait`; 2000 tries, machine idle): the child was still reported alive **1046 times on macOS and 734 times on Linux
+  (rust:1.100 container, aarch64)**. On an idle machine the test usually survives because the tokio hops between the `kill` and `ensure_worker`
+  take longer than the target's exit; under contention the exit is delayed past them (0 of 400 idle, 36-46 % under load).
+- **What it is, and who owns it.** The comment in the test ("The dead worker is reaped when the pool next looks at it") describes the product's
+  design correctly; the *test* is what is wrong: it does not wait for the death it provoked (it should wait on the condition, e.g. poll until
+  `kill -0` fails or the process is a zombie, before it renders; not a sleep). What the product should do for a job lost to a worker that dies
+  between the liveness check and the write (today `worker_failed`, no retry) is a design question, not a defect of this test.
+  **Owner: backend-dev (test helper in `api/tests/pool.rs`, wait on the condition); architect only if the product should retry such a job on a fresh worker.**
+  Not to be "fixed" by a retry of the test, a skip or a longer sleep. Priority: low (CI-only flake; the job is re-runnable).
+- It does not change the T77 verdict: the same two targets, run again on an idle machine, pass (pool 38, render 41).
+
+### 15.4 What this run left behind (local, safe to drop)
+
+Postgres databases on the compose container: `auth_qd`, `crm_qd`, `auth_qd_live`, `crm_qd_live` (created by mistaken first attempts, migrated, otherwise empty),
+`auth_qd_t`, `crm_qd_t`, `activities_qd`, `letterhead_qd_live`; MinIO bucket `letterhead-qd-live`; the database `letterhead_le_qd` and bucket `letterhead-le-qd` of the
+test run. (A hook of this environment blocks destructive SQL, so they are left.) `node_modules` and generated Prisma clients of `auth`, `crm-api`, `activities-api` in
+this worktree (gitignored). No server of mine is running and no busy-loop process remains; the `origin/main` worktree and its build directory are removed.
+
+### 15.5 Defects, environment faults, recommendations
+
+Defects: none against T77 or an AC.
+Environment faults: none (the red CI test is a race that reproduces on `origin/main`; § 15.3 gives it under its owner, not as a defect of this change).
+`owasp-reviewer`: not needed again for T77 (no input, auth or dependency change; the budget change tightens a limit reviewed in T70).
+Routing: pool test race, backend-dev (test), with an architect question on retrying a job lost to a dying worker (§ 15.3).
