@@ -5,7 +5,7 @@
   "feature": "20261117-legal-entities",
   "rigor": "production",
   "started": "2026-11-17T14:58:00Z",
-  "finished": "2026-11-18T09:59:52Z",
+  "finished": "2026-11-18T10:05:16Z",
   "agents": [
     {
       "agent": "product-owner",
@@ -1219,13 +1219,14 @@
       "committed_at": "2026-11-18T04:31:11+01:00"
     },
     {
-      "agent": "orchestrator",
+      "agent": "evaluator",
       "tasks": [],
       "outcome": "docs(legal-entities): eval round 1 (FAIL 76.5), security delta review, run trace, T44 kept open until T16 (specs/20261117)",
       "commits": [
         "dc658437"
       ],
-      "committed_at": "2026-11-18T04:31:39+01:00"
+      "committed_at": "2026-11-18T04:31:39+01:00",
+      "note": "commit bundles the round-1 eval report, the T76/D2/D3 security delta (owasp-reviewer), the run trace and T44 (orchestrator)"
     },
     {
       "agent": "adr-writer",
@@ -1473,13 +1474,14 @@
       "committed_at": "2026-11-18T10:15:38+01:00"
     },
     {
-      "agent": "orchestrator",
+      "agent": "owasp-reviewer",
       "tasks": [],
       "outcome": "docs(legal-entities): D9 security delta \u2014 PASS WITH NOTES, N1 closed; T88, T89 for its lows (specs/20261117)",
       "commits": [
         "4938917b"
       ],
-      "committed_at": "2026-11-18T10:20:52+01:00"
+      "committed_at": "2026-11-18T10:20:52+01:00",
+      "note": "review committed by the orchestrator together with the tasks it routed"
     },
     {
       "agent": "backend-dev",
@@ -1601,7 +1603,7 @@
       "committed_at": "2026-11-18T10:57:51+01:00"
     },
     {
-      "agent": "orchestrator",
+      "agent": "backend-dev",
       "tasks": [],
       "outcome": "test(auth): assert the email-change refusals and the accepted session (specs/20261117)",
       "commits": [
@@ -1645,6 +1647,26 @@
       ],
       "committed_at": "2026-11-18T10:59:52+01:00"
     },
+    {
+      "agent": "orchestrator",
+      "tasks": [],
+      "outcome": "chore(forge): run trace regenerated from git (specs/20261117)",
+      "commits": [
+        "11528d34"
+      ],
+      "committed_at": "2026-11-18T10:59:52+01:00"
+    },
+    {
+      "agent": "orchestrator",
+      "tasks": [],
+      "outcome": "docs(legal-entities): eval round 4 PASS 80.0 (T47); plan J11 R-D9a confirmed (specs/20261117)",
+      "commits": [
+        "f61d9e69"
+      ],
+      "committed_at": "2026-11-18T11:05:16+01:00"
+    }
+  ],
+  "verdict_only_dispatches": [
     {
       "agent": "owasp-reviewer",
       "tasks": [
@@ -1760,10 +1782,10 @@
   "verdicts": {
     "qe": "PASS (T45) + delta PASS for T77 (\u00a715) + delta PASS for D9 (\u00a716)",
     "owasp": "T46 REVIEW REQUIRED, T70 PASS WITH NOTES, deltas for T76/D2/D3 and D9 PASS WITH NOTES; N1 closed",
-    "eval": "FAIL 76.5 (r1), FAIL 78.3 (r2, b682c810), FAIL 78.3 (r3, owner-requested)"
+    "eval": "FAIL 76.5 (r1), FAIL 78.3 (r2, b682c810), FAIL 78.3 (r3, c8290ae1), PASS 80.0 (r4, owner-requested)"
   },
   "result": "partial",
-  "notes": "Rebuilt 2026-11-18 from git: one entry per branch commit (origin/main..HEAD), agent assigned from the commit's task tag or type; entries with empty commits are verdict-only dispatches. An earlier version of this trace had wrong attributions and a non-existent hash (3db7dbe4, really b682c810). Owner decisions of 2026-11-18 recorded: all orchestrator decisions approved, design approved, N1 decided as D9 (closed). Owner steps outstanding: T15-T18, T48, T49, T71, T87.",
+  "notes": "Rebuilt 2026-11-18 from git: one entry per branch commit (origin/main..HEAD), agent assigned from the commit's task tag or type; entries with empty commits are verdict-only dispatches. An earlier version of this trace had wrong attributions and a non-existent hash (3db7dbe4, really b682c810). Owner decisions of 2026-11-18 recorded: all orchestrator decisions approved, design approved, N1 decided as D9 (closed). Owner steps outstanding: T15-T18, T48, T49, T71, T87. Eval PASS in round 4; spec stays in-progress until the owner's release chain (T16-T18, T87, T44, T48, T49, T71) and T50.",
   "tokens": null,
   "cost_usd": null,
   "terse": false,
