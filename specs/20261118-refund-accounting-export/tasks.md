@@ -118,7 +118,7 @@ Reading the list:
     - the current month is never fetchable;
     - the window lists completed months only, newest first.
 
-- [ ] T6: refund-api — catalog API: ledger accounts and VAT codes, add / deactivate / reactivate, history — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.7, AC-1.8, AC-1.9, AC-1.10, AC-1.11 — deps: T1
+- [x] T6: refund-api — catalog API: ledger accounts and VAT codes, add / deactivate / reactivate, history — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.7, AC-1.8, AC-1.9, AC-1.10, AC-1.11 — deps: T1
   - touch: `refund-api/src/accounting/catalog.repo.ts`, `refund-api/src/accounting/catalog.routes.ts`, `refund-api/src/accounting/catalog.schemas.ts`, `refund-api/src/accounting/catalog.routes.test.ts`, `refund-api/src/index.ts`
   - agent: backend-dev · backend
   - Details:

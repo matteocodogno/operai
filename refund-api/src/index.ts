@@ -19,6 +19,7 @@ import { batchDecideRouter } from "./batches/decide.routes";
 import { ratesRouter } from "./rates/routes";
 import { rateEffectiveRouter } from "./rates/effective.routes";
 import { settingsRouter } from "./settings/routes";
+import { catalogRouter } from "./accounting/catalog.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -93,6 +94,9 @@ app.route("/", rateEffectiveRouter);
 // settingsRouter: refund-settings management (GET/PUT /settings/:key), gated
 // by the new settings:read/settings:manage capability — specs/20260722-refund-settings (T3).
 app.route("/", settingsRouter);
+// catalogRouter: ledger accounts + VAT codes, add / deactivate / reactivate, gated by
+// settings:read / settings:manage — specs/20261118-refund-accounting-export (T6).
+app.route("/", catalogRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
