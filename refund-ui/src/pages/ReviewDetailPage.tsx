@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
 import { useSession, usePermissions } from 'shell/session'
 import type { Permission } from 'shell/session'
-import { Button, Card, Icon, PageHeader, VisuallyHidden, useFocusOnMount } from '@operai/ui'
+import { Banner, Button, Card, Icon, PageHeader, Skeleton, VisuallyHidden, useFocusOnMount } from '@operai/ui'
 import { ownerDisplay, strings } from '../strings'
 import * as requestsApi from '../lib/requestsApi'
-import type { RefundRequestDetail } from '../lib/requestsApi'
+import type { RefundLine, RefundRequestDetail } from '../lib/requestsApi'
 import * as reviewApi from '../lib/reviewApi'
 import * as attachmentsApi from '../lib/attachmentsApi'
+import * as accountingApi from '../lib/accountingApi'
+import type { AccountingLine, ClassifyBody, RequestAccounting } from '../lib/accountingApi'
+import { useLoadedResource } from '../lib/useLoadedResource'
 import { ApiError } from '../lib/refundApi'
 import { formatDate, formatDateTime } from '../lib/dates'
 import SkeletonListRows from '../components/SkeletonListRows'
@@ -17,6 +20,7 @@ import ApproveDialog from '../components/ApproveDialog'
 import RejectDialog from '../components/RejectDialog'
 import ExpenseLineRow from '../components/ExpenseLineRow'
 import LinesCard from '../components/LinesCard'
+import LineClassificationPanel from '../components/LineClassificationPanel'
 import SubtotalsPanel from '../components/SubtotalsPanel'
 import RequestStatusBadge from '../components/RequestStatusBadge'
 import RequestExportLink from '../components/RequestExportLink'
@@ -119,6 +123,12 @@ const approveSelfRestricted = (permissions: Permission[]): boolean =>
     return Boolean(conditions?.attributes?.some((attr) => attr.key === 'self-approval' && attr.match === 'deny'))
   })
 
+/** A line gets a classification panel when it is WellD CH and not rejected (UX-13); every other line gets nothing. */
+const hasPanel = (line: RefundLine): boolean => line.entity === 'welld_ch' && (line.rejection ?? null) === null
+
+/** The line as the review page names it: "19.03.2026 · Milan–Lugano return". */
+const lineLabelOf = (line: RefundLine): string => `${formatDate(line.date)} · ${line.motivo}`
+
 const errorMessageFor = (error: unknown, fallback: string): string => {
   if (error instanceof ApiError) {
     if (error.code === 'self_approval_forbidden') return strings.pages.reviewDetail.decide.selfApprovalForbiddenError
@@ -158,6 +168,43 @@ export default function ReviewDetailPage() {
     : allLinesRejected
       ? t.decide.allLinesRejectedTooltip
       : undefined
+
+  // ---------------------------------------------------------------------------
+  // Classification (specs/20261118-refund-accounting-export): the accounting view and the options
+  // ---------------------------------------------------------------------------
+
+  const hasPermission = (resource: string, action: string) =>
+    permissions.some((permission) => permission.resource === resource && permission.action === action)
+  const canOpenRates = hasPermission('settings', 'read')
+  const request = pageState.status === 'loaded' ? pageState.request : null
+  // Only a submitted, approved or paid request is classified, and only when it has a line a panel can show on.
+  const classifiable =
+    request !== null &&
+    (request.status === 'submitted' || request.status === 'approved' || request.status === 'paid') &&
+    request.lines.some(hasPanel)
+  const accounting = useLoadedResource(() => accountingApi.getRequestAccounting(id), classifiable)
+  const accountingState = accounting.status === 'loaded' && accounting.data.requestId === id ? accounting.data : null
+  const classificationState = accountingState?.classificationState ?? 'none'
+  const canChangeClassification =
+    classificationState === 'review'
+      ? hasPermission('request', 'set-approved-total')
+      : classificationState === 'post_approval'
+        ? hasPermission('request', 'reclassify')
+        : false
+  // The options are needed only to change something, and are loaded once for the page.
+  const options = useLoadedResource(accountingApi.getAccountingOptions, canChangeClassification)
+  const reloadAccounting = accounting.reload
+  const reloadOptions = options.reload
+  // A 404 is "outside your scope / no such request", like a 403: nothing to retry.
+  const accountingUnavailable =
+    classifiable &&
+    (accounting.status === 'forbidden' ||
+      (accounting.status === 'error' && accounting.error instanceof ApiError && accounting.error.status === 404))
+  const accountingLoadFailed =
+    classifiable &&
+    !accountingUnavailable &&
+    (accounting.status === 'error' || (canChangeClassification && options.status === 'error'))
+  const accountingLoading = classifiable && !accountingUnavailable && !accountingLoadFailed && accountingState === null
 
   useEffect(() => {
     let cancelled = false
@@ -217,14 +264,17 @@ export default function ReviewDetailPage() {
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
           setGuardrail({ title: t.guardrail.title, message: t.guardrail.message })
+          reloadAccounting()
           await reloadRequest()
           return
         }
         throw err
       }
+      // The CHF and VAT figures follow the approved total, and a rejected line gains or loses its panel.
+      reloadAccounting()
       await reloadRequest()
     },
-    [reloadRequest, t.guardrail.message, t.guardrail.title],
+    [reloadRequest, reloadAccounting, t.guardrail.message, t.guardrail.title],
   )
 
   const handleApprovedTotalChange = useCallback(
@@ -246,6 +296,84 @@ export default function ReviewDetailPage() {
     (lineId: string, attachmentId: string) => attachmentsApi.getDownloadUrl(id, lineId, attachmentId),
     [id],
   )
+
+  /** Saves one value and merges the line the server answers with (never a client-side figure). */
+  const handleClassify = useCallback(
+    async (lineId: string, body: ClassifyBody): Promise<AccountingLine> => {
+      const saved = await accountingApi.classifyLine(id, lineId, body)
+      accounting.replace((current: RequestAccounting) => ({
+        ...current,
+        lines: current.lines.map((line) => (line.lineId === saved.lineId ? saved : line)),
+      }))
+      return saved
+    },
+    [id, accounting],
+  )
+
+  /** 409 on a classification: a paid batch has its own sentence, any other means the status moved on. */
+  const handleClassificationConflict = useCallback(
+    (error: ApiError) => {
+      setGuardrail(
+        error.code === 'classification_locked'
+          ? { title: t.classification.lockedGuardrail.title, message: t.classification.lockedGuardrail.message }
+          : { title: t.guardrail.title, message: t.guardrail.message },
+      )
+      reloadAccounting()
+      void reloadRequest()
+    },
+    [t, reloadAccounting, reloadRequest],
+  )
+
+  const handleClassificationRetry = useCallback(() => {
+    reloadAccounting()
+    reloadOptions()
+  }, [reloadAccounting, reloadOptions])
+
+  /** The footer of one line row: its panel, or the skeleton while the view loads, or nothing. */
+  const renderClassification = (line: RefundLine) => {
+    if (!hasPanel(line) || !classifiable) return undefined
+    if (accountingLoading) {
+      return (
+        <div className="mt-1 border-t border-rule pt-3" aria-hidden="true" data-testid={`classification-${line.id}-loading`}>
+          <Skeleton height={14} width="40%" />
+          <div className="mt-2">
+            <Skeleton height={32} />
+          </div>
+        </div>
+      )
+    }
+    const accountingLine = accountingState?.lines.find((candidate) => candidate.lineId === line.id)
+    if (!accountingState || !accountingLine || accountingLine.classification === null) return undefined
+    if (accountingState.classificationState === 'none') return undefined
+    return (
+      <LineClassificationPanel
+        line={accountingLine}
+        lineLabel={lineLabelOf(line)}
+        state={accountingState.classificationState}
+        canChange={canChangeClassification}
+        options={options.status === 'loaded' ? options.data : null}
+        canOpenRates={canOpenRates}
+        onClassify={(body) => handleClassify(line.id, body)}
+        onConflict={handleClassificationConflict}
+        onOptionsStale={reloadOptions}
+      />
+    )
+  }
+
+  /** Above the lines: the one loading line, the one load failure, or the "not available" note. */
+  const classificationNotice = classifiable ? (
+    <>
+      {accountingLoading && <VisuallyHidden live>{t.classification.loading}</VisuallyHidden>}
+      {accountingLoadFailed && (
+        <ErrorBanner message={t.classification.loadError} onRetry={handleClassificationRetry} />
+      )}
+      {accountingUnavailable && (
+        <Banner tone="info" live="off" data-testid="classification-unavailable">
+          {t.classification.unavailable404}
+        </Banner>
+      )}
+    </>
+  ) : null
 
   // ---------------------------------------------------------------------------
   // Approve / Reject (design.md F6 steps 4-6)
@@ -402,6 +530,7 @@ export default function ReviewDetailPage() {
           <div data-testid="review-detail-decidable" className="flex flex-col gap-4">
             <SubtotalsPanel subtotals={pageState.request.subtotals} />
 
+            {classificationNotice}
             <LinesCard title={linesTitle(pageState.request.lines.length)}>
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow
@@ -413,6 +542,7 @@ export default function ReviewDetailPage() {
                   onRestoreLine={() => handleRestoreLine(line.id)}
                   onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
                   registerRef={registerRowRef(line.id)}
+                  footer={renderClassification(line)}
                 />
               ))}
             </LinesCard>
@@ -443,6 +573,7 @@ export default function ReviewDetailPage() {
                 page — the loudest thing on screen, saying the same sentence on
                 every approved request forever. */}
             <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved footnote={<MonthlyProcessingNote />} />
+            {classificationNotice}
             <LinesCard title={linesTitle(pageState.request.lines.length)}>
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow
@@ -451,6 +582,7 @@ export default function ReviewDetailPage() {
                   mode="readOnlyApproved"
                   onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
                   registerRef={registerRowRef(line.id)}
+                  footer={renderClassification(line)}
                 />
               ))}
             </LinesCard>
@@ -488,6 +620,7 @@ export default function ReviewDetailPage() {
               </p>
             )}
             <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
+            {classificationNotice}
             <LinesCard title={linesTitle(pageState.request.lines.length)}>
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow
@@ -496,6 +629,7 @@ export default function ReviewDetailPage() {
                   mode="readOnlyApproved"
                   onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
                   registerRef={registerRowRef(line.id)}
+                  footer={renderClassification(line)}
                 />
               ))}
             </LinesCard>
