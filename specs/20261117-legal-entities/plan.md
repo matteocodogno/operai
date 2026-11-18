@@ -1591,7 +1591,7 @@ open owner items (N1/O-1 and the T51 copy) are listed in H7. They would become s
 > `auth/src/auth/auth.config.ts` (session cookie cache), `auth/src/lib/notify.ts`, notify-api
 > `src/system/{emails.schemas,emailTemplates,emails.routes}.ts`, `src/channels/push.channel.ts`, `src/lib/zodHook.ts`,
 > design.md N1, ADR 5 and ADR 6. Where any text above says that a notice names the actor by name (`actorName`,
-> `sanitizeActorName`, `createdByName` read by the notice code), this block wins. Items J1…J12; tasks T78–T87.
+> `sanitizeActorName`, `createdByName` read by the notice code), this block wins. Items J1…J12; tasks T78–T87, and T88–T89 for the lows of the D9 security delta (J13).
 
 ### J1 — What changes
 
@@ -1637,7 +1637,8 @@ person, users are only soft-deleted, and `User.email` is required and unique (OQ
 
 **The capture never fails the save.** There is no CHECK on the form or length of the address, because a CHECK that
 fails would turn a legitimate save into a 500. The one CHECK is `"authorEmail" IS NULL OR "authorEmail" <> ''`,
-which the code guarantees by writing `null` for an empty string.
+which the code guarantees by writing `null` for an empty string. *(Since T88 a second CHECK, `status = 'pending' OR
+"authorEmail" IS NULL`, holds on the status, not on the address, so it cannot fail a save either: J13.)*
 
 Rejected:
 
@@ -1660,7 +1661,8 @@ Rejected:
 model LegalEntityNotice {
   // … as G4 …
   /// The actor's account email when the version was stored (AC-9.11, amendment D9); null = none on record.
-  /// Personal data: content of the notice only; never in a log line or an audit entry. Written once, never updated.
+  /// Personal data: content of the notice only; never in a log line or an audit entry. Written once at capture,
+  /// cleared once (to NULL) at the terminal status (delivered / given_up), never otherwise updated (T88, D9-1; J13).
   authorEmail   String?
 }
 ```
@@ -1775,9 +1777,12 @@ item "N1 / O-1" is closed by D9.
     returns the path and the message, never the value (tested).
   - `email_delivery` stores `to`, template and status, not `data`.
 
-**Retention.** The column stays with its row; G4 has no cleanup job. A future procedure that erases an account's
-personal data must also cover `legal_entity_notice.authorEmail` and notify-api's stored notifications. No such
-procedure exists today. Recorded here so the next spec that needs one finds it.
+**Retention.** *(Superseded by T88, J13.)* ~~The column stays with its row; G4 has no cleanup job.~~ The column
+holds the address only while the row is `pending`: the dispatcher sets it to `null` in the same update that makes the
+row `delivered` or `given_up` (at most 24 h after capture). notify-api's stored notifications (`body`, `bodyIt`)
+still hold the address; their retention is a separate item. A future procedure that erases an account's personal
+data must cover those notifications (and a still-pending row). No such procedure exists today. Recorded here so the
+next spec that needs one finds it.
 
 ### J7 — Release order and skew (confirmed)
 
@@ -1841,7 +1846,8 @@ one assertion each. Every other row of "Test strategy — US-9" and H10 stands. 
 **YES**, unchanged. An `owasp-reviewer` **delta** pass (T86, frontier tier: financial data, R1) runs in parallel
 with the QE delta (T85). Surfaces:
 
-- the capture in `notices/duty.ts`: read inside the transaction, never from the session; written once;
+- the capture in `notices/duty.ts`: read inside the transaction, never from the session; written once (since T88:
+  cleared once at the terminal status, J13);
 - the new column, and the claim's `RETURNING`;
 - `content.ts`/`copy.ts`: no path from `createdByName` or `user.name` into a notice; R-D9a;
 - notify-api `emails.schemas.ts` (the `actorEmail` rule, the strict shape, a 400 that does not echo the value) and
@@ -1880,3 +1886,21 @@ it still shows in the history, which is out of D9's scope (OQ-16).
     address as **content**, never as addressing. Recipient addressing by `recipientId` is unchanged, so ADR
     20261101 and ADR 6's rejected Option E still hold.
   - For the `adr-writer`: a new short record with forward pointers in ADR 5 and ADR 6.
+
+### J13 — D9 security delta (T86) and its follow-ups
+
+- **Verdict: PASS WITH NOTES** (security-review-2.md "Delta review 2026-11-18 (D9)": 0 critical, 0 high, 0 medium,
+  3 low, info only). **N1 / O-1: closed.**
+- **T88** (auth, push 2; `91eeb87d`):
+  - **D9-1.** The rule for `legal_entity_notice.authorEmail` changes from "written once, never updated" to **"written
+    once at capture, cleared once (to NULL) at the terminal status (`delivered` / `given_up`), never otherwise
+    updated"**. The dispatcher nulls it in the same `updateMany` that sets the terminal status. Migration
+    `20261118120000_legal_entity_notice_author_email_clear` clears the rows already terminal, adds a trigger (an
+    UPDATE may change the column only to NULL and only on a row terminal after the update), and adds the CHECK
+    `"status" = 'pending' OR "authorEmail" IS NULL`. Storage of the address in auth is limited to the sending window
+    (at most 24 h). notify-api's stored notification still holds it; that retention is a separate item (J6).
+  - **D9-2.** A test pins that a signed-in holder cannot change `user.email` (`POST /auth/change-email`,
+    `POST /auth/update-user {email}`).
+  - **D9-3.** auth's top-level error log carries the error name and code only.
+- **T89** (notify-api, push 1): D9-3 for notify-api's top-level handler.
+- No other decision of J1…J12 changes.

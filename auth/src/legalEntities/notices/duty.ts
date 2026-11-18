@@ -15,8 +15,9 @@
  *   - every row of the version carries the actor's account email, `authorEmail` (AC-9.11, amendment D9, plan J2):
  *     read ONCE here with `tx.user.findUnique` after the version is stored (the committed address at that moment,
  *     never the session's cookie-cached copy), stored verbatim ('' or a missing row is `null`; no format check, a
- *     malformed address is stored as is and the content treats it as none), written with the rows and never updated.
- *     It is personal data: it appears in no log line, no audit entry and no key;
+ *     malformed address is stored as is and the content treats it as none), written with the rows, cleared once (to
+ *     NULL) by the dispatcher at the terminal status (delivered / given_up; T88, D9-1, enforced by a trigger and a
+ *     CHECK), and never otherwise updated. It is personal data: it appears in no log line, no audit entry and no key;
  *   - the rows hold no value of any detail (AC-9.12): content is rebuilt from the immutable versions at send time;
  *   - a protected change with no recipient at all makes the caller write the audit entry
  *     `legal_entity.notice_no_recipients` (AC-9.15; `noRecipientsEntry`) in the same transaction.

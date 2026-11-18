@@ -1238,6 +1238,9 @@ notify-api is push 1, and auth's notices are push 2.
       session), stored verbatim, with `''` or a missing row stored as `null`. The capture never fails the save.
     - plan J3: a new migration with the column and the not-empty CHECK, no backfill; the comments are corrected.
     - `write.routes.ts` does not change.
+    - *Superseded by T88 (2026-11-18, security delta D9-1):* "never updated" now reads "written once at capture,
+      cleared once (to NULL) at the terminal status (`delivered` / `given_up`), never otherwise updated", enforced by
+      the trigger and CHECK of migration `20261118120000_legal_entity_notice_author_email_clear`.
   - done when (A-int):
     - A protected save writes the actor's address on every row of the version: the person rows and the outside row,
       all equal.
