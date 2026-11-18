@@ -136,8 +136,8 @@ amendment; the plan states what it assumes until the owner decides.
    mix two versions in one PDF. So content v2 carries an optional `legalEntityVersion` (the version crm-api used):
    letterhead-api refreshes when its entry is older and answers 409 `legal_entity_version_mismatch`
    (`currentVersion`) when it still differs; crm-api drops its cache entry, rebuilds the content and retries once.
-   *(Superseded in part — only a pin newer than the held version forces a refresh, at most 1/s and 100 per 10 min
-   per process; crm-api waits 1.1 s before its retry: see Sync 2026-11-18, H1.)*
+   *(Superseded in part — only a pin newer than the held version forces a refresh, at most 1/s and 30 per 10 min
+   per process, keeping the held entry as fallback; crm-api waits 1.1 s before its retry: see Sync 2026-11-18, H1.)*
    Rejected: crm-api sending the details (owner constraint: the service reads them itself).
 9. **The move: expand → copy (announced freeze of CRM entity settings) → switch → contract**, the shape the owner
    accepted for the activities move (`ADR 20261110-activities-migration-write-pause`) **[ADR-4]**. The copy is a
@@ -1165,9 +1165,10 @@ accepted. compose sets a high limit only for the e2e stack. History paging as G5
   no other value.
 - **F6 (fix as proposed).** letterhead-api coalesces forced refreshes: at most one per second per process; a
   mismatching pin with an entry fetched less than a second ago answers 409 `legal_entity_version_mismatch` at once,
-  without calling auth. A matching pin still costs nothing. *(Superseded by T64 + T76: a pin at or below the held
-  version is 409 with no registry call; only a newer pin forces a refresh, at most 1/s and 100 per 10 minutes per
-  process; crm-api waits 1.1 s before its single retry, T72. See Sync 2026-11-18, H1.)*
+  without calling auth. A matching pin still costs nothing. *(Superseded by T64 + T76 + T77: a pin at or below the held
+  version is 409 with no registry call; only a newer pin forces a refresh, at most 1/s and 30 per 10 minutes per
+  process (T77), keeping the held entry as fallback; crm-api waits 1.1 s before its single retry, T72. See Sync
+  2026-11-18, H1.)*
 - **F7 (decided: the page, not the row).** `AuditPage` derives the Before/After panes from `data.changes` when
   `data.before`/`data.after` are absent (`{ field: before }` / `{ field: after }`, value names as stored keys); the
   notice actions show their `data` as today's panes would (no values in them). Rejected: also writing `before`/
@@ -1271,7 +1272,7 @@ Test deltas for the fixes:
 | AC-2.6/AC-1.5 (F3) | the 11th save/restore of a person within 10 minutes → 429 with `Retry-After`, nothing written; another person unaffected; admin-ui shows the 429 state |
 | F4 | the real-transaction group skips (and says so) for a `*.railway.internal` host; runs for `localhost` |
 | AC-7.2/AC-7.5 (F5) | the import audit `source.updatedBy`; the report shows `…1234`/`set`/`none` and never a full IBAN (marker scan) |
-| AC-5.5/AC-6.2 (F6) | 100 mismatching renders in one second → at most one registry call; the second within 1 s → 409 without a call *(extended by T72/T76: see Sync 2026-11-18, H10)* |
+| AC-5.5/AC-6.2 (F6) | 100 mismatching renders in one second → at most one registry call; the second within 1 s → 409 without a call *(extended by T72/T76/T77: see Sync 2026-11-18, H10)* |
 | AC-2.5 (F7) | `AuditPage` shows before/after of a `legal_entity.save` row from `data.changes` |
 
 **Coverage check:** 52 ACs (the 35 above + AC-9.1–9.17); every one has at least one row in the two tables.
@@ -1330,45 +1331,58 @@ R-d (the notice's time zone is Europe/Zurich, stated with its abbreviation).
 
 ## Sync 2026-11-18 after implementation
 
-Source: the branch as built (product code up to `95ebd129`, ADRs in `caf5564a`), `tasks.md` (T72–T76, D1–D3, the
+Source: the branch as built (product code up to `95ebd129`, then T77 `da0b000c`; ADRs in `caf5564a`, forward
+pointers in `43850795`), `tasks.md` (T72–T76, D1–D3, the
 follow-ups and the orchestrator's recorded decisions), `qe-report.md` (T45, PASS 52/52), `security-review-2.md` (T70,
-PASS WITH NOTES), the six ADRs of 2026-11-17/18, and eval round 1 (2026-11-18, spec fidelity finding (b)). The plan
+PASS WITH NOTES, and its delta review of T76/D2/D3), the six ADRs of 2026-11-17/18, and eval round 1 (2026-11-18, spec fidelity finding (b)). The plan
 stays `approved`: this block records what was built and decided after approval. It designs nothing new and
 **changes no acceptance criterion**. Where the text above is now wrong, it carries a pointer "(see Sync 2026-11-18,
 Hn)", and this block wins. Items are numbered H1…H12.
 
-### H1 — The version pin as built (F6 → T64 + T76; crm-api T72)
+### H1 — The version pin as built (F6 → T64 + T76 + T77; crm-api T72)
 
 This supersedes decision 8's "refreshes when its entry is older", G10 F6, and the pin part of ADR candidate 2
 (ADR-2 point 3).
 
 - **A pin at or below the held version** gets 409 `legal_entity_version_mismatch` + `currentVersion` at once, with
   **no registry call**. Versions only go up, so a read cannot cure it. A matching pin still costs nothing.
-- **Only a newer pin forces a refresh.** `refresh_for_pin()` forgets the entry so that the next read asks auth. It
-  does not do so when any of these holds:
+- **Only a newer pin forces a refresh.** `refresh_for_pin()` sets the held entry aside (not away, T77) so that the
+  next read asks auth. It does not do so when any of these holds:
   - a forced refresh started less than 1 s ago (`FORCED_REFRESH_EVERY`);
   - the entry itself was sent less than 1 s ago;
-  - 100 forced refreshes started in the last 600 s (`PIN_REFRESH_BUDGET`, `PIN_REFRESH_WINDOW`, a sliding window,
-    per process).
+  - 30 forced refreshes started in the last 600 s (`PIN_REFRESH_BUDGET = 30`, `PIN_REFRESH_WINDOW`, a sliding
+    window, per process; 100 under T76, lowered by T77 because auth's 300 per 10 min is shared by every replica:
+    30 keeps about ten replicas, forced and natural reads together, inside it).
 
   A started refresh counts against the budget whatever its outcome. A refused one does not count. When no refresh is
   made, the read uses the held entry or joins the refresh already in flight, and a pin that still differs is the
   caller's 409 at once.
   (`letterhead-api/api/src/registry/cache.rs`, `api/src/routes/render.rs` `issuer_details`.)
+- **The held entry stays the fallback of a forced refresh (T77, security-review-2.md T76-1).** Under T76 a forced
+  refresh dropped the entry before its outcome was known, so during an auth fault each forced refresh removed the
+  60 s stale fallback for every caller. Now the entry set aside is kept as `fallback` while the refresh is in flight
+  and if it fails:
+  - unpinned and matching-pin reads keep being served from it, under the same rule as decision 7 (usable up to 60 s
+    from when that entry was sent; after that, 503 `legal_entities_unavailable` as before);
+  - a newer pin gets that entry too, so its answer is 409 with `currentVersion` = the held version, not 503;
+  - a refresh that succeeds replaces the entry and drops the fallback; `invalidate()` forgets both.
 - **crm-api waits 1.1 s before its single retry (T72).** On 409 it drops its entry, waits
   `issuerPinRetry.waitMs = 1100` (fixed, behind a test seam, past the one-second window), re-reads, rebuilds and
   retries **once**. A second mismatch is 503 `layout_service_unavailable` (`crm-api/src/offers/generation.ts`).
-- **Unchanged:** the 30 s / 60 s cache rule, the sent-time stamp, single flight, and the 409 / retry-once contract.
+- **Unchanged:** the 30 s / 60 s cache rule (the fallback never outlives 60 s from its send), the sent-time stamp, single flight, and the 409 / retry-once contract.
   The ordinary 30 s refresh is not budgeted, so AC-3.3 and AC-5.5 hold as proved in decision 7. No PDF mixes two
   versions (AC-6.2): a pin is never "cured" by stale data.
 - **Why (security-review-2.md N2).** The 1/s spacing alone still allowed 600 forced refreshes per 10 minutes per
   process. auth allows each service 300 legal-entity reads per 10 minutes in total, so a stream of mismatching pins
-  could use up letterhead-api's allowance, and every render would then become 503.
+  could use up letterhead-api's allowance, and every render would then become 503. The delta review of T76
+  (security-review-2.md T76-1, T76-2) found the dropped-entry window and the per-process budget against a
+  per-service allowance; T77 (`da0b000c`) fixed both.
 - **Record:** `docs/adr/20261118-a-pin-ahead-of-the-held-version-forces-one-registry-refresh-at-most-once-a-second-and-100-times-in-10-minutes-per-process-and-any-other-mismatching-pin-is-answered-409-at-once.md`.
   It amends points 3 and 4 of ADR-2
-  (`docs/adr/20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds.md`).
-  The ADR-2 file itself does not yet point forward to it.
-- **For the owner to review:** the numbers (1 s, 100 per 600 s, 1.1 s) were set by the orchestrator from the
+  (`docs/adr/20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds.md`),
+  which now points forward to it (`43850795`). The pin ADR's "Amendment 2026-11-18" records T77: wherever it, its
+  title or its file name says 100, read 30.
+- **For the owner to review:** the numbers (1 s, 30 per 600 s, 1.1 s) were set by the orchestrator from the
   re-review's recommendation. No separate owner approval is recorded (the ADR's Status line says so).
 
 ### H2 — ADR candidates: all written
@@ -1384,11 +1398,11 @@ This supersedes decision 8's "refreshes when its entry is older", G10 F6, and th
 | 7 (confirmation backed by a read-only check) | `docs/adr/20261117-a-confirmation-is-backed-by-a-read-only-server-check-it-is-admin-uis-and-the-registry-does-not-enforce-it-and-when-the-check-cannot-be-made-nothing-is-saved.md` |
 | 8 (FU-5, the missing mark) | `docs/adr/20261117-a-layout-draws-the-configurators-missing-mark-through-a-runtime-patch-of-one-template-line-the-label-only-in-the-drawing-and-the-brackets-only-in-the-page-text-and-a-layout-that-cannot-is-refused.md` |
 | not a candidate (D3 rule) | `docs/adr/20261118-a-dialog-that-renders-its-own-form-is-mounted-beside-the-form-never-inside-it.md` |
-| not a candidate (F6/N2, H1) | `docs/adr/20261118-a-pin-ahead-of-the-held-version-forces-one-registry-refresh-at-most-once-a-second-and-100-times-in-10-minutes-per-process-and-any-other-mismatching-pin-is-answered-409-at-once.md` |
+| not a candidate (F6/N2, H1) | `docs/adr/20261118-a-pin-ahead-of-the-held-version-forces-one-registry-refresh-at-most-once-a-second-and-100-times-in-10-minutes-per-process-and-any-other-mismatching-pin-is-answered-409-at-once.md` (amended 2026-11-18: budget 30, T77) |
 
 - `AGENTS.md` gained one line for each of the six new records (`caf5564a`).
-- The new records state their amendments in their Status lines. The older ADRs (20260714, 20260716, 20261101, 20261105
-  and ADR-2) do not point forward yet; whether to add that is the ADR writer's decision, not this plan's.
+- The new records state their amendments in their Status lines, and the older ADRs (20260714, 20260716, 20261101,
+  20261105 and ADR-2) now point forward to them (`43850795`).
 
 ### H3 — notify-api: where the code differs from G4/G5 (found by the ADR writer)
 
@@ -1495,15 +1509,16 @@ T16 is read as **"consumed after T16"**, not "written after T16". This is safe f
   what T44's note asks: "push-2 changesets must not be consumed by the push-1 cut".
 - **The late commits fall on the correct side of the split:**
   - push 1: `62babb4e` (D1), `e531ab30` (T74) and `bbc1e27c` (T73's library half);
-  - push 2: `aa345b64` (T72), `5ffee437` (T73's admin-ui half), `815d58eb` (T75), `fcaedf07` (T76), `c63a0681` (D2),
-    `95ebd129` (D3) and `87a24dee` (T44).
+  - push 2: `aa345b64` (T72), `5ffee437` (T73's admin-ui half), `815d58eb` (T75), `fcaedf07` (T76), `da0b000c` (T77),
+    `c63a0681` (D2), `95ebd129` (D3) and `87a24dee` (T44).
 
   T73 was already committed as two commits, so the split needs no surgery.
 
 Added check at T16, before cutting: the push-1 release branch contains none of the six files above. (`changeset
 status` will still list auth, from its push-1 changesets `legal-entities-registry-auth*.md`; that is expected.)
 
-The early tick of T44 (eval round 1, trajectory) is an orchestrator matter. It does not change this order.
+T44 is now unticked in tasks.md (`dc658437`): "prepared" on the branch, open until consumed after T16. That matches
+this reading and does not change the order.
 
 ### H9 — FU-12: root cause found, still open (test infrastructure, not the product)
 
@@ -1529,7 +1544,8 @@ No product code changes, and no AC depends on it. It weakens the R-int level's r
 
 | AC / finding | Added to "What proves it" |
 | --- | --- |
-| AC-5.5/AC-6.2 (F6, T76) | an older or equal pin → 409 at once and again a second later, with no registry call; a newer pin refreshes once, then waits a second; a failed forced refresh still counts for the second; the 101st forced refresh in 600 s is refused and the window slides (`api/tests/registry.rs`, `api/tests/render.rs`) |
+| AC-5.5/AC-6.2 (F6, T76) | an older or equal pin → 409 at once and again a second later, with no registry call; a newer pin refreshes once, then waits a second; a failed forced refresh still counts for the second; the budget is 30 per 600 s and the window slides (`registry_the_forced_refresh_budget_is_30_per_10_minutes`, T77) (`api/tests/registry.rs`, `api/tests/render.rs`) |
+| AC-5.5 (T77) | a failed forced refresh keeps serving the old entry within 60 s of its send, also to reads that joined the refresh; a refresh that works replaces the entry and drops the fallback; `invalidate()` drops it; a failed pin refresh keeps the held entry for every other render (`registry_a_failed_forced_refresh_keeps_serving_the_old_entry_within_60_s_of_its_send`, `registry_reads_that_join_a_forced_refresh_get_the_old_entry_if_it_fails`, `registry_a_forced_refresh_that_works_replaces_the_entry_and_drops_the_fallback`, `registry_invalidate_drops_the_fallback_a_forced_refresh_set_aside`, `render_a_failed_pin_refresh_keeps_the_held_entry_for_everybody_else`) |
 | AC-6.2 (T72) | a fake letterhead service answering 409 for 1 s then 200 → one retry after ≥ 1.1 s and a 200; the existing retry tests (a second mismatch → 503 `layout_service_unavailable`) stay green |
 | AC-9.3/AC-9.1 (D3) | no nested `<form>` anywhere on the page; Confirm drives a real `requestSubmit` and calls the save once with the checked body; e2e journeys of `protected-legal-details.spec.ts` and `legal-entities.spec.ts` |
 | AC-9.6 (D3, T73) | the computed accessible description of both dialogs holds each Old/New value; the footer stays in view at 320 px; Confirm is `aria-disabled` with a described reason while the restore dialog reads |
@@ -1545,12 +1561,14 @@ No product code changes, and no AC depends on it. It weakens the R-int level's r
 | --- | --- | --- |
 | R8 (amended) | Two caches differ for up to 60 s. | The pin, refreshed only when newer, within the budget; crm-api retries once after 1.1 s (H1). |
 | R15 (closed) | A duplicate email after an ambiguous failure. | The Resend key goes through the SDK option (H3). |
-| R23 | The pin budget is used up (100 forced refreshes per 10 min) by abuse or a crm-api bug. Legitimately newer pins then get 409, and crm-api's one retry ends in 503 until the window slides. | Bounded to 10 minutes. The ordinary 30 s refresh is unaffected, so the held entry catches up within 30 s and the next pin matches. Visible as `layout_service_unavailable`. |
-| R24 | The budget is per process: N replicas of letterhead-api make N × 100 against auth's 300 per service. | Every service in `.railway/railway.ts` declares one replica today. If letterhead-api is scaled to 3 or more, or auth's `LEGAL_ENTITIES_SERVICE_LIMIT` is lowered, revisit H1 (the pin ADR's own trigger). |
+| R23 | The pin budget is used up (30 forced refreshes per 10 min per process) by abuse or a crm-api bug. A pin newer than the held entry then gets 409 at once, crm-api's one retry after 1.1 s also gets 409, and that offer fails with 503 `layout_service_unavailable`. | Bounded per registry save to at most 30 s: the ordinary 30 s refresh is not budgeted, so the held entry catches up and the next pin matches (security-review-2.md T76-3). Unpinned and matching renders are unaffected. Residual: the budget's refusal writes no log line, so exhaustion is visible only as those 503s (T76-3's A09 note; not fixed). |
+| R25 | An auth fault during a forced refresh. | T77: the held entry stays the fallback, so other renders keep working within 60 s of its send and a newer pin gets 409 (`currentVersion` = held), not 503. After 60 s, 503 as AC-5.5 requires. |
+| R24 | The budget is per process: N replicas of letterhead-api make N × 30 against auth's 300 per service, plus about 20 natural reads per process. | 30 keeps about ten replicas inside 300 (T77, the constant's comment). Every service in `.railway/railway.ts` declares one replica today. If letterhead-api is scaled near ten, or auth's `LEGAL_ENTITIES_SERVICE_LIMIT` is lowered, revisit H1 (the pin ADR's own trigger). |
 
 ### H12 — Spec drift
 
-**None found.** H1 changes when letterhead-api re-reads the registry, not what a document prints. AC-3.3, AC-5.5 and
+**None found.** H1 (with T77) changes when letterhead-api re-reads the registry and what it falls back to within
+the 60 s rule, not what a document prints. AC-3.3, AC-5.5 and
 AC-6.2 hold, and a budget refusal is a refused document (503), never a document printed with older details. H3–H6
 settle points the plan left open, or fix the plan's own text against a design that was already approved (F15). The
 open owner items (N1/O-1 and the T51 copy) are listed in H7. They would become spec changes only through the PO.
