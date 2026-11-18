@@ -59,7 +59,14 @@ setupOpenAPI(app);
 // ─── Global error handler (RFC 7807 Problem JSON) ───────────────────────────
 
 app.onError((err: Error, c: Context) => {
-  console.error("[uncaught]", err);
+  // Log the error's name and code ONLY — never the object or its message/stack/cause: those can carry recipient
+  // addresses or notice content (specs/20261117-legal-entities D9-3, AC-9.12).
+  const code = (err as { code?: unknown }).code;
+  console.error(
+    "[uncaught]",
+    err.name,
+    typeof code === "string" || typeof code === "number" ? code : "",
+  );
 
   const status =
     "status" in err && typeof (err as { status: number }).status === "number"
