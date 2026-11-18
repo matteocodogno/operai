@@ -21,6 +21,11 @@ created: 2026-11-17
 > confirmation in admin-ui and a notification to the other people responsible. Those decisions, and the owner's
 > answers of the same day to the questions that followed, are marked *(owner, 2026-11-17)* or *(owner, 2026-11-17,
 > security review F1)*. Nothing in US-9 is left unconfirmed.
+>
+> **Amendment of 2026-11-18 (D9).** After the security re-review (security-review-2.md, finding N1; qe-report.md,
+> O-1) the owner decided that a notice identifies the person who made the change by the email address of their
+> account, not by their display name, which any signed-in person can edit. It is marked *(amendment D9, owner
+> 2026-11-18, security re-review N1)*.
 
 ## Problem
 
@@ -47,6 +52,10 @@ trace of who made them or what they were before.
   before it. Filling an empty value and emptying a filled one count; a different spacing or case of the same IBAN
   does not. Version 1 made by the move of US-7 is not a protected change.
 - **Notice** *(US-9)*: the message that tells a person a protected change has been stored (AC-9.7 to AC-9.13).
+- **Author of a version** *(amendment D9, owner 2026-11-18, security re-review N1)*: the person who made the save or
+  the restore that stored it. In a notice the author is identified by the email address of their account as it was
+  when the version was stored (AC-9.11), and by nothing else: never by their display name, which the person can
+  change themselves.
 
 ## User stories
 
@@ -263,8 +272,15 @@ AC-6.4).
   changes.
 - AC-9.11: Given a notice, then it states *(owner, 2026-11-17)*:
   - the legal entity;
-  - who made the change (the person's name, as the history shows it) and whether it was a save or a restore (and
-    of which version, for a restore);
+  - who made the change, and whether it was a save or a restore (and of which version, for a restore). The author
+    is identified by the email address of their account and by nothing else: neither their display name nor any
+    other value the person can edit appears in the notice, next to the email or elsewhere. The email address is the
+    one the account had at the moment the version was stored and is fixed with the version, like the recipients
+    (AC-9.8): a later change of the account's email address or display name, or the deletion of the account, before
+    the notice is sent or retried (AC-9.14) changes nothing of what the notice says. When the account had no email
+    address at that moment, the notice states, in the language of the notice, that the author has no email address
+    on record, and still states everything else of this list; it never falls back to the display name
+    *(amendment D9, owner 2026-11-18, security re-review N1)*;
   - when, as date, time and time zone;
   - the version number it created;
   - which protected details changed, by name only;
@@ -277,7 +293,10 @@ AC-6.4).
     refused as usual (AC-4.2, AC-4.3).
 - AC-9.12: Given a notice, then no part of it (subject, title, text, link, preview line, push text) contains the
   full IBAN, old or new, nor the old or new legal name or VAT number, nor any other detail's value; and no record
-  of a notice (AC-9.15) contains them either *(owner, 2026-11-17)*.
+  of a notice (AC-9.15) contains them either *(owner, 2026-11-17)*. The author's email address required by AC-9.11
+  is not a detail (AC-1.1) and is the one personal value a notice may carry; it appears in every notice, including
+  the email to the address outside the suite (AC-9.10), which the owner accepts; no part of a notice contains the
+  author's display name *(amendment D9, owner 2026-11-18, security re-review N1)*.
 - AC-9.13: Given a notice, then it is delivered on two channels *(owner, 2026-11-17)*: by email, in English for
   every recipient including the address outside the suite; and in the suite's notification centre, in the language
   of the person (AC-8.2), with a push notification for a person who has enabled push notifications. The address
@@ -303,7 +322,8 @@ AC-6.4).
   succeeds, and another when it is given up *(owner, 2026-11-17)*. Given a protected change with no recipient at
   all, then an entry says so.
 - AC-9.16: Given the move of AC-7.1 (version 1, attributed to the system), whether the first run or a repeated one
-  (AC-7.4), then no notice is sent and no confirmation is involved.
+  (AC-7.4), then no notice is sent and no confirmation is involved; so no author is ever stated for the system, and
+  the system needs no email address *(amendment D9, owner 2026-11-18)*.
 - AC-9.17: Given a save or restore that is not a protected change (only the address or the contacts line changed,
   the IBAN with other spacing or case only, a restore of a version whose protected details are the same), or that
   changes nothing (AC-2.1), or that is refused, conflicting (AC-2.6) or cancelled, then no notice is sent.
@@ -331,7 +351,12 @@ AC-6.4).
   triggered by something else (AC-9.11).
 - **Values in a notice.** A notice says which protected details changed, never their values, except the last 4
   characters of the IBAN (owner decision 2026-11-17); the values are in the confirmation, the history and the
-  audit log.
+  audit log. The author's email address (AC-9.11) is not a value of the details and is stated *(amendment D9)*.
+- **Showing the display name next to the email in a notice, or proving by the notice who the author really is.**
+  The notice states the account's email as recorded; it does not vouch for who was behind the account
+  *(amendment D9, owner 2026-11-18)*.
+- **Changing how the history (AC-2.2) and the audit log (AC-2.5) show the author.** Amendment D9 concerns the
+  notice only; those two are read after sign-in by people entitled to see them (see OQ-16).
 - **Proof that a notice was read, or a way to block a change from the notice.** A notice is handed over for
   sending; undoing a change is the restore of US-2, reached from the notice's link.
 
@@ -378,3 +403,11 @@ AC-6.4).
   other than administrators only after the notice is in production; recorded under Constraints. — owner: wellD
 - [x] OQ-13 *Resolved 2026-11-17 (owner): accepted.* — The confirmation is a control of the admin-ui page; a direct call to
   the registry is covered by the notice only (Non-goals). — owner: wellD
+- [x] OQ-14 *Decided 2026-11-18 (owner), security re-review N1 / QE O-1 (amendment D9).* — The notice identifies the
+  author by the account's email address, not the editable display name; email only, no display name beside it; the
+  email is fixed when the version is stored; the outside mailbox also receives it (owner-accepted). — owner: wellD
+- [x] OQ-15 *Resolved 2026-11-18 (orchestrator, from the code): auth's `User.email` is required and unique, so every account has one; the "no email address on record" wording is a safeguard only.* — Can an account have no email address at all? If every account always has one, the "no email address on
+  record" wording of AC-9.11 is a safeguard that never shows. — owner: wellD
+- [x] OQ-16 *Resolved 2026-11-18 (orchestrator, within the owner's decision that named only the notice): history and audit log unchanged.* — Should the history (AC-2.2) and the audit log (AC-2.5), which still name the author as today, also show
+  the email address so that a renamed person cannot be mistaken for someone else there? Left unchanged by D9
+  (Non-goals). — owner: wellD
