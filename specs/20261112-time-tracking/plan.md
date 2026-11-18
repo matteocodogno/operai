@@ -184,6 +184,20 @@ approved: 2026-11-12
 > steps from 30 min to 24 h (design S2 as amended). AC-1.2's rule and hours-api (422 `invalid_minutes`) are
 > unchanged; § Test strategy AC-1.2 gains the parser's component tests. Task T45.
 
+> Amended a thirteenth time 2026-11-18 (amendment approved by the user 2026-11-18), after QE's first full pass (`qe-report.md` D-1, Medium, routed to the
+> architect as plan drift) — no AC, endpoint, response shape or `auth` change: hours-api reads people's names through
+> a **60 s in-process cache keyed by user id**, the posture ADR 20260807-live-identity-resolution-by-id-fail-soft § 3
+> sets and estimai-api, crm-api, projects-api, inventory-api and activities-api already follow, instead of one
+> `auth POST /authz/users/identities` call per read. `auth` counts that route per person (120 in any 10 minutes) in
+> one budget those five services share with hours-api, so, uncached, a holder changing Everyone's hours filters lost
+> every name after about 40 changes (QE, measured live). Only a person read from a 200 is cached, never a 429 or any
+> other failure, and one map serves every viewer because `auth`'s answer for an id does not depend on who asks
+> (§ Sequences, "Names", new). § Components, § Sequences "List / totals" step 4, § Decisions this plan makes, § Totals
+> (the `person` row, "Person filter"), § Test strategy (the harness, AC-4.5, 4.7, 4.8), R10, R12 (new) and § Security
+> note the consequences. It reverses T10's "no cache" assumption (decisions.md § T10). No ADR: it applies ADR
+> 20260807-live-identity-resolution-by-id-fail-soft § 3 and the clock rule of ADR
+> 20261112-push-liveness-answer-reused-30-seconds, and rejects nothing that binds later work. Task T46.
+
 Branch `feat/time-tracking`, from `main` (ledger D11). Nothing here depends on PR #9 (specs/20261103-projects-handoff);
 the files both touch are listed under Risks (R3). Review decisions of 2026-11-12: ledger D35
 (spec amendment AC-4.10), D36 (own service), D37 (own remote); design decisions D38–D41.
@@ -218,7 +232,7 @@ ADRs written for this plan: `docs/adr/20261112-hours-api-time-entries-own-servic
 
 | Component | Change |
 |---|---|
-| `hours-api` (new) | Service skeleton copied from activities-api's shape: `src/index.ts` (CORS with `ALLOWED_ORIGINS`, request logger, 64 KiB body limit, routers, OpenAPI + Scalar mounted from `src/openapi/registry.ts` — public, like `/health` — RFC 7807 `onError`/`notFound`), `src/auth/jwt.middleware.ts` (RS256, issuer, `aud=AUTH_AUDIENCE`), `src/lib/{env,db,problem,errors,logger,identities,serviceToken}.ts` (`errors.ts`, T10: `invalidRequestHook`, which answers any schema violation — body, query, path parameter, malformed JSON — 400 `invalid_request` naming the field, plus `handleError` / `handleNotFound` for `onError` / `notFound`; kept outside the shared `problem` copy, whose own `validationHook` answers 422), `src/health`. Feature modules (as built; amended a sixth time 2026-11-13): `src/entries/` (`entries.routes.ts` the writes, `list.routes.ts` the list and its cursor, `filters.ts` the query the list and the totals share, `rules.ts` the local rules and the day rule, `schemas.ts`, `today.ts`, `view.ts`), `src/totals/` (`totals.routes.ts`, `totals.ts`, `groups.ts`), `src/lists/` (categories, work types; `idRule.ts`, the id rule's one home, which `src/labels/idRule.ts` re-exports), `src/targets/` (T15, T16: `bookability.ts`, `activity.ts` — the activity pointer — and `errors.ts`), `src/labels/` (fail-soft names and meeting→deal links), `src/oversight/` (read-all, T19: `oversight.ts`, adapted from estimai-api `src/estimates/oversight.ts` but asking `auth` through `src/authz/resolveClient.ts`, not estimai-api's `src/lib/authClient.ts`; `scope.ts`, whose `EntryScope` is one person's or everyone's, and only the oversight check hands out everyone's; `errors.ts`), `src/authz/` (live `time-list:manage`, T12: `timeListManage.ts`, adapted from projects-api `src/auth/authz.middleware.ts` but remembering only a refusal, and `resolveClient.ts`, adapted from projects-api's with a 2 s timeout and `redirect: "error"`; § Sequences, "Admin lists"). Clients (T11): `src/clients/owner.ts`, the one HTTP adapter they share — only a clean 200 with a JSON body is an answer, 2 s, `redirect: "error"`, batches of the owner's cap with at most four in flight, `keepAsked` (§ API contracts, "Reading the owners' list answers") — and `src/clients/{projects,crm,activities,meetings}.ts` (caller JWT, batched; meetings system call with a service JWT). Copied modules registered in `scripts/check-shared-copies.ts` where a group exists (R10). Test harness: `src/test-support/env.ts` (the `bun test` preload: a `_test` database, dead placeholder URLs for every other service), `testAuth.ts` (T10: mocks `jwt.middleware`, signs any token a test needs — another `aud` or issuer, an expired one), `world.ts` (T10: the assembled app, personas, direct inserts of an entry on every target, `onReset`) and `hosts.ts` (T11, activities-api pattern: one scriptable `Bun.serve` playing projects-api, crm-api, activities-api, meetings-api — its list and its system route — and `auth`'s `/authz/resolve`, `/authz/users/identities` and `/system/service-token`; a failure per route, `sever`, the pre-T6–T9 `legacy` owners of R7, every call recorded), `src/matrix.test.ts` and `src/openapi.contract.test.ts` (T20). Env (`src/lib/env.ts`): `DATABASE_URL`, `ALLOWED_ORIGINS`, `AUTH_JWKS_URL`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_BASE_URL`, `PROJECTS_API_URL`, `CRM_API_URL`, `ACTIVITIES_API_URL`, `MEETINGS_API_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET`, `SERVICE_AUDIENCE` (≠ `AUTH_AUDIENCE`), `PORT=8090`, `NODE_ENV`. Files: `.env.example`, `.envrc` (written by a person — agents may not create it, T10 open item), `.gitignore`, `Dockerfile`, `bunfig.toml`, `package.json`, `prisma.config.ts`, and a `.railway/railway.ts` service block (`preDeploy: bun run db:deploy`; added at provisioning, infra/README.md § Time tracking step 4), `tsconfig.json`. |
+| `hours-api` (new) | Service skeleton copied from activities-api's shape: `src/index.ts` (CORS with `ALLOWED_ORIGINS`, request logger, 64 KiB body limit, routers, OpenAPI + Scalar mounted from `src/openapi/registry.ts` — public, like `/health` — RFC 7807 `onError`/`notFound`), `src/auth/jwt.middleware.ts` (RS256, issuer, `aud=AUTH_AUDIENCE`), `src/lib/{env,db,problem,errors,logger,identities,serviceToken}.ts` (`identities.ts`: people's names through a 60 s in-process cache keyed by user id, amended a thirteenth time 2026-11-18, § Sequences "Names"; `errors.ts`, T10: `invalidRequestHook`, which answers any schema violation — body, query, path parameter, malformed JSON — 400 `invalid_request` naming the field, plus `handleError` / `handleNotFound` for `onError` / `notFound`; kept outside the shared `problem` copy, whose own `validationHook` answers 422), `src/health`. Feature modules (as built; amended a sixth time 2026-11-13): `src/entries/` (`entries.routes.ts` the writes, `list.routes.ts` the list and its cursor, `filters.ts` the query the list and the totals share, `rules.ts` the local rules and the day rule, `schemas.ts`, `today.ts`, `view.ts`), `src/totals/` (`totals.routes.ts`, `totals.ts`, `groups.ts`), `src/lists/` (categories, work types; `idRule.ts`, the id rule's one home, which `src/labels/idRule.ts` re-exports), `src/targets/` (T15, T16: `bookability.ts`, `activity.ts` — the activity pointer — and `errors.ts`), `src/labels/` (fail-soft names and meeting→deal links), `src/oversight/` (read-all, T19: `oversight.ts`, adapted from estimai-api `src/estimates/oversight.ts` but asking `auth` through `src/authz/resolveClient.ts`, not estimai-api's `src/lib/authClient.ts`; `scope.ts`, whose `EntryScope` is one person's or everyone's, and only the oversight check hands out everyone's; `errors.ts`), `src/authz/` (live `time-list:manage`, T12: `timeListManage.ts`, adapted from projects-api `src/auth/authz.middleware.ts` but remembering only a refusal, and `resolveClient.ts`, adapted from projects-api's with a 2 s timeout and `redirect: "error"`; § Sequences, "Admin lists"). Clients (T11): `src/clients/owner.ts`, the one HTTP adapter they share — only a clean 200 with a JSON body is an answer, 2 s, `redirect: "error"`, batches of the owner's cap with at most four in flight, `keepAsked` (§ API contracts, "Reading the owners' list answers") — and `src/clients/{projects,crm,activities,meetings}.ts` (caller JWT, batched; meetings system call with a service JWT). Copied modules registered in `scripts/check-shared-copies.ts` where a group exists (R10). Test harness: `src/test-support/env.ts` (the `bun test` preload: a `_test` database, dead placeholder URLs for every other service), `testAuth.ts` (T10: mocks `jwt.middleware`, signs any token a test needs — another `aud` or issuer, an expired one), `world.ts` (T10: the assembled app, personas, direct inserts of an entry on every target, `onReset`) and `hosts.ts` (T11, activities-api pattern: one scriptable `Bun.serve` playing projects-api, crm-api, activities-api, meetings-api — its list and its system route — and `auth`'s `/authz/resolve`, `/authz/users/identities` and `/system/service-token`; a failure per route, `sever`, the pre-T6–T9 `legacy` owners of R7, every call recorded; since 2026-11-18, T46: each recorded call carries the instant it arrived, the identities route can play `auth`'s per-person limit — 429 past N calls in a sliding window, a refused call not counted — and `reset()` also empties hours-api's identity cache, as it already forgets the service tokens it minted), `src/matrix.test.ts` and `src/openapi.contract.test.ts` (T20). Env (`src/lib/env.ts`): `DATABASE_URL`, `ALLOWED_ORIGINS`, `AUTH_JWKS_URL`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_BASE_URL`, `PROJECTS_API_URL`, `CRM_API_URL`, `ACTIVITIES_API_URL`, `MEETINGS_API_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET`, `SERVICE_AUDIENCE` (≠ `AUTH_AUDIENCE`), `PORT=8090`, `NODE_ENV`. Files: `.env.example`, `.envrc` (written by a person — agents may not create it, T10 open item), `.gitignore`, `Dockerfile`, `bunfig.toml`, `package.json`, `prisma.config.ts`, and a `.railway/railway.ts` service block (`preDeploy: bun run db:deploy`; added at provisioning, infra/README.md § Time tracking step 4), `tsconfig.json`. |
 | `activities-api` | `GET /activities` accepts `ids` (≤ 50, comma-separated) as a fifth "exactly one of" filter. Each id's host is resolved **as the caller**, exactly as today; unreadable or missing ids are omitted (identical); an unreachable host is the existing 503. No new table, no catalog. |
 | `crm-api` | `src/activity-host/resolve.routes.ts`: `entityType` becomes `"company" \| "deal"`. For `deal` each id is answered with label/href and `involved: [ownerUserId, technicalUserId?]`, the technical contact taken **as the deal view does** (`estimate?.technical` — an override row with `estimateId: ""` is not a technical contact, `deals.routes.ts:259`). Reader = `crm:access`, as for companies. |
 | `meetings-api` | (1) `GET /meetings` gains `ids` (≤ 25) — still the caller's own meetings only (creator or Operai participant, `list.routes.ts:81-86`), so one call is both the booking check and the label. (2) First `/system/*` route, `GET /system/meetings/hosts` (service JWT, `aud=SERVICE_AUDIENCE`, scope `meetings.hosts.read`, sub `system:hours-api` only, one identical 401), answering `{id, host}` and nothing else, `host` as the meeting stores it (the contract as T9 built it: § API contracts). Copies crm-api's `src/auth/systemAuth.middleware.ts` (verifies against the existing `AUTH_JWKS_URL`). Env: `SERVICE_AUDIENCE`, **optional** in meetings-api's `env.ts` (unset: every system call is the one 401, so a deploy that precedes the variable fails closed instead of stopping the service, T9) and **required** by env-doctor's production contract (T33). |
@@ -293,7 +307,8 @@ then only delete an entry to correct it, losing the hours, while delete already 
 3. Query entries (SQL; indexes `userId, day`, `projectId, day`, `dealId, day`, `meetingId`) in the order
    `day desc, createdAt desc, id desc`, after the position a valid `cursor` names (§ Entries, "The cursor").
 4. In parallel, fail soft, each source named in `unavailable[]` when it does not answer:
-   identities (`identities`; `auth POST /authz/users/identities`, ≤ 100), project labels
+   identities (`identities`; `auth POST /authz/users/identities`, ≤ 100, asked only for the ids its 60 s cache
+   does not hold — "Names" below, amended 2026-11-18), project labels
    (`projects`; projects resolve, 25), deal labels (`crm`; crm resolve `deal`, 25 — the deals of the
    page's deal entries **and** the deals its meetings are linked to, each of the latter checked against
    the id rule first, § Views), pointed activities
@@ -349,6 +364,99 @@ the shape this plan first named — it remembers a grant too, so a revoked holde
 to 30 s (the gap estimai-api's security review of 2026-11-09 closed for ADR 20261108-estimai-oversight-permission-amends-0036's oversight), and its
 call waits 5 s and follows redirects.
 
+**Names** (amended a thirteenth time 2026-11-18, after QE's D-1 — `qe-report.md` § D-1; T46, `src/lib/identities.ts`).
+Every person's name hours-api shows — an entry's author on a list page or in a written entry's view, a
+`groupBy=person` group — comes from `auth POST /authz/users/identities`, asked with the viewer's own Bearer. `auth`
+counts that route per caller `sub`: 120 calls in any 10 minutes (`IDENTITIES_RATE_LIMIT`, `IDENTITIES_RATE_WINDOW_MS`;
+`auth/src/authz/identities.routes.ts`), then 429 — one budget per person, shared with estimai-api, crm-api,
+projects-api, inventory-api and activities-api, which call the same route with the same person's Bearer. It is the
+only `auth` route hours-api calls that `auth` limits per person (`GET /authz/resolve` has no limiter; the service token
+is counted per service and kept for minutes). Uncached, hours-api spent one call per list page, written entry's view
+and person totals, so every Everyone's hours change spent three, and after about 40 changes in 10 minutes every name
+read "Unknown user" (QE, measured live). hours-api now reads names as those five services do (ADR
+20260807-live-identity-resolution-by-id-fail-soft § 3; `activities-api/src/lib/identities.ts`, the copy hours-api's
+was adapted from):
+- **What is cached, and for how long.** A person's `Identity` (`id`, `status`, `name`), in ONE in-memory map for the
+  process, **keyed by the user id alone**, for **60 s counted from when the batch that read it was sent** — an answer
+  that arrives late does not lengthen it (ADR 20261112-push-liveness-answer-reused-30-seconds: a memo's clock starts
+  when the question is sent). So a rename, a deactivation or a reactivation committed in `auth` shows on every read at
+  most 60 s later: AC-4.8 cites ADR 20260807's posture, whose cache is 60 s, and a person deactivated — soft-deleted,
+  ADR 20260714-invitation-activation-hooks-soft-delete-lifecycle, so `auth` then answers `deleted` — shows as active
+  with their name for at most that long, the window ADR 20260807 accepts. Within one answer a person has one
+  identity, however many entries they have. 60 s is ADR 20260807's named bound, which "must not silently grow": a
+  constant, not an environment variable. Nothing is written to the database, a log, or any response but the one it
+  labels.
+- **Why one map for every viewer leaks nothing.** `auth`'s answer for an id is a function of that user's row alone
+  (`name`, `deletedAt`): the route admits any JWT it verifies — the issuer and `AUTH_AUDIENCE` hours-api's own
+  middleware already checked — and no field of its answer depends on the caller, whom it reads only to count. So a
+  viewer served a cached identity gets exactly what `auth` would tell them for that id. And which ids an answer names
+  is decided before the cache is consulted, by hours-api's own scope: `whose=mine` reads the caller's rows only, so
+  their own id; `whose=all` and its person groups pass the live `time-entry:read-all` check first; a written entry's
+  view names its author, the caller. The cache answers only ids a request already decided to show, and its keys are
+  only ids hours-api holds as entry authors or the verified `sub` of a caller writing one — never a value from the
+  query — so it holds at most one entry per person with hours; an expired entry is never served, and expired entries
+  are swept once the map reaches 5 000 (the siblings' threshold). A hit answers faster than a miss, which can tell a
+  holder that someone's name was read in the last minute and nothing about any record; the five siblings carry the
+  same.
+- **What is never cached.** Only an item read from a 200 JSON answer whose `users` is an array, for an id that was
+  asked, with `status` exactly `active`, `deleted` or `unknown`, is kept. A 429, any other non-2xx, a timeout, a
+  network error, a refused redirect, an unreadable body, an item of any other shape and an asked id the answer leaves
+  out all degrade that batch's people to `unknown` for this read only — `identities` named in `unavailable`, as before
+  (AC-4.7) — and the next read asks again, so a transient refusal or outage never becomes a lasting "Unknown user". An
+  `unknown` that `auth` answers with a 200 is kept like the others: `auth` says it only for an id with no user row
+  (users are soft-deleted, so in production only a row removed by hand; in dev, every e2e person `cleanupPeople`
+  deletes), no later answer changes it, and asking again on every read would spend the budget on the ids that can
+  never be named. An id outside 1..64 characters is `unknown` without a call, as today, and never kept.
+- **One call per request, shared across requests.** A request still makes one `resolveIdentities` call
+  (`src/labels/resolve.ts` runs once per list page, totals answer or written entry's view), now for only the distinct
+  ids the cache does not hold, in sequential batches of ≤ 100; a warm request asks nothing. Requests share through the
+  cache, not in flight: Everyone's hours sends its three reads at once (the page, the chosen totals and the Person
+  options — the same `groupBy=person` query while no person is chosen and Person is the grouping), so when all three
+  find the cache cold each pays its own call, at most once per 60 s.
+- **The budget left.** Per person, in any 10 minutes, over the same people: My hours names only the viewer — ≤ 1 call
+  per 60 s, so ≤ 10; Everyone's hours ≤ 1 + 2⌈N/100⌉ per 60 s for N people with hours in the period (≤ 30 for
+  N ≤ 100, ≤ 50 for N ≤ 200), however many filters change; an export walk ≤ ⌈N/100⌉ per 60 s of walking; `day`,
+  `month`, `project`, `deal` and `category` totals and Settings nothing. A read that brings people not named in the
+  last minute (a period reaching people who recorded nothing in the periods just looked at) adds one call until they
+  are. Every placement of QE's table is then within budget, and My hours and Everyone's hours used side by side spend
+  ≤ 60 for N ≤ 200, half of the 120, the rest left to EstimAI, the CRM and Projects. One more spend is indirect and
+  already paced: activities-api names an activity's people with the Bearer hours-api forwards
+  (`activities-api/src/lib/people.ts`), behind its own 60 s cache — for a page's activity pointers, and for a deal
+  booking by someone who is neither the owner nor the technical contact (one page per 100 of the deal's activities,
+  ≤ 10, R9). Assumes one hours-api replica (R12).
+- **No change in `auth`** — its limit, route and answer stay — and none in any other caller.
+- *Rejected:* no cache (T10's reading of AC-4.8, decisions.md § T10 — the AC cites ADR 20260807's posture, cache
+  included, and the uncached client is what D-1 measured); a shorter life — QE's "within seconds" — since a holder
+  changing filters every 15 s (QE's 40 in 10 minutes) would find the cache cold on every change at 10 s (40 × 3 = 120,
+  the whole budget) and on every other one at 30 s (about 60, half of it before any other tool); a map per viewer,
+  keyed `(sub, id)` (the answer does not depend on the viewer, so it hides nothing and loses what viewers share);
+  coalescing calls in flight — across viewers it would hand one viewer's failure (their own 429, an expired token) to
+  another viewer's names, and per viewer it needs the viewer's `sub` through `resolveLabels` to save at most two calls
+  a minute; remembering a 429 until its `Retry-After` (a memo of a failure, and `auth` does not count a refused call,
+  `auth/src/lib/rateLimiter.ts`, so asking again does not prolong it); raising `IDENTITIES_RATE_LIMIT` or exempting
+  hours-api (an `auth` change that rewards the one uncached caller and widens the fan-out bound for every caller);
+  hours-api calling with its own service credential (a new `auth` route and scope, and one service budget shared by
+  every viewer, ADR 20261112-system-endpoints-limited-per-verified-service); copying names into hours-api's database
+  (ADR 20260807's option B, against AC-4.8); hours-ui reusing the person totals as the Person options while the two
+  queries are equal (a frontend change that serves the default view only and saves at most one call a minute).
+- *Copies:* no group of `scripts/check-shared-copies.ts` covers the identities clients, and the five copies already
+  differ (`system` principals, a timeout option, `redirect`); hours-api's header names activities-api's as its
+  source, as R10 records for the other copies.
+
+The module after T46 (`resolveIdentities`' signature and its fail-soft answer unchanged):
+
+```ts
+// hours-api/src/lib/identities.ts
+const CACHE_TTL_MS = 60_000            // from when the batch was SENT; an answer never lengthens it
+const CACHE_SWEEP_THRESHOLD = 5_000    // expired entries are swept when the map reaches it; never served
+const cache = new Map<string /* auth user id */, { identity: Identity; expiresAt: number }>()
+// kept:       an item of a 200 JSON answer whose `users` is an array, for an asked id,
+//             with status exactly "active" | "deleted" | "unknown"
+// never kept: a non-2xx (429 included), a timeout, a network error, a redirect, an unreadable body,
+//             an item of any other shape, an asked id left out, an id outside 1..64 (never sent)
+export function __resetIdentityCacheForTests(): void   // called by test-support/hosts.ts reset()
+```
+
 ### Decisions this plan makes (ADR candidates — see the end)
 
 - Own service `hours-api` (ADR 20261112-hours-api-time-entries-own-service-hours-catalog; the user's choice, D36).
@@ -367,6 +475,9 @@ call waits 5 s and follows redirects.
 - **An id the viewer cannot read travels only on their own entries** (D44, decided by the OWASP review
   2026-11-13): `on.id` and `activity.id` are `null` on someone else's entry unless the record is `visible`
   (§ Views, "Ids of what the viewer cannot read"; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1).
+- **Names are cached 60 s per user id, in process, for every viewer** (amended 2026-11-18, QE D-1; § Sequences,
+  "Names"): ADR 20260807-live-identity-resolution-by-id-fail-soft § 3, as the five services that call the same `auth`
+  route; a failed answer is never cached, and `auth` is unchanged.
 
 ## Data model
 
@@ -899,7 +1010,7 @@ type TotalsGroup =
 
 | `groupBy` | `keyed` groups | `key` | `label` | other kinds | order of `groups` |
 |---|---|---|---|---|---|
-| `person` | one per person with matching entries | user id (usable as `userId`) | live name from `auth POST /authz/users/identities` (ADR 20260807-live-identity-resolution-by-id-fail-soft, AC-4.8), `status` likewise; `null` + `status: "unknown"` when not resolved (source `identities`); a deactivated account `null` + `status: "deleted"`, which is no outage and names no source (T18) | — | `label` by `Intl.Collator("en", { sensitivity: "base" })`, `null` labels last, then `key` |
+| `person` | one per person with matching entries | user id (usable as `userId`) | live name from `auth POST /authz/users/identities` (ADR 20260807-live-identity-resolution-by-id-fail-soft, AC-4.8), through the 60 s cache of § Sequences "Names" (amended 2026-11-18), `status` likewise; `null` + `status: "unknown"` when not resolved (source `identities`); a deactivated account `null` + `status: "deleted"`, which is no outage and names no source (T18) | — | `label` by `Intl.Collator("en", { sensitivity: "base" })`, `null` labels last, then `key` |
 | `project` | one per project the viewer can read | project id | the project's label as the viewer reads it | `hidden`, `unavailable`, `none` (deal, meeting and no-entity entries) | `minutes` desc, then `label` (the same collator, `null` last), then `key`; then `hidden`, `unavailable`, `none` |
 | `deal` | one per deal the viewer can read: entries on the deal **plus** entries on meetings currently linked to it (AC-2.6) | deal id | the deal's label as the viewer reads it | `hidden` (also meetings linked to a deal id outside the id rule, § Views), `unavailable` (crm did not answer), `deal-unknown` (meeting entries; `meeting-deals` did not answer), `none` (project and no-entity entries; meetings linked to no deal, linked to a host that is not a CRM deal, or no longer existing) | as `project`; then `hidden`, `unavailable`, `deal-unknown`, `none` |
 | `category` | one per category used | category id | the name as typed (AC-3.8), `retired` | `none` (project, deal and meeting entries) | `minutes` desc, then `label` (the same collator), then `key`; then `none` |
@@ -917,7 +1028,9 @@ its invariant); a client sum marked "so far" (wrong until the last page).
 `GET /time-entries/totals?whose=all&groupBy=person&from&to&<the other filters>` **without**
 `userId` — complete (never paged, so it lists people beyond the first list page), `key` = user id,
 `label` = live name, failing soft (`null`, `status: "unknown"`, `identities` named). It lists exactly
-the people with hours in the period. *Rejected:* adding `time-entry:read-all` to
+the people with hours in the period. Its names and the person totals' come from one cache, so whichever of the two
+reaches `auth` first names the people for the other once it has answered; sent together on a cold cache, each pays
+one call, at most once a minute (amended 2026-11-18; § Sequences, "Names"). *Rejected:* adding `time-entry:read-all` to
 `DIRECTORY_GATE_PERMISSIONS` (a new audience for the user directory, the widening ADR 20261104-user-directory-gate-meetings-access warns of,
 and it would list people who recorded nothing); a dedicated `GET /time-entries/people` (the same
 distinct-user query behind a second route).
@@ -1264,7 +1377,8 @@ How `src/clients/` reads a list it asked by id or by deal, as T11 built it (`own
 
 Backends: `bun test` with each service's harness. hours-api gets its own (`test-support/env.ts`,
 `testAuth.ts`, `world.ts`, and `hosts.ts` playing projects-api, crm-api, activities-api, meetings-api and
-`auth`'s resolve, identities and service-token routes, scriptable per test), against a scratch
+`auth`'s resolve, identities and service-token routes, scriptable per test; since 2026-11-18 each recorded call carries its arrival instant, the identities route can play
+`auth`'s per-person limit, and a reset also empties hours-api's identity cache), against a scratch
 `DATABASE_URL` (backend tests truncate dev databases). Frontends: Vitest component tests. E2E: `shell/e2e/hours.spec.ts` through the host. The `@operai/ui` additions carry
 their own story and test (`formatMonth` and `short` in `src/lib/i18n-format.test.tsx`, `SearchPicker`
 and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an AC rests on them.
@@ -1304,10 +1418,10 @@ and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an
 | AC-4.3 | integration | holder sees entries of `welld_ch` and `welld_it` users |
 | AC-4.4 | integration + component | each filter narrows items and totals alike; the period counts both end days, on list and totals: `from = to` (one day), `2026-01-01..2027-01-01` and the leap year `2028-01-01..2028-12-31` (366 days each) → 200, `2026-01-01..2027-01-02` (367) and `from` after `to` → 400 `invalid_request` with `field: "to"`; a `from` or `to` that is not a real calendar day from 2000-01-01 — `2026-02-30`, `1999-12-31`, `0000-01-01`, `2026-2-01`, empty, repeated — → 400 `invalid_request` naming it on list and totals, also beside a valid `cursor` (the period is named, not the cursor), no `auth`, owner or system-route call recorded, never a 500; `2000-01-01..2000-12-31` and `from = to = 9999-12-31` → 200; the person filter's options are the `groupBy=person` groups without `userId`: complete with more people than one list page holds, `key` = user id, `label` = live name, `null` + `identities` in `unavailable` when identities fail; each filter id (`userId` with `whose=all`, `projectId`, `dealId`, `meetingId`, `categoryId`, `workTypeId`) outside the id rule — empty (`projectId=`), 65 characters, `%00`, a comma, a space at either end, repeated — → 400 `invalid_request` naming it on list and totals, no `auth`, owner or system-route call recorded, never a 500; a `cursor` hours-api did not mint — empty, repeated, 201 characters, a character outside base64url, a non-canonical encoding, decoding to junk, to a NUL, to an impossible day (`2026-02-30`), to a day outside `from..to`, to an instant that is not 13 digits or to an id outside the id rule — → 400 `invalid_request` with `field: "cursor"`, never a 500, while the list's own `nextCursor` → 200; a query member the route does not name (`projectID=`, `groupBy` on the list, `cursor` or `limit` on the totals) → 400 `field: ""`. component: `hoursApi` omits a filter that is not set; the Recorded on filter (T44, D52) puts `target` in the URL, the list, every totals request, the day totals and the export walk, and All sends none |
 | AC-4.11 | integration + component | `dealId` filter with `GET /system/meetings/hosts?dealId=` down / timeout / 500 → list and totals both 503 `host_unavailable`, no `items`/`groups` body; same filter with the route up → 200 including the meeting entries; no `dealId` filter with the route down → 200 (degrades as AC-4.5/4.7); a `dealId` outside the id rule → 400 `invalid_request` with `field: "dealId"` and no `GET /system/meetings/hosts` call recorded — never the 503. component: the filtered view shows its "try again" error state, not an empty or partial list; export with the deal filter fails with the same error |
-| AC-4.5 | integration + component | each `groupBy`: `key`, `label` and order as in § Totals; `Σ groups.minutes = totalMinutes` for every `groupBy` over one fixture; meeting entries under their current deal; one `none` group, which also holds a meeting linked to a host that is not a CRM deal; a meeting linked to a CRM deal id outside the id rule counts in `hidden`; two deals the viewer cannot read → one `hidden` group; system route down → meeting entries in `deal-unknown`, `meeting-deals` in `unavailable`, `totalMinutes` unchanged (no `dealId` filter), and the same when only the second of `groupBy=deal`'s two system-route calls under a `dealId` filter fails; a deactivated person → `label: null`, `status: "deleted"`, `identities` not named; equal minutes ordered by the English collator, then the key. component: month groups labelled through `formatMonth` |
+| AC-4.5 | integration + component | each `groupBy`: `key`, `label` and order as in § Totals; `Σ groups.minutes = totalMinutes` for every `groupBy` over one fixture; meeting entries under their current deal; one `none` group, which also holds a meeting linked to a host that is not a CRM deal; a meeting linked to a CRM deal id outside the id rule counts in `hidden`; two deals the viewer cannot read → one `hidden` group; system route down → meeting entries in `deal-unknown`, `meeting-deals` in `unavailable`, `totalMinutes` unchanged (no `dealId` filter), and the same when only the second of `groupBy=deal`'s two system-route calls under a `dealId` filter fails; a deactivated person → `label: null`, `status: "deleted"`, `identities` not named, and one deactivated after a read named them keeps that name for at most 60 s from when it was asked, then `deleted` (amended 2026-11-18, `setSystemTime`); equal minutes ordered by the English collator, then the key. component: month groups labelled through `formatMonth` |
 | AC-4.6 | unit + component | `buildHoursWorkbook(items)`: rows = items in order; the nine columns of § Export file in order; Hours is a numeric cell `minutes / 60` (30 → 0.5, 150 → 2.5, 1440 → 24) with format `0.0`; Counts for deal holds the deal for a deal entry and for a meeting linked to one; over one fixture, Hours summed by Counts for deal = that fixture's `groupBy=deal` groups (placeholders ↔ `hidden` / `unavailable` / `deal-unknown`, empty ↔ `none`). Person is the screen's `personName` ("Unknown user", "Unknown user (deactivated)"); Activity `unavailable` → "Name unavailable". component: export walks every page with the active filters, and stops with the failed alert on a repeated cursor; a page with `unavailable` → the ready status says names are missing |
-| AC-4.7 | integration | each source down → entries still listed and counted, `visibility: "unavailable"`, source in `unavailable`; system route down → meeting entries listed with `on.deal = { state: "unknown" }`, `meeting-deals` named; a by-ids answer that ignored its filter (an item nobody asked for, an asked id missing) → as that source down — `activity.visibility: "unavailable"`, not `activity: null`; the meeting `unavailable`, not `hidden`; `on.deal = { state: "unknown" }`, not `none` — and the source named |
-| AC-4.8 | integration | the identities stub renames a person between two calls → the second list and the `person` groups show the new name |
+| AC-4.7 | integration | each source down → entries still listed and counted, `visibility: "unavailable"`, source in `unavailable`; system route down → meeting entries listed with `on.deal = { state: "unknown" }`, `meeting-deals` named; a by-ids answer that ignored its filter (an item nobody asked for, an asked id missing) → as that source down — `activity.visibility: "unavailable"`, not `activity: null`; the meeting `unavailable`, not `hidden`; `on.deal = { state: "unknown" }`, not `none` — and the source named; identities (amended 2026-11-18): a 429, a 5xx, a 401, a timeout, a network error, a redirect, an unreadable body, an item of another shape or an asked id left out → those people `unknown` with `identities` named for that read only, never cached — `hosts.fail("auth.identities", { status: 429, times: 1 })` then two reads → two recorded calls, the second answer named and `identities` not named |
+| AC-4.8 | unit + integration + live | amended 2026-11-18 (§ Sequences, "Names"; T46). unit (`src/lib/identities.test.ts`, `setSystemTime`): an id named by a 200 is answered from the cache, with no call, until 60 s after its batch was SENT — an answer that arrives late does not lengthen that — and asked again from then; `active`, `deleted` and a 200-answered `unknown` are kept, nothing else (AC-4.7's failures, an item of another shape, an omitted id, an id outside 1..64 — the last never sent); 150 ids of which 50 are cached → one call carrying the other 100; expired entries swept at 5 000; the Bearer forwarded, `redirect: "error"` and 2 s as before. integration (fake hosts): the identities stub renames a person after a read named them → for 60 s the list, the `person` groups and a written entry's view keep the old name and record no second `auth.identities` call, from 60 s after the first was sent they show the new name; a cold list page of ≤ 100 authors records exactly one call and the same page again none; `groupBy=person` after the list asks only for the people the list did not name. budget (`src/lib/identities.budget.test.ts`, simulated time, the fake `auth` answering a person's 121st call in a sliding 10 minutes with 429 as `auth` does): 150 people with hours; over 10 minutes a holder's 40 Everyone's hours changes (its three reads at once, every 15 s) and an employee's 120 My hours actions (a list every 5 s, every fourth after a `POST`) → no call answered 429, every person in every answer `active` and named, `identities` never in `unavailable`, ≤ 50 recorded calls for the holder and ≤ 10 for the employee — and the same test fails against the uncached client (seen to fail, decisions.md § T46). live (QE, dev stack): QE's D-1 measure — one person's ~40 Everyone's hours filter changes and 120 My hours actions in 10 minutes stay named, no "names could not be loaded" banner |
 | AC-4.9 | unit (operai-ui) + unit + component | `formatDuration` `short`: 150 min → "2 h 30", 120 → "2 h", 30 → "30 min", both locales; hours-ui rows, day totals and totals render through it; the workbook's Hours cell is a number, never the short string (D39) |
 | AC-4.10 | integration + unit + component | holder without `crm:access` lists a deal entry → `visibility: "hidden"`, `label: null`, `activity.subject: null`, minutes counted; a meeting entry linked to a deal the holder cannot read → `on.deal = { state: "linked", visibility: "hidden" }` with no `id`; `groupBy=deal` counts both in the one `hidden` group; the workbook writes the type and "Not visible to you" in Name, Counts for deal and Activity, never a name or an id. Ids (D44; § Views "Ids of what the viewer cannot read"; `src/entries/view.test.ts`, `activityPointer.test.ts`): on another person's entry, a hidden project, deal and meeting → `on.id: null`, and an `unavailable` one (its owner down) → `on.id: null`; its `activity` stays an object, with `id: null`, when the project or deal is hidden or unavailable and when activities-api is down; a `visible` project, deal or meeting keeps its id for others; the author's own hidden or unavailable entry keeps `on.id` and `activity.id` — in `POST` and `PATCH` responses, in `whose=mine`, and when a holder lists their own entry with `whose=all`; `activityPointer.test.ts`'s "still keeps the id" split into own versus other; `TimeEntryViewSchema` and the OpenAPI pin (`openapi.contract.test.ts`) declare both ids nullable. Composition (`src/entries/withheldIds.test.ts`, the review's F1 probe): a holder of `time-entry:read-all` without `crm:access`, who can read none of the records and recorded none of the entries, lists `whose=all` over another person's entry on a hidden deal pointing at one of its activities, another person's entry on a hidden project, and two other people's entries on hidden meetings linked to that deal → `on.id: null` on all four and `activity.id: null`, and the serialized answer, `nextCursor` included, contains none of the hidden deal, project, meeting or activity ids, so hours-api hands out no id to feed a `dealId`, `projectId` or `meetingId` filter. component (hours-ui, T42): fixtures with `null` ids on another person's entries render Everyone's hours and the export unchanged, and `valuesOf` reads a `null` id as nothing to re-pick |
 | AC-5.1 | e2e + shell unit | a user with only `employee` opens `/hours` (no access redirect) and records a `none` entry; `tools.test` asserts `/hours` is not a tool |
@@ -1357,7 +1471,11 @@ Re-checked after the seventh 2026-11-13 amendment (all 44 ACs still have a row):
 AC-4.10 gained the withheld ids, own versus other and the review's composition probe, each failing when the
 id of a project, deal, meeting or activity that is not `visible` reaches a viewer who is not the entry's
 author — and with it a `dealId`, `projectId` or `meetingId` pivot — or when an author loses an id of their own
-entry that the edit dialog needs.
+entry that the edit dialog needs. Re-checked after the thirteenth amendment (2026-11-18; all 44 ACs still have a
+row): the rows for AC-4.5, AC-4.7 and AC-4.8 gained the cache's life, what it never keeps and the budget, each
+failing when a name or a status outlives 60 s from the question that read it, a 429 or an outage is remembered as
+"Unknown user" past the read it failed, or ordinary use — QE's 40 Everyone's hours changes and 120 My hours actions
+in 10 minutes — draws a 429 or more than half of `auth`'s per-person budget.
 
 ## Risks
 
@@ -1419,7 +1537,8 @@ entry that the edit dialog needs.
   so how often it happens can be counted.
 - **R10 Copied modules not drift-checked.** `scripts/check-shared-copies.ts` has no group for estimai-
   api's oversight code or projects-api's authz code, and adding one needs markers inside those apps;
-  hours-api registers only in the existing groups (accepted 2026-11-13). *Mitigation:* the copies cite
+  hours-api registers only in the existing groups (accepted 2026-11-13); nor for the identities clients, of which
+  hours-api's `src/lib/identities.ts`, cached since 2026-11-18, is the sixth copy. *Mitigation:* the copies cite
   their source file in a header comment; a later chore adds the groups.
 - **R8 Library components land with one new consumer each.** `SearchPicker` and `ExportButton` are
   shaped by hours-ui while two `CompanyPicker` copies and `ExportYearButton` stay in their apps.
@@ -1436,6 +1555,15 @@ entry that the edit dialog needs.
   no TRANSITIONAL block remains; no cell of T20's matrix answers 501 and the OpenAPI documents none
   (`openapi.contract.test.ts`). Still open: the e2e (T36) records on a project, a deal and a meeting through
   the real owners.
+- **R12 The per-person name budget** (amended 2026-11-18, QE D-1). `auth` limits `POST /authz/users/identities` to
+  120 calls per person in any 10 minutes, a budget shared by every service that names people with the person's
+  Bearer; hours-api's share rests on its 60 s cache (§ Sequences, "Names"), and the arithmetic there is for one
+  process: with k hours-api replicas a person's reads may land on k cold caches, up to k times the spend.
+  *Mitigation:* the cache, with no failure kept; the budget test (AC-4.8 row). *Early check:* QE's live measure
+  re-run after T46 (one person, ~40 Everyone's hours changes and 120 My hours actions in 10 minutes, every name
+  shown). *Revisit* — a cache shared by the replicas, or a per-service budget asked of `auth` — before hours-api runs
+  a second replica (`.railway/railway.ts` declares one for every service), or once N, the people with hours in a
+  period, passes ~300 (Everyone's hours alone would then spend up to 70 a person in 10 minutes).
 
 ## Security
 
@@ -1484,6 +1612,15 @@ entry that the edit dialog needs.
   needs a 41-bit-plus (cuid) or 122-bit (UUID v4) guess and an outage, and the host call an owned id
   triggers already shows in the response time without an outage. *Rejected:* asking every host (a CRM
   lookup would then fail while projects-api is down).
+- **Names are cached across viewers** (amended 2026-11-18, QE D-1; § Sequences, "Names"). The map is keyed by user
+  id alone because `auth`'s answer for an id does not depend on the caller (any JWT it verifies gets the same
+  `{ id, status, name }`, `name` only for `active`), and hours-api decides which ids an answer names — the caller's
+  own, or everyone's behind live `time-entry:read-all` — before the cache is read; so a cached name reaches no viewer
+  who could not have asked `auth` for it, and no query value becomes a key. Names live in process memory only, at most
+  60 s from the question, never logged or stored. A failure is never kept, so a 429 or an outage cannot pin "Unknown
+  user"; a deactivated person may show as active for at most 60 s (ADR 20260807's accepted window). QE asked for an
+  `owasp-reviewer` glance if a cache was chosen: T46's diff (`src/lib/identities.ts`) is that surface — the key, the
+  viewer independence, the failures never kept.
 - The person filter reuses the totals route behind `time-entry:read-all`; the user directory's
   audience is not widened (ADR 20261104-user-directory-gate-meetings-access).
 - A `dealId` filter on the list or the totals counts the meeting entries linked to that deal, so a
@@ -1529,7 +1666,8 @@ entry that the edit dialog needs.
 Surfaces to review: every hours-api route (`src/entries/`, `src/totals/`, `src/lists/`,
 `src/oversight/`, `src/labels/`, `src/targets/`), crm-api resolve `deal`, activities-api `ids`, meetings-api `ids` and
 `GET /system/meetings/hosts`, the `hours-api` service client, hours-ui's export. Reviewed 2026-11-13 (T37,
-`owasp-report.md` § Surface coverage): every surface passes except F1, which T41 closes and T37 re-checks.
+`owasp-report.md` § Surface coverage): every surface passes except F1, which T41 closes and T37 re-checks. Since 2026-11-18 the identity cache
+(`src/lib/identities.ts`, T46) is a further surface for a re-check.
 
 ## ADR candidates
 

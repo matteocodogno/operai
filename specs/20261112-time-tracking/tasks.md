@@ -1,7 +1,7 @@
 ---
 spec: 20261112
 generated: 2026-11-13
-synced: 2026-11-16
+synced: 2026-11-18
 ---
 
 # Tasks: Time tracking — the hours employees spend on company work
@@ -215,7 +215,17 @@ commit message.
   - touch: `hours-ui/src/lib/duration*` (new: the parser and its tests), `hours-ui/src/components/EntryDialog*`, `hours-ui/src/components/EntryDialogModel*`, `hours-ui/src/strings/*`, `hours-ui/src/test-support/*`, `.changeset/hours-ui.md`
   - done when: `cd hours-ui && pnpm lint && pnpm build && pnpm test` pass, with tests that: the parser reads `2:30`, `0:30`, `2,5`, `2.5`, `8`, `2h30`, `2h 30`, `2 h 30`, `90m`, `90 min`, `24`, `24:00` to minutes and refuses `2:15`, `0`, `0:00`, `24:30`, `25`, `abc`, `2:75`, `-1`, `` (each with the design's error); the dialog shows "= 2 h 30" while the value reads, the field error on blur and on Save and sends nothing while invalid; editing an entry pre-fills its duration and saving it unchanged sends the same minutes; the `it` copy is complete; `catalogGaps` / `noHardcodedStrings` cover the new strings
 
-- [ ] T40: Close: all gates green (typecheck, lint, unit, e2e, `env:doctor`, `shared:check`, `changeset:check`), owasp PASS (T37), QE PASS, eval, spec status → done via `/wellforge:done` — refs: all — deps: T35, T36, T37, T38, T39, T41, T42, T43, T44, T45
+- [ ] T46: [BE] hours-api names through a 60 s in-process cache keyed by user id, so ordinary use stays inside auth's per-person identities budget (plan § Sequences "Names", amended 2026-11-18; qe-report.md D-1) — refs: AC-4.8, AC-4.7, AC-4.5 — deps: T41
+  - touch: `hours-api/src/lib/identities.ts`, `hours-api/src/lib/identities*.test.ts` (new `identities.budget.test.ts` included), `hours-api/src/test-support/hosts.ts`, `hours-api/src/clients/hosts.test.ts`, `specs/20261112-time-tracking/decisions.md`, and, only to replace an assumption of no cache (a rename between two reads, an identities failure after a success, an `auth.identities` call count across requests), `hours-api/src/{entries,labels,totals,oversight}/*.test.ts`
+  - done when: `cd hours-api && bun run typecheck && bun test` passes on `hours_test`, with:
+    (a) `src/lib/identities.test.ts` (`setSystemTime`; `__resetIdentityCacheForTests()` in `beforeEach`): an id named by a 200 is not fetched again until 60 000 ms after its batch was sent and is fetched at that instant; an answer arriving 30 s after the send does not extend it; `active`, `deleted` and a 200 `unknown` are kept; a 429, 503, 401, a thrown `TypeError`, a 200 HTML body, `{users:"x"}`, `null`, an item with `status:"foo"` and an omitted asked id are each not kept (the next call fetches and names); a 65-character id is `unknown` with no fetch, twice; 150 ids with 50 cached → one fetch of exactly the other 100; 5 000 expired entries are gone after the next fetch; the Bearer is forwarded with `redirect:"error"` and an `AbortSignal`; the "has no cache" test is removed.
+    (b) `hosts.ts`: every `RecordedCall` has `at` (`Date.now()` on arrival); `hosts.auth.limitIdentities(limit, windowMs)` answers 429 with `Retry-After` past `limit` calls per token `sub` in a sliding window, does not count a refused call, and is cleared by `reset()`; `reset()` calls `__resetIdentityCacheForTests()`; `src/clients/hosts.test.ts` proves the limiter (120 pass, the 121st is 429, a refused call does not delay recovery, another `sub` is unaffected).
+    (c) Integration on the fake hosts: a renamed person keeps the old name on the list, the `groupBy=person` groups and a `POST` view, with no second `auth.identities` call, until 60 s after the first send, then shows the new name; a person deactivated after a read is `active` until then and `deleted` after; `hosts.fail("auth.identities",{status:429,times:1})` → the first read is `unknown` with `identities` in `unavailable`, the second read is named, and two calls are recorded; a cold list page of ≤ 100 authors records exactly one call and the same page again none; `groupBy=person` after the list asks only for people the list did not name.
+    (d) `src/lib/identities.budget.test.ts`: the AC-4.8 "budget" scenario (150 people, a simulated 10 minutes; a holder's 40 Everyone's hours changes, three reads at once every 15 s; an employee's 120 My hours actions every 5 s, every fourth after a `POST`; `limitIdentities(120, 600_000)`) → no call answered 429, every person in every answer `active` and named, `identities` never in `unavailable`, ≤ 50 calls for the holder's `sub` and ≤ 10 for the employee's. It is run once against the pre-T46 `identities.ts` and seen to fail, with the counts and the first 429 recorded in decisions.md § T46.
+    (e) `mise run shared:check` passes (no group added); `grep -n "NO CACHE" hours-api/src/lib/identities.ts` prints nothing and the header cites ADR 20260807 § 3 and activities-api's copy; `git diff --name-only` shows nothing outside `hours-api/` and `specs/20261112-time-tracking/decisions.md`.
+  - then: owasp-reviewer over T46's diff (the key, viewer independence, failures never cached); QE re-runs D-1's placements live (qe-report.md).
+
+- [ ] T40: Close: all gates green (typecheck, lint, unit, e2e, `env:doctor`, `shared:check`, `changeset:check`), owasp PASS (T37), QE PASS, eval, spec status → done via `/wellforge:done` — refs: all — deps: T35, T36, T37, T38, T39, T41, T42, T43, T44, T45, T46
   - touch: `specs/20261112-time-tracking/qe-report.md`, `specs/20261112-time-tracking/eval-report.md`, `specs/20261112-time-tracking/spec.md`
   - done when: `/wellforge:done 20261112-time-tracking` accepts the transition
 
