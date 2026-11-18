@@ -43,8 +43,8 @@
  *     `RESEND_API_KEY` and `RESEND_FROM`, and `RESEND_BASE_URL=http://127.0.0.1:<port>`. The spec then runs a fake Resend on that port (a local
  *     server: no provider is ever reached) and reads the subject and body of each email, and makes the first email of the renamed persona
  *     fail so that a RETRY happens after the account's email changed. Without it (`EMAIL_ENABLED=false`, the local default, which stubs the
- *     send and records a `sent` row with no content) the journeys read the email's source instead: the author's email stored on the outbox
- *     row, which is all the email's text is built from, and say so in an annotation.
+ *     send and records a `sent` row with no content) the journeys cannot read the email's words, and say so in an annotation (the author's email
+ *     is held on an outbox row only while it is pending: T88 clears it at the terminal status).
  *
  * What a run leaves behind: versions of welld_ch (never deleted: AC-4.3), the last one with this run's values, and the notices they made.
  *
@@ -263,6 +263,18 @@ function expectAuthorByEmail(notice: NoticeItem, email: string, action: 'save' |
   for (const name of names) expect(everything.includes(name), 'a display name is in the notice').toBe(false)
   expect(everything).not.toContain('no email address on record')
   expect(everything).not.toContain('senza indirizzo email registrato')
+}
+
+/**
+ * What a notice row holds of the author's email (D9 as tightened by T88, security review D9-1): the address captured at the save while the
+ * row is `pending` (the email is built from it), and NOTHING once the row is terminal (`delivered`, `given_up`): the dispatcher clears it in
+ * the same update as the status. A row read after its delivery therefore holds null, never the address.
+ */
+function expectAuthorEmailHeldWhilePending(rows: readonly { status: string; authorEmail: string | null }[], email: string, what: string): void {
+  for (const row of rows) {
+    const terminal = row.status === 'delivered' || row.status === 'given_up'
+    expect(row.authorEmail, `${what}: a ${row.status} row ${terminal ? 'holds no address (T88)' : 'holds the address of the save'}`).toBe(terminal ? null : email)
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -687,7 +699,7 @@ test.describe('specs/20261117-legal-entities T68: Confirm, and the notice (AC-9.
       const email = own.find((row) => row.channel === 'email')!
       expect(email.attempts, 'the email path was attempted').toBeGreaterThanOrEqual(1)
       // D9: every row of the version holds the author's account email as it was when the version was stored: what the email is written from.
-      expect(own.every((row) => row.authorEmail === people.admin.email), 'the rows hold the author account email').toBe(true)
+      expectAuthorEmailHeldWhilePending(own, people.admin.email, 'the rows of the version')
       // With the local stack (EMAIL_ENABLED=false) notify-api stubs the send and says "sent"; one that is not configured says so and the row waits.
       expect(email.status === 'delivered' || email.lastReason === 'email_not_configured', `email row: ${email.status} ${email.lastReason}`).toBe(true)
     }
@@ -957,14 +969,14 @@ test.describe('specs/20261117-legal-entities T84: the notice names the author by
     // The records: every row of the version holds the email the account had at the save, and no name.
     const rows = await waitForOutbox(ENTITY, next, sentAt)
     expect(rows.length).toBeGreaterThanOrEqual(6) // three people, two channels each
-    expect(rows.every((row) => row.authorEmail === RENAMER.email), 'every row holds the email of the save').toBe(true)
+    expectAuthorEmailHeldWhilePending(rows, RENAMER.email, 'every row of the version')
     for (const name of names) expect(JSON.stringify(rows).includes(name), 'a display name is in the outbox').toBe(false)
 
     // The EMAIL, as it is sent (the words are built from that stored email): read at the fake Resend when there is one.
     if (fake === null) {
       test.info().annotations.push({
         type: 'fake-resend',
-        description: 'E2E_FAKE_RESEND_PORT is not set: the rendered email was not read; the author email stored on every outbox row is the evidence of what it states',
+        description: 'E2E_FAKE_RESEND_PORT is not set: the rendered email was not read: only a row still pending holds the author email (T88 clears it at the terminal status), so without the fake Resend the words of the email are not proved here',
       })
     } else {
       for (const person of [people.admin, people.chManager]) {
@@ -992,7 +1004,7 @@ test.describe('specs/20261117-legal-entities T84: the notice names the author by
     await renameAccount(renamer, secondName)
     expect(readAccount(renamer.userId)).toEqual({ name: secondName, email: moved })
     const stillStored = noticeRows(ENTITY, next)
-    expect(stillStored.every((row) => row.authorEmail === RENAMER.email), 'the stored email did not follow the account').toBe(true)
+    expectAuthorEmailHeldWhilePending(stillStored, RENAMER.email, 'the stored email did not follow the account')
 
     if (fake !== null) {
       fake.failFor(null)
@@ -1003,8 +1015,10 @@ test.describe('specs/20261117-legal-entities T84: the notice names the author by
       const sent = `${retried.subject}\n${retried.html}`
       for (const text of [moved, SENTINEL, secondName, RENAMER.name]) expect(sent.includes(text), 'the account as it is now is in the retried email').toBe(false)
       const delivered = await waitForOutbox(ENTITY, next, sentAt)
-      expect(rowsOf(delivered, renamer.userId).find((row) => row.channel === 'email')).toMatchObject({ status: 'delivered', authorEmail: RENAMER.email })
+      expect(rowsOf(delivered, renamer.userId).find((row) => row.channel === 'email')).toMatchObject({ status: 'delivered', authorEmail: null })
       expect(delivered.every((row) => row.status === 'delivered')).toBe(true)
+      // T88 (D9-1): once delivered, no row of the version holds the address any more.
+      expect(delivered.every((row) => row.authorEmail === null), 'a delivered row still holds the author email').toBe(true)
     }
 
     // The notice already in the centre is the one that was stored: the same words, whoever the person is now.

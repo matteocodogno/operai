@@ -523,3 +523,112 @@ Defects: none against T77 or an AC.
 Environment faults: none (the red CI test is a race that reproduces on `origin/main`; § 15.3 gives it under its owner, not as a defect of this change).
 `owasp-reviewer`: not needed again for T77 (no input, auth or dependency change; the budget change tightens a limit reviewed in T70).
 Routing: pool test race, backend-dev (test), with an architect question on retrying a job lost to a dying worker (§ 15.3).
+
+## 16. QE delta 2026-11-18 (D9)
+
+Scope (T85): the amendment D9 (the notice names its author by the account email captured in the version's transaction, never a display name) and its
+fixes: T78 (copy), T79 (notify-api `actorEmail`), T80 (capture), T81 (content), T82/T83 (changesets), T84 (e2e), T88 (`authorEmail` cleared at the terminal
+status, trigger + CHECK; Better Auth email change refused; error log name/code), T89 (notify-api error log). Branch head `1685569b` (`le/T85`),
+plus the one test fix of § 16.6.
+
+### 16.1 Delta verdict
+
+## QE delta verdict: PASS (D9, T85)
+
+| Check | Threshold | Actual | Result |
+|---|---|---|---|
+| AC-9.10 (outside mailbox gets the same author address) | passing evidence | dispatcher test "the outside row's data carries the same address" + `emails.routes` tests + live: the person rows and the notice rows of v83 (§ 16.3) | ✓ |
+| AC-9.11 (the notice states the captured account email, `null`/unusable = "no email address on record") | passing evidence | J8 rows (duty, content, dispatcher, template: § 16.2) pass; e2e journeys 14 + 15 (en, it, in-app and email read at the fake Resend) | ✓ |
+| AC-9.12 (no display name anywhere; address only in the allowed places) | passing evidence | sentinel name absent from every notice, email, notify-api row, delivery row and log (§ 16.2, § 16.3); logs of auth and notify-api: 0 hits of the address | ✓ |
+| AC-9.13 (two channels, one per person, retry says the same words) | passing evidence | e2e 14 (retry after the account's email and name changed), § 16.4 skew retry | ✓ |
+| AC-9.16 (the import writes no notice) | passing evidence | `import.test.ts` runs (not skipped, `CRM_TEST_DATABASE_URL` set), "the import never reaches the dispatcher"; live: first and repeated import, 0 notice rows and 0 notice audit entries for version 1 | ✓ |
+| auth suite | 0 fail | **1430 pass / 0 fail / 0 skip**, 81 files, 31.7 s; `tsc --noEmit` 0 | ✓ |
+| notify-api suite | 0 fail | **649 pass / 0 fail**, 37 files, 6 s; `tsc --noEmit` 0 | ✓ |
+| e2e `protected-legal-details.spec.ts` with the fake Resend | all pass | **15 pass**, 1.5 min (after § 16.6) | ✓ |
+| T88 live: terminal rows hold no address; the database refuses setting it back | 0 rows with an address | 374 `delivered` + 6 `given_up` rows: **0 hold an address**; every re-set refused (§ 16.3) | ✓ |
+| Skew (plan J7): new auth + old notify-api, new notify-api + push-1 auth | retried then delivered; nothing sent | § 16.4 | ✓ |
+| O-1 | closed | rename shown in the notice by email; `update-user {email}` and `change-email` refused 400 (§ 16.5) | ✓ |
+| Unchanged packages | no source change | `git diff --stat 10d815e5..HEAD`: only `auth`, `notify-api`, `shell/e2e`, docs/specs/changesets changed; crm-api, admin-ui, letterhead-api, crm-ui, letterheads-ui, operai-ui: not touched, not re-run in full (admin-ui `pnpm build` ran as part of the stack: 0) | ✓ |
+| Dependency audit | no new dependency | no `package.json`/lockfile change in the range | ✓ |
+
+Defects: none against an AC or a production file. One defect in test code (the T84 e2e contradicts T88), fixed by QE: § 16.6.
+
+### 16.2 Unit and integration (head `1685569b`)
+
+- auth: `DATABASE_URL=auth_t85` (migrated, seeded), `CRM_TEST_DATABASE_URL=crm_t85` (crm-api migrated), a clean environment (`env -i`): **1430 pass, 0 fail, 0 skip** (the import tests ran). An
+  earlier run with my e2e variables still exported (`LEGAL_ENTITY_WRITE_RATE_LIMIT=5000`) failed 3 throttle tests: my environment, not the code (the clean run is the one that counts).
+- notify-api: `DATABASE_URL=notify_t85` migrated and the auth/audience variables exported: **649 pass, 0 fail**.
+- J8 rows, to tests (all in the runs above): AC-9.11 duty (`duty.test.ts`: address on every row, the committed address rather than the session's, empty/missing/malformed, no
+  audit entry carries it, no update of a row in the duty); AC-9.11 clock + AC-9.12 (`dispatcher.test.ts`: the actor's email and name change and the actor is soft-deleted, others still read the captured
+  address, a retry says the same, cleared in the same update as the terminal status, the database allows only the clearing, a pre-D9 row reads null); AC-9.11 unit
+  (`content.test.ts`, `copy.test.ts`: en/it lines, null and R-D9a unusable address, 320 characters within 200/2000, push under 3000 bytes, no source reads the display name);
+  notify-api (`emailTemplates.test.ts`: escaped, no `mailto:`, no name fallback; `emails.routes.test.ts`: `actorName` 400, `actorEmail` missing/invalid/321 → 400 and the 400 body never echoes the value, `null` accepted;
+  `systemAuth.logPrivacy.test.ts`: T89, caller line only); T88 `auth.mount.test.ts` (email change leaves the stored email unchanged).
+
+### 16.3 AC-9.10 to 9.13, 9.16 and T88 on a live stack
+
+Stack: auth (head, `NODE_ENV=development`, dispatcher started) + notify-api (head) on fresh databases `auth_t85_e2e`, `notify_t85_e2e`; registry seeded by the import from `crm_t85`; Playwright
+with a scratch config (chromium 1208, deleted), auth's variables exported to it, `E2E_FAKE_RESEND_PORT=18585`, notify-api `EMAIL_ENABLED=true` with a placeholder key and `RESEND_BASE_URL` at the
+fake (the spec's own local server: no provider reached), `LEGAL_ENTITY_WRITE_RATE_LIMIT` 5000. Throwaway keys and `SERVICE_CLIENTS`.
+
+- **e2e T84/T68**: 15 pass (§ 16.6 for the history). Journeys: the notice of a confirmed save, a direct save, a direct call and a restore state the author's account email in English and Italian
+  and no persona's display name; a persona renamed to a sentinel through `POST /auth/update-user` before the save is named by its email; its first email is made to fail at the fake, the account's
+  email and name are changed, the retry is sent to the new address with the words of the save (`Change saved by the account <captured email>.`), no sentinel anywhere; an account whose email is not an address
+  reads "no email address on record", never its name.
+- **T88, delivered**: after the whole e2e: `legal_entity_notice` holds 360 `delivered` rows, **0 with an `authorEmail`**; notify-api `email_delivery`: 180 `sent`, 3 `failed` (the deliberate 500s of the fake).
+- **T88, pending then given up** (notify-api stopped, a protected save, v82): the 6 rows are `pending`, `notify_unreachable`, **with the address**. Refusals by the database on a pending row: `UPDATE authorEmail='x@y.test'`
+  → `authorEmail may only be cleared, when the row reaches a terminal status`; `UPDATE authorEmail=NULL` while still pending → the same error; `UPDATE status='delivered'` leaving the address →
+  `violates check constraint "legal_entity_notice_authorEmail_terminal_null"`. The real dispatcher over the real database with its clock +25 h (`createNoticeDispatcher({ now })`): the 6 rows `given_up`, 6 audit `notice_given_up`,
+  log lines with id, entity, version, channel, reason, attempts, and **no address**; `authorEmail` is NULL on all 6; setting it back (alone, or with `status='pending'`) is refused by the same trigger.
+  Observation, not a defect: `UPDATE ... SET status='pending'` on such a row (address still NULL) is allowed by the database (the guard concerns the address only); a hand-reopened row would say "no email address on record".
+- **Logs**: the author's address appears 0 times in the auth log (which includes Prisma query logs) and 0 times in the notify-api log across the whole run.
+- **AC-9.16**: the registry's version 1 of both entities is `import`, with 0 notice rows; a repeated `--apply` ("present") adds none and 0 notice audit entries.
+- **AC-9.10/9.13**: the outside mailbox is not configured locally (`LEGAL_ENTITY_NOTICE_EMAIL` unset: the spec's header says so); the outside row's identical `actorEmail` is proved at integration level
+  (dispatcher test, J8) and is the same code path as the person rows; not exercised live.
+
+### 16.4 Skew rehearsal (plan J7)
+
+"Old notify-api" = the branch commit before T79 (`62781f27~1`, detached worktree, removed afterwards; `origin/main` has no `legal_entity_change` template at all, so it cannot stand for "old" here). Databases are
+the branch's (one more additive notify-api migration, ignored by the old code).
+
+| Pairing | What I ran | Observed |
+|---|---|---|
+| **new auth + old notify-api** (R28) | old notify-api up; a protected save by a person (v83) | the 3 in-app rows `delivered` at attempt 1 (and their address cleared); the 3 email rows `pending`, attempt 1, `lastReason notify_refused` (old notify-api answers `POST /system/emails` **400**), 3 audit `notice_failed`; the save was 201. Between the save and the upgrade the actor's account email was changed and the account renamed to `D9 Sentinel Display Name`. The old notify-api stopped, the head notify-api started (with the fake Resend) and the retry made due (as the clock would a minute later): the 3 email rows `delivered` (attempt 2), 3 `notice_delivered`; the 3 emails at the provider are sent **to the account's address at send time** and state `Change saved by the account <captured email>.`; the sentinel name and the new address are in none of them; the 3 in-app notices in notify-api (en and it) state the captured email and no sentinel. **Retried, not lost, nothing duplicated.** This also shows a live rename of the actor between save and send changing nothing in the notice |
+| **new notify-api + push-1 auth** (`origin/main`, 56fbbfa3) | `origin/main` auth started on the same database, the head notify-api up | auth at `origin/main` contains no registry and no dispatcher (`git ls-tree`: no `legalEntities`/`notices` source; `GET /legal-entities` → 404); notify-api received **0** `/system/` requests in 40 s: nothing to refuse, as J7 says |
+| (extra, not a shipping order) pre-D9 branch auth (T80 state: sends `actorName`) + head notify-api | a save | emails refused 400 `notify_refused`, as J7's "new auth + old notify" mirror; its in-app rows **could not be delivered**: that auth code (before T88) never clears the address and the T88 CHECK refuses the terminal update (`DriverAdapterError`), so the rows stay pending and are retried. After the head auth was started the rows were delivered at once (0 held an address). Meaning for rollback: **auth code below T88 must not run against a database that has the T88 migration**; no release shipped T80 without T88, so no real order produces it, but a rollback of auth after push 2 must roll the migration forward-compatibly (it is an additive CHECK/trigger; roll back by redeploying the head, not an earlier build) |
+
+### 16.5 O-1 closed
+
+`POST /auth/update-user {name}` renames the account and the next notice states the account email only (e2e 14, and § 16.4 live). The account's email cannot be changed by its holder:
+`POST /auth/update-user {email}` → **400 `EMAIL_CAN_NOT_BE_UPDATED`**; `{name, email}` together → the same 400, name not applied; `POST /auth/change-email` → **400 `CHANGE_EMAIL_DISABLED`**; the account read
+back unchanged after the three calls (T88's `auth.mount.test.ts` pins it at unit level). O-1 is closed.
+
+### 16.6 Defect in test code found and fixed (T84 vs T88), runs
+
+The first run of the spec on the head: 8 pass, **6 fail**, 1 did not run.
+
+- 4 failures: `Cannot find module 'axe-core/axe.min.js'`: the helper resolves axe from `meetings-ui`, which had no `node_modules` in this fresh worktree: **environment fault**, `pnpm install` in `meetings-ui`.
+- 2 failures, a **real defect in the T84 spec** (owner: whoever owns T84, a frontend/QE test): `protected-legal-details.spec.ts:690` ("the rows hold the author account email") and `:960` ("every row holds the email of the
+  save") read the outbox AFTER delivery and expect `authorEmail` on every row; since T88 the dispatcher clears it at the terminal status, so a delivered row holds NULL (the spec was written against D9 without T88). Not a product
+  defect (T88 is the specified behaviour: AC-9.12's tightening, security review D9-1); the test asserted a state the product now forbids.
+- **Fix (QE, test code only, `shell/e2e/protected-legal-details.spec.ts`)**: a helper `expectAuthorEmailHeldWhilePending` (a pending row holds the address of the save, a terminal row holds NULL) used at the three outbox assertions; the post-retry
+  assertion expects `authorEmail: null` and that no delivered row holds an address; the header and the no-fake annotation no longer claim the outbox row is the evidence of the email's words (only the fake Resend proves them).
+  Without the fake Resend the spec therefore cannot prove the email's words after delivery: run it with `E2E_FAKE_RESEND_PORT` (as T85 did).
+- Run 2 (after both): 14 pass, 1 fail: the first journey's `audit` count was +1 (`notice_delivered`); at 09:35:59 to 09:36:08 the audit shows 2 `notice_failed` and 2 `notice_delivered`: the retried email of run 1's failed
+  renamer journey (a pending row left by that aborted run) was delivered during run 2's first journey, which counts every audit entry of the entity. Not reproduced: run 3 on the same databases, **15 pass**.
+  Note for the test owner (low): the audit-count check of that journey is sensitive to the late outcome of an earlier aborted run; it is not a product defect.
+
+### 16.7 Findings that are not defects of an AC
+
+- **Changeset text drift (low; owner devops/T83's author)**: `.changeset/legal-entities-auth-notices.md` (T83, before T88) says the email is "kept on the notice rows" and mentions one new column; after T88 the
+  address is cleared at the terminal status and a second migration adds the trigger and the CHECK. It becomes the CHANGELOG line of auth: it should say "kept until the row is delivered or given up, then cleared" and name the second migration.
+- The hand-reopen observation of § 16.3 and the rollback note of § 16.4 are operational notes for the release runbook.
+- Not re-run (unchanged since the last QE delta, § 3): crm-api, admin-ui, crm-ui, letterheads-ui, letterhead-api, operai-ui suites. The outside mailbox and the push channel remain unexercised live (as in § 6).
+
+### 16.8 What this run left behind, and files changed
+
+- Databases on the compose Postgres (left, a hook blocks destructive SQL): `auth_t85`, `crm_t85`, `notify_t85`, `auth_t85_e2e`, `notify_t85_e2e`, `auth_t85_unit` (empty). `node_modules` of auth, notify-api, crm-api, shell,
+  admin-ui, notify-ui, operai-ui, meetings-ui in the worktree (gitignored). Scratch (not committed) in the session scratchpad `t85/`: env scripts, `live.ts`, `giveup.ts`, the fake Resend, logs.
+- Every server I started was stopped (auth, notify-api, the fake Resend; the three previews by Playwright); the two temporary worktrees (`../le-T85-old`, `../le-T85-main`) and the scratch Playwright config were removed. No real email was sent, nothing remote was touched.
+- Files changed by QE: `shell/e2e/protected-legal-details.spec.ts` (§ 16.6), this report.
+- `owasp-reviewer`: not needed again: T86 reviewed D9 and T88/T89 closed its lows; this delta found no new input, auth or dependency surface.
