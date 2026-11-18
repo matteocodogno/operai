@@ -220,7 +220,7 @@ Reading the list:
   - agent: owner
   - done when: the release log says, per entity, "IBAN print unchanged / changes" (no IBAN written in it).
 
-- [ ] T16: **[OWNER]** Release push 1 (expand): merge the push-1 tasks to `main`, cut the release, push — refs: AC-1.1, AC-3.1, AC-4.1 — deps: T13, T15, T45, T69, T70
+- [ ] T16: **[OWNER]** Release push 1 (expand): merge the push-1 tasks to `main`, cut the release, push — refs: AC-1.1, AC-3.1, AC-4.1 — deps: T13, T15, T45, T69, T70, T79, T82, T85, T86
   - touch: `CHANGELOG.md`, `*/CHANGELOG.md`, `*/package.json`, `shell/src/lib/suiteVersion.generated.json`, `.changeset/*`, `specs/20261117-legal-entities/release-log.md`
   - agent: owner (RELEASING.md)
   - note (T29 report, 2026-11-17): the feature branch interleaves push-2 commits (crm-api T29 onwards) with push-1
@@ -230,6 +230,8 @@ Reading the list:
   - note (owner, 2026-11-17; plan G15): push 1 is released at the end, in the same session as push 2, after QE
     (T45) and the security re-review (T70). It now also carries notify-api (T56, T57) and the push-1 auth fixes and
     check route (T52–T55); its changesets are T13's and T69's. Push-2 commits of this amendment (T58–T66) stay out.
+  - note (D9, 2026-11-18; plan J7): the push-1 cut also carries T79 (notify-api `actorEmail`) and T82 (its changeset
+    text), and none of T80, T81, T83, T84. Deps += T79, T82, T85, T86.
   - done when: auth `/health` reports the new version; signed in, `GET /legal-entities` answers both entities
     with `version: 0`; notify-api `/health` reports its new version; `https://operai.welld.io/version.json` reports
     the push-1 version (the library change is live, E10); `railway config plan` shows no drift; logged in the
@@ -489,13 +491,14 @@ Reading the list:
 
 ## Push 2 — release plumbing
 
-- [ ] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each) and auth (minor: US-9 notices), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2, AC-9.7 — deps: T13, T16, T23, T28, T29, T31, T32, T40, T58, T59, T60, T61, T62, T63, T64, T65, T66
+- [ ] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each) and auth (minor: US-9 notices), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2, AC-9.7 — deps: T13, T16, T23, T28, T29, T31, T32, T40, T58, T59, T60, T61, T62, T63, T64, T65, T66, T83
   - touch: `.changeset/*`
   - agent: backend-dev · push 2
   - status 2026-11-18 (eval round 1): the six changesets are PREPARED on the branch (`87a24dee`); the task stays
     open until it is consumed after T16 in the release session, as its dep says.
   - note (2026-11-17): T16 now runs at the end (G15), so this task follows it in the same release session; the dep on
     T16 stays (push-2 changesets must not be consumed by the push-1 cut).
+  - note (D9, 2026-11-18): the auth changeset's text is updated by T83 before it is consumed; dep += T83.
   - done when: `changeset status --verbose` lists the six packages; `check-changeset.mjs` exits 0 for the push-2
     commits; the crm-api changeset says the CRM columns are dropped in the next release (step 6); the auth changeset
     names `LEGAL_ENTITY_NOTICE_EMAIL` and release step 7 (T71).
@@ -520,18 +523,22 @@ Reading the list:
   - done when: the review covers every surface the plan lists (incl. the derived `apps` entry, the import script's
     credentials, letterhead-api's token client and `entityData` discarded) and has no open high or critical finding.
 
-- [ ] T47: Eval — LM-judge verdict on the feature — refs: AC-1.1, AC-2.4, AC-3.3, AC-4.3, AC-5.4, AC-6.3, AC-7.5, AC-8.1, AC-9.1, AC-9.7, AC-9.12, AC-9.14 — deps: T45, T46, T70
+- [ ] T47: Eval — LM-judge verdict on the feature — refs: AC-1.1, AC-2.4, AC-3.3, AC-4.3, AC-5.4, AC-6.3, AC-7.5, AC-8.1, AC-9.1, AC-9.7, AC-9.12, AC-9.14 — deps: T45, T46, T70, T85, T86
   - touch: `specs/20261117-legal-entities/eval-report.md`
   - agent: evaluator
   - done when: `eval-report.md` is fresh and passing (`/wellforge:eval 20261117-legal-entities`).
+  - note (D9, 2026-11-18): round 3, on the owner's request after the bounded loop of 2 (rounds 1–2 FAIL 76.5,
+    78.3), runs after the D9 deltas: deps += T85, T86. The round judges the amended AC-9.11/9.12/9.16 too.
 
 ## Owner steps: the switch
 
-- [ ] T48: **[OWNER]** Release steps 4–5 — pre-switch dry run, merge push 2, cut the release, push; the freeze ends when crm-api is live — refs: AC-5.1, AC-6.1, AC-6.2, AC-7.4 — deps: T18, T44, T45, T46, T14, T70
+- [ ] T48: **[OWNER]** Release steps 4–5 — pre-switch dry run, merge push 2, cut the release, push; the freeze ends when crm-api is live — refs: AC-5.1, AC-6.1, AC-6.2, AC-7.4 — deps: T18, T44, T45, T46, T14, T70, T80, T81, T84, T85, T86, T87
   - touch: `CHANGELOG.md`, `*/CHANGELOG.md`, `*/package.json`, `shell/src/lib/suiteVersion.generated.json`, `.changeset/*`, `specs/20261117-legal-entities/release-log.md`
   - agent: owner (RELEASING.md)
   - note (2026-11-17, G15): push 2 now also carries auth (the US-9 notice duty and dispatcher, T58/T59, and its
     additive migration); it follows T16–T18 in the same release session.
+  - note (D9, 2026-11-18; plan J7): push 2 carries T80, T81 and T84 (and T83 through T44); before pushing, confirm
+    notify-api in production is the push-1 version that accepts `actorEmail` (T16). Deps += T80, T81, T84, T85, T86, T87.
   - done when: the dry run just before the push reports `mismatched` 0; after the push every changed service
     (auth included) reports its new version and crm-api is live; auth logs that the notice dispatcher started;
     logged.
@@ -1150,3 +1157,204 @@ Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T
   numbers 1 s / 30 per 600 s / 1.1 s, the two 2026-11-18 ADRs, T44 prepared ahead); design.md APPROVED; N1/O-1
   decided: the notice identifies the author by their account EMAIL (the display name is editable by its holder) —
   spec amendment of AC-9.11 and tasks T78+ follow; then eval round 3 on the owner's request.
+
+## Re-sync 2026-11-18 — amendment D9 (the notice names its author by account email)
+
+Derived from spec amendment D9 (`269090f1`: AC-9.11, AC-9.12, AC-9.16, OQ-14–16) and plan "Amendment 2026-11-18 —
+D9" (J1–J12). Amended in place: T16, T44, T47 and T48 (deps and one note each). The push of each task follows plan J7:
+notify-api is push 1, and auth's notices are push 2.
+
+### Design
+
+- [ ] T78: design — N1 copy with the author's account email: no display name, the "no email address on record" sentence (in-app en/it, email en) — refs: AC-9.11, AC-9.12, AC-9.13 — deps: none
+  - touch: `specs/20261117-legal-entities/design.md`
+  - agent: designer
+  - Details: plan J5 (binding contract, recommended wording "the account …", slot `{author}`), J4 (longest case,
+    push). Also clear the three stale lines of `d1da2ecc` (plan J11): the "(built as decided; not owner-approved yet)"
+    heading, the DR-14/DR-17 boxes, the open "N1 / O-1" item (closed by D9).
+  - done when:
+    - N1's closed slots name the author's email and no display name.
+    - `notice.byAction.save`/`restore` are given in en and it with the address slot.
+    - The key that replaces `notice.unknownActor` is given in en and it, with the email template's English for it.
+    - DA-6 says the address appears in the body only, never in a title or subject.
+    - The worked example uses an address.
+    - The longest case is recomputed with a 320-character address: title, body, Italian and English, push JSON
+      bytes, all within 200 / 2000 / 3000.
+    - DR-17 says that the lock screen shows the author's email.
+    - The three stale lines are corrected.
+    - No other section changes.
+
+### Push 1 — notify-api
+
+- [ ] T79: notify-api — `legal_entity_change` data: `actorName` → `actorEmail` (strict, an email address ≤ 320 or null), rendered as escaped text with T78's sentences, no display name, no name fallback — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T78
+  - touch: `notify-api/src/system/emails.schemas.ts`, `notify-api/src/system/emailTemplates.ts`, `notify-api/src/system/emailTemplates.test.ts`, `notify-api/src/system/emails.routes.test.ts`, `notify-api/src/system/systemAuth.logPrivacy.test.ts`
+  - agent: backend-dev · push 1 (one commit touching notify-api only, so the push-1 cut can cherry-pick it)
+  - Details:
+    - plan J4: `actorEmail: z.string().email(…).max(320).nullable()`, required.
+    - `actorName` is removed, so a caller that sends it gets a 400 from the strict object.
+    - The template HTML-escapes the address, with no `mailto:` link.
+    - `null` gives T78's no-email sentence, and the "an unnamed user" fallback is deleted.
+    - The subject is unchanged. Plan J6 covers privacy.
+  - done when:
+    - The template renders the save and restore lines with the address.
+    - A hostile local part containing `<`, `&` and `"` is escaped in the HTML.
+    - `null` gives the no-email sentence. No HTML contains `mailto:`.
+    - The subject never contains the address.
+    - These `data` are refused with 400 and nothing is sent: an `actorName` member; `actorEmail` missing, not an
+      address, or 321 characters long.
+    - The 400 body does not contain the refused value.
+    - A sentinel address in a valid request reaches no log line.
+    - Every other `legal_entity_change` test still passes with `actorEmail`.
+    - notify-api typecheck and suite are green.
+
+- [ ] T82: Changeset text — `.changeset/legal-entities-notify-system-routes.md` says the template names the author by account email (or "no email address on record") and never by a display name — refs: AC-9.11, AC-9.13 — deps: T79
+  - touch: `.changeset/legal-entities-notify-system-routes.md`
+  - agent: backend-dev · push 1
+  - done when:
+    - The text describes `actorEmail` and the removal of the display name, and keeps its bump (minor).
+    - `node scripts/check-changeset.mjs --base=origin/main --head=HEAD` exits 0.
+    - The text names no push-2 change.
+
+### Push 2 — auth
+
+- [ ] T80: auth — capture the author's account email in the version's transaction: `legal_entity_notice.authorEmail` (additive migration), read from the `user` row inside the transaction, written on every row, never updated — refs: AC-9.11, AC-9.10, AC-9.16 — deps: none
+  - touch: `auth/prisma/schema.prisma`, `auth/prisma/migrations/*`, `auth/src/legalEntities/notices/duty.ts`, `auth/src/legalEntities/notices/duty.test.ts`
+  - agent: backend-dev · push 2
+  - Details:
+    - plan J2: the column on the notice rows, read with `tx.user.findUnique` after `appendVersion` (never the
+      session), stored verbatim, with `''` or a missing row stored as `null`. The capture never fails the save.
+    - plan J3: a new migration with the column and the not-empty CHECK, no backfill; the comments are corrected.
+    - `write.routes.ts` does not change.
+  - done when (A-int):
+    - A protected save writes the actor's address on every row of the version: the person rows and the outside row,
+      all equal.
+    - The address changed in the database after the session was made → the rows carry the new one.
+    - Missing row or empty address (injected) → `null`, and the save is 201.
+    - A forced failure after the insert leaves no row, as before.
+    - The import, a no-op, a non-protected save and a refusal write no row, as before.
+    - The CHECK refuses `''`.
+    - `bun run db:deploy` applies on compose; the auth suite is green, with the T75 guard kept.
+
+- [ ] T81: auth — the notice states the captured email: the dispatcher claims `authorEmail`, `content.ts` (`noticeAuthorEmail` rule, R-D9a), `copy.ts` (T78's keys en/it), `emailData.actorEmail`; no read of `createdByName` in the notice code — refs: AC-9.11, AC-9.12, AC-9.13, AC-9.10 — deps: T78, T79, T80
+  - touch: `auth/src/legalEntities/notices/content.ts`, `auth/src/legalEntities/notices/content.test.ts`, `auth/src/legalEntities/notices/copy.ts`, `auth/src/legalEntities/notices/copy.test.ts`, `auth/src/legalEntities/notices/dispatcher.ts`, `auth/src/legalEntities/notices/dispatcher.test.ts`
+  - agent: backend-dev · push 2
+  - Details:
+    - plan J4: `NoticeFacts.authorEmail`; `sanitizeActorName` and `ACTOR_NAME_MAX` removed; the claim's
+      `RETURNING` gains `authorEmail`; `noticeFacts(current, previous, authorEmail)`.
+    - An unusable address is treated as "no email on record", with the log line
+      `legal_entity_notice_author_email_unusable` (no value).
+    - plan J6: the log and audit fields are unchanged.
+  - done when:
+    - A-unit:
+      - the save and restore lines carry the address in en and it;
+      - `null` and an unusable address give T78's sentence in both languages, with the rest of the list intact;
+      - `emailData` carries `actorEmail`, the address or `null`;
+      - the longest case with a 320-character address stays within 200/2000 and the push JSON is under 3000 bytes;
+      - copy parity holds.
+    - A-int (clock):
+      - after the version is stored, the actor's email and name are changed and the actor is soft-deleted; the
+        notices to the other recipients still state the captured address;
+      - a retry sends the same words;
+      - the outside row's email data carries the same address;
+      - no update statement touches `authorEmail`.
+    - Sentinel scan: the sentinel display name appears in no request, row, audit entry, log line or notification.
+      The sentinel address appears only in the in-app body, the email data and the outbox column, and never in a
+      log line or an audit entry.
+    - A grep test: `createdByName` does not appear in `notices/`.
+    - The auth suite is green.
+
+- [ ] T83: Changeset text — `.changeset/legal-entities-auth-notices.md` says a notice names its author by the account email captured when the version is stored (no display name), and the migration adds one column — refs: AC-9.11, AC-9.12 — deps: T81
+  - touch: `.changeset/legal-entities-auth-notices.md`
+  - agent: backend-dev · push 2
+  - done when:
+    - The text says the above and that the outside mailbox receives the author's email.
+    - It keeps its bump (minor) and still names `LEGAL_ENTITY_NOTICE_EMAIL` and step 7.
+    - `check-changeset.mjs` exits 0 for the push-2 commits.
+
+### End-to-end, review, owner
+
+- [ ] T84: e2e — `protected-legal-details.spec.ts`: the notice states the actor's account email and no display name; an actor renamed to a sentinel through `POST /auth/update-user` before a protected save is still named by email — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T79, T81
+  - touch: `shell/e2e/protected-legal-details.spec.ts`, `shell/e2e/helpers/legalEntitiesFixtures.ts`
+  - agent: quality-engineer · push 2
+  - Details:
+    - Replace the `Change saved by Legal Entities E2E Admin.` and `Version … restored by Legal Entities E2E Admin.`
+      assertions with the address and T78's wording, in en and it.
+    - The rename uses a **dedicated** persona with the grant, so `legal-entities.spec.ts`'s history assertions (which
+      show names, OQ-16) are not disturbed.
+  - done when Playwright is green:
+    - the manager's and the actor's notices (en and it bodies) contain the actor's email;
+    - the renamed persona's protected save → its notice contains its email and not the sentinel name, in the title,
+      the body, en or it;
+    - the existing AC-9.12 value checks still pass;
+    - the notice still arrives within 60 s.
+
+- [ ] T85: QE — delta for D9: the changed ACs, the push skew of plan J7, regressions of the notice path — refs: AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.16 — deps: T79, T80, T81, T82, T83, T84
+  - touch: `specs/20261117-legal-entities/qe-report.md`
+  - agent: quality-engineer
+  - done when a dated delta section in `qe-report.md`:
+    - maps AC-9.10, 9.11, 9.12, 9.13 and 9.16 to passing evidence: the J8 rows, and the e2e of T84 run;
+    - rehearses on compose the pairing new auth + pre-D9 notify-api: emails 400 → `notify_refused`, retried; in-app
+      delivered; after the upgrade, the next retry delivers;
+    - shows a live rename of the actor between save and send, which changes nothing in the notice;
+    - re-runs the auth and notify-api suites and the T68/T84 e2e;
+    - closes O-1;
+    - gives PASS.
+
+- [ ] T86: Security delta review, frontier tier — D9 surfaces (plan J10) — refs: AC-9.11, AC-9.12 — deps: T79, T80, T81
+  - touch: `specs/20261117-legal-entities/security-review-2.md`
+  - agent: owasp-reviewer (frontier tier: financial data, R1)
+  - done when a dated "Delta D9" section in `security-review-2.md`:
+    - covers every surface of plan J10: the capture in the transaction, the column, the content and copy, the
+      notify-api schema and template, the push text, log and audit privacy;
+    - marks N1 closed or not;
+    - has no open high or critical finding.
+
+- [ ] T87: **[OWNER]** Early check R26 — count production accounts whose email fails the notice rule (`z.string().email().max(320)`), count only — refs: AC-9.11 — deps: T81, T18
+  - touch: `specs/20261117-legal-entities/release-log.md`
+  - agent: owner (devops may prepare a read-only script over auth's `user` table using T81's exported rule)
+  - done when:
+    - The release log records the count and the date, and no address.
+    - If the count is not 0, the owner has decided R-D9a (plan J11) before T48.
+
+### Coverage check (D9)
+
+| AC | Tasks implementing | Verified by |
+| --- | --- | --- |
+| AC-9.10 | T80 (outside row captures it), T81 (its email data carries it) | T85 |
+| AC-9.11 | T78, T79, T80, T81, T82, T83 | T84, T85, T86, T47 (round 3) |
+| AC-9.12 | T78, T79, T81, T83 | T84, T85, T86, T47 |
+| AC-9.13 | T78, T79, T81 | T84, T85 |
+| AC-9.16 | T80 (the capture lives only in the duty, which the import never reaches) | T85 |
+
+- Every new task refs at least one AC.
+- The other 47 ACs are unaffected, and the AC coverage table above stands.
+- Nominal refs (not coverage): T82, T83 (changesets), T86 (review), T87 (owner check).
+- All 52 ACs stay covered.
+
+### Overlap check (D9; deps ∪ `touch:`)
+
+- `auth/src/legalEntities/notices/*`: T80 (`duty.*`) and T81 (`content.*`, `copy.*`, `dispatcher.*`) touch
+  different files, ordered T80 → T81.
+- `.changeset/*`:
+  - T82 and T83 touch one file each, and the two files differ.
+  - The release tasks match the glob, so each changeset task is ordered before them: T82 → T16 and T83 → T44 → T48.
+- `notify-api/src/system/*`: T79 only among open tasks.
+- `auth/prisma/*`: T80 only among open tasks.
+- `shell/e2e/protected-legal-details.spec.ts` and `shell/e2e/helpers/legalEntitiesFixtures.ts`: T84 only.
+- `design.md`: T78 only. `qe-report.md`: T85 only. `security-review-2.md`: T86 only. `eval-report.md`: T47 only.
+- `specs/20261117-legal-entities/release-log.md` is shared with the owner chain: T18 → T87 → T48.
+- **Push boundary.** The push-1 tasks T79 and T82 depend only on T78 (docs) and on each other. No push-1 task
+  depends on T80, T81, T83 or T84. T16 depends on T85 and T86 as a release gate, as it already did on T45 and T70.
+
+### Parallel batches (D9)
+
+| Batch | Tasks | Note |
+| --- | --- | --- |
+| D9-1 | T78, T80 | design copy ∥ auth capture (T80 needs no copy) |
+| D9-2 | T79 | notify-api, push 1 |
+| D9-3 | T81, T82 | |
+| D9-4 | T83, T84, T86 | the OWASP delta runs alongside the e2e update |
+| D9-5 | T85 | QE delta |
+
+Then T47 (eval round 3), with the release chain alongside it: T16 → T17 → T18 → T87 → T44 → T48 → T49 → T71 → T50.
+Critical path: T78 → T79 → T81 → T84 → T85 → T16 → T17 → T18 → T87 → T48 → T49 → T71 → T50.
