@@ -807,7 +807,7 @@ same files.
   - done when: a failed forced refresh keeps serving the prior entry to unpinned/matching reads within 60 s of its
     send; budget 30 enforced; fmt, clippy, api tests green.
 
-- [ ] T88: auth — D9 delta lows: clear `authorEmail` when a notice row reaches a terminal status (D9-1), pin that a holder cannot change `user.email` via Better Auth (D9-2), log only error name/code in `auth/src/index.ts` (D9-3) — refs: AC-9.11, AC-9.12 — deps: T81, T86
+- [x] T88: auth — D9 delta lows: clear `authorEmail` when a notice row reaches a terminal status (D9-1), pin that a holder cannot change `user.email` via Better Auth (D9-2), log only error name/code in `auth/src/index.ts` (D9-3) — refs: AC-9.11, AC-9.12 — deps: T81, T86
   - touch: `auth/src/legalEntities/notices/dispatcher.ts`, `auth/src/legalEntities/notices/dispatcher.test.ts`, `auth/prisma/migrations/*`, `auth/prisma/schema.prisma`, `auth/src/auth/auth.mount.test.ts`, `auth/src/index.ts`
   - agent: backend-dev · push 2
   - added by the orchestrator 2026-11-18 (security-review-2.md "Delta review 2026-11-18 (D9)"; owner's standing decision to fix every low).
@@ -815,7 +815,7 @@ same files.
     "never updated" rule is restated: only the terminal clear may write it); a test shows `POST /auth/change-email` and
     `POST /auth/update-user {email}` leave `user.email` unchanged for a signed-in holder; the top-level error log carries
     name and code only; auth suite green.
-- [ ] T89: notify-api — log only error name/code at the top-level handler (D9-3) — refs: AC-9.12 — deps: T79, T86
+- [x] T89: notify-api — log only error name/code at the top-level handler (D9-3) — refs: AC-9.12 — deps: T79, T86
   - touch: `notify-api/src/index.ts`, `notify-api/src/system/systemAuth.logPrivacy.test.ts`
   - agent: backend-dev · push 1
   - done when: an error carrying a sentinel address in its message is logged without it; notify-api suite green.
