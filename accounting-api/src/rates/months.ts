@@ -6,12 +6,12 @@
  *
  * Two different questions, two different windows:
  *
- * - FETCHABLE: may Refund ask the federal source for this month's average?
+ * - FETCHABLE: may Accounting ask the federal source for this month's average?
  *   Only a COMPLETED month, and only from day {@link FX_FETCH_GRACE_DAYS} of
  *   the following month (Europe/Zurich). The source also answers for the
  *   current and for future months, so "it returned a value" is not evidence
  *   that the value is final (plan R2). The current month is never fetchable.
- * - DISPLAYED: which months does the Settings table list? Every COMPLETED month
+ * - DISPLAYED: which months does the exchange-rates table list? Every COMPLETED month
  *   from {@link FX_FIRST_MONTH}, newest first, plus any earlier completed month
  *   a non-CHF line needs. A just-ended month is listed from its first day (as
  *   "missing") before it becomes fetchable on day 5.
@@ -77,7 +77,7 @@ export function lastCompletedMonth(now: Date): string {
 }
 
 /**
- * The newest month Refund may fetch: the last completed month once day
+ * The newest month Accounting may fetch: the last completed month once day
  * {@link FX_FETCH_GRACE_DAYS} of the current month (Europe/Zurich) has begun,
  * else the month before that.
  */
@@ -87,7 +87,7 @@ export function lastFetchableMonth(now: Date): string {
   return fromIndex(day >= FX_FETCH_GRACE_DAYS ? current - 1 : current - 2);
 }
 
-/** May Refund ask the source for `month` at `now`? Never for the current or a future month. */
+/** May Accounting ask the source for `month` at `now`? Never for the current or a future month. */
 export function isFetchableMonth(month: string, now: Date): boolean {
   return toIndex(month) <= toIndex(lastFetchableMonth(now));
 }
