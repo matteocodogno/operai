@@ -922,7 +922,7 @@ follows bucket ①).
 | `APP_ACCESS_CHECK_FLOOR_MS` / `APP_ACCESS_CHECK_RATE_LIMIT` / `APP_ACCESS_CHECK_RATE_WINDOW_MS` | **NEW (specs/20260807-estimate-sharing, T1/T2).** In-process anti-enumeration floor + rate limit for `POST /authz/app-access-check` (ADR 20260807-third-party-app-access-decision-endpoint-forwarded-jwt). Optional — code defaults `150`/`40`/`600000` apply if unset; set explicitly only to tune per environment. | no |
 | `IDENTITIES_RATE_LIMIT` / `IDENTITIES_RATE_WINDOW_MS` | **NEW (specs/20260807-estimate-sharing, T27).** In-process rate limit for `POST /authz/users/identities` (reuses the same `rateLimiter.ts` module as the pair above, a second instance keyed separately). Optional — code defaults `120`/`600000` apply if unset. No response-time floor needed (ADR 20260807-live-identity-resolution-by-id-fail-soft — this endpoint leaks no existence signal the caller doesn't already hold). | no |
 | `SERVICE_AUDIENCE` | **ADR 20261006-scoped-service-jwt-fourth-notify-caller, required since specs/20261013-notify-service-credentials (ADR 20261013-auth-mints-own-service-credential-in-process).** The `aud` stamped on scoped service JWTs, including `auth`'s own in-process credential for `POST /system/emails`: `${{shared.SERVICE_AUDIENCE}}`, byte-identical to `notify-api`'s and **different from `AUTH_AUDIENCE`** (startup exits otherwise). Startup also exits if it is absent. | no |
-| `SERVICE_CLIENTS` | **ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049.** JSON object keyed by client id, one entry per caller that asks `POST /system/service-token` (`inventory-api`, `estimai-api`, `refund-api`): `{"inventory-api":{"secret":"${{shared.INVENTORY_SERVICE_CLIENT_SECRET}}","scope":"notifications.push emails.send"},…}` — full shape in § Notify credential rollout. Secret 32–256 chars; scopes are `notifications.push` and/or `emails.send`, each client only what it needs; client id is lower-case alphanumerics and single hyphens, and `auth` is reserved (ADR 20261013-auth-mints-own-service-credential-in-process). Never logged; a parse failure names the rule, never a value. Revoking a client = removing its entry (tokens already minted expire within 5 minutes). Verify the shared references resolved inside the JSON in the Variables tab. **specs/20261117-legal-entities:** the scope `legal-entities:read` (the registry's service read) is held by `crm-api` (added to its scopes) and by a new `letterhead-api` client, exactly that scope; `auth` refuses to start with a scope it does not know, so edit this variable only after the `auth` that knows it is live (§ Legal entities rollout). | **yes** |
+| `SERVICE_CLIENTS` | **ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049.** JSON object keyed by client id, one entry per caller that asks `POST /system/service-token` (`inventory-api`, `estimai-api`, `refund-api`): `{"inventory-api":{"secret":"${{shared.INVENTORY_SERVICE_CLIENT_SECRET}}","scope":"notifications.push emails.send"},…}` — full shape in § Notify credential rollout. Secret 32–256 chars; scopes are `notifications.push` and/or `emails.send`, each client only what it needs; client id is lower-case alphanumerics and single hyphens, and `auth` is reserved (ADR 20261013-auth-mints-own-service-credential-in-process). Never logged; a parse failure names the rule, never a value. Revoking a client = removing its entry (tokens already minted expire within 5 minutes). Verify the shared references resolved inside the JSON in the Variables tab. **specs/20261117-legal-entities:** the scope `legal-entities:read` (the registry's service read) is held by `crm-api` (added to its scopes) and by a new `letterhead-api` client, exactly that scope; `auth` refuses to start with a scope it does not know, so edit this variable only after the `auth` that knows it is live (§ Legal entities rollout). **specs/20261119-accounting:** the scope `accounting.reference.read` (accounting-api's `/system/v1/*` read) is held by `refund-api` only: its entry goes to `notifications.push emails.send accounting.reference.read`, after the new `auth` is live (§ Accounting release runbook, step 4). | **yes** |
 | `SERVICE_TOKEN_SERVICE_LIMIT` | **NEW (specs/20261111-push-notifications US-7, ADR 20261112-system-endpoints-limited-per-verified-service).** Service tokens `POST /system/service-token` mints per calling service (the verified `system:<clientId>`) per window. Positive integer, optional, default `300` (steady state is about 3 per service per window). | no |
 | `USERS_CONTACT_SERVICE_LIMIT` | **NEW (specs/20261111-push-notifications US-7, ADR 20261112-system-endpoints-limited-per-verified-service).** Contact lookups `POST /system/users/contact` answers per calling service per window. Only `system:notify-api` holds `users.contact`. Positive integer, optional, default `600`. | no |
 | `SYSTEM_INVALID_CREDENTIAL_LIMIT` | **NEW (specs/20261111-push-notifications US-7, ADR 20261112-system-endpoints-limited-per-verified-service).** Requests with an INVALID credential per source address per window, one count shared by both routes. Positive integer, optional, default `20`. It never touches a valid credential. | no |
@@ -1014,7 +1014,7 @@ in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 | `SERVICE_CLIENT_SECRET` | **specs/20261013-notify-service-credentials (ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired).** `${{shared.REFUND_SERVICE_CLIENT_SECRET}}` — byte-identical to that entry's `secret`; 32–256 chars. **Required.** For the decision push (`/system/notifications`) and the batch email (`/system/emails`). | **yes** |
 | `REFUND_S3_ENDPOINT` / `REFUND_S3_REGION` / `REFUND_S3_BUCKET` / `REFUND_S3_ACCESS_KEY_ID` / `REFUND_S3_SECRET_ACCESS_KEY` | EU-region S3-compatible object storage for receipt attachments (ADR 20260716-eu-object-storage-refund-attachments) — `REFUND_S3_REGION` validated against an EU allowlist at startup once T9 lands. **NOT YET PROVISIONED as of T19** — no bucket exists, no 1Password item exists. See this task's final report / § "Object storage — provisioning" below before T9. | **yes** |
 | `REFUND_APP_BASE_URL` | **NEW (T14, specs/20260719-refund-monthly-processing, ADR 20260719-refund-batch-signed-link-email-delivery).** Absolute base URL of the shell-hosted app — **the shell's own public origin**, e.g. `https://operai.welld.io`, same value as `refund-api.ALLOWED_ORIGINS`/every other backend's shell-origin row — **not** `<REFUND_API_URL>`. Used to build the compiled-batch email's in-app deep link `${REFUND_APP_BASE_URL}/refund/batches/:id`; the email never carries a raw presigned S3 URL. | no |
-| `REFUND_FX_SOURCE` | **specs/20261118-refund-accounting-export (T9, ADR 20261118-monthly-exchange-rates-are-fetched-on-demand-...).** Where the monthly CHF exchange rates come from: `bazg` (default) fetches them ON DEMAND (an admin's Fetch now, the Settings exchange-rates view, an export that finds a rate missing) from the federal source, never by a scheduler; `off` makes no outbound call, every attempt is recorded as `disabled` and rates are typed by hand in Settings (offline and e2e). Optional; any other value stops the service at startup. The host (`www.backend-rates.bazg.admin.ch`, HTTPS) is a constant in `src/fx/bazgSource.ts`, NOT a variable: with `bazg` the service needs outbound HTTPS to it (§ Release runbook). | no |
+| `ACCOUNTING_INTERNAL_URL` | **NEW (specs/20261119-accounting, T17).** accounting-api's **private**-networking address, `http://${{accounting-api.RAILWAY_PRIVATE_DOMAIN}}:${{accounting-api.PORT}}` (port 8089), never its public domain: refund-api reads Accounting's ledger accounts, VAT codes and monthly exchange rates live over `/system/v1/*` with its own service JWT, and the token must not leave the project. **Required: `src/lib/env.ts` exits 1 without it**, so a refund-api deployed before the variable is set keeps its previous deployment (the healthcheck never passes). The scope `accounting.reference.read` on refund-api's `SERVICE_CLIENTS` entry is a separate step, made only after the new `auth` is live (§ Accounting release runbook, step 4). | no |
 | `NODE_ENV` | `production` | no |
 
 **`REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` — REMOVED (specs/20260722-refund-settings,
@@ -1024,6 +1024,13 @@ accounting-distribution-email is now an admin-managed, append-only
 `refund_setting` row (ADR 20260722-refund-settings-append-only-self-auditing-store/0029), viewable/editable in Admin > Refund
 (`settings:read`/`settings:manage`). See the cutover runbook immediately
 below for moving the currently-deployed value across.
+
+**`REFUND_FX_SOURCE` — REMOVED (specs/20261119-accounting, T23).** Do **NOT** set it on `refund-api`: the monthly
+exchange rates, their on-demand fetch from the federal source and the switch that turns the fetch off moved to
+`accounting-api` (variable `ACCOUNTING_FX_SOURCE`, § `accounting-api` service). refund-api no longer fetches a rate and no longer
+needs outbound HTTPS to `www.backend-rates.bazg.admin.ch`. A leftover value is ignored by the running service, which starts
+normally, but it makes `off` look as if it still stopped an outbound call from refund-api: `mise run env:doctor` flags it by name,
+so remove it in the release runbook's step 2. (Introduced by specs/20261118-refund-accounting-export, T9, ADR 20261118-monthly-exchange-rates-are-fetched-on-demand-from-the-federal-source-recorded-once-and-corrected-only-by-an-admin-never-by-a-scheduler-and-the-outbound-fetch-is-hardened.)
 
 **`refund-api` deploy notes:** declared at one replica in `.railway/railway.ts`
 like every service, but with no correctness reason to stay there (unlike
@@ -1075,18 +1082,28 @@ never scheduled" lineage) — it is a single deliberate command run by a human
 at cutover time, never a recurring job.
 
 **Release runbook — refund accounting export (specs/20261118-refund-accounting-export; the release itself is task T40).**
+**Amended by specs/20261119-accounting: steps 1–4 stand, but the lists, the script and its inputs moved, so step 5 is now
+the one in § Accounting release runbook (step 7 there) and the two releases are cut together (D21), never one after the other.**
 The feature adds a migration, a permission, a shell formatter and one operator-run script. Do these in order; each step
 names the check that lets the next one start.
 
-*Before anything:* T39 (the owner's task, the accounting sign-off) gates T40. It settles what a release would otherwise
-freeze: the seed in `refund-api/scripts/data/accounting-seed.welld-ch.json` (account names are taken from the WellD CH chart of accounts;
-the type defaults, the VAT codes `IMP81`/`IMP77` and the name of the placeholder VAT code `NOVAT`, which is the
-foreign-currency VAT code until accounting names the real one, are drafts read off the 2026 register), the CSV dialect (`refund-api/src/accounting/exportFormat.ts`:
-separator, decimal mark, encoding; a change bumps `FORMAT_VERSION` and the golden file `src/accounting/fixtures/accounting-export.golden.csv`),
-the source of the exchange rates, and the per-employee sequence offsets (a CSV `email,year,lastIssuedSeq`, prepared for
-the run and never committed: it names people, so it lives OUTSIDE the repository, see step 5). The seed is applied only where nothing exists, a receipt number is
-never reissued, and the classification of a numbered line of a paid request can never change, so a wrong seed is
-corrected in Settings afterwards for new approvals and for unpaid lines, not for those paid ones.
+*Before anything:* T39 (the owner's task, the accounting sign-off) gates T40, and T50 of specs/20261119-accounting does the same
+for what moved. They settle what a release would otherwise freeze:
+- the lists. The catalog (ledger accounts and VAT codes `IMP81`, `IMP77`, `NOVAT`) is Accounting's since specs/20261119-accounting and is
+  loaded by `seed:welld-ch` from `accounting-api/scripts/data/seed.welld-ch.json`; Refund's twelve type defaults and its
+  foreign-currency VAT code are `refund-api/scripts/data/accounting-defaults.welld-ch.json` (the former `accounting-seed.welld-ch.json` no
+  longer exists), read by `accounting:release --defaults <json>` (the old `--seed` option is gone). **Both files are drafts read off the
+  2026 register until accounting signs them off**: account names are taken from the WellD CH chart of accounts; the type defaults and
+  the foreign-currency VAT code, today the placeholder `NOVAT`, are still open questions of 20261118 (Q4, Q6) and of 20261119 (T50);
+- the CSV dialect (`refund-api/src/accounting/exportFormat.ts`: separator, decimal mark, encoding; a change bumps `FORMAT_VERSION`
+  and the golden file `src/accounting/fixtures/accounting-export.golden.csv`);
+- the source of the exchange rates (now `ACCOUNTING_FX_SOURCE` on accounting-api);
+- the per-employee sequence offsets (a CSV `email,year,lastIssuedSeq`, prepared for the run and never committed: it names people, so it
+  lives OUTSIDE the repository, see step 5).
+
+The defaults are applied only where Refund holds no row, a receipt number is never reissued, and the classification of a numbered line of
+a paid request can never change, so a wrong list is corrected in Accounting (the catalog) and in Refund's Settings (the defaults)
+afterwards, for new approvals and for unpaid lines, not for those paid ones.
 
 1. **auth.** Its `preDeploy` (`db:release`) migrates and seeds the permission catalog, so `request:reclassify` exists
    (granted to the holders of `request:approve`, with the same conditions: if a role's approve carries `self-approval:
@@ -1101,19 +1118,21 @@ corrected in Settings afterwards for new approvals and for unpaid lines, not for
    (`refund-api/prisma/migrations/20261119090000_accounting_export`). Check: `GET /health` reports the new version. From now
    on every approval answers 409 `accounting_release_pending`, and the UI says so, until step 5.
 4. **refund-ui** (Vercel).
-5. **Run the release script, once**, from a checkout at the released commit, against the production refund database. **The
-   refund-api Docker image does not contain `scripts/`** (its Dockerfile copies `src` and `prisma` only), so this cannot be run
-   inside the Railway service: like `settings:seed` above, it runs from a checkout (`bun install` and `bun run db:generate` in
-   `refund-api/` first: the Prisma client is generated, not committed) with only `DATABASE_URL` set (the `refund` database, as
-   the service uses it):
+5. **Run the release script, once**, from a checkout at the released commit, **after accounting-api is live and has its catalog**
+   (§ Accounting release runbook, steps 3–6): the script reads Accounting first and exits 2, writing nothing, if it cannot
+   (AC-7.4). **The refund-api Docker image does not contain `scripts/`** (its Dockerfile copies `src` and `prisma` only), so this cannot
+   be run inside the Railway service: it runs from a checkout (`bun install` and `bun run db:generate` in `refund-api/` first: the
+   Prisma client is generated, not committed) under `railway run`, which injects refund-api's own variables (the service client
+   included), with the three overrides the exact commands of § Accounting release runbook, step 7, spell out: the `refund` database through
+   its public connection string, and accounting-api and auth through their public hosts, because the private ones do not resolve from a laptop.
+   The arguments are the ones this runbook names:
 
    ```bash
-   cd refund-api
-   export DATABASE_URL=<production refund DATABASE_URL>     # not committed, not echoed
-   bun run accounting:release --dry-run                       # writes nothing; prints what the real run would do
+   bun run accounting:release --dry-run                       # reads Accounting, writes nothing; prints what the real run would do
    bun run accounting:release --dry-run --offsets <file.csv>  # the same with the offsets, only if T39 supplies a file
-   # accounting reads the report: numbers per employee and year, lines left unclassified, Italian lines left alone
+   # accounting reads the report: numbers per employee and year, lines left unclassified, rate pending, Italian lines left alone
    bun run accounting:release [--offsets <file.csv>]          # the real run, one transaction, with the same arguments as the dry run
+   # --defaults <json> replaces the committed defaults file (scripts/data/accounting-defaults.welld-ch.json), e.g. for a rehearsal
    ```
 
    - **Personal data (security review S-03, S-04).** The offsets file names employees by email: keep it **outside the
@@ -1133,11 +1152,18 @@ corrected in Settings afterwards for new approvals and for unpaid lines, not for
    - `--offsets` is refused for an employee and year that already has a number, so it only works on the run that writes
      the first numbers. Do not run the real script without it first and add it later.
    - A second run changes nothing (no second marker). A failure anywhere rolls the whole run back
-     (`accounting:release failed, nothing was changed: …`, exit code 1).
+     (`accounting:release failed, nothing was changed: …`, exit code 1). **Exit code 2** is Accounting unreadable (the read did not come back clean and
+     complete: accounting-api not live or not reachable at `ACCOUNTING_INTERNAL_URL`, or the scope `accounting.reference.read` not yet granted to refund-api): the message is `Accounting cannot be read: nothing was
+     numbered or classified; run again later`, and nothing was written, not a number, a copy, a default or the marker. Fix the cause and run it again.
    - File the report. Check afterwards: an approval no longer answers 409 `accounting_release_pending`, and a compiled batch's
      export card says how many rows it will export.
 
-**Outbound HTTPS to `www.backend-rates.bazg.admin.ch`.** With `REFUND_FX_SOURCE=bazg` (the default) refund-api calls that host, on demand only, 5 s at most per call, to read the monthly average rates. `.railway/railway.ts` declares no egress rule, so nothing is to be configured; if egress is ever restricted, this host must be allowed or `REFUND_FX_SOURCE=off` set and the rates typed in Settings. A failed fetch is never an error page: the month is a "missing rate" in Settings and blocks the export of a batch that needs it.
+**Outbound HTTPS to `www.backend-rates.bazg.admin.ch` — moved to accounting-api (specs/20261119-accounting).** refund-api no longer
+calls that host and `REFUND_FX_SOURCE` is gone (§ `refund-api` variables). With `ACCOUNTING_FX_SOURCE=bazg` (the default) it is
+accounting-api that calls it, on demand only, 10 s at most for a manager's fetch and 6 s for a consumer's, to read the monthly average rates
+(§ `accounting-api` service). `.railway/railway.ts` declares no egress rule, so nothing is to be configured; if egress is ever restricted,
+the host must be allowed for accounting-api, or `ACCOUNTING_FX_SOURCE=off` set and the rates typed in Accounting. A failed fetch is never an
+error page: the month is a "missing rate" and blocks the export of a batch that needs it.
 
 Pushing `main` starts every deploy at once (RELEASING.md): when the order above matters, let each step finish before
 the next is allowed to start, or accept the fallbacks named in steps 1 and 2. The e2e suite runs the script itself
@@ -1810,6 +1836,66 @@ step 2 again. A non-200 or a timeout is the service or the credential (`railway 
 status only; a 401 or 403 usually means the `letterhead:render` scope is missing from the `crm-api` entry of `SERVICE_CLIENTS`).
 Nothing was changed.
 
+### `accounting-api` service (Railway) — NEW (specs/20261119-accounting)
+
+Ledger accounts, VAT codes and monthly exchange rates of each legal entity (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it). Authoritative list:
+`accounting-api/src/lib/env.ts` (validated at startup, exits 1 naming the variable, never its value). Committed contract:
+`tools/env-doctor/templates/production/accounting-api.env`. Port **8089**, DB `accounting` (its own logical database on the shared
+Postgres), domain `accounting-api.operai.welld.io`. A JWKS and authorization-enforcing resource server (person tokens on `/v1/*`,
+checked against `auth`'s `/authz/resolve`) with one narrow service read, `GET /system/v1/entities/{entity}/…`, for refund-api. It stores
+no file (no bucket), sends no notice, and holds **no service client of its own**: it calls no service but `auth` and, on demand, the one
+federal rates host. The browser reaches it through `accounting-ui` (its own Vercel project, host `accounting.operai.welld.io`, a remote
+of the shell); refund-api reads it over private networking with a scoped service JWT (`accounting.reference.read`, `sub`
+`system:refund-api`, `aud` = `SERVICE_AUDIENCE`).
+
+**What `.railway/railway.ts` declares** (task T43; nothing is applied from a branch, the operator applies it, D30):
+
+| Setting | Value | Why |
+|---|---|---|
+| `build` | `DOCKERFILE`, `Dockerfile` | The image copies `src`, `prisma` **and `scripts/`** (the data they read included, the tests excluded by `.dockerignore`), so `seed:welld-ch` runs inside the service (§ Accounting release runbook, step 6). |
+| `start` / `preDeploy` | `bun run src/index.ts` / `bun run db:deploy` | The one Prisma migration runs against `accounting` before every start; the database must exist before the first deploy (step 1). |
+| `healthcheck` | `/health`, 30 s | 200 with `db.status` `ok`; 503 when Prisma cannot reach Postgres. |
+| `replicas` | `{ "europe-west4-drams3a": 1 }` | EU only. The rate fetch is single-flight per (entity, month) in process, so a second replica doubles the outbound calls, it does not share them. |
+| `source` | **none** | Declared without it on purpose (plan D30): the service is created unbuilt, its variables are set, and the source is added at step 3. A first build with a missing variable exits 1. |
+| `domains` | **none yet** | `railway config plan` refuses to register a custom domain from configuration, which stopped the `railway-drift` job from reading the file for letterhead-api (commit dc7c49c1). The domain is attached after the service exists, then declared: `domains: [{ domain: "accounting-api.operai.welld.io", port: 8089 }]` (step 1). |
+| `limitOverride` | none | The service's own default. |
+| bucket | none | |
+
+| Variable | Value | Secret |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/accounting` — **its own logical DB** | yes (by reference) |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` (the shell only; accounting-ui is a remote, so the browser's `Origin` is the shell's). A wildcard is refused at startup | no |
+| `AUTH_ISSUER` | `https://auth.operai.welld.io` — the public claim, byte-identical to `auth`'s `BETTER_AUTH_URL` | no |
+| `AUTH_JWKS_URL` / `AUTH_BASE_URL` | internal: `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` and `…:${{auth.PORT}}`. `AUTH_BASE_URL` is the base of the `GET /authz/resolve` call, distinct from the claim | no |
+| `AUTH_AUDIENCE` | `${{shared.AUTH_AUDIENCE}}` — byte-for-byte the suite's | no |
+| `SERVICE_AUDIENCE` | `${{shared.SERVICE_AUDIENCE}}` — the `aud` of the service JWTs `/system/v1/*` verifies. **Required** (the service exits 1 without it) and **different from `AUTH_AUDIENCE`** (it refuses to start when they are equal) | no |
+| `ACCOUNTING_FX_SOURCE` | `bazg` (default) or `off`. **Moved here from refund-api's `REFUND_FX_SOURCE`.** `bazg` fetches the federal monthly average rates ON DEMAND (a manager's Fetch now, or a consumer's read that finds a month missing), never by a scheduler; `off` makes no outbound call, every attempt is recorded as `disabled` and rates are typed by hand (offline, e2e). Any other value stops the service at startup. The host is a constant in `src/rates/bazgSource.ts`, not a variable. Optional | no |
+| `PORT` / `NODE_ENV` | `8089` / `production` | no |
+
+`infra/provision-tool.sh` sets every uncommented `KEY=VALUE` of the template by reference; there is **no secret for a person to enter**,
+no `SERVICE_CLIENT_*`, no `*_INTERNAL_URL`, no bucket variable.
+
+**Outbound HTTPS to `www.backend-rates.bazg.admin.ch`** (moved from refund-api, which no longer calls it): with `ACCOUNTING_FX_SOURCE=bazg`
+accounting-api calls it, on demand only, 10 s at most for a manager's fetch and 6 s for a consumer's. `.railway/railway.ts` declares no
+egress rule, so nothing is to be configured; if egress is ever restricted, allow that host for accounting-api, or set
+`ACCOUNTING_FX_SOURCE=off` and type the rates. A failed fetch is never an error page: the month is a "missing rate" and blocks the export of
+a batch that needs it.
+
+**Wiring in `auth`.** No new client and no new shared secret: refund-api's own client (`REFUND_SERVICE_CLIENT_SECRET`) gains one scope.
+`SERVICE_CLIENTS`'s `refund-api` entry goes from `"scope":"notifications.push emails.send"` to
+`"scope":"notifications.push emails.send accounting.reference.read"`, every other entry unchanged. **Only after the new `auth` is
+live**: an `auth` that does not know a scope named in `SERVICE_CLIENTS` refuses to start (R13), and it restarts when the variable
+changes (§ Accounting release runbook, step 4). The scope is read-only; a consumer that must write to Accounting is a new scope.
+`accounting-api` additionally checks the token's `sub` against its own allow-list (`system:refund-api` only, in code, not a variable).
+
+**Access.** Who may see or change what is `auth`'s: the catalog `accounting` (`read`, `manage`, entity condition) is seeded by
+`auth`'s `preDeploy` (`db:release`), which gives `admin` both actions and the `accounting` role both, conditioned on the entity. accounting-api
+refuses everyone until that catalog exists (403), which is why `auth` must be live first.
+
+**Provisioning and release:** § Accounting release runbook. **Verify:** `mise run env:doctor -- --env production` before;
+`./infra/check.sh` after (accounting-api `/health` 200; a 401 on `GET /v1/me` with no token; a 401 on
+`GET /system/v1/entities/welld_ch/reference-data` with no credential; the CSP `connect-src` pin).
+
 ### Provisioning a new tool
 
 `infra/provision-tool.sh <tool>` creates, or audits, everything a tool needs in
@@ -1864,6 +1950,8 @@ treat its first use as a supervised run.
 | | `VITE_ACTIVITIES_API_URL` | **NEW (specs/20261110-activities).** `https://activities-api.operai.welld.io` — build-time, feeds `shell/session`'s trusted-origin allowlist AND `getActivitiesApiBaseUrl()`, which `crm-ui` and `projects-ui` use for every activity and task call (no `VITE_*` of their own; there is no `activities-ui`). `provision-tool.sh --no-ui` does not set it: set it by hand and redeploy the shell. |
 | | `VITE_INVENTORY_API_URL` | **NEW (T41/T43, specs/20261006-hardware-inventory).** `<INVENTORY_API_URL>` — build-time, feeds `shell/session`'s trusted-origin allowlist AND `getInventoryApiBaseUrl()`, which `inventory-ui` uses for every inventory-api call (**inventory-ui has no `VITE_INVENTORY_API_URL` of its own** — unlike `refund-ui`, it asks the shell). **Optional by design and unset by default: when unset the inventory origin is NOT trusted, `apiFetch` sends no Bearer JWT there, and every inventory call 401s** — a silent failure, so set it on the shell project and redeploy. Typed in `shell/src/vite-env.d.ts`. |
 | | `ESTIMAI_REMOTE_URL` / `REFUND_REMOTE_URL` / `ADMIN_REMOTE_URL` / `NOTIFY_REMOTE_URL` / `INVENTORY_REMOTE_URL` | `https://<estimai/refund/admin/notify/inventory>.operai.welld.io/remoteEntry.js` (the code defaults are the `localhost:517x` dev origins, so an unset value ships a shell pointing at localhost) |
+| | `ACCOUNTING_REMOTE_URL` / `VITE_ACCOUNTING_API_URL` | **NEW (specs/20261119-accounting).** `https://accounting.operai.welld.io/remoteEntry.js` / `https://accounting-api.operai.welld.io` — build-time; the second feeds `shell/session`'s trusted-origin allowlist AND `getAccountingApiBaseUrl()` (the Bearer is attached to accounting-api calls only through it). Set by `provision-tool.sh accounting`, which also checks `shell/vite.config.ts` reads the first; redeploy the shell after setting them. |
+| **accounting-ui** | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` (no backend vars of its own: accounting-api through `getAccountingApiBaseUrl()` of the shell) |
 | **estimai-ui** | `VITE_API_URL` | `<API_URL>` — **required**: estimai-ui builds `${VITE_API_URL}/estimates` from its *own* value (must match the shell's) |
 | | `VITE_AUTH_URL` / `SHELL_REMOTE_URL` | standalone-only / `https://operai.welld.io/remoteEntry.js` |
 | **refund-ui** | `VITE_REFUND_API_URL` | **NEW (T20).** `<REFUND_API_URL>` — **required**: `refund-ui/src/lib/refundApi.ts` builds every refund-api URL from its *own* value (must byte-for-byte match the shell's copy above — see that row's note) |
@@ -2828,6 +2916,155 @@ as history.
   their notices; a notice row already stored for the outside address ends `given_up` `outside_address_unset`). If the
   notice path does not work, do not grant managers; revoke any grant already given until it does.
 - **After Step 6:** one-way; restore from the backup taken before it.
+
+## Accounting release runbook (specs/20261119-accounting, ADR 20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it; plan § Deploy order, D20, D21, D30)
+
+**Document only. No agent runs any step below**: provisioning, the variables, the push, the seed and the Refund release are the
+owner's (task T52), in the main session, each step asking for its own yes. Nothing here has been run; the commands marked *(unverified)*
+use a Railway or Vercel CLI form this repository has not exercised, so read the CLI's own `--help` before the first use.
+
+The feature moves Refund's chart of accounts, VAT codes and exchange rates into a new service, `accounting-api`, with its own database,
+UI remote and authorization catalog, and it replaces Refund's release script (the 20261118 runbook, § Release runbook — refund accounting
+export, steps 1–4 of which stand). **One push** to `main` redeploys every changed service in no fixed order (RELEASING.md; D21), so every
+pairing must fail closed during the window:
+
+| Pairing during the window | What happens |
+|---|---|
+| new refund-api before Refund's release script | every approval answers 409 `accounting_release_pending` (the D6 gate of 20261118) |
+| new refund-api before Accounting answers | 503 on what needs Accounting (`accounting_unavailable`); nothing is written |
+| new refund-api without `ACCOUNTING_INTERNAL_URL` | it exits 1 at startup, the healthcheck never passes and **the previous deployment keeps serving** (hence step 2 before the push) |
+| accounting-api before `auth`'s `accounting` catalog | 403 for everyone |
+| the shell before accounting-ui | the remote's error panel, and only for holders of the derived app |
+| `auth` edited with a scope it does not know | `auth` refuses to start (R13): never edit `SERVICE_CLIENTS` before step 4's check |
+
+**Approvals are refused from step 3 to step 7.** Run the release outside the monthly batch day; with steps 0–2 done beforehand the window
+is minutes (R1). Do not start step 3 until step 2 is complete and `mise run env:doctor -- --env production` is green.
+
+**Step 0 — Before.**
+- Accounting has signed off the lists and the defaults (T50 of this spec, T39 of 20261118): `accounting-api/scripts/data/seed.welld-ch.json`,
+  `refund-api/scripts/data/accounting-defaults.welld-ch.json`, and the open questions of the plan (the seed or typing by hand, the 12 type
+  defaults and the foreign-currency VAT code, the offsets). Both files are drafts until then.
+- The offsets CSV, if one is used, is prepared **outside the repository** (it names people; § Release runbook — refund accounting export, step 5).
+- From a checkout of the release commit (the one whose `.railway/railway.ts` declares `accounting-api`), at the repository root:
+  `mise run env:doctor -- --env production` is green, and `railway link -p 3bafd4c0-226f-4621-821b-a063976498a2 -e production` is done.
+
+**Step 1 — Provision, without a source.** `railway config plan` must show **only** `+ service accounting-api`: anything else, and any
+delete, is a stop, and `--confirm-destructive` is never passed (§ Railway configuration as code). The block is committed without `source`
+and without `domains` (§ `accounting-api` service), so the provisioning script's audit prints one expected ✗ ("does not declare
+domains"), and it does not run `railway config apply` itself while that ✗ stands:
+
+```bash
+railway config plan                                  # only: + service accounting-api. Read it.
+railway config apply                                 # creates the service UNBUILT (no source), asks for confirmation
+./infra/provision-tool.sh accounting --port 8089                 # read-only audit: expect ✗ on `domains`, and on "NOT on origin/main" until step 3
+./infra/provision-tool.sh accounting --port 8089 --apply         # database `accounting` on the shared Postgres, the variables by reference
+railway domain accounting-api.operai.welld.io --service accounting-api --port 8089     # (unverified form; the letterhead-api precedent used `railway domain … --service … --port …`)
+./infra/provision-tool.sh accounting --port 8089 --apply         # again: the DNS records (CNAME, then the verification TXT), the Vercel project `accounting-ui`, host
+                                                                 # accounting.operai.welld.io, and the shell's two variables ACCOUNTING_REMOTE_URL / VITE_ACCOUNTING_API_URL
+railway config pull                                  # the domain appears in the file: declare it in the accounting-api block, commit (it travels with the push)
+```
+
+- **Do not open or `curl` the new hostnames** until the script reports that they resolve: a lookup before the record exists is cached as
+  "no such host" for 30 minutes (§ Provisioning a new tool).
+- The Vercel project's first deployment, and connecting the source, need `accounting-api/` and `accounting-ui/` on `origin/main`; the script
+  says "NOT on origin/main" and skips them until step 3.
+- **Apply from the release commit only, never from `main`.** Until the push, `main`'s `.railway/railway.ts` does not declare `accounting-api`,
+  so a plan from `main` would DELETE the service you just created, and the scheduled `railway-drift` job fails by design (R18). Nobody applies
+  in that window.
+- The audit's remaining ✓ and `+` lines must be read, not skipped: a `+ variable …` after the second `--apply` is a variable that was not set.
+
+**Step 2 — Variables.** Everything for `accounting-api` is set by the script from `tools/env-doctor/templates/production/accounting-api.env`
+(§ `accounting-api` service). By hand, and before the push:
+
+| Service | Change |
+|---|---|
+| `refund-api` | **set** `ACCOUNTING_INTERNAL_URL=http://${{accounting-api.RAILWAY_PRIVATE_DOMAIN}}:${{accounting-api.PORT}}` (private networking, never the public domain), e.g. `railway variable set 'ACCOUNTING_INTERNAL_URL=…' --service refund-api --skip-deploys` so nothing redeploys. **Required**: a refund-api without it exits 1 and keeps its previous deployment. |
+| `refund-api` | **remove** `REFUND_FX_SOURCE` (retired; a leftover is ignored, and `env:doctor` flags it by name). Dashboard. |
+| shell (Vercel) | `ACCOUNTING_REMOTE_URL` (`https://accounting.operai.welld.io/remoteEntry.js`) and `VITE_ACCOUNTING_API_URL` (`https://accounting-api.operai.welld.io`) — build-time, set by the script; check they exist **before** the shell is redeployed (§ Provisioning a new tool). |
+
+Then `mise run env:doctor -- --env production --live` (it pulls the real values with the Railway CLI): green, with no finding about
+`accounting-api` or `refund-api`. The scope is not part of that check yet (step 4).
+
+**Step 3 — Release per RELEASING.md, then connect.**
+1. Add, as the first property of the `accounting-api` block in `.railway/railway.ts`, together with the `domains` line from step 1, and commit:
+   `source: github("matteocodogno/operai", { branch: "main", checkSuites: false, rootDirectory: "/accounting-api" }),`
+   (it joins the release commit; until the apply below connects it, Railway builds nothing for the service, and `railway-drift` reports a difference: expected).
+2. Release (RELEASING.md): `mise run release:version`, the version commit, `mise run release:tag`, **`git push --follow-tags`**. This is the one push:
+   every changed Railway service and Vercel project redeploys, in no fixed order. refund-api's `preDeploy` applies its additive migration; `auth`'s
+   `preDeploy` (`db:release`) migrates and seeds the `accounting` catalog and grants.
+3. Connect accounting-api: `./infra/provision-tool.sh accounting --port 8089 --connect --redeploy-shell --apply`. This starts its **first build**, whose `preDeploy`
+   runs `bun run db:deploy` against `accounting`; `--redeploy-shell` rebuilds the shell with the two variables of step 2.
+
+**Step 4 — After the new `auth` is live, grant the scope.** Check first: `curl -s https://auth.operai.welld.io/health` reports the new version, and
+`auth`'s deploy log of step 3 shows its seed line ending `… + accounting catalog + accounting grants + bootstrap admin`. Only then edit `auth`'s
+`SERVICE_CLIENTS` so that refund-api's entry — and only that entry — becomes `"scope":"notifications.push emails.send accounting.reference.read"`
+(shape: § `accounting-api` service, "Wiring in `auth`"; every secret stays a `${{shared.…}}` reference, never a literal). `auth` restarts on the change; read its health afterwards.
+If it does not come back, the scope is the first suspect: remove it again.
+
+In the same change set (a follow-up commit, not part of the push), make the contract say the same, or `env:doctor` fails in the other direction (a scope
+held on one side only): add `accounting.reference.read` to refund-api's `requiredScopes` in `tools/env-doctor/manifest.ts` and to the `refund-api` entry of the
+`SERVICE_CLIENTS` line in `tools/env-doctor/templates/production/auth.env`, and rewrite the test of `tools/env-doctor/check.test.ts` that pins the pending state.
+
+**Step 5 — Verify.**
+- `./infra/check.sh`: accounting-api `/health` 200; a 401 on `GET /v1/me` without a token; a 401 on `GET /system/v1/entities/welld_ch/reference-data`
+  without a credential; the shell's CSP `connect-src` names the accounting-api origin. No credential is used or printed.
+- `auth`'s seed log shows the accounting grants (step 4's check).
+- An accounting user sees **Accounting** in the menu, and a user without the capability does not.
+
+**Step 6 — Seed Accounting** (optional: accounting may type the list in the app instead). `bun run seed:welld-ch [--dry-run]` adds each account and VAT code of
+`seed.welld-ch.json` that does not exist yet, as `system:accounting-seed`, in one transaction; it never deactivates, reactivates or renames anything, never touches
+WellD Italia, and prints counts and the numbers and codes added, no personal data. The accounting-api image **contains `scripts/` and their data**, so it runs
+inside the service with its own `DATABASE_URL`, over private networking (the activities-api and auth precedent):
+
+```bash
+railway ssh --service accounting-api
+# inside (the image's shell, user bun, /app):
+bun run seed:welld-ch --dry-run     # rolled back; accounting reads "added" and "left as it is, differs from the seed"
+bun run seed:welld-ch               # the real run; a second run adds nothing
+exit
+```
+
+(Alternative, from a checkout: `railway run --service accounting-api --environment production -- sh -c 'DATABASE_URL="$ACCOUNTING_PUBLIC_DATABASE_URL" bun run seed:welld-ch --dry-run'`
+with the `accounting` database's **public** connection string in that variable, assembled the way step 7 assembles Refund's. Never type a URL on a command line.)
+
+**Step 7 — Release Refund** (`accounting:release`; D20). It **reads Accounting first** and exits **2**, writing nothing, if it cannot (AC-7.4), so this step needs steps 3–6
+done (and step 4: refund-api cannot read without the scope). It runs from a checkout of the release commit under `railway run`, which injects refund-api's own variables,
+the service client included; it reaches three things that the private hosts of those variables cannot give a laptop, so three are overridden: the `refund` database
+(public connection string), accounting-api and `auth` (their public hosts). The credentials are injected by `railway run`, never typed. Operator shell only, never CI or any
+job whose output is shipped to a log service (SR-4). Offsets and personal data: § Release runbook — refund accounting export, step 5.
+
+```bash
+cd refund-api && bun install && bun run db:generate
+# the refund database through the shared Postgres's PUBLIC url (kept in this shell only; never echoed, never on a command line). (unverified)
+export REFUND_PUBLIC_DATABASE_URL="$(railway run --service Postgres --environment production -- sh -c 'printf %s "${DATABASE_PUBLIC_URL%/*}/refund"')"
+echo "${REFUND_PUBLIC_DATABASE_URL##*/}"      # the database NAME only: "refund"
+
+railway run --service refund-api --environment production -- sh -c \
+  'DATABASE_URL="$REFUND_PUBLIC_DATABASE_URL" ACCOUNTING_INTERNAL_URL=https://accounting-api.operai.welld.io AUTH_BASE_URL=https://auth.operai.welld.io bun run accounting:release --dry-run'
+echo "exit $?"   # 0: read it. 2: Accounting cannot be read, nothing written (see below). 1: failed, rolled back.
+```
+
+Accounting reads the dry-run report: numbers per employee and year, the defaults **skipped** because the entry is not active in Accounting, "rate pending: N lines", and "left unclassified".
+A paid legacy line left unclassified stays locked (R2), so the owner decides whether to set the defaults or the catalog first. **Run the real one only after a clean, read dry run**, with the same
+arguments (`--offsets <file.csv>` only on this first run):
+
+```bash
+railway run --service refund-api --environment production -- sh -c \
+  'DATABASE_URL="$REFUND_PUBLIC_DATABASE_URL" ACCOUNTING_INTERNAL_URL=https://accounting-api.operai.welld.io AUTH_BASE_URL=https://auth.operai.welld.io bun run accounting:release'
+echo "exit $?"; unset REFUND_PUBLIC_DATABASE_URL
+```
+
+Exit **2** prints `Accounting cannot be read: nothing was numbered or classified; run again later` and wrote nothing: check accounting-api's health, that `ACCOUNTING_INTERNAL_URL` is the public host
+here, and that step 4 is done, then run it again. A second run finds nothing to do and writes no second marker. File the report.
+
+**Step 8 — Check.** The first production approval of a WellD CH request succeeds (it no longer answers 409 `accounting_release_pending`), the line carries the copied account and VAT code,
+and a compiled batch's export card says how many rows it will export. From here approvals are open again.
+
+**Rollback.**
+- *Before step 3's push:* nothing is built. Applying `.railway/railway.ts` from a checkout that no longer declares `accounting-api` would delete the service, so read that plan: it is a decision, not a reflex.
+- *Step 4 failed* (`auth` does not start): remove the scope from refund-api's entry; `auth` restarts on the previous value.
+- *Between steps 3 and 7:* approvals are refused by design. Do **not** reset or edit any migration to go back: refund-api's migration `<ts>_accounting_reference_moves_to_accounting` adds the copy columns and **drops what moved** (the catalog, rates and attempts of 20261118, which production does not hold yet because 20261118 is unreleased; plan § Data migration strategy, D5). Read that section before redeploying a previous refund-api.
+- *After step 7:* the release wrote numbers, copies and the marker in one transaction. It is not undone by a redeploy; reverting it is the owner's decision with the plan (§ Risks R1, R2), and the marker is never deleted by hand.
 
 ## Push notifications (specs/20261111-push-notifications, ADR 20261111-web-push-encrypted-payloads-not-fcm/0085)
 

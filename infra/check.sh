@@ -31,6 +31,9 @@
 # specs/20261116-letterhead-service adds letterhead-api (no UI probed here: letterheads-ui is a remote of its own): healthy,
 # the service-credential gate on GET /v1/letterheads/status and POST /v1/render/pdf (a call with no credential is the one 401),
 # and the connect-src pin. Override LETTERHEAD_API_URL.
+# specs/20261119-accounting adds accounting-api (its remote, accounting-ui, is not probed here): healthy, a 401 on the user route GET /v1/me with no
+# token, a 401 on the service route GET /system/v1/entities/welld_ch/reference-data with no credential (the one frozen body), and the connect-src
+# pin. Override ACCOUNTING_API_URL.
 # Also probes
 # notify-api's two internal endpoints (specs/20260713-user-invitations, specs/20261013-notify-service-credentials) — see § 2b below:
 # neither accepts the retired X-Internal-Token header and neither answers an
@@ -86,6 +89,11 @@ ACTIVITIES_API_URL="${ACTIVITIES_API_URL:-https://activities-api.operai.welld.io
 # NOT resolve until the Railway service + custom domain + DNS exist (T40, infra/README.md § letterhead-api service) — until then the
 # letterhead-api checks below fail by design. Override if the real domain differs.
 LETTERHEAD_API_URL="${LETTERHEAD_API_URL:-https://letterhead-api.operai.welld.io}"
+
+# specs/20261119-accounting: the hostname shell/vercel.json's CSP already names. It does NOT resolve until the Railway service, its custom
+# domain and its DNS exist (infra/README.md § Accounting release runbook, step 1) — until then the accounting-api checks below fail by design.
+# Override if the real domain differs.
+ACCOUNTING_API_URL="${ACCOUNTING_API_URL:-https://accounting-api.operai.welld.io}"
 PREREQS_ONLY=false; [[ "${1:-}" == "--prereqs" ]] && PREREQS_ONLY=true
 
 PASS=0; FAIL=0
@@ -195,6 +203,17 @@ LSC="$(code "$LETTERHEAD_API_URL/v1/letterheads/status")"
 [[ "$LSC" == 401 ]] && pass "letterhead-api GET /v1/letterheads/status rejects a call with no credential (401)" || fail "letterhead-api GET /v1/letterheads/status without a credential did not return 401 (got HTTP ${LSC:-?}) — the service-credential gate may be missing or the service not deployed"
 LRC="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "$LETTERHEAD_API_URL/v1/render/pdf" 2>/dev/null)"
 [[ "$LRC" == 401 ]] && pass "letterhead-api POST /v1/render/pdf rejects a call with no credential (401)" || fail "letterhead-api POST /v1/render/pdf without a credential did not return 401 (got HTTP ${LRC:-?}) — 404 = the route is not live, anything else = the service-credential gate is not live (specs/20261116-letterhead-service AC-3.1)"
+
+# accounting-api (specs/20261119-accounting): /health is 200 once the service started (its env validated) and Prisma reaches the database
+# (503 = up but the database is not). Both routes below are probed with NO credential, so nothing is used, read or printed: the user route
+# GET /v1/me answers the JWT gate's 401 and the service route GET /system/v1/entities/{entity}/reference-data answers the one frozen 401 of
+# systemAuth, before the entity is looked at. A 404 means the route is not live (an older build), 403 or 200 that a gate is missing.
+# ASSUMED hostname until DNS exists — see ACCOUNTING_API_URL above.
+[[ "$(code "$ACCOUNTING_API_URL/health")" == 200 ]] && pass "accounting-api /health 200 ($ACCOUNTING_API_URL)" || fail "accounting-api /health not 200 ($ACCOUNTING_API_URL) — ASSUMED hostname until DNS exists (specs/20261119-accounting); a failed start (a missing variable, the database named accounting not created) keeps it down: read its deploy log"
+AMC="$(code "$ACCOUNTING_API_URL/v1/me")"
+[[ "$AMC" == 401 ]] && pass "accounting-api GET /v1/me rejects an anonymous request (401)" || fail "accounting-api GET /v1/me without a token did not return 401 (got HTTP ${AMC:-?}) — the JWT gate may be missing or the service not deployed"
+ASYC="$(code "$ACCOUNTING_API_URL/system/v1/entities/welld_ch/reference-data")"
+[[ "$ASYC" == 401 ]] && pass "accounting-api /system/v1/* rejects a call with no credential (401)" || fail "accounting-api GET /system/v1/entities/welld_ch/reference-data without a credential did not return 401 (got HTTP ${ASYC:-?}) — 404 = a build older than specs/20261119-accounting T13, anything else = the service-credential gate is not live"
 
 # meetings-api (specs/20261104-meetings): same contract. A healthy answer also means every startup check passed
 # (EU locations, the audio bucket's 29-day rule, the transient Google bucket, Vertex settings) —
@@ -365,6 +384,13 @@ if [[ -n "$CSP" ]]; then
     pass "  CSP connect-src includes $LETTERHEAD_API_URL (letterhead-api origin — specs/20261116-letterhead-service)"
   else
     fail "  CSP connect-src is MISSING $LETTERHEAD_API_URL — the letterheads configurator's API calls will be blocked (specs/20261116-letterhead-service)"
+  fi
+  # specs/20261119-accounting — accounting-api: the shell's apiFetch calls it from the shell's document (accounting-ui, its remote, is not
+  # probed here), so its origin needs its connect-src pin.
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$ACCOUNTING_API_URL"; then
+    pass "  CSP connect-src includes $ACCOUNTING_API_URL (accounting-api origin — specs/20261119-accounting)"
+  else
+    fail "  CSP connect-src is MISSING $ACCOUNTING_API_URL — the Accounting screens' API calls will be blocked (specs/20261119-accounting)"
   fi
   # specs/20261103-projects — the same three pins for projects-api and projects-ui.
   if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$PROJECTS_API_URL"; then

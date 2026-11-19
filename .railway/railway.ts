@@ -132,9 +132,28 @@ export default defineRailway(() => {
     deploy: { restartPolicyMaxRetries: 3, limitOverride: { containers: { cpu: 2, memoryBytes: 5000000000 } } },
     domains: [{ domain: "letterhead-api.operai.welld.io", port: 8088 }],
   });
+  // specs/20261119-accounting (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it, plan D30): ledger accounts, VAT codes and monthly exchange rates per legal entity.
+  // - DECLARED WITHOUT `source`, on purpose: per .claude/skills/provision-tool/SKILL.md the service is created unbuilt, its variables are set, and only then is the source added
+  //   (the operator's step 3 of the release runbook, infra/README.md § Accounting release runbook). A service with a missing required variable exits at startup, so a first build before
+  //   that fails. No agent connects it.
+  // - No `domains` yet, as letterhead-api before its T40 (commit dc7c49c1): `railway config plan` refuses to register a custom domain from configuration, which stops the
+  //   railway-drift job from reading this file at all. After the service exists, the operator adds accounting-api.operai.welld.io -> 8089 on it (`railway domain`) and its DNS, runs
+  //   `railway config pull`, then declares it here as `domains: [{ domain: "accounting-api.operai.welld.io", port: 8089 }]`, as the other services do (runbook step 1).
+  // - preDeploy `bun run db:deploy` runs the one Prisma migration against its own logical database `accounting` (created by hand before the first deploy; the shared Postgres is `Postgres`).
+  // - Single replica, EU only (the plan's figure). The rate fetch is single-flight per (entity, month) IN PROCESS (accounting-api/src/rates/rates.service.ts), so a second replica would double
+  //   the outbound calls to the federal source, not share them.
+  const accountingApi = service("accounting-api", {
+    build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
+    start: "bun run src/index.ts",
+    healthcheck: "/health",
+    healthcheckTimeout: 30,
+    preDeploy: "bun run db:deploy",
+    replicas: { "europe-west4-drams3a": 1 },
+    deploy: { restartPolicyMaxRetries: 3 },
+  });
 
   return project("operai", {
     variables: { managed: false },
-    resources: [refundApi, Postgres, meetingsApi, activitiesApi, crmApi, projectsApi, auth, notifyApi, estimaiApi, inventoryApi, letterheadApi, postgresVolume, inventory, refund, crm, meetings, activities, letterhead],
+    resources: [refundApi, Postgres, meetingsApi, activitiesApi, crmApi, projectsApi, auth, notifyApi, estimaiApi, inventoryApi, letterheadApi, accountingApi, postgresVolume, inventory, refund, crm, meetings, activities, letterhead],
   });
 });

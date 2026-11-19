@@ -82,6 +82,7 @@ function validSuite(): SuiteEnv {
       REFUND_APP_BASE_URL: SHELL,
       SERVICE_CLIENT_ID: "refund-api",
       SERVICE_CLIENT_SECRET: CLIENT_SECRET_REF,
+      ACCOUNTING_INTERNAL_URL: "http://accounting-api.railway.internal:8089", // specs/20261119-accounting, required
       PORT: "8082",
     },
     "inventory-api": {
@@ -1641,5 +1642,169 @@ describe("env-doctor — legal-entity registry configuration (specs/20261117-leg
     expect(envTs).toMatch(/LEGAL_ENTITY_WRITE_RATE_LIMIT: z\.coerce\.number\(\)\.int\(\)\.positive\(\)\.default\(10\)/);
     expect(envTs).toMatch(/LEGAL_ENTITY_CHECK_RATE_LIMIT: z\.coerce\.number\(\)\.int\(\)\.positive\(\)\.default\(60\)/);
     expect(envTs).toMatch(/LEGAL_ENTITY_RATE_WINDOW_MS: z\.coerce\.number\(\)\.int\(\)\.min\(1000\)\.default\(600000\)/);
+  });
+});
+
+// specs/20261119-accounting (T43): accounting-api is a new resource server (JWKS + authorization, one narrow service read on /system/v1/*),
+// refund-api reads it live over private networking (ACCOUNTING_INTERNAL_URL, required) and no longer fetches rates (REFUND_FX_SOURCE retired).
+// accounting-api holds no service client of its own. The scope `accounting.reference.read` on refund-api's SERVICE_CLIENTS entry is NOT part
+// of the contract yet: it joins the registry template and the manifest in one change, after the new auth is live (infra/README.md § Accounting
+// release runbook, step 4).
+describe("env-doctor checker — accounting-api (specs/20261119-accounting)", () => {
+  const errsAbout = (f: Finding[], svc: string) => errs(f).filter((x) => x.scope === svc).map((x) => x.message).join(" | ");
+
+  function accountingSuite(): SuiteEnv {
+    const s = validSuite();
+    s["notify-api"]!.SERVICE_AUDIENCE = SVC_AUD;
+    s["accounting-api"] = {
+      DATABASE_URL: "postgres://…/accounting",
+      ALLOWED_ORIGINS: SHELL,
+      AUTH_ISSUER: AUTH_URL,
+      AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
+      AUTH_BASE_URL: "http://auth.railway.internal:3001",
+      AUTH_AUDIENCE: AUD,
+      SERVICE_AUDIENCE: SVC_AUD,
+      ACCOUNTING_FX_SOURCE: "bazg",
+      PORT: "8089",
+    };
+    return s;
+  }
+
+  test("a fully-correct suite with accounting-api and refund-api's URL to it passes with no errors or warnings", () => {
+    const f = checkSuite(accountingSuite(), PROD);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+  });
+
+  test("accounting-api is a backend of the contract, its remote is the shell's, and ACCOUNTING_INTERNAL_URL is required on refund-api", () => {
+    expect(SERVICES["accounting-api"]).toEqual({ platform: "railway", kind: "backend" });
+    expect(SERVICES["accounting-ui"]).toEqual({ platform: "vercel", kind: "frontend" });
+    expect(BACKENDS).toContain("accounting-api");
+    expect(ORIGINS.production!["accounting-ui"]).toBe("https://accounting.operai.welld.io");
+    expect(ORIGINS.local!["accounting-ui"]).toBe("http://localhost:5183");
+    expect(REQUIRED_KEYS["refund-api"]).toContain("ACCOUNTING_INTERNAL_URL");
+  });
+
+  test("every variable accounting-api's own env.ts requires is required here; the ones with a default are not", () => {
+    const required = REQUIRED_KEYS["accounting-api"]!;
+    for (const key of ["DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE", "SERVICE_AUDIENCE", "PORT"]) {
+      expect(required).toContain(key);
+      const s = accountingSuite();
+      delete s["accounting-api"]![key];
+      expect(errsAbout(checkSuite(s, PROD), "accounting-api")).toContain(`${key} is missing`);
+    }
+    // no service client and no *_INTERNAL_URL of its own: nothing in the contract asks for one
+    for (const key of ["SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", "NODE_ENV", "ACCOUNTING_FX_SOURCE"]) expect(required).not.toContain(key);
+    const s = accountingSuite();
+    delete s["accounting-api"]!.ACCOUNTING_FX_SOURCE;
+    expect(errs(checkSuite(s, PROD))).toEqual([]);
+  });
+
+  test("ACCOUNTING_INTERNAL_URL missing on refund-api → error naming the variable", () => {
+    const s = accountingSuite();
+    delete s["refund-api"]!.ACCOUNTING_INTERNAL_URL;
+    expect(errsAbout(checkSuite(s, PROD), "refund-api")).toContain("ACCOUNTING_INTERNAL_URL is missing");
+  });
+
+  test("ACCOUNTING_INTERNAL_URL: the public https URL, localhost or the wrong port → error (the service token must stay on private networking)", () => {
+    const s = accountingSuite();
+    s["refund-api"]!.ACCOUNTING_INTERNAL_URL = "https://accounting-api.operai.welld.io";
+    expect(errText(checkSuite(s, PROD))).toContain("ACCOUNTING_INTERNAL_URL");
+    s["refund-api"]!.ACCOUNTING_INTERNAL_URL = "http://localhost:8089";
+    expect(errText(checkSuite(s, PROD))).toContain("ACCOUNTING_INTERNAL_URL");
+    s["refund-api"]!.ACCOUNTING_INTERNAL_URL = "http://accounting-api.railway.internal:9999";
+    expect(errText(checkSuite(s, PROD))).toContain("ACCOUNTING_INTERNAL_URL targets port 9999 but accounting-api.PORT is 8089");
+  });
+
+  test("the Railway reference form of ACCOUNTING_INTERNAL_URL is accepted", () => {
+    const s = accountingSuite();
+    s["refund-api"]!.ACCOUNTING_INTERNAL_URL = "http://${{accounting-api.RAILWAY_PRIVATE_DOMAIN}}:${{accounting-api.PORT}}";
+    expect(errs(checkSuite(s, PROD))).toEqual([]);
+  });
+
+  test("AUTH_AUDIENCE and SERVICE_AUDIENCE drift on accounting-api → error; SERVICE_AUDIENCE equal to AUTH_AUDIENCE → error", () => {
+    const a = accountingSuite();
+    a["accounting-api"]!.AUTH_AUDIENCE = "different";
+    expect(errText(checkSuite(a, PROD))).toContain("AUTH_AUDIENCE is not identical");
+    const b = accountingSuite();
+    b["accounting-api"]!.SERVICE_AUDIENCE = "a-different-service-audience";
+    expect(errText(checkSuite(b, PROD))).toContain("SERVICE_AUDIENCE is not identical");
+    const c = accountingSuite();
+    c["accounting-api"]!.SERVICE_AUDIENCE = AUD;
+    expect(errText(checkSuite(c, PROD))).toContain("accounting-api.SERVICE_AUDIENCE must differ from accounting-api.AUTH_AUDIENCE");
+  });
+
+  test("accounting-api's AUTH_ISSUER must equal auth's BETTER_AUTH_URL; its ALLOWED_ORIGINS must hold the shell; its JWKS URL must be private", () => {
+    const a = accountingSuite();
+    a["accounting-api"]!.AUTH_ISSUER = "https://wrong.example.com";
+    expect(errText(checkSuite(a, PROD))).toContain("accounting-api.AUTH_ISSUER");
+    const b = accountingSuite();
+    b["accounting-api"]!.ALLOWED_ORIGINS = "https://accounting.operai.welld.io";
+    expect(errText(checkSuite(b, PROD))).toContain("accounting-api.ALLOWED_ORIGINS is missing shell's origin");
+    const c = accountingSuite();
+    c["accounting-api"]!.AUTH_JWKS_URL = "https://auth.operai.welld.io/auth/jwks";
+    expect(errText(checkSuite(c, PROD))).toContain("AUTH_JWKS_URL");
+  });
+
+  test("REFUND_FX_SOURCE is retired: flagged by name on refund-api only, naming where the switch went; the retired notify token stays forbidden on accounting-api", () => {
+    const s = accountingSuite();
+    s["refund-api"]!.REFUND_FX_SOURCE = "bazg";
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain("refund-api must not hold REFUND_FX_SOURCE");
+    expect(text).toContain("ACCOUNTING_FX_SOURCE");
+    const t = accountingSuite();
+    t["accounting-api"]!.REFUND_FX_SOURCE = "bazg";
+    expect(errText(checkSuite(t, PROD))).not.toContain("REFUND_FX_SOURCE");
+    const u = accountingSuite();
+    u["accounting-api"]![["NOTIFY", "INTERNAL", "TOKEN"].join("_")] = "x";
+    expect(errText(checkSuite(u, PROD))).toContain("accounting-api must not hold");
+  });
+
+  test("the retired variable's value is never echoed", () => {
+    const s = accountingSuite();
+    s["refund-api"]!.REFUND_FX_SOURCE = "a-distinctive-value-0451";
+    expect(JSON.stringify(checkSuite(s, PROD))).not.toContain("a-distinctive-value-0451");
+  });
+
+  test("the scope accounting.reference.read is not yet part of the registry contract: refund-api's entry holds exactly its two notify scopes", () => {
+    // Pending by design (release runbook step 4): when the scope joins the manifest it joins auth's template in the same change, and this test is rewritten with it.
+    const s = accountingSuite();
+    expect(errs(checkSuite(s, PROD))).toEqual([]);
+    const reg = JSON.parse(s.auth!.SERVICE_CLIENTS!);
+    expect(reg["refund-api"].scope).toBe("notifications.push emails.send");
+  });
+
+  describe("the committed templates", () => {
+    const tpl = (name: string) => readFileSync(resolve(import.meta.dir, "templates/production", `${name}.env`), "utf8");
+    const assigned = (name: string) => parseEnvFile(tpl(name));
+
+    test("accounting-api's template sets exactly the service's variables: its own DB, the shell origin only, port 8089, the FX source on", () => {
+      const vars = assigned("accounting-api");
+      expect(Object.keys(vars).sort()).toEqual(
+        ["ACCOUNTING_FX_SOURCE", "ALLOWED_ORIGINS", "AUTH_AUDIENCE", "AUTH_BASE_URL", "AUTH_ISSUER", "AUTH_JWKS_URL", "DATABASE_URL", "NODE_ENV", "PORT", "SERVICE_AUDIENCE"].sort(),
+      );
+      expect(vars.DATABASE_URL).toMatch(/:5432\/accounting$/);
+      expect(vars.ALLOWED_ORIGINS).toBe("https://operai.welld.io");
+      expect(vars.PORT).toBe("8089");
+      expect(vars.NODE_ENV).toBe("production");
+      expect(vars.ACCOUNTING_FX_SOURCE).toBe("bazg");
+      expect(vars.AUTH_AUDIENCE).toBe("${{shared.AUTH_AUDIENCE}}");
+      expect(vars.SERVICE_AUDIENCE).toBe("${{shared.SERVICE_AUDIENCE}}");
+    });
+
+    test("accounting-api's template holds no secret value: every credential-bearing value is a Railway reference", () => {
+      const vars = assigned("accounting-api");
+      for (const [k, v] of Object.entries(vars)) {
+        if (isSecretVar(k)) expect(v).toMatch(/\$\{\{/);
+        expect(v).not.toMatch(/^op:\/\//);
+      }
+    });
+
+    test("refund-api's template points ACCOUNTING_INTERNAL_URL at accounting-api's private domain and port, and no longer sets REFUND_FX_SOURCE", () => {
+      const vars = assigned("refund-api");
+      expect(vars.ACCOUNTING_INTERNAL_URL).toBe("http://${{accounting-api.RAILWAY_PRIVATE_DOMAIN}}:${{accounting-api.PORT}}");
+      expect("REFUND_FX_SOURCE" in vars).toBe(false);
+      expect(vars.SERVICE_CLIENT_ID).toBe("refund-api");
+    });
   });
 });

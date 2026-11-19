@@ -38,6 +38,9 @@ export const SERVICES = {
   // specs/20261116-letterhead-service (ADR 20261116-letterhead-api-is-a-rust-service-with-typst-embedded-for-document-layout-only): the one Rust service, in letterhead-api/. It is listed here BY NAME: nothing else
   // would put it in the contract, because it has no package.json of its own to trigger a check (the ADR's failure shape).
   "letterhead-api": { platform: "railway", kind: "backend" },
+  // specs/20261119-accounting (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it): the ledger accounts, VAT codes and monthly exchange rates of each legal entity, in accounting-api/.
+  // refund-api reads it live over /system/v1/* with its own service JWT (scope `accounting.reference.read`).
+  "accounting-api": { platform: "railway", kind: "backend" },
   shell: { platform: "vercel", kind: "frontend" },
   "estimai-ui": { platform: "vercel", kind: "frontend" },
   "refund-ui": { platform: "vercel", kind: "frontend" },
@@ -49,6 +52,8 @@ export const SERVICES = {
   "projects-ui": { platform: "vercel", kind: "frontend" },
   // specs/20261116-letterhead-service: the letterhead configurator, a federated remote reached through the shell.
   "letterheads-ui": { platform: "vercel", kind: "frontend" },
+  // specs/20261119-accounting: the Accounting remote, reached through the shell.
+  "accounting-ui": { platform: "vercel", kind: "frontend" },
 } as const satisfies Record<string, ServiceDef>;
 
 export type ServiceName = keyof typeof SERVICES;
@@ -78,6 +83,8 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "projects-ui": "https://projects.operai.welld.io",
     // ASSUMED (specs/20261116-letterhead-service) — confirm once the Vercel project exists.
     "letterheads-ui": "https://letterheads.operai.welld.io",
+    // ASSUMED (specs/20261119-accounting; the host shell/vercel.json's CSP names) — confirm once the Vercel project exists.
+    "accounting-ui": "https://accounting.operai.welld.io",
   },
   preview: {
     // Vercel preview URLs are per-deploy; usually validated via the live-diff
@@ -94,12 +101,13 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "meetings-ui": "http://localhost:5180",
     "projects-ui": "http://localhost:5181",
     "letterheads-ui": "http://localhost:5182",
+    "accounting-ui": "http://localhost:5183",
   },
 };
 
 /** Vars that MUST hold a byte-for-byte identical value across the listed services. */
 export const SHARED_VARS: ReadonlyArray<{ name: string; services: ServiceName[] }> = [
-  { name: "AUTH_AUDIENCE", services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api"] },
+  { name: "AUTH_AUDIENCE", services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api", "accounting-api"] },
   // The `aud` auth stamps on scoped service JWTs and the resource servers that take them verify:
   // notify-api (ADR 20261006-scoped-service-jwt-fourth-notify-caller); crm-api for estimai-api's estimate notices (specs/20261101-crm-sales-flow AC-3.3, ADR 20261105-estimai-closes-the-estimate-crm-follows),
   // meetings-api's host notices (`system:meetings-api`, scope `host-notices.send`, ADR 20261104-meeting-host-contract-resolve-and-notices) and
@@ -109,7 +117,9 @@ export const SHARED_VARS: ReadonlyArray<{ name: string; services: ServiceName[] 
   // specs/20261110-activities (ADR 20261110-caller-chosen-ids-replace-cross-service-transactions): activities-api verifies crm-api's /system/v1/* calls (scope `activities.write`,
   // sub `system:crm-api`) against it.
   // specs/20261116-letterhead-service: letterhead-api verifies crm-api's /v1/render/* calls (scope `letterhead:render`) against it.
-  { name: "SERVICE_AUDIENCE", services: ["auth", "notify-api", "crm-api", "estimai-api", "projects-api", "activities-api", "letterhead-api"] },
+  // specs/20261119-accounting: accounting-api verifies refund-api's /system/v1/* calls (scope `accounting.reference.read`, sub `system:refund-api`) against it;
+  // it is required there (the service exits 1 without it).
+  { name: "SERVICE_AUDIENCE", services: ["auth", "notify-api", "crm-api", "estimai-api", "projects-api", "activities-api", "letterhead-api", "accounting-api"] },
 ];
 
 /**
@@ -125,8 +135,8 @@ export const DISTINCT_VARS: ReadonlyArray<{ a: string; b: string; services: Serv
   {
     a: "SERVICE_AUDIENCE",
     b: "AUTH_AUDIENCE",
-    services: ["auth", "notify-api", "crm-api", "estimai-api", "activities-api", "letterhead-api"],
-    why: "a service token would be accepted on user routes and a user JWT on /system/notifications, /system/estimate-notices, /system/meeting-host/v1/notices, /system/deal-link-notices, /system/companies, /system/v1/* or /v1/render/* (ADR 20261006-scoped-service-jwt-fourth-notify-caller; letterhead-api refuses to start with equal values)",
+    services: ["auth", "notify-api", "crm-api", "estimai-api", "activities-api", "letterhead-api", "accounting-api"],
+    why: "a service token would be accepted on user routes and a user JWT on /system/notifications, /system/estimate-notices, /system/meeting-host/v1/notices, /system/deal-link-notices, /system/companies, /system/v1/* or /v1/render/* (ADR 20261006-scoped-service-jwt-fourth-notify-caller; letterhead-api and accounting-api refuse to start with equal values)",
   },
   {
     a: "SERVICE_AUDIENCE",
@@ -146,8 +156,17 @@ export const DISTINCT_VARS: ReadonlyArray<{ a: string; b: string; services: Serv
 export const FORBIDDEN_VARS: ReadonlyArray<{ name: string; services: ServiceName[]; why: string }> = [
   {
     name: "NOTIFY_INTERNAL_TOKEN",
-    services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api"],
+    services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api", "accounting-api"],
     why: "the shared notify token was retired (specs/20261013-notify-service-credentials, ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired): every caller uses its own scoped service credential",
+  },
+  // specs/20261119-accounting (T23, plan § Docs, env contract; ADR 20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it): the monthly exchange rates moved to accounting-api, so the
+  // source switch of specs/20261118-refund-accounting-export is accounting-api's `ACCOUNTING_FX_SOURCE` and refund-api no longer reads
+  // `REFUND_FX_SOURCE` (a deployment that still sets it starts normally and the value is ignored). A leftover would make the operator
+  // believe refund-api still fetches rates, or that `off` still stops an outbound call from it. Flagged by NAME, on refund-api only.
+  {
+    name: "REFUND_FX_SOURCE",
+    services: ["refund-api"],
+    why: "retired by specs/20261119-accounting: refund-api no longer fetches rates (it reads them from accounting-api) and ignores it; the switch is ACCOUNTING_FX_SOURCE on accounting-api",
   },
   // specs/20261111-push-notifications US-7 (ADR 20261112-system-endpoints-limited-per-verified-service): the one address-keyed bucket of the two /system endpoints is replaced by
   // per-service allowances. auth no longer reads these two; a leftover override sized for the old rule
@@ -205,6 +224,10 @@ export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
   { ...LINK_BASE, caller: "inventory-api", requiredScopes: ["notifications.push", "emails.send"] },
   // specs/20261101-crm-sales-flow AC-3.3: estimai-api also tells crm-api an estimate was closed or reopened (ADR 20261105-estimai-closes-the-estimate-crm-follows).
   { ...LINK_BASE, caller: "estimai-api", requiredScopes: ["notifications.push", "estimate-notices.send"] },
+  // specs/20261119-accounting (AC-3.8): refund-api also reads accounting-api over /system/v1/* with `accounting.reference.read`, verified by
+  // accounting-api. PENDING here on purpose: the scope joins this entry AND auth's SERVICE_CLIENTS template (templates/production/auth.env)
+  // in ONE change, because a scope on one side only fails (both directions), and that edit is the release runbook's step 4, made only
+  // after the new auth is live (an auth that does not know a scope refuses to start, R13).
   { ...LINK_BASE, caller: "refund-api", requiredScopes: ["notifications.push", "emails.send"] },
   // One service client per caller, whatever it calls. crm-api's is the notifier's (specs/20261101-crm-notifications: CRM
   // notifications, some with an email notice, both scopes, D-3; notify-api looks up the notice's
@@ -280,7 +303,7 @@ export const ISSUER = {
   authService: "auth" as ServiceName,
   authVar: "BETTER_AUTH_URL",
   issuerVar: "AUTH_ISSUER",
-  resourceServers: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api"] as ServiceName[],
+  resourceServers: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api", "accounting-api"] as ServiceName[],
 };
 
 /**
@@ -294,9 +317,9 @@ export const INTERNAL_URL_VARS: ReadonlyArray<{
   services: ServiceName[];
   target: ServiceName;
 }> = [
-  { name: "AUTH_JWKS_URL", services: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api"], target: "auth" },
+  { name: "AUTH_JWKS_URL", services: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api", "accounting-api"], target: "auth" },
   // specs/20261101-crm-notifications: notify-api resolves an email notice's address through auth (ADR 20261101-notify-api-resolves-email-notice-address-from-auth).
-  { name: "AUTH_BASE_URL", services: ["refund-api", "inventory-api", "crm-api", "notify-api", "meetings-api", "projects-api", "activities-api", "letterhead-api"], target: "auth" },
+  { name: "AUTH_BASE_URL", services: ["refund-api", "inventory-api", "crm-api", "notify-api", "meetings-api", "projects-api", "activities-api", "letterhead-api", "accounting-api"], target: "auth" },
   // specs/20261103-projects-handoff: projects-api notifies a PO's ops-manager after a take (T25); the push is a no-op without it.
   { name: "NOTIFY_INTERNAL_URL", services: ["auth", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api"], target: "notify-api" },
   // specs/20261101-crm-sales-flow: crm-api calls estimai-api with the caller's JWT (estimate requests, offers).
@@ -321,11 +344,14 @@ export const INTERNAL_URL_VARS: ReadonlyArray<{
   // specs/20261116-letterhead-service (plan § Architecture): crm-api renders offers through letterhead-api as itself (service JWT,
   // scope `letterhead:render`). Optional in crm-api until the switch: LETTERHEAD_SERVICE_ENABLED is off and the CRM behaves as before (AC-10.12).
   { name: "LETTERHEAD_API_URL", services: ["crm-api"], target: "letterhead-api" },
+  // specs/20261119-accounting: refund-api reads Accounting's reference data and rates live, with its own service JWT (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it).
+  // Required (refund-api exits 1 without it) and private: the token must never travel over the public domain.
+  { name: "ACCOUNTING_INTERNAL_URL", services: ["refund-api"], target: "accounting-api" },
 ];
 
 /** Browser-facing / identity-claim URLs — must stay PUBLIC (`https://`, not localhost/internal in prod). */
 export const PUBLIC_URL_VARS: ReadonlyArray<{ name: string; services: ServiceName[] }> = [
-  { name: "AUTH_ISSUER", services: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api"] },
+  { name: "AUTH_ISSUER", services: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "accounting-api"] },
   { name: "BETTER_AUTH_URL", services: ["auth"] },
   { name: "UI_HOME_URL", services: ["auth"] },
   { name: "REFUND_APP_BASE_URL", services: ["refund-api"] },
@@ -333,6 +359,8 @@ export const PUBLIC_URL_VARS: ReadonlyArray<{ name: string; services: ServiceNam
   { name: "APP_BASE_URL", services: ["notify-api"] },
   // specs/20261116-letterhead-service: the configurator talks to letterhead-api's person routes from the browser, so this origin is public.
   { name: "VITE_LETTERHEADS_API_URL", services: ["letterheads-ui"] },
+  // specs/20261119-accounting: accounting-ui calls accounting-api from the browser, so this origin is public.
+  { name: "VITE_ACCOUNTING_API_URL", services: ["accounting-ui"] },
 ];
 
 /** Each backend's `ALLOWED_ORIGINS` must include the public origin of these frontends (CORS). */
@@ -355,6 +383,8 @@ export const CORS_REQUIREMENTS: ReadonlyArray<{ backend: ServiceName; mustAllow:
   { backend: "activities-api", mustAllow: ["shell"] },
   // letterheads-ui is a remote reached through the shell (specs/20261116-letterhead-service), so the browser Origin is the shell's.
   { backend: "letterhead-api", mustAllow: ["shell"] },
+  // accounting-ui is a remote reached through the shell (specs/20261119-accounting), so the browser Origin is the shell's.
+  { backend: "accounting-api", mustAllow: ["shell"] },
 ];
 
 /**
@@ -393,6 +423,9 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
     "NOTIFY_INTERNAL_URL", "REFUND_APP_BASE_URL", "PORT",
     "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", // specs/20261013-notify-service-credentials
+    // specs/20261119-accounting: refund-api's env.ts exits 1 without it (a deployment without it keeps its previous version, which is
+    // the release runbook's step 2); it is where every Accounting read goes.
+    "ACCOUNTING_INTERNAL_URL",
   ],
   // The S3 bucket name and both credentials are set directly on the Railway service (no
   // 1Password item yet), so the committed template omits them and they are not required here;
@@ -460,6 +493,15 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
   "letterhead-api": [
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE", "SERVICE_AUDIENCE",
     "LETTERHEAD_S3_ENDPOINT", "LETTERHEAD_S3_REGION", "LETTERHEAD_S3_EU_ENDPOINT_HOSTS", "PORT",
+  ],
+  // specs/20261119-accounting: a JWKS + authorization-enforcing resource server (ADR 20260716-refund-api-authorization-enforcing-resource-server) with one narrow service read
+  // (/system/v1/*). The list is what accounting-api/src/lib/env.ts requires at startup (everything but PORT, NODE_ENV and ACCOUNTING_FX_SOURCE,
+  // which default). It holds no service client of its own: it calls no service but auth's /authz/resolve and, on demand, the one fixed BAZG host
+  // (a constant in its source, not a variable), so there is no SERVICE_CLIENT_* and no *_INTERNAL_URL here. SERVICE_AUDIENCE is required: without it no
+  // /system/* caller could be told from a stranger. ACCOUNTING_FX_SOURCE (`bazg` default, `off` for e2e and offline) is optional and
+  // deliberately not required.
+  "accounting-api": [
+    "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE", "SERVICE_AUDIENCE", "PORT",
   ],
 };
 
