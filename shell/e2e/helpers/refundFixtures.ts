@@ -84,14 +84,18 @@ export async function drainApprovedBacklog(token: string): Promise<number> {
   return requestCount
 }
 
-// ─── Accounting export fixtures (specs/20261118-refund-accounting-export, T31/T32) ─────────────────────────────────────
+// ─── Accounting export fixtures (specs/20261118-refund-accounting-export, T31/T32; specs/20261119-accounting, T40) ──────
 //
-// The accounting journeys need a known catalog (an account, VAT codes, defaults, the foreign-currency VAT code) and a
-// known exchange rate, whatever accounting's seed (`refund-api/scripts/data/accounting-seed.welld-ch.json`, T39) ends up
-// holding. They are written through refund-api's own admin routes as a real admin, the way the Settings screen writes
-// them (nothing is inserted behind the API), and every default the journey changes is put back by `restore()`.
+// The accounting journeys need a known set of defaults and a designation, whatever accounting's seed
+// (`accounting-api/scripts/data/seed.welld-ch.json`, loaded by `seed:welld-ch`) and Refund's defaults file
+// (`refund-api/scripts/data/accounting-defaults.welld-ch.json`, read by `accounting:release --defaults`) end up holding. The
+// ledger accounts, VAT codes and rates the defaults point at are Accounting's: a journey creates them with
+// helpers/accountingFixtures.ts (`createLedgerAccount`, `createVatCode`, `setRate`) and then names them to refund-api by their
+// natural keys, an account NUMBER and a VAT CODE. Refund keeps only the defaults and the designation, written through its
+// own admin routes as a real admin, the way the Settings screen writes them (nothing is inserted behind the API), and every
+// default the journey changes is put back by `restore()`.
 //
-// Nothing here runs without the e2e stack (refund-api, auth with ENABLE_TEST_AUTH): see playwright.config.ts.
+// Nothing here runs without the e2e stack (refund-api, accounting-api, auth with ENABLE_TEST_AUTH): see playwright.config.ts.
 
 const AUTH_API_URL = (
   process.env['E2E_AUTH_URL'] ?? process.env['VITE_AUTH_URL'] ?? 'http://localhost:3001'
@@ -122,69 +126,28 @@ async function refundApi<T>(token: string, method: string, path: string, body?: 
   return (await res.json()) as T
 }
 
-export interface CatalogAccount {
-  id: string
-  number: string
-  name: string
-}
-
-export interface CatalogVatCode {
-  id: string
-  code: string
-  label: string
-  ratePercent: string
-}
-
-/** A ledger-account number no earlier run used: 5 digits and 3 decimals (`^[0-9]{3,6}(\.[0-9]{1,3})?$`), random. */
-export function uniqueAccountNumber(): string {
-  const whole = 10_000 + Math.floor(Math.random() * 89_999)
-  const decimals = 100 + Math.floor(Math.random() * 899)
-  return `${whole}.${decimals}`
-}
-
-/** A VAT code no earlier run used (`^[A-Z0-9_-]{1,16}$`; a code stays taken after it is deactivated, so it is random). */
-export function uniqueVatCode(): string {
-  return `E2E${Math.random().toString(36).slice(2, 10).toUpperCase().padEnd(8, '0')}`
-}
-
-export function createLedgerAccount(token: string, input: { number: string; name: string }): Promise<CatalogAccount> {
-  return refundApi<CatalogAccount>(token, 'POST', '/accounting/ledger-accounts', input)
-}
-
-export function createVatCode(
-  token: string,
-  input: { code: string; label: string; ratePercent: string },
-): Promise<CatalogVatCode> {
-  return refundApi<CatalogVatCode>(token, 'POST', '/accounting/vat-codes', input)
-}
-
-/** `null` and `null` clears the default of the type (an approval of a WellD CH line of that type is then refused, AC-3.4). */
+/**
+ * Sets the default of an expense type by Accounting's natural keys: the account NUMBER and the VAT CODE. `null` and `null`
+ * clears the default of the type (an approval of a WellD CH line of that type is then refused, AC-3.4). Both entries must
+ * be active in Accounting, else refund-api answers 422.
+ */
 export async function setExpenseTypeDefault(
   token: string,
   type: string,
-  ledgerAccountId: string | null,
-  vatCodeId: string | null,
+  accountNumber: string | null,
+  vatCode: string | null,
 ): Promise<void> {
-  await refundApi(token, 'PUT', `/accounting/expense-type-defaults/${type}`, { ledgerAccountId, vatCodeId })
+  await refundApi(token, 'PUT', `/accounting/expense-type-defaults/${type}`, { accountNumber, vatCode })
 }
 
-export async function setForeignCurrencyVatCode(token: string, vatCodeId: string | null): Promise<void> {
-  await refundApi(token, 'PUT', '/accounting/foreign-currency-vat-code', { vatCodeId })
-}
-
-/** A monthly average rate typed by hand (`rate` as CHF per 1 unit, e.g. "0.9246"); the same value as in effect is a no-op. */
-export async function setExchangeRate(
-  token: string,
-  month: string,
-  currency: 'EUR' | 'USD' | 'GBP',
-  rate: string,
-): Promise<void> {
-  await refundApi(token, 'PUT', `/exchange-rates/${month}/${currency}`, { rate })
+/** Designates the VAT code (by code) that every foreign-currency line gets; `null` clears the designation. */
+export async function setForeignCurrencyVatCode(token: string, vatCode: string | null): Promise<void> {
+  await refundApi(token, 'PUT', '/accounting/foreign-currency-vat-code', { vatCode })
 }
 
 interface DefaultsSnapshotResponse {
-  foreignCurrencyVatCode: { id: string } | null
-  types: { type: string; account: { id: string } | null; vatCode: { id: string } | null }[]
+  foreignCurrencyVatCode: { code: string } | null
+  types: { type: string; account: { number: string } | null; vatCode: { code: string } | null }[]
 }
 
 /**
@@ -201,13 +164,13 @@ export async function snapshotAccountingDefaults(token: string, types: readonly 
     for (const type of types) {
       const row = before.types.find((candidate) => candidate.type === type)
       try {
-        await setExpenseTypeDefault(token, type, row?.account?.id ?? null, row?.vatCode?.id ?? null)
+        await setExpenseTypeDefault(token, type, row?.account?.number ?? null, row?.vatCode?.code ?? null)
       } catch (error) {
         console.error(`[refundFixtures] default of ${type} not restored: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
     try {
-      await setForeignCurrencyVatCode(token, before.foreignCurrencyVatCode?.id ?? null)
+      await setForeignCurrencyVatCode(token, before.foreignCurrencyVatCode?.code ?? null)
     } catch (error) {
       console.error(`[refundFixtures] foreign-currency VAT code not restored: ${error instanceof Error ? error.message : String(error)}`)
     }
