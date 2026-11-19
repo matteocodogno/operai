@@ -5,7 +5,7 @@
   "feature": "20261119-accounting",
   "rigor": "production",
   "started": "2026-11-19T10:30:00Z",
-  "finished": null,
+  "finished": "2026-11-19T18:01:18Z",
   "reconstructed": true,
   "reconstruction_note": "Written by the orchestrator before the eval from git history and agent hand-back reports; no per-agent timestamps. Commits on feat/accounting-module are the primary evidence.",
   "agents": [
@@ -55,8 +55,8 @@
     { "agent": "devops", "class": "external services", "detail": "Docker Hub metadata fetch hung; full accounting-api image build not run", "resolved_by": "context-only build verified .dockerignore" },
     { "agent": "backend-dev", "class": "databases", "detail": "a hook blocks destructive SQL text in Bash; agents removed their own scratch databases on the isolated :5445 container through script files", "resolved_by": "reported to owner" }
   ],
-  "verdicts": { "qe": "PASS (after fix round 1)", "security": "PASS (after fix round 1)", "eval": "pending" },
-  "result": "partial",
+  "verdicts": { "qe": "PASS (after fix round 1)", "security": "PASS (after fix round 1)", "eval": "FAIL 75.7 (round 1, no dimension below floor); doc fixes and owner confirmations of SA-1..SA-4 applied after it; every path to PASS needs owner step T51 (live e2e + browser a11y), which the owner deferred on 2026-11-19" },
+  "result": "escalated",
   "tokens": null,
   "cost_usd": null,
   "terse": false,
