@@ -388,13 +388,22 @@ export default function ReviewDetailPage() {
 
   // The values a refused approval named that are STILL missing: it shrinks as accounting chooses them, and a line the
   // page no longer has (a race) is dropped. In the order the page shows its controls: line by line, account first.
-  const missingItems: { lineId: string; field: MissingValue; text: string }[] = []
+  // A line the caller may not see (SR-1) cannot be fixed from here, but the refusal still names it: it gets a row
+  // (field `outOfScope`) that is counted and stays until the next attempt, so an approval never fails silently (A-1).
+  type MissingField = MissingValue | 'outOfScope'
+  const missingItems: { lineId: string; field: MissingField; text: string }[] = []
   if (refusal !== null && pageState.status === 'loaded' && accountingState !== null) {
     for (const line of pageState.request.lines) {
       const named = refusal.find((entry) => entry.lineId === line.id)
-      const classification = accountingState.lines.find((entry) => entry.lineId === line.id)?.classification
-      if (!named || !classification) continue
+      const accountingLine = accountingState.lines.find((entry) => entry.lineId === line.id)
+      if (!named || !accountingLine) continue
       const label = lineLabelOf(line)
+      if (!accountingLine.inScope) {
+        missingItems.push({ lineId: line.id, field: 'outOfScope', text: t.classification.missingSummary.outOfScope(label) })
+        continue
+      }
+      const classification = accountingLine.classification
+      if (!classification) continue
       if (named.missing.includes('account') && classification.account === null) {
         missingItems.push({ lineId: line.id, field: 'account', text: t.classification.missingSummary.account(label) })
       }
@@ -409,21 +418,34 @@ export default function ReviewDetailPage() {
   })
 
   /** Moves focus to the select of one missing value; the panel's select carries `data-classification-field`. */
-  const focusMissing = useCallback((lineId: string, field: MissingValue) => {
-    rowNodesRef.current
-      .get(lineId)
+  const focusMissing = useCallback((lineId: string, field: MissingField) => {
+    const row = rowNodesRef.current.get(lineId)
+    if (field === 'outOfScope') {
+      // The line's own note (`tabIndex=-1`): the one place that says why nothing can be chosen here.
+      row?.querySelector<HTMLElement>(`[data-testid="classification-${lineId}-out-of-scope"]`)?.focus()
+      return
+    }
+    row
       ?.querySelector<HTMLSelectElement>(`select[data-classification-field="${field === 'account' ? 'account' : 'vat'}"]`)
       ?.focus()
   }, [])
 
-  const firstMissingRef = useRef<{ lineId: string; field: MissingValue } | null>(null)
+  const summaryFocusRef = useRef<HTMLDivElement>(null)
+  const firstFocusTargetRef = useRef<{ lineId: string; field: MissingValue } | null>(null)
+  const hasMissingItemsRef = useRef(false)
   useEffect(() => {
-    firstMissingRef.current = missingItems[0] ?? null
+    // The first select a person can act on; none (only out-of-scope lines named) means the summary itself.
+    const firstSelect = missingItems.find((item) => item.field !== 'outOfScope')
+    firstFocusTargetRef.current = firstSelect ? { lineId: firstSelect.lineId, field: firstSelect.field as MissingValue } : null
+    hasMissingItemsRef.current = missingItems.length > 0
   })
   useEffect(() => {
     // After the dialog has closed and gone: its own focus return has already happened.
-    if (focusFirstMissing !== null && firstMissingRef.current) {
-      focusMissing(firstMissingRef.current.lineId, firstMissingRef.current.field)
+    if (focusFirstMissing === null) return
+    if (firstFocusTargetRef.current) {
+      focusMissing(firstFocusTargetRef.current.lineId, firstFocusTargetRef.current.field)
+    } else if (hasMissingItemsRef.current) {
+      summaryFocusRef.current?.focus()
     }
   }, [focusFirstMissing, focusMissing])
 
@@ -439,16 +461,24 @@ export default function ReviewDetailPage() {
           {t.classification.unavailable404}
         </Banner>
       )}
-      <ErrorSummary
-        title={t.classification.missingSummary.title(missingItems.length)}
-        hint={t.classification.missingSummary.hint}
-        items={missingItems.map((item) => ({ id: `${item.lineId}:${item.field}`, text: item.text }))}
-        onGo={(itemId) => {
-          const at = itemId.lastIndexOf(':')
-          focusMissing(itemId.slice(0, at), itemId.slice(at + 1) as MissingValue)
-        }}
-        testId="classification-missing-summary"
-      />
+      {/* A focus target for the case where no select can take focus; a plain wrapper, so the alert is unchanged. */}
+      <div
+        ref={summaryFocusRef}
+        tabIndex={missingItems.length > 0 ? -1 : undefined}
+        className={missingItems.length > 0 ? 'outline-none' : 'hidden'}
+        data-testid="classification-missing-summary-focus"
+      >
+        <ErrorSummary
+          title={t.classification.missingSummary.title(missingItems.length)}
+          hint={t.classification.missingSummary.hint}
+          items={missingItems.map((item) => ({ id: `${item.lineId}:${item.field}`, text: item.text }))}
+          onGo={(itemId) => {
+            const at = itemId.lastIndexOf(':')
+            focusMissing(itemId.slice(0, at), itemId.slice(at + 1) as MissingField)
+          }}
+          testId="classification-missing-summary"
+        />
+      </div>
     </>
   ) : null
 

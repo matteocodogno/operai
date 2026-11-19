@@ -29,7 +29,7 @@
  * move focus to the first missing one after a refused approval without this component knowing about it.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Badge, FactList, Field, Icon, StatusBadge } from '@operai/ui'
 import type { Fact } from '@operai/ui'
@@ -107,11 +107,18 @@ export default function LineClassificationPanel({
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
   // A save was refused with 403 `self_approval_forbidden`: read-only from now on, even before the page reports it.
   const [refusedAsOwner, setRefusedAsOwner] = useState(false)
+  // The reason sentence of the read-only group. The select that had focus is gone after a refused save (A-2), so
+  // the reason takes focus: the sentence is read, and the keyboard position stays inside this panel.
+  const whyRef = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (refusedAsOwner) whyRef.current?.focus()
+  }, [refusedAsOwner])
 
   if (!line.inScope) {
     return (
       <p
-        className="mt-1 border-t border-rule pt-3 text-xs text-soft"
+        className="mt-1 border-t border-rule pt-3 text-xs text-soft outline-none focus-visible:outline-2"
+        tabIndex={-1}
         data-testid={`classification-${line.lineId}-out-of-scope`}
       >
         {t.outOfScope}
@@ -185,7 +192,10 @@ export default function LineClassificationPanel({
       value: chf.rateMissing ? (
         <span className="flex flex-col items-start gap-1" data-testid={`classification-${line.lineId}-rate-missing`}>
           <StatusBadge status={RATE_MISSING_MEANING}>{t.rateMissing}</StatusBadge>
-          <span className="text-xs text-soft">{t.rateMissingHelp(line.currency, rateMonthText)}</span>
+          <span className="text-xs text-soft">
+            {t.rateMissingHelp(line.currency, rateMonthText)}
+            {!canOpenRates && ` ${strings.pages.batchDetail.accountingExport.blocked.askAdmin}`}
+          </span>
           {canOpenRates && (
             <Link
               to="/settings"
@@ -278,7 +288,13 @@ export default function LineClassificationPanel({
           testId={`classification-${line.lineId}-values`}
         />
         {amounts}
-        <p className="flex items-center gap-1.5 text-xs text-soft" data-testid={`classification-${line.lineId}-why`}>
+        <p
+          ref={whyRef}
+          role="status"
+          tabIndex={-1}
+          className="flex items-center gap-1.5 text-xs text-soft outline-none focus-visible:outline-2"
+          data-testid={`classification-${line.lineId}-why`}
+        >
           {locked && <Icon name="lock" />}
           {locked ? t.locked : ownRequest && canChange ? t.selfRestricted : t.readOnly}
         </p>

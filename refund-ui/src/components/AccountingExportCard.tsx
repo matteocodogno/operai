@@ -21,7 +21,7 @@
  *     included, is "No file was produced".
  */
 
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Banner, Button, Card, SkeletonRows, VisuallyHidden } from '@operai/ui'
 import { strings } from '../strings'
@@ -79,6 +79,15 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
   const [turnedBlocked, setTurnedBlocked] = useState(false)
   const [denied, setDenied] = useState(false)
   const [recheckFailed, setRecheckFailed] = useState(false)
+  // What a person's own Check again found (A-3): spoken politely from a region that is always there, and focus moves
+  // to the result once it has rendered (the blocked banner, and the button that was focused, may be gone by then).
+  const [recheckResult, setRecheckResult] = useState<{ text: string; ready: boolean } | null>(null)
+  const downloadRef = useRef<HTMLButtonElement>(null)
+  const checkAgainRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (recheckResult === null) return
+    ;(recheckResult.ready ? downloadRef : checkAgainRef).current?.focus()
+  }, [recheckResult])
 
   // A batch discarded since this page loaded: the page removes the card (AC-6.9).
   const isDiscarded = (error: unknown): boolean => error instanceof ApiError && error.code === 'batch_discarded'
@@ -92,12 +101,24 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
   // Any 403: the user is not allowed this export (out of the WellD CH review scope, AC-6.11).
   const outOfScope = resource.status === 'forbidden' || denied
 
-  const recheck = async () => {
+  /** `announce`: a person asked for this check (Check again), so say the result and move focus to it. */
+  const recheck = async (announce = false) => {
     if (rechecking) return
     setRechecking(true)
     setRecheckFailed(false)
+    if (announce) setRecheckResult(null)
     try {
-      replace(await getAccountingExport(batchId))
+      const fresh = await getAccountingExport(batchId)
+      replace(fresh)
+      if (announce) {
+        const remaining =
+          fresh.blockers.missingRates.length + fresh.blockers.unclassifiedLines.length + fresh.blockers.unnumberedLines.length
+        setRecheckResult(
+          fresh.exportable
+            ? { text: t.blocked.recheckReady(fresh.rowCount), ready: true }
+            : { text: t.blocked.recheckBlocked(remaining), ready: false },
+        )
+      }
     } catch (error) {
       if (isDiscarded(error)) onBatchDiscarded()
       else if (error instanceof ApiError && error.status === 403) setDenied(true)
@@ -171,6 +192,9 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
       {summary !== null && !outOfScope && (
         <div className="flex flex-col gap-3">
           {rechecking && <VisuallyHidden live>{t.loading}</VisuallyHidden>}
+          <VisuallyHidden live data-testid="accounting-export-recheck-result">
+            {recheckResult?.text ?? ''}
+          </VisuallyHidden>
           {recheckFailed && <ErrorBanner message={t.loadError} onRetry={() => void recheck()} />}
 
           {blocked ? (
@@ -186,11 +210,12 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
                 title={t.blocked.title}
                 actions={
                   <Button
+                    ref={checkAgainRef}
                     size="sm"
                     busy={rechecking}
                     onClick={() => {
                       setTurnedBlocked(false)
-                      void recheck()
+                      void recheck(true)
                     }}
                     data-testid="accounting-export-check-again"
                   >
@@ -288,6 +313,7 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
               </VisuallyHidden>
             )}
             <Button
+              ref={downloadRef}
               variant="secondary"
               busy={downloading}
               aria-disabled={blocked || undefined}

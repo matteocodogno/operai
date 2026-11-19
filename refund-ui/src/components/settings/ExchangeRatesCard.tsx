@@ -278,9 +278,9 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
   const lastFetchValue =
     lastFetch === null
       ? t.lastFetch.never
-      : lastFetch.outcome === 'ok'
-        ? t.lastFetch.ok(formatDateTime(lastFetch.at))
-        : formatDateTime(lastFetch.at)
+      : lastFetch.outcome === 'not_fetchable'
+        ? t.lastFetch.notFetchable(formatDateTime(lastFetch.at))
+        : t.lastFetch[lastFetch.outcome](formatDateTime(lastFetch.at))
   const showDisabled = notices.disabled || lastFetch?.outcome === 'disabled'
 
   const correctingRow = rowOf(correcting)

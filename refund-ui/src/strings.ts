@@ -325,6 +325,10 @@ const en = {
         term: 'Last fetch',
         never: 'No fetch yet',
         ok: (at: string) => `${at} — succeeded`,
+        failed: (at: string) => `${at} — failed`,
+        disabled: (at: string) => `${at} — skipped, automatic fetching is turned off`,
+        notFetchable: (at: string) => `${at} — the rates are not published yet`,
+        throttled: (at: string) => `${at} — skipped, the rates were checked a moment ago`,
         failedTitle: 'The last fetch failed',
         failedBody: (at: string, reason: string) => `On ${at}: ${reason}. The rates already recorded are unchanged.`,
       },
@@ -743,6 +747,7 @@ const en = {
           hint: 'Choose the missing values, then approve again.',
           account: (line: string) => `${line}: choose an account`,
           vatCode: (line: string) => `${line}: choose a VAT code`,
+          outOfScope: (line: string) => `${line}: needs a colleague with WellD CH access`,
         },
         releasePending:
           'Approvals are not available yet: the accounting setup has not been completed. Ask an administrator.',
@@ -911,6 +916,11 @@ const en = {
           unnumbered: 'Lines without a receipt number',
           unnumberedBody: 'Contact an administrator.',
           checkAgain: 'Check again',
+          recheckReady: (n: number) =>
+            n === 0
+              ? 'The export is ready: the file will contain only the header row.'
+              : `The export is ready: ${n === 1 ? '1 row' : `${n} rows`}.`,
+          recheckBlocked: (n: number) => `Still blocked: ${n === 1 ? '1 item' : `${n} items`}.`,
           turnedBlocked: 'The export became blocked while you were downloading. See the items below.',
         },
         downloadError: 'No file was produced. Try again.',
@@ -1410,6 +1420,10 @@ const it: Strings = {
         term: 'Ultimo recupero',
         never: 'Ancora nessun recupero',
         ok: (at: string) => `${at} — riuscito`,
+        failed: (at: string) => `${at} — non riuscito`,
+        disabled: (at: string) => `${at} — saltato, il recupero automatico è disattivato`,
+        notFetchable: (at: string) => `${at} — i tassi non sono ancora pubblicati`,
+        throttled: (at: string) => `${at} — saltato, i tassi sono stati controllati poco fa`,
         failedTitle: 'L’ultimo recupero non è riuscito',
         failedBody: (at: string, reason: string) => `Il ${at}: ${reason}. I tassi già registrati non sono cambiati.`,
       },
@@ -1733,6 +1747,7 @@ const it: Strings = {
           hint: 'Scegliere i valori mancanti, poi approvare di nuovo.',
           account: (line: string) => `${line}: scegliere un conto`,
           vatCode: (line: string) => `${line}: scegliere un codice IVA`,
+          outOfScope: (line: string) => `${line}: serve un collega con accesso a WellD CH`,
         },
         releasePending:
           'Le approvazioni non sono ancora disponibili: la configurazione contabile non è stata completata. Rivolgersi a un amministratore.',
@@ -1873,6 +1888,11 @@ const it: Strings = {
           unnumbered: 'Righe senza numero di ricevuta',
           unnumberedBody: 'Rivolgersi a un amministratore.',
           checkAgain: 'Verifica di nuovo',
+          recheckReady: (n: number) =>
+            n === 0
+              ? "L'esportazione è pronta: il file conterrà solo la riga di intestazione."
+              : `L'esportazione è pronta: ${n === 1 ? '1 riga' : `${n} righe`}.`,
+          recheckBlocked: (n: number) => `Ancora bloccata: ${n === 1 ? '1 elemento' : `${n} elementi`}.`,
           turnedBlocked: 'L’esportazione si è bloccata durante il download. Vedere le voci seguenti.',
         },
         downloadError: 'Nessun file è stato prodotto. Riprovare.',

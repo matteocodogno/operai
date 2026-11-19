@@ -331,6 +331,56 @@ describe('AccountingExportCard: blocked (UX-6, UX-7)', () => {
   })
 })
 
+describe('AccountingExportCard: the result of Check again (A-3)', () => {
+  const result = () => screen.getByTestId('accounting-export-recheck-result')
+  beforeEach(() => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(BLOCKED)
+  })
+
+  it('when it becomes ready, announces the result politely and moves focus to Download', async () => {
+    await renderCard()
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ rowCount: 12 }))
+    const button = screen.getByTestId('accounting-export-check-again')
+    button.focus()
+    fireEvent.click(button)
+
+    await waitFor(() => expect(screen.queryByTestId('accounting-export-blocked')).toBeNull())
+    expect(result().textContent).toBe('The export is ready: 12 rows.')
+    expect(result().getAttribute('aria-live')).toBe('polite')
+    expect(document.activeElement).toBe(download())
+  })
+
+  it('when it is still blocked, announces how many items remain and keeps focus on Check again', async () => {
+    await renderCard()
+    const button = screen.getByTestId('accounting-export-check-again')
+    button.focus()
+    fireEvent.click(button)
+
+    await waitFor(() => expect(result().textContent).toBe('Still blocked: 3 items.'))
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-export-check-again'))
+  })
+
+  it('says "1 item" for a single blocker and "1 row" for a single row', async () => {
+    await renderCard()
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(
+      summary({
+        exportable: false,
+        blockers: { ...NO_BLOCKERS, missingRates: [{ currency: 'EUR', month: '2026-03' }] },
+      }),
+    )
+    fireEvent.click(screen.getByTestId('accounting-export-check-again'))
+    await waitFor(() => expect(result().textContent).toBe('Still blocked: 1 item.'))
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ rowCount: 1 }))
+    fireEvent.click(screen.getByTestId('accounting-export-check-again'))
+    await waitFor(() => expect(result().textContent).toBe('The export is ready: 1 row.'))
+  })
+
+  it('announces nothing on first load, and the region is empty until a recheck finishes', async () => {
+    await renderCard()
+    expect(result().textContent).toBe('')
+  })
+})
+
 describe('AccountingExportCard: downloading (UX-12)', () => {
   it('saves the Blob the API returned under refund-accounting-<cutoff>-<id>.csv, releases the handle, and confirms', async () => {
     const blob = new Blob(['﻿Employee;Receipt number\r\n'], { type: 'text/csv' })

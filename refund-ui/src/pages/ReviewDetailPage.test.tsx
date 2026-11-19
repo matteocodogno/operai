@@ -1100,6 +1100,103 @@ describe('ReviewDetailPage — line classification panels', () => {
       expect(screen.getAllByTestId('classification-missing-summary-item')).toHaveLength(1)
     })
 
+    describe('lines outside the approver\u2019s entity scope (A-1, FU-S7)', () => {
+      const oosView = () =>
+        view([
+          accLine('c1', {
+            classification: { account: null, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true },
+          }),
+          accLine('c2', { inScope: false, classification: null, chf: null, vatAmountCents: null }),
+          accLine('c3', { inScope: false, classification: null, chf: null, vatAmountCents: null }),
+        ])
+      const oosRequest = withCh({ lines: [chLine('c1'), chLine('c2'), chLine('c3')] })
+
+      it('names only out-of-scope lines: the dialog closes, a summary row per line shows, counted, and focus lands on the summary', async () => {
+        const onlyOos = refusedWith([
+          { lineId: 'c2', date: '2026-07-01', type: 'stationery', missing: ['account'] },
+          { lineId: 'c3', date: '2026-07-01', type: 'stationery', missing: ['account', 'vatCode'] },
+        ])
+        vi.mocked(requestsApi.get).mockResolvedValue(oosRequest)
+        vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(oosView())
+        vi.mocked(reviewApi.approve).mockRejectedValue(onlyOos)
+        renderReviewDetailPage()
+        await screen.findByTestId('classification-c2-out-of-scope')
+        await approve()
+
+        const summary = await screen.findByTestId('classification-missing-summary')
+        expect(screen.queryByTestId('approve-dialog-modal')).toBeNull()
+        expect(summary.getAttribute('role')).toBe('alert')
+        expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
+          'Nothing was approved. 2 values need your attention.',
+        )
+        expect(screen.getAllByTestId('classification-missing-summary-item').map((item) => item.textContent)).toEqual([
+          '01.07.2026 · Line c2: needs a colleague with WellD CH access',
+          '01.07.2026 · Line c3: needs a colleague with WellD CH access',
+        ])
+        await waitFor(() => expect(screen.getByTestId('classification-missing-summary-focus').contains(document.activeElement)).toBe(true))
+        expect(document.activeElement).toBe(screen.getByTestId('classification-missing-summary-focus'))
+      })
+
+      it('a mixed refusal counts every named line and keeps focus on the first in-scope select', async () => {
+        const mixed = refusedWith([
+          { lineId: 'c1', date: '2026-07-01', type: 'stationery', missing: ['account'] },
+          { lineId: 'c2', date: '2026-07-01', type: 'stationery', missing: ['account'] },
+          { lineId: 'c3', date: '2026-07-01', type: 'stationery', missing: ['vatCode'] },
+        ])
+        vi.mocked(requestsApi.get).mockResolvedValue(oosRequest)
+        vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(oosView())
+        vi.mocked(reviewApi.approve).mockRejectedValue(mixed)
+        renderReviewDetailPage()
+        await readySelect('classification-c1-account')
+        await approve()
+
+        await screen.findByTestId('classification-missing-summary')
+        expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
+          'Nothing was approved. 3 values need your attention.',
+        )
+        expect(screen.getAllByTestId('classification-missing-summary-item')).toHaveLength(3)
+        await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('classification-c1-account')))
+      })
+
+      it('an out-of-scope row stays after the in-scope values are chosen, and its link focuses that line\u2019s note', async () => {
+        const mixed = refusedWith([
+          { lineId: 'c1', date: '2026-07-01', type: 'stationery', missing: ['account'] },
+          { lineId: 'c2', date: '2026-07-01', type: 'stationery', missing: ['account'] },
+        ])
+        vi.mocked(requestsApi.get).mockResolvedValue(oosRequest)
+        vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(oosView())
+        vi.mocked(reviewApi.approve).mockRejectedValue(mixed)
+        vi.mocked(accountingApi.classifyLine).mockResolvedValue(accLine('c1'))
+        renderReviewDetailPage()
+        const select = await readySelect('classification-c1-account')
+        await approve()
+        await screen.findByTestId('classification-missing-summary')
+
+        fireEvent.change(select, { target: { value: 'acc-train' } })
+        await waitFor(() =>
+          expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
+            'Nothing was approved. 1 value needs your attention.',
+          ),
+        )
+        fireEvent.click(screen.getByTestId('classification-missing-summary-item'))
+        const note = screen.getByTestId('classification-c2-out-of-scope')
+        expect(note.getAttribute('tabindex')).toBe('-1')
+        expect(document.activeElement).toBe(note)
+      })
+
+      it('drops a named line the view has no row for', async () => {
+        const ghost = refusedWith([{ lineId: 'gone', date: '2026-07-01', type: 'stationery', missing: ['account'] }])
+        vi.mocked(requestsApi.get).mockResolvedValue(oosRequest)
+        vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(oosView())
+        vi.mocked(reviewApi.approve).mockRejectedValue(ghost)
+        renderReviewDetailPage()
+        await readySelect('classification-c1-account')
+        await approve()
+        await waitFor(() => expect(accountingApi.getRequestAccounting).toHaveBeenCalledTimes(2))
+        expect(screen.queryByTestId('classification-missing-summary')).toBeNull()
+      })
+    })
+
     it('accounting_release_pending stays in the dialog with its own sentence, and Approve can be pressed again', async () => {
       vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
       vi.mocked(reviewApi.approve).mockRejectedValue(problem(409, 'accounting_release_pending'))

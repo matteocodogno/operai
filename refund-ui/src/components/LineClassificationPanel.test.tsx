@@ -179,6 +179,27 @@ describe('LineClassificationPanel: editable', () => {
     expect(screen.queryByRole('link', { name: 'Open exchange rates' })).toBeNull()
   })
 
+  it('a missing rate without settings:read says who can fix it (A-8)', async () => {
+    await renderPanel(
+      eurLine({
+        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateMissing: true },
+        vatAmountCents: null,
+      }),
+    )
+    expect(screen.getByTestId('classification-l1-rate-missing').textContent).toContain(
+      'Ask an administrator to enter or fetch it.',
+    )
+    cleanup()
+    await renderPanel(
+      eurLine({
+        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateMissing: true },
+        vatAmountCents: null,
+      }),
+      { canOpenRates: true },
+    )
+    expect(screen.getByTestId('classification-l1-rate-missing').textContent).not.toContain('Ask an administrator')
+  })
+
   it('offers "Open exchange rates" to that month only with settings:read', async () => {
     await renderPanel(
       eurLine({
@@ -461,6 +482,24 @@ describe('LineClassificationPanel: segregation of duties and entity scope (plan.
     expect(screen.getByTestId('classification-l1-values').textContent).not.toContain('5902')
     expect(onSelfRestricted).toHaveBeenCalledTimes(1)
     expect(onConflict).not.toHaveBeenCalled()
+  })
+
+  it('after a 403 self_approval_forbidden focus moves to the reason, a status the user can read (A-2)', async () => {
+    const { onClassify } = await renderPanel(eurLine())
+    onClassify.mockRejectedValue(problem(403, 'self_approval_forbidden'))
+    account().focus()
+    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+
+    const why = await screen.findByTestId('classification-l1-why')
+    await waitFor(() => expect(document.activeElement).toBe(why))
+    expect(why.getAttribute('tabindex')).toBe('-1')
+    expect(why.getAttribute('role')).toBe('status')
+  })
+
+  it('a panel that is read-only from the start does not take focus (A-2)', async () => {
+    await renderPanel(eurLine(), { selfRestricted: true })
+    expect(document.activeElement).toBe(document.body)
+    expect(screen.getByTestId('classification-l1-why').getAttribute('role')).toBe('status')
   })
 
   it('the same 403 on the VAT select does the same', async () => {

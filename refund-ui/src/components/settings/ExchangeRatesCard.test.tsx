@@ -153,6 +153,21 @@ describe('ExchangeRatesCard: the table', () => {
     expect(screen.getByTestId('settings-fx-last-fetch').textContent).toMatch(/Last fetch.*18\.11\.2026.*succeeded/)
   })
 
+  it.each([
+    ['failed', /Last fetch.*18\.11\.2026.*failed/],
+    ['disabled', /Last fetch.*18\.11\.2026.*turned off/],
+    ['not_fetchable', /Last fetch.*18\.11\.2026.*not published yet/],
+    ['throttled', /Last fetch.*18\.11\.2026.*checked a moment ago/],
+  ] as const)('a %s last fetch names its outcome beside the time, so it does not read as success (A-7)', async (outcome, pattern) => {
+    vi.mocked(exchangeRatesApi.listExchangeRates).mockResolvedValue(
+      rates({ lastFetch: { ...OK_FETCH, outcome, errorCode: outcome === 'failed' ? 'timeout' : null } }),
+    )
+    await renderCard()
+    const text = screen.getByTestId('settings-fx-last-fetch').textContent ?? ''
+    expect(text).toMatch(pattern)
+    expect(text).not.toContain('succeeded')
+  })
+
   it('says there has been no fetch yet', async () => {
     vi.mocked(exchangeRatesApi.listExchangeRates).mockResolvedValue(rates({ lastFetch: null }))
     await renderCard()
