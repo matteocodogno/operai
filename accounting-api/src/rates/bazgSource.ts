@@ -23,7 +23,14 @@
 
 import { isMonthKey } from "./months";
 
-/** The only host this module ever contacts. */
+/**
+ * The only host this module ever contacts: the BAZG's rates backend. It serves the monthly average rates for VAT
+ * that the Federal Tax Administration (AFC/ESTV) publishes: the AFC/ESTV is the AUTHORITY for the rates, and
+ * this endpoint is the "XML-File" link of its "Aktueller Monatsmittelkurs MWST" page (SO-21,
+ * specs/20261119-accounting; the BAZG provides them "unverbindlich", without obligation). The internal id
+ * `bazg` names this channel, not the authority. An opt-in live test (`afc.live.test.ts`,
+ * `ACCOUNTING_LIVE_RATES=1`) checks 2026-03 = EUR 0.9246 against it.
+ */
 export const BAZG_HOST = "www.backend-rates.bazg.admin.ch";
 export const BAZG_PATH = "/api/xmlavgmonth";
 export const FX_CALL_TIMEOUT_MS = 5_000;

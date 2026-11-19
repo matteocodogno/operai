@@ -22,6 +22,11 @@ export const OWN_CURRENCY = {
   welld_it: "EUR",
 } as const satisfies Record<Entity, string>;
 
+/**
+ * The id of a rate source channel. `bazg` is the BAZG's rates backend, which serves the monthly average rates for
+ * VAT published by the Federal Tax Administration (AFC/ESTV), the authority for them (SO-21, specs/20261119-accounting).
+ * The id names the channel and stays `bazg` on the wire (`rateSource`, `source.name`).
+ */
 export type RateSourceName = "bazg";
 
 /** Where an entity's monthly average rates come from and which foreign currencies it converts. */
@@ -31,7 +36,7 @@ export interface RateSourceConfig {
 }
 
 /**
- * The official rate source per entity. `null` = no source and no currencies in v1 (WellD Italia, D19): its
+ * The official rate source per entity (WellD CH: the AFC/ESTV monthly average for VAT, read from the BAZG channel). `null` = no source and no currencies in v1 (WellD Italia, D19): its
  * rates screen says so and a fetch is a 422 `no_rate_source`.
  */
 export const RATE_SOURCE = {

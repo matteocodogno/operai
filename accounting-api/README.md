@@ -44,7 +44,8 @@ All variables are validated at startup (`src/lib/env.ts`); a missing one exits 1
 `AUTH_AUDIENCE`). Optional: `PORT` (8089), `NODE_ENV`, and **`ACCOUNTING_FX_SOURCE`**:
 
 - `bazg` (default): a missing rate of a completed month is fetched on demand from the one fixed federal host
-  (the host is a constant in the source, not configuration), on a budget inside refund-api's 10 s deadline.
+  (the BAZG's rates backend, which serves the monthly average rates for VAT of the Federal Tax Administration,
+  AFC/ESTV, the authority for them; the host is a constant in the source, not configuration), on a budget inside refund-api's 10 s deadline.
 - `off`: no outbound call; every attempt is recorded as `disabled` and rates are typed by hand. Use it for the
   e2e and offline development.
 
@@ -58,6 +59,18 @@ bun run dev              # http://localhost:8089 (hot reload); `direnv allow acc
 bun run typecheck        # tsc --noEmit
 bun test
 ```
+
+### AFC/ESTV verification (opt-in, never in CI)
+
+The rates' authority is the AFC/ESTV; the endpoint read is the "XML-File" link of its monthly average page, served
+by the BAZG. To check that the channel still answers the signed-off value (2026-03: EUR 0.9246), on a networked
+machine:
+
+```bash
+ACCOUNTING_LIVE_RATES=1 bun test src/rates/afc.live.test.ts
+```
+
+Without the flag the test is skipped, so `bun test` and CI never call out. QE runs it once per release.
 
 ## Seed (operator-run, optional)
 
