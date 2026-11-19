@@ -1,0 +1,266 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-11-18T19-40-00Z-orchestrate-20261118-refund-accounting-export",
+  "command": "orchestrate",
+  "feature": "20261118-refund-accounting-export",
+  "rigor": "production",
+  "started": "2026-11-18T19:40:00Z",
+  "finished": null,
+  "agents": [
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "note": "spec written in main loop via /wellforge:spec with 2 interview rounds; user approved 2026-11-18; PO agent applied post-approval amendments A1/A2 (owner to confirm)"
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "note": "plan.md; plan gate recorded under the user's pre-authorisation for the unattended run; later syncs: design gaps, implementation sync IS-1..7, security sync SR-1..10, fix-round drift FR-1..5, tasks.md derivation"
+    },
+    {
+      "agent": "designer",
+      "outcome": "completed",
+      "note": "design.md; later implementation sync + browser a11y pass (axe, isolated Chrome, mocked API)"
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "note": "5 ADRs 20261118"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T5"
+      ],
+      "outcome": "completed"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T20",
+        "T21",
+        "T22",
+        "T23",
+        "T24",
+        "T25"
+      ],
+      "outcome": "completed",
+      "worktree": "feat/refund-accounting-fe"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T6",
+        "T7",
+        "T8",
+        "T9",
+        "T10",
+        "T11"
+      ],
+      "outcome": "completed"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T26",
+        "T27",
+        "T28",
+        "T29",
+        "T30"
+      ],
+      "outcome": "completed",
+      "worktree": "feat/refund-accounting-fe"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T12",
+        "T13",
+        "T14",
+        "T15",
+        "T16"
+      ],
+      "outcome": "completed"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T17",
+        "T18",
+        "T19"
+      ],
+      "outcome": "completed"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T31",
+        "T32",
+        "T33",
+        "T34"
+      ],
+      "outcome": "completed",
+      "note": "e2e journeys written and statically verified, live run pending (owner)"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T35"
+      ],
+      "outcome": "FAIL",
+      "note": "D-1..D-4 (2 medium = security S-01/S-02)"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "tasks": [
+        "T36"
+      ],
+      "outcome": "REVIEW REQUIRED",
+      "note": "2 medium, 6 low, 3 info"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T41"
+      ],
+      "outcome": "completed",
+      "note": "fix round 1"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T42"
+      ],
+      "outcome": "completed",
+      "note": "fix round 1",
+      "worktree": "feat/refund-accounting-fix1-fe"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T35"
+      ],
+      "outcome": "PASS"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "tasks": [
+        "T36"
+      ],
+      "outcome": "PASS"
+    },
+    {
+      "agent": "evaluator",
+      "tasks": [
+        "T37"
+      ],
+      "outcome": "FAIL",
+      "score": 73.9
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T43"
+      ],
+      "outcome": "completed",
+      "note": "eval fix round (a11y A-1,A-2,A-3,A-7,A-8)"
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "architect",
+      "artifact": "spec.md",
+      "summary": "A1 reactivation and A2 foreign-currency VAT code amendments after approval (applied by PO agent, owner to confirm)",
+      "resolved": true
+    },
+    {
+      "agent": "designer",
+      "artifact": "plan.md",
+      "summary": "G1-G13 design gaps folded into plan",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev",
+      "artifact": "plan.md",
+      "summary": "T1: paid-lock only once numbered (IS-1) and IS-2..IS-7",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev",
+      "artifact": "plan.md",
+      "summary": "T13/T14: approved lines read stored-only; partial freeze instruction not applied",
+      "resolved": true
+    },
+    {
+      "agent": "owasp-reviewer",
+      "artifact": "plan.md",
+      "summary": "S-01 line-level scope, S-02 segregation of duties (SR-1..SR-10)",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev",
+      "artifact": "plan.md",
+      "summary": "fix round 1 FR-1..FR-5 (either-grant rule, 404 vs 422)",
+      "resolved": true
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "docs/adr",
+      "summary": "stale ADR statements and plan attribution corrected",
+      "resolved": true
+    }
+  ],
+  "collision_events": [],
+  "env_faults": [
+    {
+      "agent": "orchestrator",
+      "class": "runtimes",
+      "detail": "bun not installed; mise config untrusted in new worktree",
+      "resolved_by": "mise exec bun@latest; mise trust of the repo's own mise.toml"
+    },
+    {
+      "agent": "orchestrator",
+      "class": "databases",
+      "detail": "refund-api tests default to shared Postgres :5435 (another session's container) and have no CI",
+      "resolved_by": "isolated container operai-expense-analysis-pg :5445 with placeholder env in scratchpad"
+    },
+    {
+      "agent": "backend-dev",
+      "class": "secret env",
+      "detail": "auth node_modules and auth DB missing in worktree",
+      "resolved_by": "bun install --frozen-lockfile, db:deploy on :5445/auth"
+    },
+    {
+      "agent": "frontend-dev",
+      "class": "repository outside checkout",
+      "detail": "shell remoteVersionExposes test needs other apps' node_modules; router.inventory flake under load",
+      "resolved_by": "installs in QE; flake passed on rerun"
+    },
+    {
+      "agent": "designer",
+      "class": "machine-global",
+      "detail": "Playwright MCP Chrome profile locked by another session",
+      "resolved_by": "isolated Chrome via @playwright/test library"
+    },
+    {
+      "agent": "orchestrator",
+      "class": "e2e stack",
+      "detail": "live e2e needs the shared dev DB :5435 and 1Password secrets",
+      "resolved_by": "not run; owner step (T31/T32 open)"
+    }
+  ],
+  "verdicts": {
+    "qe": "PASS (after fix round 1)",
+    "security": "PASS (after fix round 1)",
+    "eval": "FAIL 73.9 (round 1); round 2 pending"
+  },
+  "result": "partial",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
