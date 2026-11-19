@@ -1,5 +1,5 @@
 /**
- * expenseTypes — the twelve fixed expense-line categories carried over from
+ * expenseTypes — the fourteen fixed expense-line categories (twelve from the paper form, plus flight and taxi, specs/20261119-accounting T68) carried over from
  * the paper form (T14, specs/20260716-refund-service/tasks.md; spec.md "Domain
  * language" table). Single source of truth for `ExpenseLineComposer`/
  * `ExpenseLineRow`'s type `<select>` (T16) and for spec.md's own
@@ -32,6 +32,8 @@ export type ExpenseType =
   | 'travel_parking'
   | 'travel_train'
   | 'travel_other_public_transport'
+  | 'travel_flight'
+  | 'travel_taxi'
   | 'company_manuals'
   | 'stationery'
   | 'representation_meals'
@@ -46,7 +48,7 @@ export type ExpenseTypeOption = {
   labelIt: string
 }
 
-/** Order matches spec.md's domain-language table (#1–#12). */
+/** Enum order of refund-api's `ExpenseType` (14 types; flight and taxi follow `travel_other_public_transport`, T58/T68). */
 export const EXPENSE_TYPES: readonly ExpenseTypeOption[] = [
   { id: 'travel_highway', labelEn: 'Travel — highway', labelIt: 'Spese di viaggio (autostrada)' },
   { id: 'travel_km', labelEn: 'Travel — mileage (km)', labelIt: 'Spese di viaggio (km)' },
@@ -57,12 +59,14 @@ export const EXPENSE_TYPES: readonly ExpenseTypeOption[] = [
     labelEn: 'Travel — other public transport',
     labelIt: 'Spese di viaggio (altri mezzi pubblici)',
   },
+  { id: 'travel_flight', labelEn: 'Travel — flight', labelIt: 'Spese di viaggio (aereo)' },
+  { id: 'travel_taxi', labelEn: 'Travel — taxi', labelIt: 'Spese di viaggio (taxi)' },
   { id: 'company_manuals', labelEn: 'Company manuals', labelIt: 'Spese manualistica societaria' },
   { id: 'stationery', labelEn: 'Stationery', labelIt: 'Spese di cancelleria' },
   {
     id: 'representation_meals',
-    labelEn: 'Representation — meals',
-    labelIt: 'Spese di rappresentanza (pranzi/cene/aperitivi)',
+    labelEn: 'Meals with clients',
+    labelIt: 'Pranzi/cene con clienti',
   },
   {
     id: 'representation_gifts',

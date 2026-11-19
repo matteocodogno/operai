@@ -6,11 +6,35 @@
  * wire-format ids, and `km` gated on exactly one of them (AC-1.2).
  */
 import { describe, expect, it } from 'vitest'
-import { EXPENSE_TYPES, KM_REQUIRED_TYPE, requiresKm } from './expenseTypes'
+import { EXPENSE_TYPES, KM_REQUIRED_TYPE, expenseTypeLabel, requiresKm } from './expenseTypes'
 
 describe('EXPENSE_TYPES', () => {
-  it('has exactly twelve entries, per spec.md’s domain-language table', () => {
-    expect(EXPENSE_TYPES).toHaveLength(12)
+  it('has exactly fourteen entries, in the order of refund-api’s ExpenseType enum (T58, T68)', () => {
+    expect(EXPENSE_TYPES.map((o) => o.id)).toEqual([
+      'travel_highway',
+      'travel_km',
+      'travel_parking',
+      'travel_train',
+      'travel_other_public_transport',
+      'travel_flight',
+      'travel_taxi',
+      'company_manuals',
+      'stationery',
+      'representation_meals',
+      'representation_gifts',
+      'office_material',
+      'postal',
+      'telephone',
+    ])
+  })
+
+  it('names the new and renamed types as signed off (AC-8.1, AC-8.2)', () => {
+    expect(expenseTypeLabel('travel_flight', 'it')).toBe('Spese di viaggio (aereo)')
+    expect(expenseTypeLabel('travel_flight', 'en')).toBe('Travel — flight')
+    expect(expenseTypeLabel('travel_taxi', 'it')).toBe('Spese di viaggio (taxi)')
+    expect(expenseTypeLabel('travel_taxi', 'en')).toBe('Travel — taxi')
+    expect(expenseTypeLabel('representation_meals', 'it')).toBe('Pranzi/cene con clienti')
+    expect(expenseTypeLabel('representation_meals', 'en')).toBe('Meals with clients')
   })
 
   it('has unique, wire-format (snake_case) ids', () => {

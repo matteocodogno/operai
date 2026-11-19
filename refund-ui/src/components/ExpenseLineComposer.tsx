@@ -53,6 +53,12 @@
  * wiring (AC-3.5). A successful add bumps `corpusEpoch`, so the trip just
  * claimed becomes suggestible on the next threshold crossing (plan D6).
  *
+ * Split-receipt hint (specs/20261119-accounting T68, SO-15, AC-3.12): under the
+ * Amount of a line whose entity is WellD CH only (never WellD Italia, never
+ * `travel_km` where Amount is replaced by the computed mileage). It is the
+ * Field's hint, so it is wired to the amount input by `aria-describedby`; it
+ * is plain guidance and validates nothing.
+ *
  * `ExpenseLineRow` is deliberately NOT touched: AC-1.8 (no autocomplete on the
  * in-place line editor) is satisfied structurally, by absence.
  */
@@ -253,7 +259,12 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
             <MileageAmountField entity={draft.entity} date={draft.date} km={draft.km} />
           </div>
         ) : (
-          <Field label={t.amountLabel} error={validation.errorFor('amount')} required>
+          <Field
+            label={t.amountLabel}
+            hint={draft.entity === 'welld_ch' ? t.splitReceiptHint : undefined}
+            error={validation.errorFor('amount')}
+            required
+          >
             {(control) => (
               <MoneyInput
                 {...control}
