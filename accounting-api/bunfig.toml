@@ -1,0 +1,11 @@
+[install]
+exact = true
+production = false
+
+[run]
+# No "$ <command>" echo: bun prints it on stderr, which Railway logs as an error (preDeploy migrations).
+silent = true
+bun = true
+
+[test]
+timeout = 10000

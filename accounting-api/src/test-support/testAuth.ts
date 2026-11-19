@@ -1,0 +1,234 @@
+/**
+ * Shared route-integration test harness (T4, specs/20261119-accounting).
+ * Ported from inventory-api/src/test-support/testAuth.ts.
+ *
+ * Mocks the TWO network-calling dependencies every user route sits behind —
+ * `../auth/jwt.middleware` (RS256 verification) and `../authz/resolveClient`
+ * (`auth GET /authz/resolve`) — so route tests exercise the REAL Hono app +
+ * REAL Postgres (the `accounting` database) without a live `auth` service.
+ * `/system/*` is NOT mocked: `systemAuth` verifies against a key set the test
+ * injects (`__setDefaultJwksForTests`), so its real code runs.
+ *
+ * Usage — import this module BEFORE anything that evaluates `src/lib/env`
+ * (it sets the environment as a side effect of being imported), call
+ * `setupTestAuth()` ONCE at the top of a route test file, and only then
+ * `await import(...)` the router under test:
+ *
+ *   import { setupTestAuth } from "../test-support/testAuth";
+ *   const harness = setupTestAuth();
+ *   await harness.init();
+ *   const { app } = await import("../index");
+ *   harness.setResolve(fakeResolve(PERSONAS.admin));
+ *   const token = await harness.signToken({ sub: "user-1", email: "a@x.com" });
+ *
+ * Shared state, deliberately. `bun test` runs every file in ONE process and
+ * `mock.module` is process-global, and a module such as `authz.middleware` that
+ * was first imported by one test file keeps the middleware it got THEN. So the
+ * keypair, the resolve fixture and the call counter live at module scope here
+ * (this module is evaluated once per process), the mocks are registered once,
+ * and every `setupTestAuth()` call returns the same harness. A per-call closure
+ * would leave a second test file verifying tokens against the first file's key.
+ * Each file sets the fixture it needs (`setResolve`) in its own `beforeEach`.
+ *
+ * Conversely, a test of the REAL `jwt.middleware` / `resolveClient` must import
+ * them under a distinct specifier (`./jwt.middleware.ts?real`), so it does not
+ * receive these mocks — see those files.
+ */
+
+import { mock } from "bun:test";
+import {
+  generateKeyPair,
+  exportJWK,
+  SignJWT,
+  createLocalJWKSet,
+  type JWSHeaderParameters,
+  type FlattenedJWSInput,
+} from "jose";
+import type { ResolveResponse } from "../authz/resolveClient";
+
+export const TEST_ISSUER = "http://localhost:3001";
+export const TEST_AUDIENCE = "operai-suite";
+export const TEST_KID = "operai-auth-rs256-v1-test";
+export const TEST_SERVICE_AUDIENCE = "operai-service";
+
+// ─── Test environment ────────────────────────────────────────────────────────
+//
+// `src/lib/env.ts` validates at import and exits the process on failure, so a
+// test must have set every required variable before importing anything that
+// reads it. Values the suite asserts on are set unconditionally.
+//
+// DATABASE_URL is the one value never invented here: `bun test` shares ONE process, so
+// overwriting a real one would clobber every other file's database, and a default that
+// pointed at a real database would let a suite that TRUNCATEs tables run against it. Unset,
+// it is a placeholder that cannot connect (port 1), so a test that needs the database fails
+// loudly instead of reaching somewhere else. Point it at a throwaway `accounting` database
+// (the CI service, or the isolated local container) before running the suite; see
+// .env.example. `test-support/dbCleanup.ts` refuses to TRUNCATE anything that is not local.
+process.env["DATABASE_URL"] ??= "postgresql://test:test@127.0.0.1:1/accounting_test_unset";
+process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
+process.env["AUTH_JWKS_URL"] = `${TEST_ISSUER}/auth/jwks`;
+process.env["AUTH_ISSUER"] = TEST_ISSUER;
+process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
+process.env["AUTH_BASE_URL"] = TEST_ISSUER;
+process.env["SERVICE_AUDIENCE"] = TEST_SERVICE_AUDIENCE;
+// No outbound call to the federal source from any test (ADR 20261118-monthly-exchange-rates-…).
+process.env["ACCOUNTING_FX_SOURCE"] = "off";
+process.env["NODE_ENV"] = "test";
+
+export interface SignTokenOptions {
+  readonly sub: string;
+  readonly email: string;
+  readonly name?: string;
+  readonly permEpoch?: number;
+}
+
+export interface TestAuthHarness {
+  /** Generates the fixture RS256 keypair. Call once, before signing tokens. */
+  init(): Promise<void>;
+  signToken(options: SignTokenOptions): Promise<string>;
+  /** Swaps the `GET /authz/resolve` fixture response for subsequent requests. */
+  setResolve(
+    fn: (authorizationHeader: string) => Promise<ResolveResponse>,
+  ): void;
+  /** Number of times the (mocked) resolve client has been invoked. */
+  resolveCallCount(): number;
+}
+
+// ─── Process-wide state (see the note above) ─────────────────────────────────
+
+let privateKey: CryptoKey | undefined;
+let localJWKS:
+  | ((
+      protectedHeader?: JWSHeaderParameters,
+      token?: FlattenedJWSInput,
+    ) => Promise<CryptoKey>)
+  | undefined;
+
+let resolveImpl: (
+  authorizationHeader: string,
+) => Promise<ResolveResponse> = async () => {
+  throw new Error("resolveImpl not configured for this test");
+};
+let callCount = 0;
+let mocksInstalled = false;
+
+function installMocks(): void {
+  if (mocksInstalled) return;
+  mocksInstalled = true;
+
+  // ─── Mock jwt.middleware — verifies against OUR local JWKS, not a live auth ──
+  mock.module("../auth/jwt.middleware", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createMiddleware } = require("hono/factory") as typeof import("hono/factory");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const jose = require("jose") as typeof import("jose");
+
+    const unauthorized = (detail: string, path: string) =>
+      Response.json(
+        {
+          type: "https://httpstatuses.com/401",
+          title: "Unauthorized",
+          status: 401,
+          detail,
+          instance: path,
+        },
+        { status: 401 },
+      );
+
+    const jwtMiddleware = createMiddleware<{
+      Variables: {
+        userId: string;
+        email: string;
+        userName?: string;
+        permEpoch: number;
+      };
+    }>(async (c, next) => {
+      const authHeader = c.req.header("Authorization");
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return unauthorized("A valid Bearer token is required", c.req.path);
+      }
+      const token = authHeader.slice(7);
+      if (!token) {
+        return unauthorized("A valid Bearer token is required", c.req.path);
+      }
+      try {
+        if (!localJWKS) throw new Error("harness.init() was not called");
+        const { payload } = await jose.jwtVerify(token, localJWKS, {
+          issuer: TEST_ISSUER,
+          audience: TEST_AUDIENCE,
+          algorithms: ["RS256"],
+        });
+        const userId = payload.sub;
+        const email =
+          typeof payload.email === "string" ? payload.email : undefined;
+        if (!userId || !email) {
+          return unauthorized("Token is missing required claims", c.req.path);
+        }
+        const permEpoch =
+          typeof payload["perm_epoch"] === "number"
+            ? payload["perm_epoch"]
+            : 0;
+        c.set("userId", userId);
+        c.set("email", email);
+        if (typeof payload["name"] === "string" && payload["name"].trim()) {
+          c.set("userName", payload["name"]);
+        }
+        c.set("permEpoch", permEpoch);
+        return next();
+      } catch {
+        return unauthorized(
+          "The provided token is invalid or has expired",
+          c.req.path,
+        );
+      }
+    });
+
+    return { jwtMiddleware };
+  });
+
+  // ─── Mock resolveClient — fixture GET /authz/resolve response ──────────────
+  mock.module("../authz/resolveClient", () => ({
+    fetchAuthzResolve: async (authorizationHeader: string) => {
+      callCount++;
+      return resolveImpl(authorizationHeader);
+    },
+  }));
+}
+
+const harness: TestAuthHarness = {
+  async init() {
+    if (privateKey) return;
+    const kp = await generateKeyPair("RS256", { extractable: true });
+    privateKey = kp.privateKey;
+    const publicJwk = await exportJWK(kp.publicKey);
+    localJWKS = createLocalJWKSet({
+      keys: [{ ...publicJwk, use: "sig", alg: "RS256", kid: TEST_KID }],
+    });
+  },
+  async signToken({ sub, email, name, permEpoch }: SignTokenOptions) {
+    if (!privateKey) throw new Error("harness.init() was not called");
+    const jwt = new SignJWT({
+      email,
+      ...(name !== undefined ? { name } : {}),
+      ...(permEpoch !== undefined ? { perm_epoch: permEpoch } : {}),
+    })
+      .setProtectedHeader({ alg: "RS256", kid: TEST_KID })
+      .setIssuer(TEST_ISSUER)
+      .setSubject(sub)
+      .setAudience(TEST_AUDIENCE)
+      .setExpirationTime("1h");
+    return jwt.sign(privateKey);
+  },
+  setResolve(fn) {
+    resolveImpl = fn;
+  },
+  resolveCallCount() {
+    return callCount;
+  },
+};
+
+/** Installs the two mocks (once per process) and returns the shared harness. */
+export function setupTestAuth(): TestAuthHarness {
+  installMocks();
+  return harness;
+}

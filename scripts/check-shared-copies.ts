@@ -83,6 +83,7 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
       "crm-api/src/auth/systemAuth.middleware.ts",
       "estimai-api/src/auth/systemAuth.middleware.ts",
       "activities-api/src/auth/systemAuth.middleware.ts",
+      "accounting-api/src/auth/systemAuth.middleware.ts",
     ],
     why: "the service-JWT guard of every /system route (ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049); a fix to one copy must reach every copy",
   },
@@ -90,12 +91,22 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
   // (crm-api is the template).
   {
     name: "problem",
-    files: ["crm-api/src/lib/problem.ts", "meetings-api/src/lib/problem.ts", "activities-api/src/lib/problem.ts"],
+    files: [
+      "crm-api/src/lib/problem.ts",
+      "meetings-api/src/lib/problem.ts",
+      "activities-api/src/lib/problem.ts",
+      "accounting-api/src/lib/problem.ts",
+    ],
     why: "RFC 7807 Problem JSON helpers; the error shape is a suite contract",
   },
   {
     name: "logger",
-    files: ["crm-api/src/lib/logger.ts", "meetings-api/src/lib/logger.ts", "activities-api/src/lib/logger.ts"],
+    files: [
+      "crm-api/src/lib/logger.ts",
+      "meetings-api/src/lib/logger.ts",
+      "activities-api/src/lib/logger.ts",
+      "accounting-api/src/lib/logger.ts",
+    ],
     why: "the request logger; it must keep logging no business data (data residency)",
   },
   {

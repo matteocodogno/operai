@@ -1,0 +1,12 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Placeholder (T4, specs/20261119-accounting): the datasource and the generator only, so the
+// scaffold type-checks and `bun run db:generate` works. T5 owns the content: five tables, the
+// init migration and its hand-written SQL.

@@ -1,0 +1,38 @@
+{
+  "name": "@operai/accounting-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "db:migrate": "node node_modules/prisma/build/index.js migrate dev",
+    "db:deploy": "node node_modules/prisma/build/index.js migrate deploy 2>&1",
+    "db:generate": "node node_modules/prisma/build/index.js generate",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "1.6.3",
+    "@prisma/adapter-pg": "7.7.0",
+    "@prisma/client": "7",
+    "@scalar/hono-api-reference": "0.12.17",
+    "dotenv": "17.4.2",
+    "hono": "4.13.16",
+    "jose": "6.2.3",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "bun-types": "^1.3.14",
+    "prisma": "7.7.0",
+    "typescript": "^5.7.3"
+  },
+  "trustedDependencies": [
+    "@prisma/engines",
+    "prisma"
+  ],
+  "overrides": {
+    "@hono/node-server": "2.1.6"
+  }
+}

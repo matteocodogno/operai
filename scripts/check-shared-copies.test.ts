@@ -143,13 +143,21 @@ describe("the committed registry", () => {
     }
   });
 
-  test("registers the systemAuth guard of crm-api, estimai-api and activities-api (specs/20261110-activities T10)", () => {
+  test("registers the systemAuth guard of crm-api, estimai-api, activities-api and accounting-api (specs/20261110-activities T10, specs/20261119-accounting T4)", () => {
     const g = SHARED_COPIES.find((x) => x.name === "systemAuth");
     expect(g?.files.sort()).toEqual([
+      "accounting-api/src/auth/systemAuth.middleware.ts",
       "activities-api/src/auth/systemAuth.middleware.ts",
       "crm-api/src/auth/systemAuth.middleware.ts",
       "estimai-api/src/auth/systemAuth.middleware.ts",
     ]);
+  });
+
+  test("registers accounting-api's problem and logger copies (specs/20261119-accounting T4)", () => {
+    for (const name of ["problem", "logger"]) {
+      const g = SHARED_COPIES.find((x) => x.name === name);
+      expect(g?.files).toContain(`accounting-api/src/lib/${name}.ts`);
+    }
   });
 
   test("registers meetings-api's other copies (specs/20261104-meetings T43)", () => {
