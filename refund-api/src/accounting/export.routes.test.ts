@@ -619,6 +619,24 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
     expect(await exportLog()).toHaveLength(0);
   });
 
+  it("(SR-5, S-06, D-4) the summary 200 and the blocked 409 carry Cache-Control private, no-store and nosniff, as the CSV does; so does the blocked summary 200", async () => {
+    const ready = await createBatch([{ lines: [{}] }]);
+    const readySummary = await call(exportRouter, `/batches/${ready.batchId}/accounting-export`);
+    expect(readySummary.status).toBe(200);
+    expect(readySummary.headers.get("cache-control")).toBe("private, no-store");
+    expect(readySummary.headers.get("x-content-type-options")).toBe("nosniff");
+
+    const blocked = await createBatch([{ lines: [{ currency: "EUR", date: "2026-03-02", vat: novat }] }]);
+    const blockedSummary = await call(exportRouter, `/batches/${blocked.batchId}/accounting-export`);
+    expect(blockedSummary.status).toBe(200);
+    expect(blockedSummary.headers.get("cache-control")).toBe("private, no-store");
+    expect(blockedSummary.headers.get("x-content-type-options")).toBe("nosniff");
+    const refused = await csvOf(blocked.batchId);
+    expect(refused.status).toBe(409);
+    expect(refused.res.headers.get("cache-control")).toBe("private, no-store");
+    expect(refused.res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
   it("(AC-6.5) compile, mark-paid and discard of the blocked batch are not affected: all 2xx", async () => {
     // Two approved requests with a EUR line and no rate: the export of any batch holding them is blocked.
     await createUnbatchedRequest([{ currency: "EUR", date: "2026-03-02", vat: novat }]);

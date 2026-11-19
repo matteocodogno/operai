@@ -4,7 +4,9 @@
  */
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { db } from "../src/lib/db";
 import { truncateRefundTables } from "../src/test-support/dbCleanup";
 import { setVatCodeActive } from "../src/accounting/catalog.repo";
@@ -13,6 +15,8 @@ import { isAccountingReleased } from "../src/accounting/release";
 import {
   DEFAULT_SEED_PATH,
   formatReport,
+  maskEmail,
+  offsetsPathWarning,
   parseOffsetsCsv,
   parseSeed,
   ReleaseError,
@@ -149,7 +153,7 @@ describe("backfill (AC-7.1)", () => {
     expect(audit.every((a) => (a.detail as any).cause === "release")).toBe(true);
 
     expect(report.lines.map((l) => l.receiptNumber)).toEqual(["MC26/001", "MC26/002", "MC26/003"]);
-    expect(report.numbered).toEqual([{ employee: "u1@welld.ch", year: 2026, count: 3, first: "MC26/001", last: "MC26/003" }]);
+    expect(report.numbered).toEqual([{ employee: "u1@welld.ch", employeeRef: "MC · u1", year: 2026, count: 3, first: "MC26/001", last: "MC26/003" }]);
     expect(report.unclassified).toEqual([]);
     expect(report.markerWritten).toBe(true);
     expect(await db.$transaction((tx) => isAccountingReleased(tx))).toBe(true);
@@ -319,7 +323,7 @@ describe("offsets (D2)", () => {
   it("numbering starts after the offset, and the counter records it as loaded by the release", async () => {
     await request("u1", [{ id: "l1", date: "2026-03-02" }, { id: "l2", date: "2026-03-03" }], { email: "matteo.codogno@welld.ch" });
     const report = await run({ offsets: [{ email: "Matteo.Codogno@welld.ch", year: 2026, lastIssuedSeq: 81 }] });
-    expect(report.offsets).toEqual([{ email: "Matteo.Codogno@welld.ch", year: 2026, lastIssuedSeq: 81, outcome: "applied" }]);
+    expect(report.offsets).toEqual([{ email: "Matteo.Codogno@welld.ch", employeeRef: "MC · u1", year: 2026, lastIssuedSeq: 81, outcome: "applied" }]);
     expect((await line("l1")).receiptNumber).toBe("MC26/082");
     expect((await line("l2")).receiptNumber).toBe("MC26/083");
     const counter = await db.receiptCounter.findUniqueOrThrow({ where: { ownerUserId_year: { ownerUserId: "u1", year: 2026 } } });
@@ -346,7 +350,7 @@ describe("offsets (D2)", () => {
 
   it("a refused offset rolls back the seed and the marker too", async () => {
     await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
-    await expect(run({ offsets: [{ email: "nobody@welld.ch", year: 2026, lastIssuedSeq: 5 }] })).rejects.toThrow(/nobody@welld.ch/);
+    await expect(run({ offsets: [{ email: "nobody@welld.ch", year: 2026, lastIssuedSeq: 5 }] })).rejects.toThrow(/n\*\*\*@welld\.ch/);
     expect(await db.ledgerAccount.count()).toBe(0);
     expect(await db.refundSetting.count()).toBe(0);
     expect((await line("l1")).receiptNumber).toBeNull();
@@ -364,5 +368,97 @@ describe("offsets (D2)", () => {
     const again = await run({ offsets: [{ email: "m@welld.ch", year: 2027, lastIssuedSeq: 5 }] });
     expect(again.offsets[0]!.outcome).toBe("already-applied");
     await expect(run({ offsets: [{ email: "m@welld.ch", year: 2027, lastIssuedSeq: 6 }] })).rejects.toThrow(ReleaseError);
+  });
+});
+
+// ─── Fix round 1 (T41): D-1, SR-3, SR-4 ──────────────────────────────────────
+
+describe("the report (D-1, SR-4)", () => {
+  async function legacy() {
+    await request("u1", [{ id: "l1", date: "2026-03-02" }, { id: "l2", date: "2026-03-03", type: "stationery" }], { email: "matteo.codogno@welld.ch" });
+  }
+
+  it("D-1: a dry run never says the marker was written; the real run says yes; a later run says it was already set", async () => {
+    await legacy();
+    const dry = formatReport(await run({ dryRun: true }));
+    expect(dry).toContain("Release marker written: no (dry run: the real run would write it)");
+    expect(dry).not.toContain("Release marker written: yes");
+    expect(formatReport(await run())).toContain("Release marker written: yes");
+    expect(formatReport(await run())).toContain("Release marker written: no (already set)");
+    expect(formatReport(await run({ dryRun: true }))).toContain("Release marker written: no (already set)");
+  });
+
+  it("SR-4: an employee is `<initials> · <first 8 characters of the user id>`, and no `@` appears anywhere without showEmails", async () => {
+    await request("0123456789abcdef", [{ id: "l1", date: "2026-03-02" }], { email: "matteo.codogno@welld.ch", name: "Matteo Codogno" });
+    const report = await run({ dryRun: true, offsets: [{ email: "matteo.codogno@welld.ch", year: 2027, lastIssuedSeq: 4 }] });
+    for (const text of [formatReport(report), formatReport(report, { showEmails: false })]) {
+      expect(text).not.toContain("@");
+      expect(text).toContain("MC · 01234567");
+      expect(text).not.toContain("89abcdef");
+    }
+    expect(formatReport(report, { showEmails: true })).toContain("matteo.codogno@welld.ch");
+  });
+
+  it("SR-4: the unclassified lines are listed by the same reference", async () => {
+    await legacy();
+    const text = formatReport(await run({ dryRun: true }));
+    expect(text).toMatch(/Left unclassified, account or VAT code missing \(1\)\n {2}MC26\/002 MC · u1 2026-03-03 stationery/);
+    expect(text).not.toContain("@");
+  });
+});
+
+describe("maskEmail (SR-4)", () => {
+  it("keeps the first character and the domain", () => {
+    expect(maskEmail("matteo.codogno@welld.ch")).toBe("m***@welld.ch");
+    expect(maskEmail("A@b.ch")).toBe("A***@b.ch");
+  });
+  it("a value with no local part or no @ keeps one character at most", () => {
+    expect(maskEmail("not-an-email")).toBe("n***");
+    expect(maskEmail("@welld.ch")).toBe("***");
+    expect(maskEmail("")).toBe("***");
+  });
+  it("parse errors mask the cell unless asked", () => {
+    expect(() => parseOffsetsCsv("matteo@x,2026,1")).toThrow(/"m\*\*\*@x"/);
+    expect(() => parseOffsetsCsv("matteo@x,2026,1", { showEmails: true })).toThrow(/"matteo@x"/);
+    expect(() => parseOffsetsCsv("a@b.ch,2026,1\nA@b.ch,2026,2")).toThrow(/A\*\*\*@b\.ch 2026 appears twice/);
+  });
+});
+
+describe("offsetsPathWarning (SR-3)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "offsets-path-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("warns for a file under a directory that has `.git` (a directory, or a file as in a linked worktree), at any depth", () => {
+    mkdirSync(join(dir, "clone", ".git"), { recursive: true });
+    mkdirSync(join(dir, "clone", "a", "b"), { recursive: true });
+    mkdirSync(join(dir, "linked", "x"), { recursive: true });
+    writeFileSync(join(dir, "linked", ".git"), "gitdir: /elsewhere\n");
+    expect(offsetsPathWarning(join(dir, "clone", "a", "b", "offsets.csv"))).toContain("inside a git worktree");
+    expect(offsetsPathWarning(join(dir, "linked", "x", "offsets.csv"))).toContain("inside a git worktree");
+    expect(offsetsPathWarning(join(dir, "clone", "a", "b", "offsets.csv"))).not.toContain("@");
+  });
+  it("is silent for a path outside any worktree", () => {
+    mkdirSync(join(dir, "plain"), { recursive: true });
+    expect(offsetsPathWarning(join(dir, "plain", "offsets.csv"))).toBeNull();
+  });
+});
+
+describe(".gitignore keeps an offsets file out of the repository (SR-3, S-03)", () => {
+  const root = join(import.meta.dir, "..", "..");
+  const ignored = (path: string) => Bun.spawnSync(["git", "check-ignore", "-q", path], { cwd: root }).exitCode === 0;
+
+  it("ignores offsets CSVs and accounting-offsets files anywhere in the tree", () => {
+    for (const path of ["refund-api/offsets.csv", "refund-api/scripts/accounting-offsets.csv", "accounting-offsets", "refund-api/accounting-offsets.txt", "refund-api/data/paper-offsets-2026.csv", "x/y/z/offsets.csv"]) {
+      expect(ignored(path)).toBe(true);
+    }
+  });
+  it("does not ignore the script, its tests or its seed", () => {
+    for (const path of ["refund-api/scripts/accounting-release.ts", "refund-api/scripts/accounting-release.test.ts", "refund-api/scripts/data/accounting-seed.welld-ch.json"]) {
+      expect(ignored(path)).toBe(false);
+    }
+  });
+  it("no tracked file matches the patterns", () => {
+    const tracked = new TextDecoder().decode(Bun.spawnSync(["git", "ls-files"], { cwd: root }).stdout).split("\n");
+    expect(tracked.filter((f) => /offsets.*\.csv$/.test(f) || /accounting-offsets/.test(f))).toEqual([]);
   });
 });

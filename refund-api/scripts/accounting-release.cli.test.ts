@@ -11,7 +11,7 @@
  */
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db } from "../src/lib/db";
@@ -84,8 +84,9 @@ describe("accounting:release, run as the operator runs it", () => {
     expect(res.exitCode).toBe(0);
     expect(res.stdout).toContain("DRY RUN: nothing was written");
     expect(res.stdout).toContain("Numbered legacy WellD CH lines (2)");
-    // NOT asserted: the report's last line reads "Release marker written: yes" even in a dry run (it means "would be";
-    // QE defect D-1 in qe-report.md). What a dry run really did is read back from the database below.
+    // D-1 (qe-report.md): the report must not claim the marker was written by a dry run.
+    expect(res.stdout).not.toContain("Release marker written: yes");
+    expect(res.stdout).toMatch(/Release marker written: no \(dry run: the real run would write it\)/);
     expect(res.stdout).not.toContain("Accounting release completed");
     expect(res.stdout).toMatch(/MC26\/001 {2}2026-03-02/);
     expect(res.stdout).toMatch(/MC26\/002 {2}2026-03-10/);
@@ -124,8 +125,63 @@ describe("accounting:release, run as the operator runs it", () => {
     writeFileSync(csv, "email,year,lastIssuedSeq\nmatteo.codogno@welld.ch,2026,81\n");
     const res = await cli("--offsets", csv);
     expect(res.exitCode).toBe(0);
-    expect(res.stdout).toContain("matteo.codogno@welld.ch 2026: numbering continues after 81");
+    expect(res.stdout).toContain("MC · u-matteo 2026: numbering continues after 81"); // SR-4: no email without --show-emails
     expect(await numbers(ids)).toEqual(["MC26/082"]);
+  });
+
+  it("(SR-4, S-04) no `@` anywhere in the report without --show-emails: dry run and real run, offsets and unclassified lines included", async () => {
+    await legacyRequest(["2026-03-02", "2026-03-10"]);
+    const csv = join(tmp, "mask-offsets.csv");
+    writeFileSync(csv, "matteo.codogno@welld.ch,2026,81\n");
+    const dry = await cli("--dry-run", "--offsets", csv);
+    expect(dry.exitCode).toBe(0);
+    expect(dry.stdout).toContain("Every line");
+    expect(dry.stdout).not.toContain("@");
+    expect(dry.stdout).toContain("MC · u-matteo");
+    expect(dry.stderr).not.toContain("@");
+    const real = await cli("--offsets", csv);
+    expect(real.exitCode).toBe(0);
+    expect(real.stdout).not.toContain("@");
+  });
+
+  it("(SR-4) --show-emails prints the full address, in the report only when asked", async () => {
+    await legacyRequest(["2026-03-02"]);
+    const res = await cli("--dry-run", "--show-emails");
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain("matteo.codogno@welld.ch");
+  });
+
+  it("(SR-4) a refused offset names the employee masked, as m***@welld.ch, in the error", async () => {
+    await legacyRequest(["2026-03-02"]);
+    expect((await cli()).exitCode).toBe(0);
+    const csv = join(tmp, "masked-error.csv");
+    writeFileSync(csv, "matteo.codogno@welld.ch,2026,81\n");
+    const res = await cli("--offsets", csv);
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain("m***@welld.ch");
+    expect(res.stderr).not.toContain("matteo.codogno");
+    const withEmails = await cli("--offsets", csv, "--show-emails");
+    expect(withEmails.stderr).toContain("matteo.codogno@welld.ch");
+  });
+
+  it("(SR-3, S-03) an --offsets path inside a git worktree prints a warning (stderr), a path outside does not; the run goes on", async () => {
+    await legacyRequest(["2026-03-02"]);
+    const repo = join(tmp, "some-checkout");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    mkdirSync(join(repo, "nested"), { recursive: true });
+    const inside = join(repo, "nested", "offsets.csv");
+    writeFileSync(inside, "matteo.codogno@welld.ch,2026,81\n");
+    const warned = await cli("--dry-run", "--offsets", inside);
+    expect(warned.exitCode).toBe(0);
+    expect(warned.stderr).toContain("WARNING");
+    expect(warned.stderr).toContain("inside a git worktree");
+    expect(warned.stderr).not.toContain("@");
+
+    const outside = join(tmp, "outside-offsets.csv");
+    writeFileSync(outside, "matteo.codogno@welld.ch,2026,81\n");
+    const quiet = await cli("--dry-run", "--offsets", outside);
+    expect(quiet.exitCode).toBe(0);
+    expect(quiet.stderr).not.toContain("WARNING");
   });
 
   it("an offset for an employee and year that already hold numbers is refused: exit 1, and the whole release is rolled back", async () => {
@@ -147,6 +203,8 @@ describe("accounting:release, run as the operator runs it", () => {
     const res = await cli("--offsets", csv);
     expect(res.exitCode).toBe(1);
     expect(res.stderr).toContain("nothing was changed");
+    expect(res.stderr).not.toContain("not-an-email"); // the bad cell is echoed masked (SR-4)
+    expect(res.stderr).toContain('"n***"');
     expect(await released()).toBe(false);
   });
 });

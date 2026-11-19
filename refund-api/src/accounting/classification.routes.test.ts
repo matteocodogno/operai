@@ -177,6 +177,7 @@ describe("GET /review/requests/{id}/accounting: what a line shows", () => {
       receiptNumber: null,
       employee: { name: "Matteo Codogno", email: "emp-1@welld.ch" },
       rejected: false,
+      inScope: true,
       classification: {
         account: { id: accountTrain.id, number: "5901", name: "Treno", active: true },
         accountIsDefault: true,
@@ -405,12 +406,16 @@ describe("(AC-3.10) who can read it", () => {
     expect((await view(r.id)).status).toBe(404);
   });
 
-  it("a reviewer scoped to welld_it sees a request that has at least one welld_it line, WellD CH lines included (whole request)", async () => {
+  it("(SR-1) a reviewer scoped to welld_it sees a request that has at least one welld_it line (request level), but the WellD CH line carries no accounting data (line level)", async () => {
     const r = await createRequest([{ entity: "welld_ch" }, { entity: "welld_it", currency: "EUR" }]);
     harness.setResolve(async () => reviewer("welld_it"));
     const res = await view(r.id);
     expect(res.status).toBe(200);
     expect(res.body["lines"]).toHaveLength(2);
+    const ch = (res.body["lines"] as any[]).find((l) => l.entity === "welld_ch");
+    const it = (res.body["lines"] as any[]).find((l) => l.entity === "welld_it");
+    expect(ch.inScope).toBe(false);
+    expect(it.inScope).toBe(true);
   });
 
   it("a reviewer scoped to welld_ch sees it; a conditioned grant with no resolved entity matches nothing (404)", async () => {
@@ -448,13 +453,23 @@ describe("GET /accounting/options", () => {
     expect(((await get("/accounting/options")).body["ledgerAccounts"] as any[]).map((a) => a.number)).toEqual(["5901", "6101"]);
   });
 
-  it("is open to any request:review scope (an Italian-scoped reviewer included) and 403 without the capability", async () => {
-    harness.setResolve(async () => reviewer("welld_it"));
-    expect((await get("/accounting/options")).status).toBe(200);
+  it("(SR-1) needs a request:review scope that covers welld_ch: global and welld_ch answer 200, welld_it and a scope with no entity answer 403 accounting_out_of_scope, no capability is a plain 403", async () => {
+    for (const perms of [GLOBAL_REVIEWER, reviewer("welld_ch")]) {
+      harness.setResolve(async () => perms);
+      __resetAuthzCacheForTests();
+      expect((await get("/accounting/options")).status).toBe(200);
+    }
+    for (const perms of [reviewer("welld_it"), reviewer(null, true)]) {
+      harness.setResolve(async () => perms);
+      __resetAuthzCacheForTests();
+      const out = await get("/accounting/options");
+      expect([out.status, out.body["code"]]).toEqual([403, "accounting_out_of_scope"]);
+      expect(out.body["ledgerAccounts"]).toBeUndefined(); // no account, no VAT code leaks with the refusal
+    }
     harness.setResolve(async () => OWNER_ONLY);
     __resetAuthzCacheForTests();
     const res = await get("/accounting/options", "emp-1");
-    expect(res.status).toBe(403);
+    expect([res.status, res.body["code"]]).toEqual([403, undefined]);
   });
 });
 
@@ -831,5 +846,263 @@ describe("PUT classification: who, and on which request (AC-3.6, R7)", () => {
     // set-approved-total was enough while it was submitted, and is not now: no override lands under the wrong grant
     expect(res.status).toBe(403);
     expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBeNull();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Fix round 1 (T41): the QE repros D-2, D-3 and plan § Security review sync SR-1, SR-2
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** A caller with one grant per action, each with its own entity scope (`null` = unconditioned) and optional `self-approval: deny`. */
+function perActionGrants(
+  spec: Partial<Record<"review" | "set-approved-total" | "approve" | "reclassify", { entity?: boolean; selfDeny?: boolean }>>,
+  entity: string | null,
+): ResolveResponse {
+  return {
+    sub: "",
+    epoch: 1,
+    entity,
+    jobTitle: null,
+    permissions: [
+      { resource: "refund", action: "access", conditions: null },
+      ...Object.entries(spec).map(([action, opts]) => {
+        const attributes = [
+          ...(opts?.entity ? [{ key: "entity", match: "user" }] : []),
+          ...(opts?.selfDeny ? [{ key: "self-approval", match: "deny" }] : []),
+        ];
+        return { resource: "request", action, conditions: attributes.length > 0 ? { attributes } : null };
+      }),
+    ],
+  };
+}
+
+describe("(SR-1, S-01, D-2) entity scope is line level: a welld_it-scoped caller has nothing to do with a WellD CH line", () => {
+  const mixed = () => createRequest([{ entity: "welld_ch" }, { entity: "welld_it", currency: "EUR" }]);
+
+  it("D-2a: PUT on the CH line of a mixed SUBMITTED request is 404 for a welld_it-scoped caller, and nothing is written", async () => {
+    const r = await mixed();
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, grants(["review", "set-approved-total"], "welld_it"));
+    expect(res.status).toBe(404);
+    expect(await lineRow(r.lineIds[0]!)).toMatchObject({ ledgerAccountId: null, vatCodeId: null });
+    expect(await auditOf(r.id)).toHaveLength(0);
+  });
+
+  it("the same on an APPROVED request, under request:reclassify", async () => {
+    const r = await createRequest(
+      [
+        { entity: "welld_ch", receiptNumber: "MC26/001", stored: { ledgerAccountId: accountTrain.id, ledgerAccountIsDefault: true, vatCodeId: imp81.id, vatCodeIsDefault: true } },
+        { entity: "welld_it", currency: "EUR" },
+      ],
+      { status: "approved" },
+    );
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, grants(["review", "reclassify"], "welld_it"));
+    expect(res.status).toBe(404);
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBe(accountTrain.id);
+    expect(await auditOf(r.id)).toHaveLength(0);
+  });
+
+  it("the scope used is that of the grant the STATUS needs: welld_ch on set-approved-total but welld_it on reclassify is 200 while submitted and 404 once approved", async () => {
+    const perms = perActionGrants({ review: {}, "set-approved-total": { entity: true }, reclassify: { entity: true } }, "welld_ch");
+    const submitted = await createRequest([{ entity: "welld_ch" }, { entity: "welld_it", currency: "EUR" }]);
+    expect((await put(submitted.id, submitted.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms)).status).toBe(200);
+    const onlyReclassifyGlobal = perActionGrants({ review: {}, "set-approved-total": { entity: true }, reclassify: {} }, "welld_it");
+    const approved = await createRequest(
+      [
+        { entity: "welld_ch", receiptNumber: "MC26/001", stored: { ledgerAccountId: accountTrain.id, ledgerAccountIsDefault: true, vatCodeId: imp81.id, vatCodeIsDefault: true } },
+        { entity: "welld_it", currency: "EUR" },
+      ],
+      { status: "approved" },
+    );
+    // submitted-grant scope would be welld_it (404 for the CH line) but the status is approved: reclassify is global, so 200
+    expect((await put(approved.id, approved.lineIds[0]!, { ledgerAccountId: accountOffice.id }, onlyReclassifyGlobal)).status).toBe(200);
+    const submittedIt = await createRequest([{ entity: "welld_ch" }, { entity: "welld_it", currency: "EUR" }]);
+    // the mirror: set-approved-total scoped to welld_it while reclassify is global does NOT open a submitted CH line
+    expect((await put(submittedIt.id, submittedIt.lineIds[0]!, { ledgerAccountId: accountOffice.id }, onlyReclassifyGlobal)).status).toBe(404);
+  });
+
+  it("a welld_ch-scoped caller and a global caller change the CH line as before", async () => {
+    for (const perms of [grants(["review", "set-approved-total"], "welld_ch"), grants(["review", "set-approved-total"])]) {
+      const r = await mixed();
+      expect((await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms)).status).toBe(200);
+    }
+  });
+
+  it("a welld_ch-scoped caller on the welld_it line of a mixed request: 404 (the line is outside their scope), a global caller gets 422 line_not_welld_ch", async () => {
+    const r = await mixed();
+    expect((await put(r.id, r.lineIds[1]!, { ledgerAccountId: accountOffice.id }, grants(["review", "set-approved-total"], "welld_ch"))).status).toBe(404);
+    const global = await put(r.id, r.lineIds[1]!, { ledgerAccountId: accountOffice.id }, grants(["review", "set-approved-total"]));
+    expect([global.status, global.body["code"]]).toEqual([422, "line_not_welld_ch"]);
+  });
+
+  it("D-2b: the view of a welld_it-scoped caller marks the CH line inScope false and carries no account, VAT code or CHF figure", async () => {
+    await addRate("EUR", "2026-03", 924_600);
+    const r = await createRequest([
+      { entity: "welld_ch", currency: "EUR", requestedAmountCents: 1040, receiptNumber: "MC26/009" },
+      { entity: "welld_it", currency: "EUR" },
+    ]);
+    harness.setResolve(async () => reviewer("welld_it"));
+    __resetAuthzCacheForTests();
+    const [ch, it] = (await view(r.id)).body["lines"] as any[];
+    expect(ch).toEqual({
+      lineId: r.lineIds[0]!,
+      entity: "welld_ch",
+      date: "2026-03-02",
+      type: "travel_train",
+      currency: "EUR",
+      amountCents: 1040, // what GET /requests/{id} already shows a reviewer
+      receiptNumber: "MC26/009",
+      employee: { name: "Matteo Codogno", email: "emp-1@welld.ch" },
+      rejected: false,
+      inScope: false,
+      classification: null,
+      chf: null,
+      vatAmountCents: null,
+    });
+    expect(JSON.stringify(ch)).not.toContain(accountTrain.id); // no id of an account or a VAT code anywhere in the line
+    expect(JSON.stringify(ch)).not.toContain("IMP81");
+    expect(it).toMatchObject({ entity: "welld_it", inScope: true, classification: null });
+  });
+
+  it("the view of a welld_ch-scoped caller: the CH line is in scope and complete, the welld_it line is not", async () => {
+    const r = await mixed();
+    harness.setResolve(async () => reviewer("welld_ch"));
+    __resetAuthzCacheForTests();
+    const [ch, it] = (await view(r.id)).body["lines"] as any[];
+    expect(ch.inScope).toBe(true);
+    expect(ch.classification.account.number).toBe("5901");
+    expect(it).toMatchObject({ inScope: false, classification: null, chf: null, vatAmountCents: null });
+  });
+
+  it("a global caller sees every line in scope", async () => {
+    const r = await mixed();
+    expect(((await view(r.id)).body["lines"] as any[]).map((l) => l.inScope)).toEqual([true, true]);
+  });
+
+  it("the answer of a PUT is the line with inScope true", async () => {
+    const r = await mixed();
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, grants(["review", "set-approved-total"], "welld_ch"));
+    expect(res.body["inScope"]).toBe(true);
+  });
+});
+
+describe("(SR-2, S-02, D-3) segregation of duties: who may not approve their own request may not shape its booking", () => {
+  // The grants of the QE repro: `approve` carries `self-approval: deny`, `reclassify` does not.
+  const restricted: ResolveResponse = {
+    sub: "",
+    epoch: 1,
+    entity: null,
+    jobTitle: null,
+    permissions: [
+      { resource: "refund", action: "access", conditions: null },
+      { resource: "request", action: "review", conditions: null },
+      { resource: "request", action: "approve", conditions: { attributes: [{ key: "self-approval", match: "deny" }] } },
+      { resource: "request", action: "reclassify", conditions: null },
+    ],
+  };
+  const approvedOwn = (owner = "acct-1") =>
+    createRequest([{ entity: "welld_ch", stored: { ledgerAccountId: accountTrain.id, vatCodeId: imp81.id } }], { owner, status: "approved" });
+
+  it("D-3: an owner barred from approving cannot reclassify their own approved request (403 self_approval_forbidden), and nothing is written", async () => {
+    const r = await approvedOwn();
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, restricted, "acct-1");
+    expect([res.status, res.body["code"]]).toEqual([403, "self_approval_forbidden"]);
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBe(accountTrain.id);
+    expect(await auditOf(r.id)).toHaveLength(0);
+  });
+
+  it("the same while the request is SUBMITTED: the approve grant decides, set-approved-total itself stays unconditioned", async () => {
+    const perms = perActionGrants({ review: {}, "set-approved-total": {}, approve: { selfDeny: true } }, null);
+    const r = await createRequest([{ entity: "welld_ch" }], { owner: "acct-1" });
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms, "acct-1");
+    expect([res.status, res.body["code"]]).toEqual([403, "self_approval_forbidden"]);
+    expect((await lineRow(r.lineIds[0]!)).ledgerAccountId).toBeNull();
+    // the same caller changes a colleague's request
+    const other = await createRequest([{ entity: "welld_ch" }], { owner: "emp-9" });
+    expect((await put(other.id, other.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms, "acct-1")).status).toBe(200);
+  });
+
+  it("the reclassify grant's own self-approval restriction counts once approved (the seeded shape), also without any approve grant", async () => {
+    const perms = perActionGrants({ review: {}, reclassify: { selfDeny: true } }, null);
+    const r = await approvedOwn();
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms, "acct-1");
+    expect([res.status, res.body["code"]]).toEqual([403, "self_approval_forbidden"]);
+  });
+
+  it("an owner with no restriction may change their own request (the policy is the same knob as approve), in both states", async () => {
+    const perms = perActionGrants({ review: {}, "set-approved-total": {}, approve: {}, reclassify: {} }, null);
+    const submitted = await createRequest([{ entity: "welld_ch" }], { owner: "acct-1" });
+    expect((await put(submitted.id, submitted.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms, "acct-1")).status).toBe(200);
+    const approved = await approvedOwn();
+    expect((await put(approved.id, approved.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms, "acct-1")).status).toBe(200);
+  });
+
+  it("a non-owner with the restricted grants is not affected", async () => {
+    const perms = perActionGrants({ review: {}, "set-approved-total": {}, approve: { selfDeny: true }, reclassify: { selfDeny: true } }, null);
+    const approved = await approvedOwn("emp-9");
+    expect((await put(approved.id, approved.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms, "acct-1")).status).toBe(200);
+  });
+
+  it("the check runs BEFORE the scope 404s, as approve does: an out-of-scope owner learns 403, not 404", async () => {
+    const perms = perActionGrants({ review: { entity: true }, "set-approved-total": { entity: true }, approve: { entity: true, selfDeny: true } }, "welld_it");
+    const r = await createRequest([{ entity: "welld_ch" }], { owner: "acct-1" }); // no welld_it line: a stranger for this scope
+    const res = await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms, "acct-1");
+    expect([res.status, res.body["code"]]).toEqual([403, "self_approval_forbidden"]);
+    // a non-owner with the same grants gets the stranger's 404
+    const stranger = await createRequest([{ entity: "welld_ch" }], { owner: "emp-9" });
+    expect((await put(stranger.id, stranger.lineIds[0]!, { ledgerAccountId: accountOffice.id }, perms, "acct-1")).status).toBe(404);
+  });
+
+  it("an unknown request is still 404, never a self-approval 403", async () => {
+    expect((await put("nope", "nope", { ledgerAccountId: accountOffice.id }, restricted, "acct-1")).status).toBe(404);
+  });
+
+  it("a paid request stays 409 classification_locked and a draft 409 not_classifiable_status: SoD is about the states that can change", async () => {
+    const batch = await createBatch("paid");
+    const paid = await createRequest([{ receiptNumber: "MC26/001" }], { owner: "acct-1", status: "paid", batchId: batch.id });
+    expect((await put(paid.id, paid.lineIds[0]!, { vatCodeId: novat.id }, restricted, "acct-1")).body["code"]).toBe("classification_locked");
+    const draft = await createRequest([{}], { owner: "acct-1", status: "draft" });
+    expect((await put(draft.id, draft.lineIds[0]!, { vatCodeId: novat.id }, restricted, "acct-1")).body["code"]).toBe("not_classifiable_status");
+  });
+
+  it("the refusal is logged at info level with the actor and request ids and no personal data", async () => {
+    const logged: string[] = [];
+    const original = console.info;
+    console.info = (...args: unknown[]) => void logged.push(args.map(String).join(" "));
+    try {
+      const r = await approvedOwn();
+      await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id }, restricted, "acct-1");
+      const entry = logged.map((l) => { try { return JSON.parse(l) as Record<string, unknown>; } catch { return null; } }).find((e) => e?.["event"] === "refund.classification_self_approval_denied");
+      expect(entry).toMatchObject({ actorUserId: "acct-1", requestId: r.id });
+      expect(logged.join("\n")).not.toContain("@");
+    } finally {
+      console.info = original;
+    }
+  });
+
+  it("the view says selfRestricted for the owner under a restricted grant, in review and post_approval, and false for everyone else", async () => {
+    const submitted = await createRequest([{ entity: "welld_ch" }], { owner: "acct-1" });
+    const approved = await approvedOwn();
+    const submittedPerms = perActionGrants({ review: {}, "set-approved-total": {}, approve: { selfDeny: true } }, null);
+    harness.setResolve(async () => submittedPerms);
+    __resetAuthzCacheForTests();
+    expect((await view(submitted.id, "acct-1")).body["selfRestricted"]).toBe(true);
+    expect((await view(submitted.id, "acct-2")).body["selfRestricted"]).toBe(false); // not the owner
+    harness.setResolve(async () => restricted);
+    __resetAuthzCacheForTests();
+    expect((await view(approved.id, "acct-1")).body["selfRestricted"]).toBe(true);
+    expect((await view(approved.id, "acct-2")).body["selfRestricted"]).toBe(false);
+    harness.setResolve(async () => perActionGrants({ review: {}, "set-approved-total": {}, approve: {}, reclassify: {} }, null));
+    __resetAuthzCacheForTests();
+    expect((await view(approved.id, "acct-1")).body["selfRestricted"]).toBe(false); // owner, no restriction
+  });
+
+  it("selfRestricted is false where nothing can change anyway (locked, draft)", async () => {
+    const batch = await createBatch("paid");
+    const paid = await createRequest([{ receiptNumber: "MC26/001" }], { owner: "acct-1", status: "paid", batchId: batch.id });
+    const draft = await createRequest([{}], { owner: "acct-1", status: "draft" });
+    harness.setResolve(async () => restricted);
+    __resetAuthzCacheForTests();
+    expect((await view(paid.id, "acct-1")).body["selfRestricted"]).toBe(false);
+    expect((await view(draft.id, "acct-1")).body["selfRestricted"]).toBe(false);
   });
 });
