@@ -191,7 +191,8 @@ operai/
 │                        # entity condition, no `access` action; `GET /v1/me` says which entities the caller covers and whether it manages them); user routes `/v1/entities/{entity}/…`;
 │                        # one service-only read `GET /system/v1/entities/{entity}/reference-data` and `/rates` behind a scoped service JWT (scope `accounting.reference.read`, `sub`
 │                        # allowlist, `aud=SERVICE_AUDIENCE`, one identical 401), the only consumer being refund-api. `scripts/seed-welld-ch.ts` (`bun run seed:welld-ch [--dry-run]`) is the
-│                        # one-off, operator-run, optional load of WellD CH's list from `scripts/data/seed.welld-ch.json`; not in the Docker image
+│                        # one-off, operator-run, optional load of WellD CH's list from `scripts/data/seed.welld-ch.json`; in the Docker image (`scripts/` is copied, its tests are not), so it runs inside the service
+│                        # with `railway ssh` or from a checkout
 │                        # (specs/20261119-accounting, ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…/20261119-on-demand-outbound-work-…)
 ├── letterhead-api/      # Rust (axum + tokio, Typst embedded as a library) backend (port 8088, DB `letterhead`, bucket
 │                        # `letterhead`) — lays out a whole document for every tool; the ONE service that is not Bun/Hono/TypeScript

@@ -62,6 +62,7 @@ bun run seed:welld-ch             # load WellD CH's accounts and VAT codes from 
 
 Adds the entries that do not exist yet, in one transaction, as `system:accounting-seed`; never changes or
 deactivates an existing entry; idempotent. It is not a feature for users, and it is optional when accounting
-prefers to type the list in the app. It is not in the Docker image: run it from a checkout with this
-service's environment (`infra/README.md` § Release runbook). The e2e global setup runs it
+prefers to type the list in the app. It is in the Docker image (the Dockerfile copies `scripts/` and the data it
+reads, not the tests), so it runs inside the service (`railway ssh`, user `bun`, `/app`) with the service's own
+environment, or from a checkout with this service's environment (`infra/README.md` § Accounting release runbook, step 6). The e2e global setup runs it
 (`shell/e2e/global-setup.ts`, `E2E_SKIP_ACCOUNTING_SEED=1` skips it).

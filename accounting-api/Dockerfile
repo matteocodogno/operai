@@ -32,7 +32,7 @@ RUN bun install --frozen-lockfile --production
 COPY --chown=bun:bun --from=builder /app/src ./src
 COPY --chown=bun:bun --from=builder /app/prisma ./prisma
 COPY --chown=bun:bun tsconfig.json prisma.config.ts ./
-# The operator-run scripts (seed:welld-ch) and the data they read; the tests in them stay out (.dockerignore).
+# The operator-run scripts (seed:welld-ch) and the data they read; the tests and their helpers stay out (.dockerignore, `**/*.test.ts`).
 COPY --chown=bun:bun scripts ./scripts
 
 # Drop privileges: the official oven/bun image ships with a non-root 'bun' user

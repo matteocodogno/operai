@@ -2,5 +2,10 @@ node_modules
 dist
 .git
 .DS_Store
-*.test.ts
+# Tests and what only they use stay out of the image. Docker matches a bare `*.test.ts`
+# against the build-context ROOT only, so the recursive form is the one that works.
+# scripts/data (the seed's input) is NOT excluded: the image runs seed:welld-ch.
+**/*.test.ts
+**/test-support
+**/fixtures
 *.pem

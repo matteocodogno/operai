@@ -1852,7 +1852,7 @@ of the shell); refund-api reads it over private networking with a scoped service
 
 | Setting | Value | Why |
 |---|---|---|
-| `build` | `DOCKERFILE`, `Dockerfile` | The image copies `src`, `prisma` **and `scripts/`** (the data they read included, the tests excluded by `.dockerignore`), so `seed:welld-ch` runs inside the service (§ Accounting release runbook, step 6). |
+| `build` | `DOCKERFILE`, `Dockerfile` | The image copies `src`, `prisma` **and `scripts/`** (the data they read included; the tests, `src/test-support` and the test fixtures are excluded by `.dockerignore`, whose `**/*.test.ts` is the recursive form: a bare `*.test.ts` matches the build-context root only), so `seed:welld-ch` runs inside the service (§ Accounting release runbook, step 6). |
 | `start` / `preDeploy` | `bun run src/index.ts` / `bun run db:deploy` | The one Prisma migration runs against `accounting` before every start; the database must exist before the first deploy (step 1). |
 | `healthcheck` | `/health`, 30 s | 200 with `db.status` `ok`; 503 when Prisma cannot reach Postgres. |
 | `replicas` | `{ "europe-west4-drams3a": 1 }` | EU only. The rate fetch is single-flight per (entity, month) in process, so a second replica doubles the outbound calls, it does not share them. |
@@ -3063,7 +3063,18 @@ and a compiled batch's export card says how many rows it will export. From here 
 **Rollback.**
 - *Before step 3's push:* nothing is built. Applying `.railway/railway.ts` from a checkout that no longer declares `accounting-api` would delete the service, so read that plan: it is a decision, not a reflex.
 - *Step 4 failed* (`auth` does not start): remove the scope from refund-api's entry; `auth` restarts on the previous value.
-- *Between steps 3 and 7:* approvals are refused by design. Do **not** reset or edit any migration to go back: refund-api's migration `<ts>_accounting_reference_moves_to_accounting` adds the copy columns and **drops what moved** (the catalog, rates and attempts of 20261118, which production does not hold yet because 20261118 is unreleased; plan § Data migration strategy, D5). Read that section before redeploying a previous refund-api.
+- *Between steps 3 and 7:* approvals are refused by design. **Migrations are one way: there is no down migration, and none of them is reset or edited to go back.** refund-api's `preDeploy` applies, in one go,
+  `20261119090000_accounting_export` (the tables, columns and type of the unreleased 20261118), `20261119120000_accounting_copies` (adds the copy columns, the two history tables of copies and the new guard; additive)
+  and `20261119130000_accounting_reference_moved_out`, **which drops** the old ledger account, VAT code, rate and attempt tables, `accounting_catalog_status`, `expense_type_default`, the two FK columns of `refund_line` and the type
+  `ExchangeRateOrigin`. accounting-api has one migration, `20261119120000_init` (additive, on its own database `accounting`).
+- *What rollback means after `..._accounting_reference_moved_out` has run:* the schema does not go back. A refund-api build that reads the dropped tables (any build of 20261118 or of this feature before the move) fails against it,
+  so "redeploy the previous refund-api" is safe only for the build that is in production today, which predates 20261118 and never read them; nothing more recent is a rollback target (that older build running on the migrated schema is inferred from the migrations being additive plus drops of tables it never used, not exercised). The drop is justified only by the premise that
+  production held none of that data (20261118 was never released; plan § Data migration strategy, D5), and the migration's own pre-flight checks `refund_line` and `expense_type_default` only, **not** the rate, catalog and attempt tables.
+  Data in a dropped table comes back only from a database restore (provider backup), never from a migration: so before step 3, confirm by a read-only count that those tables hold no row (or are absent) in production, and
+  take a backup of the `refund` database if any does. If the premise is false, stop before step 3 and ask for a plan; do not push.
+- *accounting-api:* it can be taken out by removing the service (the block in `.railway/railway.ts`, applied from a checkout that has it, never from `main`; see above). That leaves its `accounting` database and what accounting typed or
+  seeded there in place, and deleting that database is the owner's separate, destructive decision. Redeploying an older accounting-api image needs no schema step (its one migration is additive and has nothing to undo), but with no
+  accounting-api refund-api answers 503 `accounting_unavailable`.
 - *After step 7:* the release wrote numbers, copies and the marker in one transaction. It is not undone by a redeploy; reverting it is the owner's decision with the plan (§ Risks R1, R2), and the marker is never deleted by hand.
 
 ## Push notifications (specs/20261111-push-notifications, ADR 20261111-web-push-encrypted-payloads-not-fcm/0085)
