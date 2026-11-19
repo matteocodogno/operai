@@ -1,15 +1,16 @@
 /**
- * ExpenseTypeDefaultsCard — the default account and VAT code of each of the twelve expense types, and the VAT
- * code that WellD CH lines in a foreign currency get (specs/20261118-refund-accounting-export, design S4, F4, UX-2; AC-2.1,
- * AC-2.2, AC-2.5, AC-2.6, AC-2.7, AC-2.8).
+ * ExpenseTypeDefaultsCard — the default account of each expense type
+ * (specs/20261118-refund-accounting-export, design S4, F4, UX-2; AC-2.1, AC-2.2, AC-2.8).
  *
- * Top: the foreign-currency VAT code as one labelled fact with **Change** (settings:manage) and **History**
- * (everyone who can read). When that code has been deactivated the card says foreign-currency lines now get
- * no VAT code (AC-2.7). Below: the twelve rows the API always returns, each with its default account and VAT
- * code or "None" (real text, never an empty cell), who changed it last and when, **Change** and **History**.
+ * One row per type the API returns (fourteen, in enum order, AC-2.2), each with its default account or "None" (real
+ * text, never an empty cell), who changed it last and when, **Change** and **History**.
+ *
+ * Accounting sign-off (T69, specs/20261119-accounting; specs/20261118 SO-16, 2026-11-19): a default is an account and
+ * nothing else. There is no VAT column and no foreign-currency VAT designation block: a VAT code is never pre-set
+ * (AC-3.13), so there is nothing to default or designate.
  *
  * specs/20261119-accounting (T35, RS2, UX-18, UX-19, UX-23; AC-4.4, AC-4.5, AC-4.7, AC-6.9, AC-6.10): the entries are
- * Accounting's, shown by number and code from Refund's recorded copies, with Accounting's current state on top:
+ * Accounting's, shown by number from Refund's recorded copies, with Accounting's current state on top:
  *   - `deactivated` and `not_found` each carry a badge (`voided`, `attention`) and count as no default; one static
  *     note above the table says how many defaults need a new choice.
  *   - Accounting cannot be read (`accounting: "unavailable"`): ONE warning banner with Retry, the entries as recorded
@@ -17,9 +18,9 @@
  *     **History** still working (it reads Refund's own rows). Retry that recovers puts focus on the card heading and
  *     announces it; one that does not says so, and the banner stays.
  *
- * Change opens a dialog per type or for the foreign-currency code, never inline selects: every save is a
- * permanent history row (UX-2). The dialogs and the history drawer are mounted BESIDE the card (ADR 20261118
- * dialog-beside-form); focus returns to the button that opened them. Read-only without `settings:manage`.
+ * Change opens a dialog per type, never inline selects: every save is a permanent history row (UX-2). The dialog and
+ * the history drawer are mounted BESIDE the card (ADR 20261118 dialog-beside-form); focus returns to the button that
+ * opened them. Read-only without `settings:manage`.
  */
 
 import { useEffect, useId, useRef, useState } from 'react'
@@ -28,7 +29,6 @@ import {
   Button,
   Card,
   DataTable,
-  FactList,
   SkeletonRows,
   StatusBadge,
   VisuallyHidden,
@@ -42,10 +42,8 @@ import type {
   ExpenseTypeDefault,
   ExpenseTypeDefaults,
   ExpenseTypeDefaultHistoryEntry,
-  ForeignCurrencyVatCodeState,
-  ForeignCurrencyVatHistoryEntry,
 } from '../../lib/accountingApi'
-import { accountText, vatCodeText } from '../../lib/catalogLabels'
+import { accountText } from '../../lib/catalogLabels'
 import { expenseTypeLabel } from '../../lib/expenseTypes'
 import { ENTRY_STATE_MEANING } from '../../lib/statusMeaning'
 import { useLoadedResource } from '../../lib/useLoadedResource'
@@ -53,39 +51,26 @@ import ChangeHistoryDrawer from '../ChangeHistoryDrawer'
 import ErrorBanner from '../ErrorBanner'
 import SuccessBanner from '../SuccessBanner'
 import DefaultClassificationDialog from './DefaultClassificationDialog'
-import ForeignCurrencyVatDialog from './ForeignCurrencyVatDialog'
 
 const t = strings.settings.defaults
 const tc = strings.settings.catalog
 const th = strings.settings.history
 const retryLabel = strings.components.errorBanner.defaultRetryLabel
 
-const FOREIGN = 'foreign-currency'
-
 export type ExpenseTypeDefaultsCardProps = {
   /** `settings:manage`: Change is offered. History is shown to everyone who can read. */
   canManage: boolean
 }
 
-type Open = { kind: 'type'; type: ExpenseTypeDefault['type'] } | { kind: typeof FOREIGN }
+type Open = ExpenseTypeDefault['type']
 
 /**
  * An entry shown by what it is, with Accounting's state beside it when that is worth a mark (UX-18): a badge for
  * `deactivated` and for `not_found`, none for `active` and none for `unverified`; "None" when absent. With
  * `checked` false (Accounting cannot be read) no state is claimed at all.
  */
-function Reference({
-  text,
-  state,
-  checked,
-  none = tc.none,
-}: {
-  text: string | null
-  state: EntryState
-  checked: boolean
-  none?: string
-}) {
-  if (text === null) return <span className="text-soft">{none}</span>
+function Reference({ text, state, checked }: { text: string | null; state: EntryState; checked: boolean }) {
+  if (text === null) return <span className="text-soft">{tc.none}</span>
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">
       <span>{text}</span>
@@ -123,7 +108,7 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
   const data = resource.status === 'loaded' ? resource.data : null
   // Accounting cannot be read: everything is as recorded, and nothing can be changed (AC-6.9).
   const unavailable = data !== null && data.accounting === 'unavailable'
-  const rowOf = (type: ExpenseTypeDefault['type']) => data?.types.find((row) => row.type === type) ?? null
+  const rowOf = (type: Open) => data?.types.find((row) => row.type === type) ?? null
 
   const closeEditing = () => {
     setEditing(null)
@@ -139,18 +124,10 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
     closeEditing()
   }
 
-  const handleForeignSaved = (saved: ForeignCurrencyVatCodeState) => {
-    resource.replace((current) => ({ ...current, ...saved }))
-    setSuccess(t.foreign.saved)
-    closeEditing()
-  }
-
   const closeHistory = () => {
     setHistory(null)
     lastOpenerRef.current?.focus()
   }
-
-  const foreign = data?.foreignCurrencyVatCode ?? null
 
   // The result of a Retry, once the next answer is in: said politely, and on recovery focus goes to the heading,
   // because the banner and the button that had it are gone (A-3 of 20261118, UX-23).
@@ -170,15 +147,11 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
   // A 403 that arrives anyway: the card is left out (UX-9). After every hook, so their order never changes.
   if (resource.status === 'forbidden') return null
 
-  // Defaults whose entry is deactivated or gone count as none (AC-4.5): the designation is one more when it is.
+  // Defaults whose account is deactivated or gone count as none (AC-4.5).
   const needsChoice =
     data === null || unavailable
       ? 0
-      : data.types.filter(
-          (row) =>
-            (row.account !== null && entryIsUnusable(row.account.state)) ||
-            (row.vatCode !== null && entryIsUnusable(row.vatCode.state)),
-        ).length + (foreign !== null && entryIsUnusable(foreign.state) ? 1 : 0)
+      : data.types.filter((row) => row.account !== null && entryIsUnusable(row.account.state)).length
 
   const columns: DataTableColumn<ExpenseTypeDefault>[] = [
     {
@@ -194,17 +167,6 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
         <Reference
           text={row.account ? accountText(row.account) : null}
           state={row.account?.state ?? 'active'}
-          checked={!unavailable}
-        />
-      ),
-    },
-    {
-      id: 'vatCode',
-      header: t.columns.vatCode,
-      render: (row) => (
-        <Reference
-          text={row.vatCode ? vatCodeText(row.vatCode) : null}
-          state={row.vatCode?.state ?? 'active'}
           checked={!unavailable}
         />
       ),
@@ -232,7 +194,7 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
               aria-disabled={unavailable || undefined}
               aria-describedby={unavailable ? changeBlockedId : undefined}
               onClick={(event) => {
-                if (!unavailable) openEditing({ kind: 'type', type: row.type }, event.currentTarget)
+                if (!unavailable) openEditing(row.type, event.currentTarget)
               }}
               data-testid={`settings-default-change-${row.type}`}
             >
@@ -244,7 +206,7 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
             variant="ghost"
             aria-haspopup="dialog"
             aria-label={t.historyLabel(expenseTypeLabel(row.type))}
-            onClick={(event) => openHistory({ kind: 'type', type: row.type }, event.currentTarget)}
+            onClick={(event) => openHistory(row.type, event.currentTarget)}
             data-testid={`settings-default-history-${row.type}`}
           >
             {th.open}
@@ -254,8 +216,8 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
     },
   ]
 
-  const editingRow = editing?.kind === 'type' ? rowOf(editing.type) : null
-  const historyRow = history?.kind === 'type' ? rowOf(history.type) : null
+  const editingRow = editing === null ? null : rowOf(editing)
+  const historyRow = history === null ? null : rowOf(history)
 
   return (
     <>
@@ -267,7 +229,7 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
         }
         data-testid="settings-defaults-card"
       >
-        <p className="text-sm text-soft mb-4">{t.description}</p>
+        <p className="text-sm text-soft mb-4">{t.descriptionAccountOnly}</p>
         <VisuallyHidden live data-testid="settings-defaults-retry-result">
           {retryAnnouncement}
         </VisuallyHidden>
@@ -304,64 +266,6 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
               </Banner>
             )}
 
-            <div className="flex flex-col gap-2" data-testid="settings-foreign-vat">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <FactList
-                  items={[
-                    {
-                      id: 'foreign',
-                      term: t.foreign.term,
-                      value: (
-                        <span data-testid="settings-foreign-vat-value">
-                          <Reference
-                            text={foreign ? vatCodeText(foreign) : null}
-                            state={foreign?.state ?? 'active'}
-                            checked={!unavailable}
-                            none={t.foreign.none}
-                          />
-                        </span>
-                      ),
-                    },
-                  ]}
-                />
-                <span className="inline-flex flex-wrap gap-2">
-                  {canManage && (
-                    <Button
-                      size="sm"
-                      aria-haspopup="dialog"
-                      aria-label={t.foreign.changeLabel}
-                      aria-disabled={unavailable || undefined}
-                      aria-describedby={unavailable ? changeBlockedId : undefined}
-                      onClick={(event) => {
-                        if (!unavailable) openEditing({ kind: FOREIGN }, event.currentTarget)
-                      }}
-                      data-testid="settings-foreign-vat-change"
-                    >
-                      {t.change}
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-haspopup="dialog"
-                    aria-label={th.openLabel(t.foreign.historyLabel)}
-                    onClick={(event) => openHistory({ kind: FOREIGN }, event.currentTarget)}
-                    data-testid="settings-foreign-vat-history"
-                  >
-                    {th.open}
-                  </Button>
-                </span>
-              </div>
-              <p className="text-sm text-soft">{t.foreign.description}</p>
-              {foreign && !unavailable && entryIsUnusable(foreign.state) && (
-                <Banner tone="warning" live="off" data-testid="settings-foreign-vat-inactive-warning">
-                  {foreign.state === 'not_found'
-                    ? t.foreign.notFoundWarning(foreign.code)
-                    : t.foreign.inactiveWarning(foreign.code)}
-                </Banner>
-              )}
-            </div>
-
             {needsChoice > 0 && (
               <Banner
                 tone="warning"
@@ -385,7 +289,7 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
         )}
       </Card>
 
-      {editing?.kind === 'type' && editingRow && (
+      {editingRow && (
         <DefaultClassificationDialog
           row={editingRow}
           typeLabel={expenseTypeLabel(editingRow.type)}
@@ -394,11 +298,7 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
         />
       )}
 
-      {editing?.kind === FOREIGN && data && (
-        <ForeignCurrencyVatDialog state={data} onCancel={closeEditing} onSaved={handleForeignSaved} />
-      )}
-
-      {history?.kind === 'type' && historyRow && (
+      {historyRow && (
         <ChangeHistoryDrawer<ExpenseTypeDefaultHistoryEntry>
           subject={expenseTypeLabel(historyRow.type)}
           rows={historyRow.history}
@@ -407,26 +307,6 @@ export default function ExpenseTypeDefaultsCard({ canManage }: ExpenseTypeDefaul
               id: 'account',
               header: th.columns.account,
               render: (entry) => (entry.account ? accountText(entry.account) : tc.none),
-            },
-            {
-              id: 'vatCode',
-              header: th.columns.vatCode,
-              render: (entry) => (entry.vatCode ? vatCodeText(entry.vatCode) : tc.none),
-            },
-          ]}
-          onClose={closeHistory}
-        />
-      )}
-
-      {history?.kind === FOREIGN && data && (
-        <ChangeHistoryDrawer<ForeignCurrencyVatHistoryEntry>
-          subject={t.foreign.historyLabel}
-          rows={data.foreignCurrencyVatCodeHistory}
-          valueColumns={[
-            {
-              id: 'vatCode',
-              header: th.columns.vatCode,
-              render: (entry) => (entry.vatCode ? entry.vatCode.code : tc.none),
             },
           ]}
           onClose={closeHistory}

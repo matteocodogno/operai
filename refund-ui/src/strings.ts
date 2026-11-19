@@ -167,21 +167,19 @@ const en = {
       cancel: 'Cancel',
       none: 'None',
     },
-    /** The change-history drawer, one component for defaults and the foreign-currency VAT code. */
+    /** The change-history drawer (the default accounts of the expense types). */
     history: {
       title: (subject: string) => `History — ${subject}`,
       description: 'Every change, newest first.',
       empty: 'No changes recorded yet.',
-      columns: { when: 'When', by: 'By', account: 'Account', vatCode: 'VAT code' },
+      columns: { when: 'When', by: 'By', account: 'Account' },
       open: 'History',
       openLabel: (subject: string) => `Show the history of ${subject}`,
       closeLabel: 'Close the history',
     },
     defaults: {
       title: 'Default classification',
-      description:
-        'The account and VAT code each expense type gets in WellD CH. Accounting can change them line by line. Where a type has no default, accounting must choose on each line before approving.',
-      /** Account-only (specs/20261118 SO-16, 2026-11-19): replaces `description`, which still names a VAT code. */
+      /** Account-only (specs/20261118 SO-16, 2026-11-19): a default is an account; no VAT code, no designation. */
       descriptionAccountOnly:
         'The account each expense type gets in WellD CH. Accounting can change it line by line. Where a type has no default, accounting must choose on each line before approving.',
       caption: 'Default classification by expense type',
@@ -190,7 +188,6 @@ const en = {
       columns: {
         type: 'Expense type',
         account: 'Default account',
-        vatCode: 'Default VAT code',
         changed: 'Last changed',
         actions: 'Actions',
       },
@@ -222,7 +219,6 @@ const en = {
         title: (type: string) => `Default classification — ${type}`,
         description: 'Applies to lines reviewed from now on. Lines already approved keep what they have.',
         account: 'Default account',
-        vatCode: 'Default VAT code',
         noneOption: 'None (no default)',
         chooseOption: 'Choose…',
         inactiveCurrent: (what: string) => `The current ${what} is deactivated. Choose another, or none.`,
@@ -235,22 +231,7 @@ const en = {
       saved: (type: string) => `Default saved for ${type}`,
       errors: {
         accountInactive: 'That account has been deactivated. Choose another.',
-        vatInactive: 'That VAT code has been deactivated. Choose another.',
         accountNotFound: 'That account is no longer in Accounting. Choose another.',
-        vatNotFound: 'That VAT code is no longer in Accounting. Choose another.',
-      },
-      foreign: {
-        term: 'VAT code for foreign-currency lines',
-        description: 'WellD CH lines in a currency other than CHF get this code by default.',
-        none: 'None designated',
-        inactiveWarning: (code: string) =>
-          `${code} is deactivated, so foreign-currency lines get no VAT code until you designate another.`,
-        notFoundWarning: (code: string) =>
-          `${code} is no longer in Accounting, so foreign-currency lines get no VAT code until you designate another.`,
-        dialogTitle: 'VAT code for foreign-currency lines',
-        saved: 'Foreign-currency VAT code saved',
-        historyLabel: 'the foreign-currency VAT code',
-        changeLabel: 'Change the VAT code for foreign-currency lines',
       },
     },
   },
@@ -1213,15 +1194,13 @@ const it: Strings = {
       title: (subject: string) => `Cronologia — ${subject}`,
       description: 'Tutte le modifiche, dalla più recente.',
       empty: 'Ancora nessuna modifica registrata.',
-      columns: { when: 'Quando', by: 'Da', account: 'Conto', vatCode: 'Codice IVA' },
+      columns: { when: 'Quando', by: 'Da', account: 'Conto' },
       open: 'Cronologia',
       openLabel: (subject: string) => `Mostra la cronologia di ${subject}`,
       closeLabel: 'Chiudi la cronologia',
     },
     defaults: {
       title: 'Classificazione predefinita',
-      description:
-        'Il conto e il codice IVA assegnati a ogni tipo di spesa in WellD CH. La contabilità può cambiarli riga per riga. Dove un tipo non ha un predefinito, la contabilità deve sceglierlo su ogni riga prima di approvare.',
       descriptionAccountOnly:
         'Il conto assegnato a ogni tipo di spesa in WellD CH. La contabilità può cambiarlo riga per riga. Dove un tipo non ha un predefinito, la contabilità deve sceglierlo su ogni riga prima di approvare.',
       caption: 'Classificazione predefinita per tipo di spesa',
@@ -1230,7 +1209,6 @@ const it: Strings = {
       columns: {
         type: 'Tipo di spesa',
         account: 'Conto predefinito',
-        vatCode: 'Codice IVA predefinito',
         changed: 'Ultima modifica',
         actions: 'Azioni',
       },
@@ -1259,7 +1237,6 @@ const it: Strings = {
         title: (type: string) => `Classificazione predefinita — ${type}`,
         description: 'Vale per le righe esaminate da ora in poi. Le righe già approvate mantengono quanto hanno.',
         account: 'Conto predefinito',
-        vatCode: 'Codice IVA predefinito',
         noneOption: 'Nessuno (nessun predefinito)',
         chooseOption: 'Scegliere…',
         inactiveCurrent: (what: string) =>
@@ -1274,23 +1251,7 @@ const it: Strings = {
       saved: (type: string) => `Predefinito salvato per ${type}`,
       errors: {
         accountInactive: 'Questo conto è stato disattivato. Sceglierne un altro.',
-        vatInactive: 'Questo codice IVA è stato disattivato. Sceglierne un altro.',
         accountNotFound: 'Questo conto non è più presente in Contabilità. Sceglierne un altro.',
-        vatNotFound: 'Questo codice IVA non è più presente in Contabilità. Sceglierne un altro.',
-      },
-      foreign: {
-        term: 'Codice IVA per le righe in valuta estera',
-        description:
-          'Le righe WellD CH in una valuta diversa dal CHF ricevono questo codice per impostazione predefinita.',
-        none: 'Nessuno designato',
-        inactiveWarning: (code: string) =>
-          `${code} è disattivato: le righe in valuta estera non hanno un codice IVA finché non se ne designa un altro.`,
-        notFoundWarning: (code: string) =>
-          `${code} non è più presente in Contabilità: le righe in valuta estera non hanno un codice IVA finché non se ne designa un altro.`,
-        dialogTitle: 'Codice IVA per le righe in valuta estera',
-        saved: 'Codice IVA per le valute estere salvato',
-        historyLabel: 'il codice IVA per le valute estere',
-        changeLabel: 'Modifica il codice IVA per le righe in valuta estera',
       },
     },
   },

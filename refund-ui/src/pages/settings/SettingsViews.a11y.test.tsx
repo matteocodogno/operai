@@ -61,7 +61,6 @@ const SETTINGS_ADMIN = grant(
 )
 
 const ACCOUNT = { number: '5901', name: 'Spese viaggi', state: 'active' as const }
-const VAT = { code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', state: 'active' as const }
 
 beforeEach(() => {
   vi.mocked(session.usePermissions).mockReturnValue(SETTINGS_ADMIN)
@@ -77,13 +76,9 @@ beforeEach(() => {
   vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue({
     entity: 'welld_ch',
     accounting: 'available',
-    foreignCurrencyVatCode: VAT,
-    foreignCurrencyVatCodeUsable: true,
-    foreignCurrencyVatCodeHistory: [],
     types: EXPENSE_TYPES.map((option) => ({
       type: option.id,
       account: option.id === 'travel_train' ? ACCOUNT : null,
-      vatCode: option.id === 'travel_train' ? VAT : null,
       updatedAt: option.id === 'travel_train' ? '2026-04-01T09:00:00Z' : null,
       updatedByEmail: option.id === 'travel_train' ? 'admin@welld.ch' : null,
       history: [],

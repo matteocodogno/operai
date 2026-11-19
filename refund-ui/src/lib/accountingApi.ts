@@ -1,11 +1,11 @@
 /**
  * accountingApi — typed operations against refund-api's accounting surface
- * (specs/20261118-refund-accounting-export, plan.md § API contracts): the per-expense-type defaults and the
- * foreign-currency VAT code, the classification options, and a request's classification view and line
- * classification. The ledger-account and VAT-code catalogs live in Accounting (accounting-ui, accounting-api).
+ * (specs/20261118-refund-accounting-export, plan.md § API contracts): the per-expense-type default accounts, the
+ * classification options, and a request's classification view and line classification. The ledger-account and
+ * VAT-code catalogs live in Accounting (accounting-ui, accounting-api).
  *
  * specs/20261119-accounting (T35): Accounting owns the reference data now, and refund-api reads it. The defaults,
- * the designation, the options and a line's classification are keyed by NUMBER and CODE (natural keys, D1), never
+ * the options and a line's classification are keyed by NUMBER and CODE (natural keys, D1), never
  * an id; each entry a copy points to carries Accounting's `state` (`active`, `deactivated`, `not_found`, or
  * `unverified` when Accounting cannot be read); and a read answers `accounting: "unavailable"` instead of failing
  * when Accounting is down. A write answers 503 `accounting_unavailable` (nothing saved) or 422 `*_inactive` /
@@ -23,6 +23,10 @@
  *
  * Amounts are integer cents and rates are display strings, both exactly as the server sends them:
  * nothing here (or in any caller) computes a CHF or VAT figure.
+ *
+ * Accounting sign-off (T69, specs/20261119-accounting; specs/20261118 SO-16, 2026-11-19): a default is an ACCOUNT
+ * only. There is no VAT default and no foreign-currency VAT designation (the route answers 404), so neither is
+ * typed, requested or read here; a stray `vatCode` member on a default is ignored.
  */
 
 import type { Entity } from '../components/EntityBadge'
@@ -49,26 +53,9 @@ export type VatCodeRef = { code: string; label: string; ratePercent: string; sta
 
 /** A copy as the history recorded it: no state, so the history reads the same whatever happens in Accounting (AC-4.7). */
 type AccountCopy = { number: string; name: string }
-type VatCodeCopy = { code: string; label: string; ratePercent: string }
-
-export type ForeignCurrencyVatHistoryEntry = {
-  vatCode: VatCodeCopy | null
-  at: string
-  byEmail: string
-}
-
-export type ForeignCurrencyVatCodeState = {
-  /** The designation, even when it is deactivated or no longer in Accounting. */
-  foreignCurrencyVatCode: VatCodeRef | null
-  /** False when there is no designation or it is not `active` (AC-2.7). */
-  foreignCurrencyVatCodeUsable: boolean
-  /** Oldest first. */
-  foreignCurrencyVatCodeHistory: ForeignCurrencyVatHistoryEntry[]
-}
 
 export type ExpenseTypeDefaultHistoryEntry = {
   account: AccountCopy | null
-  vatCode: VatCodeCopy | null
   at: string
   byEmail: string
 }
@@ -76,7 +63,6 @@ export type ExpenseTypeDefaultHistoryEntry = {
 export type ExpenseTypeDefault = {
   type: ExpenseType
   account: AccountRef | null
-  vatCode: VatCodeRef | null
   updatedAt: string | null
   updatedByEmail: string | null
   /** Oldest first. */
@@ -86,8 +72,8 @@ export type ExpenseTypeDefault = {
 /** Whether Refund could read Accounting while answering (AC-6.9). */
 type AccountingAvailability = 'available' | 'unavailable'
 
-/** `GET /accounting/expense-type-defaults`: always the twelve types, in enum order (AC-2.2). */
-export type ExpenseTypeDefaults = ForeignCurrencyVatCodeState & {
+/** `GET /accounting/expense-type-defaults`: every expense type (fourteen), in enum order (AC-2.2). */
+export type ExpenseTypeDefaults = {
   entity: 'welld_ch'
   /** `unavailable`: every `state` is `unverified` and the defaults are shown as recorded. */
   accounting: AccountingAvailability
@@ -188,34 +174,39 @@ export type ClassificationMissingLine = { lineId: string; date: string; type: st
 // Defaults
 // ---------------------------------------------------------------------------
 
+/** One default as the wire sends it, reduced to what a default is now: an account. A stale `vatCode` is dropped. */
+const readDefault = (raw: ExpenseTypeDefault): ExpenseTypeDefault => ({
+  type: raw.type,
+  account: raw.account,
+  updatedAt: raw.updatedAt,
+  updatedByEmail: raw.updatedByEmail,
+  history: Array.isArray(raw.history)
+    ? raw.history.map((entry) => ({ account: entry.account, at: entry.at, byEmail: entry.byEmail }))
+    : raw.history,
+})
+
 /**
  * `GET /accounting/expense-type-defaults` (`settings:read`). With Accounting down it still answers 200, with
  * `accounting: "unavailable"` (an absent flag reads as `available`).
  */
 export const getExpenseTypeDefaults = (): Promise<ExpenseTypeDefaults> =>
   getJson<ExpenseTypeDefaults>('/accounting/expense-type-defaults').then((raw) => ({
-    ...raw,
+    entity: raw.entity,
     accounting: raw.accounting === 'unavailable' ? 'unavailable' : 'available',
+    types: Array.isArray(raw.types) ? raw.types.map(readDefault) : raw.types,
   }))
 
 /**
- * `PUT /accounting/expense-type-defaults/:type` (`settings:manage`). `null` clears that half of the default.
- * 422 `ledger_account_inactive` / `ledger_account_not_found` / `vat_code_inactive` / `vat_code_not_found` (AC-4.3),
- * 503 `accounting_unavailable` (nothing saved). Setting the value already in effect answers 200 and writes no
- * history row.
+ * `PUT /accounting/expense-type-defaults/:type` (`settings:manage`). The body is the account number only, or
+ * `null` to clear the default; the server refuses any other key (422 `invalid_request`), so none is ever sent.
+ * 422 `ledger_account_inactive` / `ledger_account_not_found` (AC-4.3), 503 `accounting_unavailable` (nothing saved).
+ * Setting the value already in effect answers 200 and writes no history row.
  */
 export const putExpenseTypeDefault = (
   type: ExpenseType,
-  body: { accountNumber: string | null; vatCode: string | null },
+  body: { accountNumber: string | null },
 ): Promise<ExpenseTypeDefault> =>
   sendJson<ExpenseTypeDefault>(`/accounting/expense-type-defaults/${encodeURIComponent(type)}`, 'PUT', body)
-
-/**
- * `PUT /accounting/foreign-currency-vat-code` (`settings:manage`). `null` clears the designation. 422
- * `vat_code_inactive` / `vat_code_not_found` (AC-2.6), 503 `accounting_unavailable`.
- */
-export const putForeignCurrencyVatCode = (vatCode: string | null): Promise<ForeignCurrencyVatCodeState> =>
-  sendJson<ForeignCurrencyVatCodeState>('/accounting/foreign-currency-vat-code', 'PUT', { vatCode })
 
 /**
  * Accounting could not be read (503 `accounting_unavailable`): nothing was changed, and the message names the cause

@@ -37,8 +37,6 @@ const ADDED_KEYS: ReadonlyArray<{ path: string; args?: readonly unknown[] }> = [
   { path: 'settings.defaults.dialog.notFoundCurrent', args: ['account'] },
   { path: 'settings.defaults.dialog.tryAgain' },
   { path: 'settings.defaults.errors.accountNotFound' },
-  { path: 'settings.defaults.errors.vatNotFound' },
-  { path: 'settings.defaults.foreign.notFoundWarning', args: ['V81'] },
   { path: 'pages.reviewDetail.classification.accountingUnavailablePage.title' },
   { path: 'pages.reviewDetail.classification.accountingUnavailablePage.body' },
   { path: 'pages.reviewDetail.classification.accountingUnavailableLine' },
@@ -106,6 +104,21 @@ describe('T33 copy additions (specs/20261119-accounting design § Copy keys)', (
       'settings.catalog.inactiveTag',
       'settings.catalog.close',
       'pages.batchDetail.accountingExport.blocked.askAdmin',
+    ]
+    for (const lang of [catalogs.en, catalogs.it]) {
+      for (const path of REMOVED) expect(resolve(lang, path), path).toBeUndefined()
+    }
+  })
+
+  it('T69: the VAT-default and foreign-currency designation keys of Settings are gone from both catalogs (AC-2.1, SO-16)', () => {
+    const REMOVED = [
+      'settings.defaults.description',
+      'settings.defaults.columns.vatCode',
+      'settings.defaults.dialog.vatCode',
+      'settings.defaults.errors.vatInactive',
+      'settings.defaults.errors.vatNotFound',
+      'settings.defaults.foreign',
+      'settings.history.columns.vatCode',
     ]
     for (const lang of [catalogs.en, catalogs.it]) {
       for (const path of REMOVED) expect(resolve(lang, path), path).toBeUndefined()

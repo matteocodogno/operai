@@ -72,9 +72,6 @@ beforeEach(() => {
   vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue({
     entity: 'welld_ch',
     accounting: 'available',
-    foreignCurrencyVatCode: null,
-    foreignCurrencyVatCodeUsable: false,
-    foreignCurrencyVatCodeHistory: [],
     types: [],
   })
   vi.mocked(settingsApi.getSetting).mockResolvedValue({

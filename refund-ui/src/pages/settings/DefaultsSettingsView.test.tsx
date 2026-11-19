@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
@@ -37,10 +37,10 @@ beforeEach(() => {
   vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue({
     entity: 'welld_ch',
     accounting: 'available',
-    foreignCurrencyVatCode: null,
-    foreignCurrencyVatCodeUsable: false,
-    foreignCurrencyVatCodeHistory: [],
-    types: [],
+    types: [
+      { type: 'travel_train', account: null, updatedAt: null, updatedByEmail: null, history: [] },
+      { type: 'postal', account: null, updatedAt: null, updatedByEmail: null, history: [] },
+    ],
   })
 })
 
@@ -61,14 +61,29 @@ describe('DefaultsSettingsView', () => {
   it('shows Change for settings:manage', async () => {
     vi.mocked(session.usePermissions).mockReturnValue(grant('read', 'manage'))
     render(<DefaultsSettingsView />)
-    expect(await screen.findByTestId('settings-foreign-vat-change')).not.toBeNull()
+    expect(await screen.findByTestId('settings-default-change-travel_train')).not.toBeNull()
   })
 
   it('shows the card read-only with settings:read alone', async () => {
     vi.mocked(session.usePermissions).mockReturnValue(grant('read'))
     render(<DefaultsSettingsView />)
     expect(await screen.findByTestId('settings-defaults-card')).not.toBeNull()
-    expect(screen.queryByTestId('settings-foreign-vat-change')).toBeNull()
+    expect(screen.queryByTestId('settings-default-change-travel_train')).toBeNull()
+  })
+
+  it('has no VAT designation block and no VAT column: a default is an account (AC-2.1, SO-16)', async () => {
+    vi.mocked(session.usePermissions).mockReturnValue(grant('read', 'manage'))
+    render(<DefaultsSettingsView />)
+    await screen.findByTestId('settings-defaults-table')
+    expect(document.querySelector('[data-testid*="vat" i]')).toBeNull()
+    // (the Accounting link note names VAT codes as Accounting's reference data; the card itself names none)
+    expect(within(screen.getByTestId('settings-defaults-card')).queryByText(/VAT/)).toBeNull()
+    expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'Expense type',
+      'Default account',
+      'Last changed',
+      'Actions',
+    ])
   })
 
   it('mounts no ledger-account or VAT-code card (they live in Accounting, AC-4.6)', async () => {
@@ -83,7 +98,7 @@ describe('DefaultsSettingsView', () => {
   it('has no <form> of its own for a dialog to nest in', async () => {
     vi.mocked(session.usePermissions).mockReturnValue(grant('read', 'manage'))
     const { container } = render(<DefaultsSettingsView />)
-    await screen.findByTestId('settings-foreign-vat-change')
+    await screen.findByTestId('settings-default-change-travel_train')
     expect(container.querySelectorAll('form')).toHaveLength(0)
   })
 })

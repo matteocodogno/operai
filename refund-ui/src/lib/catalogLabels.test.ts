@@ -43,7 +43,7 @@ describe('the accounting copy catalog (design § Copy keys)', () => {
   it('has the keys of every design section, in both languages', () => {
     for (const catalog of [en, it_]) {
       expect(catalog.settings.sections.defaults).toBeTruthy()
-      expect(catalog.settings.defaults.foreign.inactiveWarning('IMP81')).toContain('IMP81')
+      expect(catalog.settings.defaults.needsChoice(1)).toBeTruthy()
       expect(catalog.pages.reviewDetail.classification.missingSummary.hint).toBeTruthy()
       expect(catalog.pages.batchDetail.accountingExport.blocked.checkAgain).toBeTruthy()
       expect(catalog.pages.requestDetail.lines.receiptNumberLabel).toBeTruthy()

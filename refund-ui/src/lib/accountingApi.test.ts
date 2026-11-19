@@ -20,7 +20,6 @@ import {
   getExpenseTypeDefaults,
   getRequestAccounting,
   putExpenseTypeDefault,
-  putForeignCurrencyVatCode,
   entryIsUnusable,
   isAccountingUnavailable,
 } from './accountingApi'
@@ -63,41 +62,68 @@ describe('defaults (specs/20261119-accounting: by number and code, with states)'
     await expect(getExpenseTypeDefaults()).resolves.toMatchObject({ accounting: 'available' })
   })
 
-  it('PUTs the number and the code, nulls included, to the type', async () => {
+  it('reduces a default to its account: a stray VAT member or designation on the wire is dropped (AC-2.1, SO-16)', async () => {
+    const account = { number: '5901', name: 'Spese viaggi', state: 'active' }
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      json(200, {
+        entity: 'welld_ch',
+        accounting: 'available',
+        foreignCurrencyVatCode: { code: 'IMP81' },
+        foreignCurrencyVatCodeUsable: true,
+        foreignCurrencyVatCodeHistory: [],
+        types: [
+          {
+            type: 'travel_train',
+            account,
+            vatCode: { code: 'NOVAT' },
+            updatedAt: '2026-04-01T09:00:00Z',
+            updatedByEmail: 'a@welld.ch',
+            history: [{ account: null, vatCode: null, at: '2026-04-01T09:00:00Z', byEmail: 'a@welld.ch' }],
+          },
+        ],
+      }),
+    )
+    const result = await getExpenseTypeDefaults()
+    expect(result).toEqual({
+      entity: 'welld_ch',
+      accounting: 'available',
+      types: [
+        {
+          type: 'travel_train',
+          account,
+          updatedAt: '2026-04-01T09:00:00Z',
+          updatedByEmail: 'a@welld.ch',
+          history: [{ account: null, at: '2026-04-01T09:00:00Z', byEmail: 'a@welld.ch' }],
+        },
+      ],
+    })
+  })
+
+  it('PUTs the account number alone to the type, null clearing it, and never a VAT code (SO-16)', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { type: 'travel_train' }))
-    await putExpenseTypeDefault('travel_train', { accountNumber: '5901', vatCode: null })
+    await putExpenseTypeDefault('travel_train', { accountNumber: '5901' })
     expect(lastCall()).toEqual({
       url: `${BASE}/accounting/expense-type-defaults/travel_train`,
       method: 'PUT',
-      body: { accountNumber: '5901', vatCode: null },
+      body: { accountNumber: '5901' },
     })
+    vi.mocked(apiFetch).mockReset()
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { type: 'travel_train' }))
+    await putExpenseTypeDefault('travel_train', { accountNumber: null })
+    expect(lastCall().body).toEqual({ accountNumber: null })
   })
 
   it.each([
     [422, 'ledger_account_inactive'],
     [422, 'ledger_account_not_found'],
-    [422, 'vat_code_inactive'],
-    [422, 'vat_code_not_found'],
     [503, 'accounting_unavailable'],
+    [422, 'invalid_request'],
   ])('passes %i %s through', async (status, code) => {
     vi.mocked(apiFetch).mockResolvedValueOnce(json(status, { title: 'x', status, code }))
-    await expect(
-      putExpenseTypeDefault('travel_train', { accountNumber: '5901', vatCode: null }),
-    ).rejects.toMatchObject({ status, code })
-  })
-
-  it('PUTs the foreign-currency VAT code by code, null clearing it', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { foreignCurrencyVatCode: null }))
-    await putForeignCurrencyVatCode(null)
-    expect(lastCall()).toEqual({
-      url: `${BASE}/accounting/foreign-currency-vat-code`,
-      method: 'PUT',
-      body: { vatCode: null },
+    await expect(putExpenseTypeDefault('travel_train', { accountNumber: '5901' })).rejects.toMatchObject({
+      status,
+      code,
     })
-    vi.mocked(apiFetch).mockReset()
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { foreignCurrencyVatCode: null }))
-    await putForeignCurrencyVatCode('IMP81')
-    expect(lastCall().body).toEqual({ vatCode: 'IMP81' })
   })
 
   it('knows a 503 accounting_unavailable from any other failure, and which states are unusable', async () => {
