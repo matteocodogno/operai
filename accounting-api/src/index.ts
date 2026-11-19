@@ -13,6 +13,8 @@ import { handleProblemError, problem, validationHook } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
 import { createRatesRouter } from "./rates/rates.routes";
 import { createRatesService } from "./rates/rates.service";
+import { referenceDataRouter } from "./system/referenceData.routes";
+import { createSystemRatesRouter } from "./system/rates.routes";
 
 // Exported so tests (and the route matrix of the later tasks) can read the ASSEMBLED app;
 // Bun serves only the default export below.
@@ -60,6 +62,9 @@ app.route("/", healthRouter);
 app.route("/", meRouter);
 app.route("/", catalogRouter);
 app.route("/", createRatesRouter(ratesService));
+// `/system/v1/*`: a scoped service JWT per route (systemAuth), read-only, no user JWT; a method with no route is the app's 404.
+app.route("/", referenceDataRouter);
+app.route("/", createSystemRatesRouter(ratesService));
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
