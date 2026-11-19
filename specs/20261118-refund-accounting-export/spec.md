@@ -65,7 +65,6 @@ approved: 2026-11-18
   - **Open questions 1, 4 and 6** keep their owner (accounting); the answers to 1 and 4 are
     entered in Accounting, the answer to 6 in Refund's Settings.
 - **Amendment 2026-11-19 (accounting sign-off; decided by the owner):** the company accountant
-  **Approved by the owner on 2026-11-19**, with the open questions below accepted as risk on their stated fallbacks. Owner decisions at approval: if AFC offers no automatic channel, keep the existing automatic monthly-average feed as long as its values match AFC's (March 2026 does), naming AFC as the authority, and accounting corrects a month by hand if it ever differs; receipts with several VAT rates are split into several lines by the employee (the expense form says so), and accounting may reject a line that needs splitting.
   answered the open questions of this spec and of specs/20261119-accounting, and the owner
   (Matteo Codogno) decided four points on 2026-11-19: the account for gifts to clients, the
   VAT code being optional, the 2026 receipt numbering, and the shape of the accounting export.
@@ -74,7 +73,9 @@ approved: 2026-11-18
   it); the status stays `in-progress`. No AC id is reused: retired ACs stay in place marked
   "(retired 2026-11-19: reason)", adjusted ACs say so, and new ACs take the next free number in
   their story. Reference data (the lists of accounts and VAT codes, the rate source) is kept in
-  Accounting and amended in specs/20261119-accounting by an entry of the same date.
+  Accounting and amended in specs/20261119-accounting by an entry of the same date. **(The file
+  format left open here was settled by the accountant's sample file: see the entry "sync with the
+  sample file" below.)**
   - **E1, expense types and accounts.** The expense type "Rappresentanza – Pasti"
     (`representation_meals`) is renamed "Pranzi/cene con clienti" (default account 6701).
     "Rappresentanza – Regali" is kept, with no default account: accounting picks the account by
@@ -137,6 +138,38 @@ approved: 2026-11-18
     AC-3.1, AC-3.3, AC-3.4, AC-3.5, AC-3.8, AC-4.3, AC-6.1, AC-6.2, AC-6.3, AC-6.5, AC-6.12,
     AC-7.1, AC-7.2. Retired: AC-2.5, AC-2.6, AC-2.7, AC-3.2, AC-6.4. Open questions: 1, 2, 3 and 6
     closed, 4 closed in part; new ones below.
+- **Amendment 2026-11-19 (sync with the sample file; owner-approved scope):** the accountant's
+  sample import file (a spreadsheet template of the accounting system, Accrio) arrived, and the
+  architect's plan (its "Accounting sign-off delta") read it. This entry brings the spec in line
+  with what the sample fixes; it adds no new decision of the owner. Wording by the
+  product-owner agent; status unchanged. No AC id is reused.
+  - **F1, the export is a spreadsheet workbook, not a CSV.** A single workbook (XLSX) with one
+    sheet named `Sheet 1`, one header row, then one row per line. The headers are exactly `Date |
+    Description | Debit | Credit | Amount | Currency | Tax | Note`, in this order. **Tax and Note
+    are present and empty on every row**; the Note column is the template's own and is empty, so
+    "no other column" now allows it. Date is a date, Debit, Credit and Amount are numbers, so the
+    accounting system reads them as such. Separator, encoding and line ending have no object in a
+    workbook. Adjusted: AC-6.1, AC-6.2, AC-6.14 (no longer provisional). New: AC-6.17 (an account
+    number that a number cannot hold exactly stays text, unchanged).
+  - **F2, row order.** Rows are ordered by Date, latest first, as in the template, with fixed
+    tie-breakers so that the same lines always give the same file. New: AC-6.16.
+  - **F3, the formula guard for a workbook.** Text from people always stays text in its cell and
+    is never a formula; the leading-quote device of the CSV era is gone. Adjusted: AC-6.15.
+  - **F4, the Description pattern (provisional).** `<reason> [<receipt number>] <name>`, and for a
+    line in another currency `<reason> [<receipt number>] [EUR 10.40 = CHF 9.62] <name>`. The name
+    is the employee's name, or the email when the account has none. A line break or other control
+    character in the reason or the name appears as one space (this answers the earlier question on
+    line breaks). Order and separators stay a question for the accountant, because the sample's
+    rows were all in CHF and predate receipt numbers. Adjusted: AC-6.13.
+  - **F5, an empty baseline list counts as available.** A list stating that no employee has a
+    hand-issued 2026 number is a valid list; only a missing list stops the release numbering
+    (AC-7.4, and AC-4.12 for the employee not in the list). Adjusted: AC-7.4.
+  - **F6, open questions.** Closed by the sample: the sample file itself, the header names, column
+    order and Tax column, the row order, the line-break question. New follow-ups for the
+    accountant: a trial import of the golden file into Accrio; accounts seen in the 2025 template
+    but not in the signed-off list (5803, 6199, 6305, 6721, and a row whose Debit is "2").
+  - **Summary.** Added: AC-6.16, AC-6.17. Adjusted: AC-6.1, AC-6.2, AC-6.13, AC-6.14, AC-6.15,
+    AC-7.4. Retired: none.
 
 ## Problem
 
@@ -202,9 +235,10 @@ settings). New terms:
   employee's last number issued by hand (AC-4.11).
 - **last hand-issued number** — an employee's highest 2026 sequence number written by hand in the
   2026 register (e.g. 81 for `MC26/081`), the point after which Refund continues in 2026.
-- **accounting export** *(redefined 2026-11-19)* — a file produced from a batch with one journal
-  row per approved WellD CH expense line: date, description, debit account, credit account,
-  amount in CHF and currency (AC-6.2). It replaces the 16-column file first specified here.
+- **accounting export** *(redefined 2026-11-19; format settled by the sample file)* — a workbook
+  (XLSX, one sheet `Sheet 1`) produced from a batch with one journal row per approved WellD CH
+  expense line: Date, Description, Debit, Credit, Amount, Currency, and the empty Tax and Note
+  columns (AC-6.2). It replaces the 16-column CSV first specified here.
 - **credit account** — the account every journal row of the accounting export is credited to:
   always 5832 "Rimborso spese effettive".
 
@@ -416,20 +450,23 @@ As an accounting user, I want to download, from a batch, a file with one journal
 WellD CH expense, so that I can import it into the accounting system instead of re-keying it.
 
 **Acceptance criteria:**
-- AC-6.1 *(adjusted 2026-11-19: the file is the journal file of AC-6.2)*: Given a compiled or paid
-  batch, when accounting asks for its accounting export, then they receive a CSV file with a
-  header row and one row per approved, not rejected WellD CH line of the requests in the batch.
+- AC-6.1 *(adjusted 2026-11-19: a workbook, not a CSV; the file is the journal file of AC-6.2)*:
+  Given a compiled or paid batch, when accounting asks for its accounting export, then they
+  receive an XLSX workbook with one sheet named `Sheet 1`, a header row and one row per approved,
+  not rejected WellD CH line of the requests in the batch.
 - AC-6.2 *(adjusted 2026-11-19: replaces the 16-column list, retired: employee name, receipt
   number, expense date, expense type, reason, km, currency, approved total, exchange rate, CHF
-  amount, account number, account name, VAT code, VAT rate, VAT amount and batch identifier)*:
-  Given an export, then each row carries, in this order: Date (the line's expense date, as
-  `yyyy-mm-dd`), Description (AC-6.13), Debit account (the number of the line's ledger account),
-  Credit account (always `5832`, "Rimborso spese effettive"), Amount (the line's CHF amount, and
-  only that: never the amount in another currency) and Currency (always `CHF`); the Tax column of
-  AC-6.14 is also present. The header names, the position of the Tax column, the separator, the
-  encoding and the date and decimal formats are those of the accountant's sample file (open
-  question). No other column exists: in particular no VAT code, VAT rate, VAT amount, exchange
-  rate, km, expense type or batch identifier.
+  amount, account number, account name, VAT code, VAT rate, VAT amount and batch identifier; the
+  sample file fixed the headers)*:
+  Given an export, then its header row is exactly `Date`, `Description`, `Debit`, `Credit`,
+  `Amount`, `Currency`, `Tax`, `Note`, in this order, and each row carries: Date (the line's
+  expense date, a date shown as `yyyy-mm-dd`), Description (AC-6.13), Debit (the number of the
+  line's ledger account), Credit (always `5832`, "Rimborso spese effettive"), Amount (the line's
+  CHF amount, and only that: never the amount in another currency), Currency (always `CHF`), Tax
+  and Note (AC-6.14). Date is a date, and Debit, Credit and Amount are numbers (AC-6.17 for an
+  account number a number cannot hold), so that the accounting system reads them as such. No other
+  column exists: in particular no VAT code, VAT rate, VAT amount, exchange rate, km, expense type
+  or batch identifier.
 - AC-6.3 *(adjusted 2026-11-19: the CHF amount is the row's Amount)*: Given a line in EUR dated
   2026-03-02 with an approved total of 10.40 and an EUR rate in effect for March 2026 of 0.9246,
   when it is exported, then its CHF amount, which is the Amount of its row, is 9.62.
@@ -455,19 +492,30 @@ WellD CH expense, so that I can import it into the accounting system instead of 
   export, then it is denied.
 - AC-6.12 *(adjusted 2026-11-19: no VAT amount in the file)*: Given an approved total of 0 on a
   line that is not rejected, when it is exported, then the row is present with an Amount of 0.00.
-- AC-6.13: Given a row, then its Description contains the employee's name, the line's reason
-  (`motivo`) and the line's receipt number; and, for a line in a currency other than CHF, the
-  original currency and approved total and the CHF equivalent (for the line of AC-6.3: `EUR 10.40`
-  and `CHF 9.62`). For a line in CHF it contains no currency and no second amount. The order and
-  separators of these elements are fixed with the accountant's sample file (open question).
-- AC-6.14: Given an export, then the file has a Tax column, in the position the accountant's sample
-  gives, that is empty on every row, so that the file lines up with what the accounting system
-  expects and VAT is not carried. *(Provisional: the alternative of leaving the column out is an
-  open question.)*
-- AC-6.15: Given a name or a reason that starts with `=`, `+`, `-` or `@`, or that contains the
-  separator, a quote or a line break, when it is exported, then it reaches the file as plain text
-  that neither the accounting system nor a spreadsheet evaluates as a formula, and it adds, merges
-  or splits no column or row.
+- AC-6.13 *(adjusted 2026-11-19: the provisional pattern)*: Given a row, then its Description
+  contains the line's reason (`motivo`), the line's receipt number and the employee's name (the
+  email address when the account has no name), in the provisional pattern `<reason> [<receipt
+  number>] <name>` (for example `Cancelleria [MC26/001] Matteo Codogno`); for a line in a currency
+  other than CHF it also contains the original currency and approved total and the CHF equivalent,
+  as `<reason> [<receipt number>] [EUR 10.40 = CHF 9.62] <name>` for the line of AC-6.3. For a line
+  in CHF it contains no currency and no second amount. A line break or other control character in
+  the reason or the name appears as one space, so a Description is always a single line. The order
+  and separators of these elements are provisional until the accountant answers (open question).
+- AC-6.14 *(adjusted 2026-11-19: confirmed by the sample file, no longer provisional; Note added)*:
+  Given an export, then the Tax column and the Note column are present, in the positions of
+  AC-6.2, and empty on every row, so that the file lines up with what the accounting system
+  expects and VAT is not carried.
+- AC-6.15 *(adjusted 2026-11-19: reworded for a workbook)*: Given a name or a reason that starts
+  with `=`, `+`, `-` or `@`, or that contains a character with a meaning in a spreadsheet file
+  (for example `<`, `>`, `&`, a quote) or a line break, when it is exported, then it is in its
+  cell as text, exactly as written apart from the line breaks of AC-6.13, no cell of the workbook
+  is ever a formula, and the row keeps its eight cells and adds, merges or splits no row or column.
+- AC-6.16: Given an export, then its rows are ordered by Date, the latest first; rows with the same
+  Date follow a fixed order (by the Description's employee name, then by employee, receipt year
+  and receipt sequence, then by line), so that the same lines always give the same file (AC-6.8).
+- AC-6.17: Given a Debit account number that a number cannot hold exactly (for example `2620.10`,
+  which would become `2620.1`), when it is exported, then it appears unchanged as text, never
+  rounded or reformatted; a plain account number such as `5905` or `2620.1` is a number.
 
 ### US-7: Lines approved before this feature
 
@@ -486,9 +534,11 @@ so that the first batches after the release still export.
 - AC-7.3: Given a WellD Italia line approved before this feature, when the
   feature is released and afterwards, then it receives no receipt number and no classification,
   and it is left out of the accounting export as in AC-6.6.
-- AC-7.4: Given the release, when the list of last hand-issued numbers (AC-4.11) is not available,
-  then no line approved before this feature is numbered and the run reports why; running it again
-  once the list is available is safe, and no number is consumed meanwhile.
+- AC-7.4 *(adjusted 2026-11-19: an empty list counts as available)*: Given the release, when the
+  list of last hand-issued numbers (AC-4.11) is missing, then no line approved before this feature
+  is numbered and the run reports why; running it again once the list is available is safe, and no
+  number is consumed meanwhile. A list that states that no employee has a hand-issued 2026 number
+  (a list with no employee) is available: the lines are numbered from `001` (AC-4.12).
 
 ### US-8: Expense types and default accounts signed off by accounting
 
@@ -558,8 +608,10 @@ anyone choosing it each time.
   several VAT rates, which this spec handles only by splitting into lines (AC-3.12).
 - **Splitting a multi-rate receipt automatically** or giving a line several VAT codes or a VAT
   breakdown.
-- **The former 16-column export**, and any column for batch identifier, km, exchange rate, account
-  name or expense type. The batch identifier is traceable through the audit trail (AC-6.10) only.
+- **The former 16-column export, and a CSV or any other format of the export** *(amended
+  2026-11-19)*, and any column for batch identifier, km, exchange rate, account name or expense
+  type. The batch identifier is traceable through the audit trail (AC-6.10) only. The file is the
+  workbook of AC-6.1; no second format, no several sheets, no formulas.
 - **Choosing the credit account** per line, per batch or per entity: it is always 5832.
 - **Continuing hand-issued numbers of a year other than 2026**, and any check that the numbers
   Refund issues do not collide with other paper numbers beyond the one starting point per
@@ -585,7 +637,8 @@ anyone choosing it each time.
 - Classification comes **from the expense type's default, and accounting can change it during
   review**, with an audit trail; the employee does not see it. *(2026-11-19: the default is the
   account only; the VAT code is never pre-set.)*
-- The CSV export comes first; a Bexio integration comes later.
+- The CSV export comes first; a Bexio integration comes later. *(2026-11-19: the file is an XLSX
+  workbook in the accounting system's template, F1.)*
 - Follows the immutable financial audit trail of ADR 20260716-immutable-financial-audit-trail-refund
   and ADR 20260719-refund-batch-audit-trail-extension, and the suite's Italian/English UI copy
   requirement.
@@ -603,7 +656,8 @@ captured verbatim for the plan.*
 - The accounting export is **one journal row per approved WellD CH expense line**: Date
   (`yyyy-mm-dd`), Description, Debit account (the line's ledger account), Credit account (always
   5832 "Rimborso spese effettive"), Amount (CHF equivalent only), Currency (always CHF). The
-  accountant's sample file settles the exact format.
+  accountant's sample file settles the exact format. *(Settled 2026-11-19: see the entry "sync
+  with the sample file".)*
 - The reference source of the monthly average rates is the **Swiss Federal Tax Administration
   (AFC/ESTV)**, not the customs office.
 
@@ -623,8 +677,9 @@ Answered or decided on 2026-11-19 (accounting sign-off) where marked.*
   accounting — **decided 2026-11-19 by the owner: yes for 2026 (AC-4.11); in 2027 every counter
   restarts from 1 (AC-4.13). The list of last numbers is a new question below.**
 - [x] Separator, decimal mark and encoding the accounting system expects when importing the
-  CSV. — owner: accounting — **superseded 2026-11-19: the export is now a journal file (US-6);
-  the details wait for the accountant's sample file (new question below).**
+  CSV. — owner: accounting — **superseded 2026-11-19: the export is a journal file (US-6), and
+  the sample file shows it is a workbook, which has no separator, decimal mark or encoding to
+  choose (F1).**
 - [x] Initial list of admitted accounts and the default account and VAT code of each of the
   twelve expense types (a draft can be read off the register). — owner: accounting —
   **answered in part 2026-11-19: the changes of E1 to E3 (6701, 6501, 5902, 5903, 7122, 2620.1,
@@ -642,16 +697,28 @@ Answered or decided on 2026-11-19 (accounting sign-off) where marked.*
 - [ ] Which ledger account do gifts to clients ("Rappresentanza – Regali") belong to? Until
   answered the type has no default and accounting picks the account by hand (AC-8.4). — owner:
   accounting
-- [ ] The accountant's sample file of the import format: header names, column order including
-  the position of the Tax column, separator, encoding, date and decimal formats, line ending,
-  maximum length of the Description, whether the Description may contain line breaks, and the
-  order of the rows. Until it is supplied the plan keeps the current dialect (provisional) and
-  the column content of AC-6.2. — owner: Matteo Codogno to supply the sample; accounting to
-  confirm
-- [ ] The Tax column: present and empty on every row (fallback, AC-6.14) or left out of the
-  file? — owner: accounting
-- [ ] Is the receipt number wanted in the Description (fallback: yes, AC-6.13, because without it a
-  row cannot be traced to the paper receipt), and where in it? — owner: accounting
+- [x] The accountant's sample file of the import format: header names, column order including
+  the position of the Tax column, encoding, formats, line ending, line breaks in the Description
+  and the order of the rows. — owner: Matteo Codogno to supply the sample; accounting to confirm
+  — **answered 2026-11-19 by the sample file: a workbook, headers `Date | Description | Debit |
+  Credit | Amount | Currency | Tax | Note`, Tax before Note, typed date and amount cells, rows by
+  Date descending, no line breaks in the Description (F1, F2, F4). Still open, below: the
+  Description's maximum length and pattern.**
+- [x] The Tax column: present and empty on every row (fallback, AC-6.14) or left out of the
+  file? — owner: accounting — **answered 2026-11-19 by the sample file: present and empty, with
+  the empty Note column after it (AC-6.14).**
+- [ ] The Description: its maximum length in the accounting system, and whether the provisional
+  pattern `<reason> [<receipt number>] [<currency> <amount> = CHF <amount>] <name>` of AC-6.13 is
+  acceptable (the receipt number is in it because without it a row cannot be traced to the paper
+  receipt; the sample's rows were all in CHF and predate receipt numbers). Fallback: the pattern
+  as written. — owner: accounting
+- [ ] Trial import: does the accounting system (Accrio) accept the golden workbook of the export
+  as it is, including a detail the sample does not show (for example whether its table object or
+  its cell styles matter)? Needed before release. — owner: accounting
+- [ ] Accounts seen in the 2025 template but not in the signed-off list: 5803, 6199, 6305, 6721,
+  and a row whose Debit is "2". Which of them are accounts that refunds may be booked to (to add
+  to Accounting's WellD CH list), and is the row with "2" an error? Fallback: none is added.
+  — owner: accounting
 - [ ] The list of each employee's last hand-issued 2026 number from the register (the highest
   sequence per employee, whatever the duplicates `FR26/002` or wrong-year numbers `LG25/…` the
   register holds, and under the initials Refund will use, AC-4.8), needed before the release
