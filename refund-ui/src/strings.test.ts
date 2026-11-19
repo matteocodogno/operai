@@ -10,6 +10,12 @@ import { catalogs } from './strings'
 
 const ADDED_KEYS: ReadonlyArray<{ path: string; args?: readonly unknown[] }> = [
   { path: 'accountingUnavailable.cause' },
+  // Added by the tasks that changed the component, once the need showed (T35 to T37).
+  { path: 'settings.defaults.needsChoiceLabel' },
+  { path: 'pages.reviewDetail.classification.defaultWhat.account' },
+  { path: 'pages.reviewDetail.classification.defaultWhat.vatCode' },
+  { path: 'pages.reviewDetail.classification.vatOptionNoLabel', args: ['OLD', '7.7%'] },
+  { path: 'pages.batchDetail.accountingExport.blocked.rateItemReason', args: ['EUR', 'March 2026', 'x'] },
   { path: 'accountingUnavailable.approve' },
   { path: 'accountingUnavailable.classify' },
   { path: 'accountingUnavailable.save' },

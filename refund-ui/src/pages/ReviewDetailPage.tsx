@@ -9,7 +9,13 @@ import type { RefundLine, RefundRequestDetail } from '../lib/requestsApi'
 import * as reviewApi from '../lib/reviewApi'
 import * as attachmentsApi from '../lib/attachmentsApi'
 import * as accountingApi from '../lib/accountingApi'
-import type { AccountingLine, ClassificationMissingLine, ClassifyBody, MissingValue, RequestAccounting } from '../lib/accountingApi'
+import type {
+  AccountingLine,
+  ClassificationMissingLine,
+  ClassifyBody,
+  MissingValue,
+  RequestAccounting,
+} from '../lib/accountingApi'
 import { useLoadedResource } from '../lib/useLoadedResource'
 import { ApiError } from '../lib/refundApi'
 import { formatDate, formatDateTime } from '../lib/dates'
@@ -135,6 +141,8 @@ const errorMessageFor = (error: unknown, fallback: string): string => {
     if (error.code === 'all_lines_rejected') return strings.pages.reviewDetail.decide.allLinesRejectedTooltip
     // Approvals are off until the release script has run: nothing to fix on the page, said where the person is.
     if (error.code === 'accounting_release_pending') return strings.pages.reviewDetail.classification.releasePending
+    // Accounting cannot be read (AC-6.1, AC-6.2): nothing was approved, and the dialog says so and stays open.
+    if (accountingApi.isAccountingUnavailable(error)) return strings.accountingUnavailable.approve
     return error.detail ?? error.title
   }
   return fallback
@@ -181,7 +189,6 @@ export default function ReviewDetailPage() {
 
   const hasPermission = (resource: string, action: string) =>
     permissions.some((permission) => permission.resource === resource && permission.action === action)
-  const canOpenRates = hasPermission('settings', 'read')
   const request = pageState.status === 'loaded' ? pageState.request : null
   // Only a submitted, approved or paid request is classified, and only when it has a line a panel can show on.
   const classifiable =
@@ -191,6 +198,8 @@ export default function ReviewDetailPage() {
   const [ownerRefusedFor, setOwnerRefusedFor] = useState<string | null>(null)
   const accounting = useLoadedResource(() => accountingApi.getRequestAccounting(id), classifiable)
   const accountingState = accounting.status === 'loaded' && accounting.data.requestId === id ? accounting.data : null
+  // Whether the person may open Accounting's exchange rates for WellD CH is the server's call, not a settings grant (AC-7.3, G8b).
+  const canOpenRates = accountingState?.viewer.canOpenAccountingRates ?? false
   const classificationState = accountingState?.classificationState ?? 'none'
   // The caller owns this request and may not approve it (SR-2): the view says so, and a 403 `self_approval_forbidden`
   // on a save says it too, before the view is reloaded. Either way nothing on the page is editable.
@@ -202,22 +211,55 @@ export default function ReviewDetailPage() {
       : classificationState === 'post_approval'
         ? hasPermission('request', 'reclassify')
         : false
-  // Something can be changed (so the options are worth loading) only when the caller is not barred from their own request.
-  const canChangeClassification = holdsClassificationCapability && !selfRestricted
+  // Accounting could not be read when the view was built: every value is as recorded and nothing can be changed (AC-6.5).
+  const viewUnavailable = accountingState?.accounting === 'unavailable'
+  // Something can be changed (so the options are worth loading) only when the caller is not barred from their own
+  // request, and only while Accounting can be read.
+  const canChangeClassification = holdsClassificationCapability && !selfRestricted && !viewUnavailable
   // The options are needed only to change something, and are loaded once for the page.
   const options = useLoadedResource(accountingApi.getAccountingOptions, canChangeClassification)
   const reloadAccounting = accounting.reload
   const reloadOptions = options.reload
+  // The options answered 503: the same state as the view saying so (the page banner appears, no select is offered).
+  const optionsUnreadable = options.status === 'error' && accountingApi.isAccountingUnavailable(options.error)
+  const accountingUnreadable = viewUnavailable || optionsUnreadable
   // A 404 is "outside your scope / no such request", like a 403: nothing to retry.
-  const accountingUnavailable =
+  const classificationHidden =
     classifiable &&
     (accounting.status === 'forbidden' ||
       (accounting.status === 'error' && accounting.error instanceof ApiError && accounting.error.status === 404))
   const accountingLoadFailed =
     classifiable &&
-    !accountingUnavailable &&
-    (accounting.status === 'error' || (canChangeClassification && options.status === 'error'))
-  const accountingLoading = classifiable && !accountingUnavailable && !accountingLoadFailed && accountingState === null
+    !classificationHidden &&
+    (accounting.status === 'error' || (canChangeClassification && options.status === 'error' && !optionsUnreadable))
+  const accountingLoading = classifiable && !classificationHidden && !accountingLoadFailed && accountingState === null
+
+  // Retry of the unavailable banner (UX-23): the banner and its button go when Accounting can be read, so focus returns
+  // to the "Lines" heading and the result is said politely, whichever way it went.
+  const [retryFrom, setRetryFrom] = useState<{ data: RequestAccounting | null } | null>(null)
+  const linesAnchorRef = useRef<HTMLDivElement>(null)
+  const retrySettled =
+    retryFrom !== null &&
+    ((accounting.status === 'loaded' && accounting.data !== retryFrom.data) || accounting.status === 'error') &&
+    !(canChangeClassification && options.status === 'loading')
+  const retryRecovered = retrySettled && accountingState !== null && !accountingUnreadable
+  const retryAnnouncement = !retrySettled
+    ? ''
+    : retryRecovered
+      ? strings.settings.defaults.recovered
+      : strings.settings.defaults.stillUnavailable
+  // One Retry moves focus once: a later reload that happens to find Accounting readable again must not pull it.
+  const retryFocused = useRef<object | null>(null)
+  useEffect(() => {
+    if (!retryRecovered || retryFrom === null || retryFocused.current === retryFrom) return
+    retryFocused.current = retryFrom
+    // A heading is not focusable by itself: it takes focus for this one move (a stable anchor, UX-23).
+    const heading = linesAnchorRef.current?.querySelector<HTMLElement>('[data-testid="review-detail-lines-heading"]')
+    if (heading) {
+      heading.tabIndex = -1
+      heading.focus()
+    }
+  }, [retryRecovered, retryFrom])
 
   useEffect(() => {
     let cancelled = false
@@ -348,6 +390,18 @@ export default function ReviewDetailPage() {
     reloadOptions()
   }, [reloadAccounting, reloadOptions])
 
+  /** Retry of the "Accounting cannot be read" banner: remembers what it started from, so the next answer is "the result". */
+  const handleAccountingRetry = useCallback(() => {
+    setRetryFrom({ data: accountingState })
+    reloadAccounting()
+    reloadOptions()
+  }, [accountingState, reloadAccounting, reloadOptions])
+
+  /** A save was refused with 503: the value is back, and the view is read again so the page says why (AC-6.5). */
+  const handleAccountingUnavailable = useCallback(() => {
+    reloadAccounting()
+  }, [reloadAccounting])
+
   /** The footer of one line row: its panel, or the skeleton while the view loads, or nothing. */
   const renderClassification = (line: RefundLine) => {
     if (!hasPanel(line) || !classifiable) return undefined
@@ -372,16 +426,19 @@ export default function ReviewDetailPage() {
         lineLabel={lineLabelOf(line)}
         state={accountingState.classificationState}
         // An options 403 (`accounting_out_of_scope`) means the review scope does not cover WellD CH: nothing to pick from.
-        canChange={holdsClassificationCapability && (selfRestricted || options.status !== 'forbidden')}
+        // While Accounting cannot be read the options are not asked for, and the panel says that, not "no capability".
+        canChange={holdsClassificationCapability && (selfRestricted || accountingUnreadable || options.status !== 'forbidden')}
         selfRestricted={selfRestricted}
         options={options.status === 'loaded' ? options.data : null}
         canOpenRates={canOpenRates}
+        accountingUnavailable={accountingUnreadable}
         missing={missingFor(line.id)}
         onClassify={(body) => handleClassify(line.id, body)}
         onConflict={handleClassificationConflict}
         onOptionsStale={reloadOptions}
         onSelfRestricted={handleSelfRestricted}
         onOutOfScope={reloadAccounting}
+        onAccountingUnavailable={handleAccountingUnavailable}
       />
     )
   }
@@ -404,10 +461,14 @@ export default function ReviewDetailPage() {
       }
       const classification = accountingLine.classification
       if (!classification) continue
-      if (named.missing.includes('account') && classification.account === null) {
+      // A type default that is deactivated or gone is not a value (before approval, not set by hand): the panel reads it as missing too.
+      const gone = (reference: { state: accountingApi.EntryState } | null, isDefault: boolean) =>
+        reference === null ||
+        (accountingState.classificationState === 'review' && isDefault && accountingApi.entryIsUnusable(reference.state))
+      if (named.missing.includes('account') && gone(classification.account, classification.accountIsDefault)) {
         missingItems.push({ lineId: line.id, field: 'account', text: t.classification.missingSummary.account(label) })
       }
-      if (named.missing.includes('vatCode') && classification.vatCode === null) {
+      if (named.missing.includes('vatCode') && gone(classification.vatCode, classification.vatCodeIsDefault)) {
         missingItems.push({ lineId: line.id, field: 'vatCode', text: t.classification.missingSummary.vatCode(label) })
       }
     }
@@ -456,11 +517,28 @@ export default function ReviewDetailPage() {
       {accountingLoadFailed && (
         <ErrorBanner message={t.classification.loadError} onRetry={handleClassificationRetry} />
       )}
-      {accountingUnavailable && (
+      {classificationHidden && (
         <Banner tone="info" live="off" data-testid="classification-unavailable">
           {t.classification.unavailable404}
         </Banner>
       )}
+      {/* One banner for the whole page, not one error per line (UX-19); below it every line reads as recorded. */}
+      {accountingUnreadable && !classificationHidden && (
+        <Banner
+          tone="warning"
+          live="polite"
+          title={t.classification.accountingUnavailablePage.title}
+          onRetry={handleAccountingRetry}
+          retryLabel={strings.components.errorBanner.defaultRetryLabel}
+          retryTestId="classification-accounting-retry"
+          data-testid="classification-accounting-unavailable"
+        >
+          {t.classification.accountingUnavailablePage.body}
+        </Banner>
+      )}
+      <VisuallyHidden live data-testid="classification-retry-result">
+        {retryAnnouncement}
+      </VisuallyHidden>
       {/* A focus target for the case where no select can take focus; a plain wrapper, so the alert is unchanged. */}
       <div
         ref={summaryFocusRef}
@@ -633,7 +711,7 @@ export default function ReviewDetailPage() {
           )}
       </div>
 
-      <div className="mt-4 flex flex-col gap-4">
+      <div ref={linesAnchorRef} className="mt-4 flex flex-col gap-4">
         {pageState.status === 'loading' && (
           <>
             <VisuallyHidden live>{t.loadingAnnouncement}</VisuallyHidden>
@@ -657,7 +735,7 @@ export default function ReviewDetailPage() {
             <SubtotalsPanel subtotals={pageState.request.subtotals} />
 
             {classificationNotice}
-            <LinesCard title={linesTitle(pageState.request.lines.length)}>
+            <LinesCard title={linesTitle(pageState.request.lines.length)} headingTestId="review-detail-lines-heading">
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow
                   key={line.id}
@@ -700,7 +778,7 @@ export default function ReviewDetailPage() {
                 every approved request forever. */}
             <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved footnote={<MonthlyProcessingNote />} />
             {classificationNotice}
-            <LinesCard title={linesTitle(pageState.request.lines.length)}>
+            <LinesCard title={linesTitle(pageState.request.lines.length)} headingTestId="review-detail-lines-heading">
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow
                   key={line.id}
@@ -724,7 +802,7 @@ export default function ReviewDetailPage() {
               <p className="text-sm">{pageState.request.rejectionMotivation}</p>
             </Card>
             <SubtotalsPanel subtotals={pageState.request.subtotals} />
-            <LinesCard title={linesTitle(pageState.request.lines.length)}>
+            <LinesCard title={linesTitle(pageState.request.lines.length)} headingTestId="review-detail-lines-heading">
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow
                   key={line.id}
@@ -747,7 +825,7 @@ export default function ReviewDetailPage() {
             )}
             <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
             {classificationNotice}
-            <LinesCard title={linesTitle(pageState.request.lines.length)}>
+            <LinesCard title={linesTitle(pageState.request.lines.length)} headingTestId="review-detail-lines-heading">
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow
                   key={line.id}

@@ -40,17 +40,14 @@ import NotFoundPage from './pages/NotFoundPage'
 
 const settingsRouteApi = getRouteApi('/settings')
 
-const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
-
 export function createAppRouter(basepath?: string) {
   const rootRoute = createRootRoute({ component: RefundShell })
 
   /**
    * The `/settings` route's component: the page is a plain component with props (it also renders outside a
    * router), and this keeps its open view in the URL (specs/20261118-refund-accounting-export UX-1). Picking a
-   * tab REPLACES the history entry, so Back does not walk through tab clicks and drops `month`. The page no
-   * longer reads `month` (the exchange rates live in Accounting, specs/20261119-accounting T34); the search
-   * validation keeps accepting it until the last link that carries it is replaced (T36, T37).
+   * tab REPLACES the history entry, so Back does not walk through tab clicks. The exchange rates live in
+   * Accounting now (specs/20261119-accounting): a leftover `month` from the 20261118 deep link is not read.
    */
   const SettingsRoute = () => {
     const { section } = settingsRouteApi.useSearch()
@@ -185,13 +182,12 @@ export function createAppRouter(basepath?: string) {
     getParentRoute: () => rootRoute,
     path: '/settings',
     component: SettingsRoute,
-    // `section` picks the view, `month` (YYYY-MM) a row of the exchange-rates view. Both are only hints from a
-    // link a person may have typed or kept: anything that is not a string, or a month that is not YYYY-MM,
-    // is dropped here, so the page never sees it. Which sections exist is the page's call (it needs the
-    // user's capabilities), so an unknown `section` string passes through and falls back there.
-    validateSearch: (search: Record<string, unknown>): { section?: string; month?: string } => ({
+    // `section` picks the view. It is only a hint from a link a person may have typed or kept: anything that is
+    // not a string is dropped here, so the page never sees it. Which sections exist is the page's call (it needs
+    // the user's capabilities), so an unknown `section` string passes through and falls back there. A `month`
+    // (the 20261118 exchange-rates deep link) is dropped: the rates are in Accounting now.
+    validateSearch: (search: Record<string, unknown>): { section?: string } => ({
       section: typeof search.section === 'string' ? search.section : undefined,
-      month: typeof search.month === 'string' && MONTH.test(search.month) ? search.month : undefined,
     }),
   })
 

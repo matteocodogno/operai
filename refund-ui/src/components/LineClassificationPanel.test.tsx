@@ -5,6 +5,13 @@
  * AC-3.3, AC-3.6, AC-3.7, AC-3.8, AC-3.9): the Default / Set by hand markers, the server's amounts (never computed
  * here), the rate-missing state, change on select with its saving, saved and refused states, an inactive current
  * value, read-only and locked.
+ *
+ * T36, specs/20261119-accounting (RS4, UX-18 to UX-21, UX-23; AC-4.1 to AC-4.3, AC-4.9, AC-5.2, AC-5.6, AC-6.1, AC-6.5,
+ * AC-6.10, AC-7.3): a copy deactivated or no longer in Accounting stays selected and marked; a type default that is
+ * no longer usable reads as missing with its reason; "No rate yet" before approval and "Rate pending" after it,
+ * "—" never 0; the Accounting link only when the view says so, else "ask an accounting manager"; Accounting
+ * unreadable is the read-only group with the values as recorded; a 503 on a save reverts and says nothing changed;
+ * after approval the values are kept as booked.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -88,16 +95,7 @@ const renderPanel = async (line: AccountingLine, props: Partial<LineClassificati
       />
     ),
   })
-  const settings = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/settings',
-    component: () => null,
-    validateSearch: (search: Record<string, unknown>): { section?: string; month?: string } => ({
-      section: typeof search.section === 'string' ? search.section : undefined,
-      month: typeof search.month === 'string' ? search.month : undefined,
-    }),
-  })
-  const router = createRouter({ routeTree: rootRoute.addChildren([index, settings]) })
+  const router = createRouter({ routeTree: rootRoute.addChildren([index]) })
   render(<RouterProvider router={router} />)
   await screen.findByTestId(`classification-${line.lineId}`)
   return { onClassify, onConflict, onOptionsStale }
@@ -164,13 +162,27 @@ describe('LineClassificationPanel: editable', () => {
 
   it('says the amounts follow the approved total before approval, and not after', async () => {
     await renderPanel(eurLine())
-    expect(screen.getByText('Amounts follow the approved total as it stands now.')).not.toBeNull()
+    const follows =
+      'Amounts follow the approved total and the exchange rate as they stand now. They are fixed when the request is approved.'
+    expect(screen.getByText(follows)).not.toBeNull()
     cleanup()
     await renderPanel(eurLine(), { state: 'post_approval' })
-    expect(screen.queryByText('Amounts follow the approved total as it stands now.')).toBeNull()
+    expect(screen.queryByText(follows)).toBeNull()
   })
 
-  it('a missing rate is a badge with help and "—" for both amounts, never 0', async () => {
+  it('after approval says the account, VAT code and rate are kept as booked (AC-5.3, UX-20)', async () => {
+    const frozen = 'Account, VAT code and rate are kept as booked. Later changes in Accounting do not change this line.'
+    await renderPanel(eurLine(), { state: 'post_approval' })
+    expect(screen.getByText(frozen)).not.toBeNull()
+    cleanup()
+    await renderPanel(eurLine(), { state: 'post_approval', canChange: false })
+    expect(screen.getByText(frozen)).not.toBeNull()
+    cleanup()
+    await renderPanel(eurLine())
+    expect(screen.queryByText(frozen)).toBeNull()
+  })
+
+  it('before approval, no rate is "No rate yet": a badge, help saying approval is still possible, "—" for both amounts, never 0 (UX-20)', async () => {
     await renderPanel(
       eurLine({
         chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'missing' },
@@ -178,14 +190,47 @@ describe('LineClassificationPanel: editable', () => {
       }),
     )
     const missing = screen.getByTestId('classification-l1-rate-missing')
-    expect(within(missing).getByText('Rate missing')).not.toBeNull()
-    expect(missing.textContent).toContain('No EUR rate for March 2026. The CHF and VAT amounts need it.')
+    expect(within(missing).getByText('No rate yet')).not.toBeNull()
+    expect(missing.textContent).toContain(
+      'No EUR rate for March 2026 yet. You can still approve: the rate is copied at the first export.',
+    )
+    expect(missing.textContent).not.toContain('need it')
     expect(screen.getByTestId('classification-l1-chf').textContent).toBe('—')
     expect(screen.getByTestId('classification-l1-vat-amount').textContent).toBe('—')
     expect(screen.queryByRole('link', { name: 'Open exchange rates' })).toBeNull()
   })
 
-  it('a missing rate without settings:read says who can fix it (A-8)', async () => {
+  it('after approval, a rate not copied yet is "Rate pending": the first export copies it, "—" for both amounts (AC-5.6)', async () => {
+    await renderPanel(
+      eurLine({
+        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'pending' },
+        vatAmountCents: null,
+      }),
+      { state: 'post_approval' },
+    )
+    const pending = screen.getByTestId('classification-l1-rate-pending')
+    expect(within(pending).getByText('Rate pending')).not.toBeNull()
+    expect(pending.textContent).toContain(
+      'No EUR rate for March 2026 yet. It is copied at the first accounting export of the batch.',
+    )
+    expect(screen.queryByTestId('classification-l1-rate-missing')).toBeNull()
+    expect(screen.getByTestId('classification-l1-chf').textContent).toBe('—')
+    expect(screen.getByTestId('classification-l1-vat-amount').textContent).toBe('—')
+  })
+
+  it('a pending rate is shown read-only too (a paid batch resolves it at export, not here)', async () => {
+    await renderPanel(
+      eurLine({
+        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'pending' },
+        vatAmountCents: null,
+      }),
+      { state: 'locked' },
+    )
+    expect(within(screen.getByTestId('classification-l1-rate-pending')).getByText('Rate pending')).not.toBeNull()
+    expect(screen.getByTestId('classification-l1-why').textContent).toBe('Locked: its batch has been paid.')
+  })
+
+  it('a missing rate without the Accounting link says who can fix it (A-8, AC-7.3)', async () => {
     await renderPanel(
       eurLine({
         chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'missing' },
@@ -193,8 +238,9 @@ describe('LineClassificationPanel: editable', () => {
       }),
     )
     expect(screen.getByTestId('classification-l1-rate-missing').textContent).toContain(
-      'Ask an administrator to enter or fetch it.',
+      'Ask an accounting manager to enter or fetch it.',
     )
+    expect(screen.queryByText(/administrator/)).toBeNull()
     cleanup()
     await renderPanel(
       eurLine({
@@ -203,10 +249,10 @@ describe('LineClassificationPanel: editable', () => {
       }),
       { canOpenRates: true },
     )
-    expect(screen.getByTestId('classification-l1-rate-missing').textContent).not.toContain('Ask an administrator')
+    expect(screen.getByTestId('classification-l1-rate-missing').textContent).not.toContain('Ask an accounting manager')
   })
 
-  it('offers "Open exchange rates" to that month only with settings:read', async () => {
+  it('offers "Open exchange rates" to that month in Accounting only when the view allows it (AC-7.3)', async () => {
     await renderPanel(
       eurLine({
         chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'missing' },
@@ -215,7 +261,21 @@ describe('LineClassificationPanel: editable', () => {
       { canOpenRates: true },
     )
     const link = screen.getByRole('link', { name: 'Open exchange rates' })
-    expect(link.getAttribute('href')).toBe('/settings?section=exchange-rates&month=2026-03')
+    expect(link.getAttribute('href')).toBe('/accounting/exchange-rates?entity=welld_ch&month=2026-03')
+    expect(link.className).toContain('link')
+  })
+
+  it('a rate month with no month on the line falls back to the line’s own month for the link', async () => {
+    await renderPanel(
+      eurLine({
+        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: null, rateStatus: 'missing' },
+        vatAmountCents: null,
+      }),
+      { canOpenRates: true },
+    )
+    expect(screen.getByRole('link', { name: 'Open exchange rates' }).getAttribute('href')).toBe(
+      '/accounting/exchange-rates?entity=welld_ch&month=2026-03',
+    )
   })
 
   it('a missing value reads "Choose …" with "Required to approve.", and is no error yet', async () => {
@@ -267,8 +327,146 @@ describe('LineClassificationPanel: editable', () => {
     expect(selected.textContent).toBe('5901 — Spese viaggi in treno (deactivated)')
     expect(selected.disabled).toBe(true)
     expect(document.getElementById(account().getAttribute('aria-describedby') ?? '')?.textContent).toContain(
-      'This account is deactivated. The line keeps it; choose an active one to change it.',
+      'This account is deactivated in Accounting. The line keeps it; choose an active one to change it.',
     )
+  })
+
+  it('shows a copy that is no longer in Accounting as a disabled selected option "(not in Accounting)", with its hint (AC-4.5)', async () => {
+    const gone = { ...TRAIN, state: 'not_found' as const }
+    await renderPanel(
+      eurLine({ classification: { account: gone, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
+      { options: { ledgerAccounts: [{ number: HOTEL.number, name: HOTEL.name }], vatCodes: OPTIONS.vatCodes } },
+    )
+    expect(account().value).toBe('5901')
+    expect(account().selectedOptions[0].textContent).toBe('5901 — Spese viaggi in treno (not in Accounting)')
+    expect(account().selectedOptions[0].disabled).toBe(true)
+    expect(document.getElementById(account().getAttribute('aria-describedby') ?? '')?.textContent).toContain(
+      'This account is no longer in Accounting. The line keeps it; choose another to change it.',
+    )
+  })
+
+  it('does the same for a VAT code, deactivated and not found', async () => {
+    await renderPanel(
+      eurLine({
+        classification: {
+          account: TRAIN,
+          accountIsDefault: true,
+          vatCode: { ...NOVAT, state: 'deactivated' },
+          vatCodeIsDefault: false,
+        },
+      }),
+      { options: { ledgerAccounts: OPTIONS.ledgerAccounts, vatCodes: [OPTIONS.vatCodes[1]] } },
+    )
+    expect(vat().selectedOptions[0].textContent).toBe('NOVAT — Senza IVA (0%) (deactivated)')
+    expect(document.getElementById(vat().getAttribute('aria-describedby') ?? '')?.textContent).toContain(
+      'This VAT code is deactivated in Accounting. The line keeps it; choose an active one to change it.',
+    )
+    cleanup()
+    await renderPanel(
+      eurLine({
+        classification: {
+          account: TRAIN,
+          accountIsDefault: true,
+          vatCode: { ...NOVAT, state: 'not_found' },
+          vatCodeIsDefault: false,
+        },
+      }),
+      { options: { ledgerAccounts: OPTIONS.ledgerAccounts, vatCodes: [OPTIONS.vatCodes[1]] } },
+    )
+    expect(vat().selectedOptions[0].textContent).toBe('NOVAT — Senza IVA (0%) (not in Accounting)')
+    expect(document.getElementById(vat().getAttribute('aria-describedby') ?? '')?.textContent).toContain(
+      'This VAT code is no longer in Accounting. The line keeps it; choose another to change it.',
+    )
+  })
+
+  it('a deactivated TYPE DEFAULT (not set by hand, before approval) reads as missing, with the reason (RS4, AC-6.3)', async () => {
+    await renderPanel(
+      eurLine({
+        classification: {
+          account: { ...TRAIN, state: 'deactivated' },
+          accountIsDefault: true,
+          vatCode: NOVAT,
+          vatCodeIsDefault: true,
+        },
+      }),
+    )
+    expect(account().value).toBe('')
+    expect(within(account()).getByText('Choose an account')).not.toBeNull()
+    const hint = document.getElementById(account().getAttribute('aria-describedby') ?? '')?.textContent
+    expect(hint).toBe('The default account for this type is deactivated in Accounting. Choose one.')
+    expect(hint).not.toContain('Required to approve.')
+    expect(account().getAttribute('aria-invalid')).toBeNull()
+    // The other half is fine.
+    expect(vat().value).toBe('NOVAT')
+  })
+
+  it('a TYPE DEFAULT that is no longer in Accounting says so for the account and for the VAT code', async () => {
+    await renderPanel(
+      eurLine({
+        classification: {
+          account: { ...TRAIN, state: 'not_found' },
+          accountIsDefault: true,
+          vatCode: { ...NOVAT, state: 'not_found' },
+          vatCodeIsDefault: true,
+        },
+      }),
+    )
+    expect(document.getElementById(account().getAttribute('aria-describedby') ?? '')?.textContent).toBe(
+      'The default account for this type is no longer in Accounting. Choose one.',
+    )
+    expect(vat().value).toBe('')
+    expect(document.getElementById(vat().getAttribute('aria-describedby') ?? '')?.textContent).toBe(
+      'The default VAT code for this type is no longer in Accounting. Choose one.',
+    )
+  })
+
+  it('a refused approval makes the unusable default invalid and names it like any other missing value (AC-6.3)', async () => {
+    await renderPanel(
+      eurLine({
+        classification: {
+          account: { ...TRAIN, state: 'deactivated' },
+          accountIsDefault: true,
+          vatCode: NOVAT,
+          vatCodeIsDefault: true,
+        },
+      }),
+      { missing: { account: true, vatCode: false } },
+    )
+    expect(account().getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByText('Choose an account.').getAttribute('role')).toBe('alert')
+  })
+
+  it('after approval the same default is the line’s own copy: it stays selected, marked, not missing', async () => {
+    await renderPanel(
+      eurLine({
+        classification: {
+          account: { ...TRAIN, state: 'deactivated' },
+          accountIsDefault: true,
+          vatCode: NOVAT,
+          vatCodeIsDefault: true,
+        },
+      }),
+      {
+        state: 'post_approval',
+        options: { ledgerAccounts: [{ number: HOTEL.number, name: HOTEL.name }], vatCodes: OPTIONS.vatCodes },
+      },
+    )
+    expect(account().value).toBe('5901')
+    expect(account().selectedOptions[0].textContent).toContain('(deactivated)')
+  })
+
+  it('a default set by hand that is deactivated stays selected and marked, not missing', async () => {
+    await renderPanel(
+      eurLine({
+        classification: {
+          account: { ...TRAIN, state: 'deactivated' },
+          accountIsDefault: false,
+          vatCode: NOVAT,
+          vatCodeIsDefault: true,
+        },
+      }),
+    )
+    expect(account().value).toBe('5901')
   })
 
   it('keeps an active value that the options do not list selectable', async () => {
@@ -423,6 +621,154 @@ describe('LineClassificationPanel: read-only', () => {
     const values = screen.getByTestId('classification-l1-values')
     expect(values.textContent).toContain('5901 — Spese viaggi in treno (deactivated)')
     expect(values.textContent).toContain('—')
+  })
+})
+
+describe('LineClassificationPanel: Accounting cannot be read (AC-6.5, UX-19)', () => {
+  const unverified = (line: AccountingLine): AccountingLine => ({
+    ...line,
+    classification: line.classification && {
+      account: line.classification.account && { ...line.classification.account, state: 'unverified' },
+      accountIsDefault: line.classification.accountIsDefault,
+      vatCode: line.classification.vatCode && { ...line.classification.vatCode, state: 'unverified' },
+      vatCodeIsDefault: line.classification.vatCodeIsDefault,
+    },
+    chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'unavailable' },
+    vatAmountCents: null,
+  })
+
+  it('is the read-only group: no select, the values as recorded, each marked "Default (as recorded)" or "Set by hand"', async () => {
+    await renderPanel(
+      unverified(
+        eurLine({
+          classification: { account: TRAIN, accountIsDefault: true, vatCode: NOVAT, vatCodeIsDefault: false },
+        }),
+      ),
+      { accountingUnavailable: true },
+    )
+    expect(screen.queryByRole('combobox')).toBeNull()
+    const values = screen.getByTestId('classification-l1-values')
+    expect(values.textContent).toContain('5901 — Spese viaggi in treno')
+    expect(values.textContent).toContain('Default (as recorded)')
+    expect(values.textContent).toContain('NOVAT — Senza IVA (0%)')
+    expect(values.textContent).toContain('Set by hand')
+    expect(values.textContent).not.toMatch(/deactivated|not in Accounting/)
+    expect(screen.getByTestId('classification-l1').getAttribute('data-mode')).toBe('readOnly')
+  })
+
+  it('says why in a focusable status sentence, and "—" where nothing is recorded or known, never 0', async () => {
+    await renderPanel(
+      unverified(
+        eurLine({
+          classification: { account: null, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true },
+        }),
+      ),
+      { accountingUnavailable: true },
+    )
+    const why = screen.getByTestId('classification-l1-why')
+    expect(why.textContent).toBe('Accounting cannot be read now, so this classification cannot be changed.')
+    expect(why.getAttribute('role')).toBe('status')
+    expect(why.getAttribute('tabindex')).toBe('-1')
+    expect(screen.getByTestId('classification-l1-values').textContent).toContain('—')
+    expect(screen.getByTestId('classification-l1-chf').textContent).toBe('—')
+    expect(screen.getByTestId('classification-l1-vat-amount').textContent).toBe('—')
+    expect(screen.queryByTestId('classification-l1-rate-missing')).toBeNull()
+    expect(screen.queryByTestId('classification-l1-rate-pending')).toBeNull()
+  })
+
+  it('keeps a person without the capability on the plain read-only sentence', async () => {
+    await renderPanel(unverified(eurLine()), { accountingUnavailable: true, canChange: false })
+    expect(screen.getByTestId('classification-l1-why').textContent).toBe(
+      'You can view the classification but not change it.',
+    )
+  })
+
+  it('says it for a paid batch as the lock, not as an Accounting outage', async () => {
+    await renderPanel(unverified(eurLine()), { accountingUnavailable: true, state: 'locked' })
+    expect(screen.getByTestId('classification-l1-why').textContent).toBe('Locked: its batch has been paid.')
+  })
+
+  it('does not claim "kept as booked" for a value it could not check, and has no select for a CHF line either', async () => {
+    await renderPanel(unverified(chfLine()), { accountingUnavailable: true, state: 'post_approval' })
+    expect(screen.queryByText(/kept as booked/)).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
+  })
+})
+
+describe('LineClassificationPanel: a save refused because Accounting cannot be read (AC-6.1, AC-6.5, AC-6.10)', () => {
+  it('puts the value back, says the classification was not changed in an alert under the select, and asks for the view again', async () => {
+    const onAccountingUnavailable = vi.fn()
+    const { onClassify } = await renderPanel(eurLine(), { onAccountingUnavailable })
+    onClassify.mockRejectedValue(problem(503, 'accounting_unavailable'))
+
+    fireEvent.change(account(), { target: { value: '5902' } })
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(
+        "Accounting's reference data cannot be read right now. The classification was not changed. Try again in a few minutes.",
+      ),
+    )
+    expect(account().value).toBe('5901')
+    expect(account().getAttribute('aria-invalid')).toBe('true')
+    expect(onAccountingUnavailable).toHaveBeenCalledTimes(1)
+  })
+
+  it('moves focus to the reason when the view then says Accounting cannot be read, since the select is gone', async () => {
+    const onClassifyRef = { current: null as null | LineClassificationPanelProps['onClassify'] }
+    const view = (unavailable: boolean) => (
+      <LineClassificationPanel
+        line={eurLine()}
+        lineLabel="x"
+        state="review"
+        canChange
+        options={OPTIONS}
+        canOpenRates={false}
+        accountingUnavailable={unavailable}
+        onClassify={(body) => onClassifyRef.current!(body)}
+        onConflict={vi.fn()}
+        onOptionsStale={vi.fn()}
+      />
+    )
+    onClassifyRef.current = vi.fn().mockRejectedValue(problem(503, 'accounting_unavailable'))
+    const { rerender } = render(view(false))
+    fireEvent.change(account(), { target: { value: '5902' } })
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBeNull())
+    rerender(view(true))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('classification-l1-why')))
+  })
+
+  it('a panel that did not save anything keeps focus where it was when the view turns unavailable', async () => {
+    const view = (unavailable: boolean) => (
+      <LineClassificationPanel
+        line={eurLine()}
+        lineLabel="x"
+        state="review"
+        canChange
+        options={OPTIONS}
+        canOpenRates={false}
+        accountingUnavailable={unavailable}
+        onClassify={vi.fn()}
+        onConflict={vi.fn()}
+        onOptionsStale={vi.fn()}
+      />
+    )
+    const { rerender } = render(view(false))
+    account().focus()
+    rerender(view(true))
+    expect(document.activeElement).not.toBe(screen.getByTestId('classification-l1-why'))
+  })
+
+  it.each([
+    ['ledger_account_not_found', 'account', 'That account is no longer in Accounting. Choose another.'],
+    ['vat_code_not_found', 'vat', 'That VAT code is no longer in Accounting. Choose another.'],
+  ])('a 422 %s reverts the select, says so under it and reloads the options', async (code, which, text) => {
+    const { onClassify, onOptionsStale } = await renderPanel(eurLine())
+    onClassify.mockRejectedValue(problem(422, code))
+    const select = which === 'account' ? account() : vat()
+    fireEvent.change(select, { target: { value: which === 'account' ? '5902' : 'IMP81' } })
+    await waitFor(() => expect(screen.getByText(text).getAttribute('role')).toBe('alert'))
+    expect(select.value).toBe(which === 'account' ? '5901' : 'NOVAT')
+    expect(onOptionsStale).toHaveBeenCalled()
   })
 })
 
@@ -593,8 +939,59 @@ describe('LineClassificationPanel: accessibility (axe)', () => {
       () => eurLine({ classification: { account: { ...TRAIN, state: 'deactivated' as const }, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
       { options: { ledgerAccounts: [{ number: HOTEL.number, name: HOTEL.name }], vatCodes: OPTIONS.vatCodes } },
     ],
-    ['rate missing, without settings:read', missingRate, {}],
+    ['rate missing, without the Accounting link', missingRate, {}],
     ['rate missing, with the link to the rates', missingRate, { canOpenRates: true }],
+    [
+      'rate pending after approval, with the link and without',
+      () =>
+        eurLine({
+          chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'pending' },
+          vatAmountCents: null,
+        }),
+      { state: 'post_approval', canOpenRates: true },
+    ],
+    [
+      'a copy that is no longer in Accounting',
+      () =>
+        eurLine({
+          classification: {
+            account: { ...TRAIN, state: 'not_found' },
+            accountIsDefault: false,
+            vatCode: { ...NOVAT, state: 'deactivated' },
+            vatCodeIsDefault: false,
+          },
+        }),
+      { options: { ledgerAccounts: [{ number: HOTEL.number, name: HOTEL.name }], vatCodes: [OPTIONS.vatCodes[1]] } },
+    ],
+    [
+      'a type default that is no longer usable, shown as missing with its reason',
+      () =>
+        eurLine({
+          classification: {
+            account: { ...TRAIN, state: 'deactivated' },
+            accountIsDefault: true,
+            vatCode: { ...NOVAT, state: 'not_found' },
+            vatCodeIsDefault: true,
+          },
+        }),
+      { missing: { account: true, vatCode: true } },
+    ],
+    [
+      'Accounting cannot be read',
+      () =>
+        eurLine({
+          classification: {
+            account: { ...TRAIN, state: 'unverified' },
+            accountIsDefault: true,
+            vatCode: { ...NOVAT, state: 'unverified' },
+            vatCodeIsDefault: false,
+          },
+          chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'unavailable' },
+          vatAmountCents: null,
+        }),
+      { accountingUnavailable: true },
+    ],
+    ['after approval, kept as booked', () => eurLine(), { state: 'post_approval' }],
     ['read-only without the capability', () => eurLine(), { canChange: false }],
     ['read-only, post-approval', () => eurLine(), { canChange: false, state: 'post_approval' }],
     ['read-only, CHF block missing', () => eurLine({ chf: null, vatAmountCents: null }), { canChange: false }],

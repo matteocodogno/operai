@@ -757,19 +757,19 @@ const en = {
         required: 'Required to approve.',
         missingAccount: 'Choose an account.',
         missingVatCode: 'Choose a VAT code.',
-        inactiveCurrentAccount: 'This account is deactivated. The line keeps it; choose an active one to change it.',
-        inactiveCurrentVat: 'This VAT code is deactivated. The line keeps it; choose an active one to change it.',
+        inactiveCurrentAccount:
+          'This account is deactivated in Accounting. The line keeps it; choose an active one to change it.',
+        inactiveCurrentVat:
+          'This VAT code is deactivated in Accounting. The line keeps it; choose an active one to change it.',
         rate: 'Exchange rate',
         rateValue: (rate: string, month: string) => `${rate} · ${month}`,
-        rateMissing: 'Rate missing',
-        rateMissingHelp: (currency: string, month: string) =>
-          `No ${currency} rate for ${month}. The CHF and VAT amounts need it.`,
         openRates: 'Open exchange rates',
         chfAmount: 'CHF amount',
         vatAmount: 'VAT amount',
         vatAmountValue: (amount: string, rate: string) => `${amount} (${rate})`,
         unavailable: '—',
-        follows: 'Amounts follow the approved total as it stands now.',
+        follows:
+          'Amounts follow the approved total and the exchange rate as they stand now. They are fixed when the request is approved.',
         saving: 'Saving…',
         savedAccount: (text: string) => `Account set to ${text}`,
         savedVat: (text: string) => `VAT code set to ${text}`,
@@ -812,6 +812,7 @@ const en = {
         notFoundCurrentAccount: 'This account is no longer in Accounting. The line keeps it; choose another to change it.',
         notFoundCurrentVat: 'This VAT code is no longer in Accounting. The line keeps it; choose another to change it.',
         /** `what` is "account" or "VAT code". */
+        defaultWhat: { account: 'account', vatCode: 'VAT code' },
         defaultDeactivated: (what: string) => `The default ${what} for this type is deactivated in Accounting. Choose one.`,
         defaultNotFound: (what: string) => `The default ${what} for this type is no longer in Accounting. Choose one.`,
         /** The rate fact before approval (UX-20): approval is not refused for a missing rate. */
@@ -1839,20 +1840,18 @@ const it: Strings = {
         missingAccount: 'Scegliere un conto.',
         missingVatCode: 'Scegliere un codice IVA.',
         inactiveCurrentAccount:
-          'Questo conto è disattivato. La riga lo mantiene; sceglierne uno attivo per cambiarlo.',
+          'Questo conto è disattivato in Contabilità. La riga lo mantiene; sceglierne uno attivo per cambiarlo.',
         inactiveCurrentVat:
-          'Questo codice IVA è disattivato. La riga lo mantiene; sceglierne uno attivo per cambiarlo.',
+          'Questo codice IVA è disattivato in Contabilità. La riga lo mantiene; sceglierne uno attivo per cambiarlo.',
         rate: 'Tasso di cambio',
         rateValue: (rate: string, month: string) => `${rate} · ${month}`,
-        rateMissing: 'Tasso mancante',
-        rateMissingHelp: (currency: string, month: string) =>
-          `Nessun tasso ${currency} per ${month}. Servono per gli importi in CHF e IVA.`,
         openRates: 'Apri i tassi di cambio',
         chfAmount: 'Importo in CHF',
         vatAmount: 'Importo IVA',
         vatAmountValue: (amount: string, rate: string) => `${amount} (${rate})`,
         unavailable: '—',
-        follows: 'Gli importi seguono il totale approvato attuale.',
+        follows:
+          'Gli importi seguono il totale approvato e il tasso di cambio attuali. Si fissano quando la richiesta viene approvata.',
         saving: 'Salvataggio…',
         savedAccount: (text: string) => `Conto impostato su ${text}`,
         savedVat: (text: string) => `Codice IVA impostato su ${text}`,
@@ -1896,6 +1895,7 @@ const it: Strings = {
           'Questo conto non è più presente in Contabilità. La riga lo mantiene; sceglierne un altro per cambiarlo.',
         notFoundCurrentVat:
           'Questo codice IVA non è più presente in Contabilità. La riga lo mantiene; sceglierne un altro per cambiarlo.',
+        defaultWhat: { account: 'conto', vatCode: 'codice IVA' },
         defaultDeactivated: (what: string) =>
           `Il ${what} predefinito di questo tipo è disattivato in Contabilità. Sceglierne uno.`,
         defaultNotFound: (what: string) =>

@@ -22,23 +22,38 @@
  *   - Out of scope (`line.inScope === false`, plan.md SR-1): the server sent no account, VAT code or amounts, so the
  *     panel is one short note: no figure, no control.
  *   - Amounts: a CHF line has only the VAT amount, with its rate; a foreign line has the rate used and its month, the
- *     CHF amount and the VAT amount. A missing rate is a *Rate missing* badge, "—" for both amounts (never 0) and, with
- *     `settings:read`, a link to that month in Settings. A VAT code of 0% shows a real `CHF 0.00`.
+ *     CHF amount and the VAT amount. A rate that is not there is NOT a failure (UX-20, AC-5.6): before approval a
+ *     *No rate yet* badge that says the request can still be approved, after it a *Rate pending* badge that says the
+ *     rate is copied at the first export; both with "—" for the CHF and VAT amounts (never 0), and a link to that
+ *     month in Accounting when the view says the person may open it (`canOpenRates`), "ask an accounting manager"
+ *     otherwise. A VAT code of 0% shows a real `CHF 0.00`.
+ *
+ * specs/20261119-accounting (T35, T36, RS4; AC-4.1 to AC-4.3, AC-4.9, AC-5.2, AC-5.6, AC-6.1, AC-6.5, AC-6.10, AC-7.3):
+ * values are Accounting's numbers and codes, each with Accounting's `state` (UX-18).
+ *   - A stored copy that was deactivated, or is no longer in Accounting, stays the selected (disabled) option with a
+ *     hint. A TYPE DEFAULT that is no longer usable (before approval, not set by hand) is not a copy yet: the select
+ *     reads "Choose…" and the hint says why, so approving without it is refused as `classification_missing`.
+ *   - Accounting cannot be read (`accountingUnavailable`): the read-only group with the values as recorded, each
+ *     marked *Default (as recorded)* or *Set by hand*, and the sentence that says why. A save refused with 503 puts
+ *     the value back, says nothing was changed, and asks the page to read the view again.
+ *   - After approval the account, VAT code and rate are kept as booked: one sentence says later changes in Accounting
+ *     do not change the line.
  *
  * Every select carries `data-classification-field="account" | "vat"` and sits inside the line row, so the page can
  * move focus to the first missing one after a refused approval without this component knowing about it.
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { Badge, FactList, Field, Icon, StatusBadge } from '@operai/ui'
 import type { Fact } from '@operai/ui'
 import { strings } from '../strings'
+import { entryIsUnusable, isAccountingUnavailable } from '../lib/accountingApi'
 import type {
   AccountingLine,
   AccountingOptions,
   ClassificationState,
   ClassifyBody,
+  EntryState,
   LineChf,
 } from '../lib/accountingApi'
 import { accountText, formatVatRate, vatCodeText } from '../lib/catalogLabels'
@@ -52,8 +67,23 @@ const t = strings.pages.reviewDetail.classification
 
 type FieldName = 'account' | 'vatCode'
 
+/** The Accounting month view for WellD CH (AC-7.3). A plain `href`: the link leaves this tool (UX-17). */
+const accountingRatesHref = (month: string): string =>
+  `/accounting/exchange-rates?entity=welld_ch&month=${encodeURIComponent(month)}`
+
 /** What an in-scope line without CHF data shows: "—" everywhere, never a figure of our own. */
 const NO_CHF: LineChf = { amountCents: null, rateMicros: null, rate: null, rateMonth: null, rateStatus: 'not_applicable' }
+
+/**
+ * A default that is not a copy yet (before approval, not set by hand) and whose entry is deactivated or gone has
+ * nothing to keep: it reads as missing, with the reason (G8a). After approval, or when set by hand, the value is the
+ * line's own and stays selected, marked.
+ */
+const isUnusableDefault = (
+  reference: { state: EntryState } | null,
+  isDefault: boolean,
+  state: LineClassificationPanelProps['state'],
+): boolean => reference !== null && state === 'review' && isDefault && entryIsUnusable(reference.state)
 
 export type LineClassificationPanelProps = {
   /** The server's view of the line. `classification` is non-null: the page renders no panel otherwise. */
@@ -65,8 +95,10 @@ export type LineClassificationPanelProps = {
   canChange: boolean
   /** The active accounts and VAT codes, or `null` while they load (the selects wait, disabled). */
   options: AccountingOptions | null
-  /** `settings:read`: "Open exchange rates" is offered when the rate is missing. */
+  /** The view's `viewer.canOpenAccountingRates` (AC-7.3): "Open exchange rates" is offered when the rate is not there. */
   canOpenRates: boolean
+  /** Accounting could not be read (the view says so, or the options answered 503): read-only, values as recorded (AC-6.5). */
+  accountingUnavailable?: boolean
   /** The caller owns this request and may not approve it (the view's `selfRestricted`): read-only, with its own note. */
   selfRestricted?: boolean
   /** The values a refused approval named for this line: shown as an error until a value is chosen. */
@@ -81,6 +113,8 @@ export type LineClassificationPanelProps = {
   onSelfRestricted?: () => void
   /** A 404: the line is outside the caller's entity scope (the view was stale): the page loads the view again. */
   onOutOfScope?: () => void
+  /** A 503 `accounting_unavailable` on a save: the value is back, and the page reads the view again (AC-6.5). */
+  onAccountingUnavailable?: () => void
 }
 
 type FieldMessage = { field: FieldName; text: string }
@@ -92,6 +126,7 @@ export default function LineClassificationPanel({
   canChange,
   options,
   canOpenRates,
+  accountingUnavailable = false,
   selfRestricted = false,
   missing,
   onClassify,
@@ -99,6 +134,7 @@ export default function LineClassificationPanel({
   onOptionsStale,
   onSelfRestricted,
   onOutOfScope,
+  onAccountingUnavailable,
 }: LineClassificationPanelProps) {
   const classification = line.classification
   // The select that is saving, and the value it was changed to (shown until the server answers).
@@ -113,6 +149,15 @@ export default function LineClassificationPanel({
   useEffect(() => {
     if (refusedAsOwner) whyRef.current?.focus()
   }, [refusedAsOwner])
+  // A save of THIS panel was refused with 503: when the view then says Accounting cannot be read, the select that
+  // had focus is gone, so the reason takes it (A-2). Only this panel, not every panel of the page.
+  const focusReasonWhenUnavailable = useRef(false)
+  useEffect(() => {
+    if (accountingUnavailable && focusReasonWhenUnavailable.current) {
+      focusReasonWhenUnavailable.current = false
+      whyRef.current?.focus()
+    }
+  }, [accountingUnavailable])
 
   if (!line.inScope) {
     return (
@@ -129,7 +174,7 @@ export default function LineClassificationPanel({
 
   const locked = state === 'locked'
   const ownRequest = selfRestricted || refusedAsOwner
-  const editable = canChange && !locked && !ownRequest
+  const editable = canChange && !locked && !ownRequest && !accountingUnavailable
 
   const handleChange = async (field: FieldName, value: string) => {
     if (pending !== null || value === '') return
@@ -156,6 +201,11 @@ export default function LineClassificationPanel({
       } else if (code === 'vat_code_inactive' || code === 'vat_code_not_found') {
         setErrorMessage({ field: 'vatCode', text: code === 'vat_code_inactive' ? t.vatInactive : t.vatUnknown })
         onOptionsStale()
+      } else if (isAccountingUnavailable(error)) {
+        // Nothing changed: the select shows what is saved again, the alert says so, and the view is read again.
+        setErrorMessage({ field, text: strings.accountingUnavailable.classify })
+        focusReasonWhenUnavailable.current = true
+        onAccountingUnavailable?.()
       } else if (code === 'self_approval_forbidden') {
         // Not an error under the select: the whole panel turns read-only and says why. The select reverts by itself.
         setRefusedAsOwner(true)
@@ -174,7 +224,9 @@ export default function LineClassificationPanel({
   }
 
   const marker = (isDefault: boolean) => (
-    <Badge tone={isDefault ? 'neutral' : 'accent'}>{isDefault ? t.defaultMarker : t.handMarker}</Badge>
+    <Badge tone={isDefault ? 'neutral' : 'accent'}>
+      {isDefault ? (accountingUnavailable ? t.defaultRecorded : t.defaultMarker) : t.handMarker}
+    </Badge>
   )
 
   // ---------------------------------------------------------------------------
@@ -186,24 +238,29 @@ export default function LineClassificationPanel({
   const rateMonthText = monthLabel(chf.rateMonth ?? line.date.slice(0, 7))
   const facts: Fact[] = []
   if (isForeign) {
+    const rateMonth = chf.rateMonth ?? line.date.slice(0, 7)
+    const noRate = chf.rateStatus === 'missing' || chf.rateStatus === 'pending'
+    const pending = chf.rateStatus === 'pending'
     facts.push({
       id: 'rate',
       term: t.rate,
-      value: chf.rateStatus === 'missing' || chf.rateStatus === 'pending' ? (
-        <span className="flex flex-col items-start gap-1" data-testid={`classification-${line.lineId}-rate-missing`}>
-          <StatusBadge status={RATE_MISSING_MEANING}>{t.rateMissing}</StatusBadge>
+      value: noRate ? (
+        <span
+          className="flex flex-col items-start gap-1"
+          data-testid={`classification-${line.lineId}-rate-${pending ? 'pending' : 'missing'}`}
+        >
+          <StatusBadge status={RATE_MISSING_MEANING}>{pending ? t.ratePending : t.rateNotYet}</StatusBadge>
           <span className="text-xs text-soft">
-            {t.rateMissingHelp(line.currency, rateMonthText)}
-            {!canOpenRates && ` ${strings.pages.batchDetail.accountingExport.blocked.askAdmin}`}
+            {pending ? t.ratePendingHelp(line.currency, rateMonthText) : t.rateNotYetHelp(line.currency, rateMonthText)}
           </span>
-          {canOpenRates && (
-            <Link
-              to="/settings"
-              search={{ section: 'exchange-rates', month: chf.rateMonth ?? line.date.slice(0, 7) }}
-              className="link text-xs"
-            >
+          {canOpenRates ? (
+            <a href={accountingRatesHref(rateMonth)} className="link text-xs" data-testid={`classification-${line.lineId}-open-rates`}>
               {t.openRates}
-            </Link>
+            </a>
+          ) : (
+            <span className="text-xs text-soft" data-testid={`classification-${line.lineId}-ask-manager`}>
+              {t.askManager}
+            </span>
           )}
         </span>
       ) : chf.rate !== null ? (
@@ -246,12 +303,21 @@ export default function LineClassificationPanel({
   // ---------------------------------------------------------------------------
 
   if (!editable) {
-    const valueText = (text: string | null, isDefault: boolean, inactive: boolean) =>
+    // The suffix names what Accounting says; `unverified` (and, when it cannot be read, anything) claims nothing.
+    const valueText = (text: string | null, isDefault: boolean, state: EntryState) =>
       text === null ? (
         t.unavailable
       ) : (
         <span className="inline-flex flex-wrap items-center gap-1.5">
-          <span>{inactive ? t.inactiveOption(text) : text}</span>
+          <span>
+            {accountingUnavailable
+              ? text
+              : state === 'deactivated'
+                ? t.inactiveOption(text)
+                : state === 'not_found'
+                  ? t.notFoundOption(text)
+                  : text}
+          </span>
           {marker(isDefault)}
         </span>
       )
@@ -272,7 +338,7 @@ export default function LineClassificationPanel({
               value: valueText(
                 classification.account ? accountText(classification.account) : null,
                 classification.accountIsDefault,
-                classification.account?.state === 'deactivated',
+                classification.account?.state ?? 'active',
               ),
             },
             {
@@ -281,7 +347,7 @@ export default function LineClassificationPanel({
               value: valueText(
                 classification.vatCode ? vatCodeText(classification.vatCode) : null,
                 classification.vatCodeIsDefault,
-                classification.vatCode?.state === 'deactivated',
+                classification.vatCode?.state ?? 'active',
               ),
             },
           ]}
@@ -296,8 +362,15 @@ export default function LineClassificationPanel({
           data-testid={`classification-${line.lineId}-why`}
         >
           {locked && <Icon name="lock" />}
-          {locked ? t.locked : ownRequest && canChange ? t.selfRestricted : t.readOnly}
+          {locked
+            ? t.locked
+            : ownRequest && canChange
+              ? t.selfRestricted
+              : accountingUnavailable && canChange
+                ? t.accountingUnavailableLine
+                : t.readOnly}
         </p>
+        {state === 'post_approval' && !accountingUnavailable && <p className="text-xs text-soft">{t.frozen}</p>}
       </div>
     )
   }
@@ -309,15 +382,24 @@ export default function LineClassificationPanel({
   const shown = (field: FieldName, saved: string): string => (pending?.field === field ? pending.value : saved)
   const selectsLocked = options === null
 
-  const accountRef = classification.account
-  const vatRef = classification.vatCode
+  // A default that cannot be used any more is "missing", with its reason; any other stored value stays as it is.
+  const accountDefaultGone = isUnusableDefault(classification.account, classification.accountIsDefault, state)
+  const vatDefaultGone = isUnusableDefault(classification.vatCode, classification.vatCodeIsDefault, state)
+  const accountRef = accountDefaultGone ? null : classification.account
+  const vatRef = vatDefaultGone ? null : classification.vatCode
   const accountOptions = options?.ledgerAccounts ?? []
   const vatOptions = options?.vatCodes ?? []
 
   const fieldHint = (field: FieldName) => {
     const reference = field === 'account' ? accountRef : vatRef
     if (pending?.field === field) return t.saving
-    if (reference === null) return t.required
+    if (reference === null) {
+      const gone = field === 'account' ? accountDefaultGone : vatDefaultGone
+      const unusable = field === 'account' ? classification.account : classification.vatCode
+      if (!gone || unusable === null) return t.required
+      const what = field === 'account' ? t.defaultWhat.account : t.defaultWhat.vatCode
+      return unusable.state === 'not_found' ? t.defaultNotFound(what) : t.defaultDeactivated(what)
+    }
     return (
       <span className="inline-flex flex-wrap items-center gap-1.5">
         {marker(field === 'account' ? classification.accountIsDefault : classification.vatCodeIsDefault)}
@@ -409,6 +491,7 @@ export default function LineClassificationPanel({
       {amounts}
 
       {state === 'review' && <p className="text-xs text-soft">{t.follows}</p>}
+      {state === 'post_approval' && <p className="text-xs text-soft">{t.frozen}</p>}
     </fieldset>
   )
 }

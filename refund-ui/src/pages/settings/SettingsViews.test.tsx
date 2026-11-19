@@ -223,9 +223,10 @@ describe('switching views', () => {
     expect(window.history.length).toBe(historyLength)
   })
 
-  it('leaving a leftover 20261118 rates deep link for another view drops its ?month= from the URL', async () => {
+  it('a leftover 20261118 rates deep link shows General and its ?month= never reaches the page', async () => {
     await openSettings('?section=exchange-rates&month=2026-03')
     expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
+    expect(screen.queryByTestId('refund-settings-exchange-rates')).toBeNull()
 
     fireEvent.click(screen.getByRole('tab', { name: 'Default classification' }))
     await waitFor(() => expect(screen.getByTestId('refund-settings-defaults')).not.toBeNull())
