@@ -66,6 +66,12 @@ export default defineConfig({
       'letterheads/version': fileURLToPath(
         new URL('./src/federation/__stubs__/letterheadsVersion.ts', import.meta.url),
       ),
+      // specs/20261112-time-tracking: the hours remote's one entry (ungated) and its version.
+      'hours/App': fileURLToPath(new URL('./src/federation/__stubs__/hoursApp.tsx', import.meta.url)),
+      'hours/version': fileURLToPath(new URL('./src/federation/__stubs__/hoursVersion.ts', import.meta.url)),
+      // specs/20261116-record-hours-in-place, T3: the hours remote's second entry, the Record hours button other
+      // tools' pages embed through `shell/extensions` (`hours.recordHours`).
+      'hours/RecordHours': fileURLToPath(new URL('./src/federation/__stubs__/hoursRecordHours.tsx', import.meta.url)),
     },
   },
   test: {

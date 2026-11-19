@@ -17,6 +17,7 @@ import { nav } from './strings/nav'
 import { offerWizard } from './strings/offerWizard'
 import { offers } from './strings/offers'
 import { people } from './strings/people'
+import { recordHours } from './strings/recordHours'
 import { settings } from './strings/settings'
 import { source } from './strings/source'
 import { tasks } from './strings/tasks'
@@ -36,6 +37,7 @@ export const en = {
   offerWizard: offerWizard.en,
   offers: offers.en,
   people: people.en,
+  recordHours: recordHours.en,
   settings: settings.en,
   source: source.en,
   tasks: tasks.en,
@@ -56,6 +58,7 @@ export const it: typeof en = {
   offerWizard: offerWizard.it,
   offers: offers.it,
   people: people.it,
+  recordHours: recordHours.it,
   settings: settings.it,
   source: source.it,
   tasks: tasks.it,

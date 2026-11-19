@@ -1534,6 +1534,62 @@ select:not([multiple]):not([size]) {
     background: var(--ink-soft);
   }
 
+  /* Pinned columns — DataTableColumn.pin. From 48 rem up, a column marked `pin` stays at the
+   * region's start or end edge while the other columns scroll under it; below that the table
+   * scrolls whole, as it always did. The pinned cell has an opaque surface (the one the table
+   * sits on: a card, dialog or drawer is --ink-soft, the page --ink) so nothing shows through,
+   * and a hairline on the edge that faces the scrolling columns. That hairline is an inset
+   * shadow because the table has collapsed borders and a sticky cell does not carry its own;
+   * the row hairlines continue across the pinned cells. DataTable measures each pinned column
+   * into --data-table-pin-start / -end, and the region reserves that width plus a cell's
+   * padding as scroll padding, so a cell the browser scrolls into view for focus is never
+   * left under a pinned column (WCAG 2.4.11). */
+  .data-table {
+    --data-table-pin-surface: var(--ink);
+  }
+
+  :is(.card, .dialog, .drawer, .floating-panel) .data-table {
+    --data-table-pin-surface: var(--ink-soft);
+  }
+
+  @media (min-width: 48rem) {
+    .data-table :is(th, td):is(.is-pinned-start, .is-pinned-end) {
+      position: sticky;
+      z-index: 1;
+      background: var(--data-table-pin-surface);
+    }
+
+    .data-table .is-pinned-start {
+      inset-inline-start: 0;
+      box-shadow: inset -1px 0 0 var(--rule);
+    }
+
+    .data-table .is-pinned-start:dir(rtl) {
+      box-shadow: inset 1px 0 0 var(--rule);
+    }
+
+    .data-table .is-pinned-end {
+      inset-inline-end: 0;
+      box-shadow: inset 1px 0 0 var(--rule);
+    }
+
+    .data-table .is-pinned-end:dir(rtl) {
+      box-shadow: inset -1px 0 0 var(--rule);
+    }
+
+    .data-table tbody tr.is-interactive:hover > :is(.is-pinned-start, .is-pinned-end) {
+      background: var(--ink-soft);
+    }
+
+    .table-region.has-pin-start {
+      scroll-padding-inline-start: calc(var(--data-table-pin-start) + 8px);
+    }
+
+    .table-region.has-pin-end {
+      scroll-padding-inline-end: calc(var(--data-table-pin-end) + 8px);
+    }
+  }
+
   /* ── Fact list — <FactList> ──────────────────────────────────────────────
    * Label/value pairs on an auto-filling grid (design-system.md § Cards). */
   .fact-list {

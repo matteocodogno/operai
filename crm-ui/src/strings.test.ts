@@ -34,6 +34,11 @@ describe('strings catalogs (INC-24, INC-25)', () => {
   it('tests run with an English browser, so the selected catalog is English', () => {
     expect(strings).toBe(en)
   })
+
+  it('the Record hours fallback link reads in both languages (specs/20261116-record-hours-in-place AC-4.5, AC-4.6)', () => {
+    expect(en.recordHours.fallbackLink).toBe('Record hours in My hours')
+    expect(italian.recordHours.fallbackLink).toBe('Registra ore in Le mie ore')
+  })
 })
 
 /**

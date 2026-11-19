@@ -54,13 +54,14 @@ dir = "operai-ui"
 run = "pnpm install --frozen-lockfile && pnpm storybook"
 
 [tasks."ui:check"]
-description = "Check @operai/ui and its consumers: library typecheck/lint/tests/Storybook build, then shell + refund-ui + meetings-ui build and tests"
+description = "Check @operai/ui and its consumers: library typecheck/lint/tests/Storybook build, then shell + refund-ui + meetings-ui + hours-ui build and tests"
 run = """
 set -e
 (cd operai-ui && pnpm typecheck && pnpm lint && pnpm test && pnpm build-storybook --quiet)
 (cd shell && pnpm build && pnpm test)
 (cd refund-ui && pnpm build && pnpm lint && pnpm test)
 (cd meetings-ui && pnpm build && pnpm lint && pnpm test)
+(cd hours-ui && pnpm build && pnpm lint && pnpm test)
 """
 
 # --- Shared-copy drift guard: a few backend modules are COPIED between services
@@ -86,13 +87,19 @@ run = "bun tools/env-doctor/index.ts"
 # dev:preview exports it before the build too. VITE_LETTERHEADS_API_URL (specs/20261116-letterhead-service) is the same for
 # letterhead-api (:8088), which letterheads-ui (:5182) reaches through the shell.
 #
+# specs/20261112-time-tracking: likewise VITE_HOURS_API_URL (hours-api, :8089) — the base URL hours-ui calls (its
+# Settings tab, the time lists, included) and the shell's trusted origin for the Bearer. Same default, same rule: set in `dev`,
+# `dev:web` and `dev:preview`, and before the shell's build in the last one.
+#
 # Run the WHOLE Operai suite locally (Module Federation, specs/20260709-suite-shell + specs/20260713-notification-center
 # + specs/20260716-refund-service + specs/20261006-hardware-inventory): Postgres + MinIO (local S3 for refund receipts and
-# inventory invoices) + all SIX backends + the six tool frontends, one
+# inventory invoices) + all the backends + all the tool frontends, one
 # command. Ports: auth 3001, estimai-api 8080, notify-api 8081, refund-api
-# 8082, inventory-api 8083, crm-api 8084, meetings-api 8085, projects-api 8086, activities-api 8087, shell 5173,
+# 8082, inventory-api 8083, crm-api 8084, meetings-api 8085, projects-api 8086, activities-api 8087,
+# hours-api 8089, shell 5173,
 # estimai-ui 5174, refund-ui 5175, notify-ui 5176, admin-ui 5177, inventory-ui 5178, crm-ui 5179,
-# meetings-ui 5180, projects-ui 5181, letterheads-ui 5182 (frontend ports pinned in each app's vite.config.ts); letterhead-api 8088 (Rust, specs/20261116-letterhead-service); MinIO S3
+# meetings-ui 5180, projects-ui 5181, letterheads-ui 5182, hours-ui 5184 (frontend ports pinned in each app's vite.config.ts);
+# letterhead-api 8088 (Rust, specs/20261116-letterhead-service); MinIO S3
 # 9000 + console 9001. Open
 # http://localhost:5173 (the shell).
 # `trap 'kill 0'` reaps every child (backends + vite) on Ctrl-C. Postgres +
@@ -116,6 +123,15 @@ run = "bun tools/env-doctor/index.ts"
 # until one is added (mirror crm-api/.envrc: DATABASE_URL, AUTH_*, MEETINGS_S3_*, provider
 # keys), so until then those variables must be in the calling shell.
 #
+# hours-api (specs/20261112-time-tracking) has no direnv file and needs none: a person copies
+# hours-api/.env.example to hours-api/.env (gitignored — secret values live only there, never in a committed
+# .envrc) and fills it; bun and prisma.config.ts load it, and `direnv exec .` below only adds the root env.
+# Until it exists hours-api exits at start on its env validation (src/lib/env.ts, exit 1, naming each missing
+# variable) and the rest of the stack keeps running; nothing answers on :8089. It also needs `SERVICE_AUDIENCE`
+# in meetings-api's own environment and an `hours-api` entry (scope `meetings.hosts.read`) in auth's
+# `SERVICE_CLIENTS`, its secret held where auth keeps the others (never a committed file): without them a
+# meeting's deal reads as unavailable.
+#
 # Frontend env: admin-ui ALSO has its own `.envrc` (VITE_GOOGLE_MAPS_API_KEY,
 # specs/20260803-employee-address / ADR 20260804-google-places-browser-direct-referrer-restricted-key) and so runs through `direnv exec .` too — note the
 # `cd` is load-bearing: direnv keys off the CURRENT directory, so
@@ -124,7 +140,8 @@ run = "bun tools/env-doctor/index.ts"
 #
 # Prereqs (once): direnv installed; each backend's .envrc allowed (`direnv allow
 # auth`, `direnv allow estimai-api`, `direnv allow notify-api`, `direnv allow
-# refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api`) plus
+# refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api`;
+# hours-api has none, it reads hours-api/.env) plus
 # `direnv allow admin-ui`; 1Password CLI signed in;
 # ENABLE_TEST_AUTH=true for a seeded local session; and migrations applied via
 # `mise run db:migrate`.
@@ -136,10 +153,11 @@ run = "bun tools/env-doctor/index.ts"
 # federation plugin adds is incompatible with React Fast Refresh's
 # consistent-exports rule); edits deeper in a remote's tree Fast-Refresh normally.
 [tasks.dev]
-description = "Run the FULL suite locally with HMR — Postgres + MinIO (S3 :9000, console :9001) + auth :3001 + estimai-api :8080 + notify-api :8081 + refund-api :8082 + inventory-api :8083 + crm-api :8084 + meetings-api :8085 + projects-api :8086 + activities-api :8087 + letterhead-api :8088 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182"
+description = "Run the FULL suite locally with HMR — Postgres + MinIO (S3 :9000, console :9001) + auth :3001 + estimai-api :8080 + notify-api :8081 + refund-api :8082 + inventory-api :8083 + crm-api :8084 + meetings-api :8085 + projects-api :8086 + activities-api :8087 + letterhead-api :8088 + hours-api :8089 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182 + hours-ui :5184"
 run = """
 export VITE_ACTIVITIES_API_URL="${VITE_ACTIVITIES_API_URL:-http://localhost:8087}"
 export VITE_LETTERHEADS_API_URL="${VITE_LETTERHEADS_API_URL:-http://localhost:8088}"
+export VITE_HOURS_API_URL="${VITE_HOURS_API_URL:-http://localhost:8089}"
 docker compose up -d postgres minio minio-createbucket letterhead-createdb
 trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
@@ -152,6 +170,7 @@ trap 'kill 0' EXIT INT TERM
 (cd projects-api && direnv exec . bun run dev) &
 (cd activities-api && direnv exec . bun run dev) &
 mise run dev:letterhead &
+(cd hours-api && direnv exec . bun run dev) &
 pnpm --dir shell dev &
 pnpm --dir estimai-ui dev &
 pnpm --dir refund-ui dev &
@@ -160,6 +179,7 @@ pnpm --dir crm-ui dev &
 pnpm --dir meetings-ui dev &
 pnpm --dir projects-ui dev &
 pnpm --dir letterheads-ui dev &
+pnpm --dir hours-ui dev &
 (cd admin-ui && direnv exec . pnpm dev) &
 pnpm --dir notify-ui dev &
 node scripts/open-when-ready.mjs http://localhost:5173 http://localhost:3001/health &
@@ -169,23 +189,24 @@ wait
 # Frontends only (HMR) — for when the backends are already running elsewhere
 # (e.g. you started auth/estimai-api/notify-api/refund-api/inventory-api in their own terminals).
 [tasks."dev:web"]
-description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182 (backends run separately)"
-run = "export VITE_ACTIVITIES_API_URL=\"${VITE_ACTIVITIES_API_URL:-http://localhost:8087}\"; export VITE_LETTERHEADS_API_URL=\"${VITE_LETTERHEADS_API_URL:-http://localhost:8088}\"; trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir inventory-ui dev & pnpm --dir crm-ui dev & pnpm --dir meetings-ui dev & pnpm --dir projects-ui dev & pnpm --dir letterheads-ui dev & (cd admin-ui && direnv exec . pnpm dev) & pnpm --dir notify-ui dev & node scripts/open-when-ready.mjs http://localhost:5173 & wait"
+description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182 + hours-ui :5184 (backends run separately)"
+run = "export VITE_ACTIVITIES_API_URL=\"${VITE_ACTIVITIES_API_URL:-http://localhost:8087}\"; export VITE_LETTERHEADS_API_URL=\"${VITE_LETTERHEADS_API_URL:-http://localhost:8088}\"; export VITE_HOURS_API_URL=\"${VITE_HOURS_API_URL:-http://localhost:8089}\"; trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir inventory-ui dev & pnpm --dir crm-ui dev & pnpm --dir meetings-ui dev & pnpm --dir projects-ui dev & pnpm --dir letterheads-ui dev & pnpm --dir hours-ui dev & (cd admin-ui && direnv exec . pnpm dev) & pnpm --dir notify-ui dev & node scripts/open-when-ready.mjs http://localhost:5173 & wait"
 
 # Full stack, but the frontends run build + preview instead of dev: no HMR, but
 # deterministic and mirrors the Vercel deploy shape (independently built + served
 # remotes) — the same mode the e2e uses (shell/playwright.config.ts). Builds gate
 # the previews. Same prereqs + ports as `dev`.
 [tasks."dev:preview"]
-description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + projects-api + activities-api + letterhead-api + built frontends"
+description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + projects-api + activities-api + letterhead-api + hours-api + built frontends"
 run = """
 export VITE_ACTIVITIES_API_URL="${VITE_ACTIVITIES_API_URL:-http://localhost:8087}"
 export VITE_LETTERHEADS_API_URL="${VITE_LETTERHEADS_API_URL:-http://localhost:8088}"
+export VITE_HOURS_API_URL="${VITE_HOURS_API_URL:-http://localhost:8089}"
 docker compose up -d postgres minio minio-createbucket letterhead-createdb
 # admin-ui builds through direnv: Vite bakes `import.meta.env.VITE_*` at BUILD
 # time, so without its .envrc here the preview bundle ships with no Maps key and
 # address autocomplete degrades silently (AC-3.2, specs/20260803-employee-address) — invisibly.
-pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && pnpm --dir inventory-ui build && pnpm --dir crm-ui build && pnpm --dir meetings-ui build && pnpm --dir projects-ui build && pnpm --dir letterheads-ui build && (cd admin-ui && direnv exec . pnpm build) && pnpm --dir notify-ui build
+pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && pnpm --dir inventory-ui build && pnpm --dir crm-ui build && pnpm --dir meetings-ui build && pnpm --dir projects-ui build && pnpm --dir letterheads-ui build && pnpm --dir hours-ui build && (cd admin-ui && direnv exec . pnpm build) && pnpm --dir notify-ui build
 trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
 (cd estimai-api && direnv exec . bun run dev) &
@@ -197,6 +218,7 @@ trap 'kill 0' EXIT INT TERM
 (cd projects-api && direnv exec . bun run dev) &
 (cd activities-api && direnv exec . bun run dev) &
 mise run dev:letterhead &
+(cd hours-api && direnv exec . bun run dev) &
 pnpm --dir shell preview &
 pnpm --dir estimai-ui preview &
 pnpm --dir refund-ui preview &
@@ -205,6 +227,7 @@ pnpm --dir crm-ui preview &
 pnpm --dir meetings-ui preview &
 pnpm --dir projects-ui preview &
 pnpm --dir letterheads-ui preview &
+pnpm --dir hours-ui preview &
 pnpm --dir admin-ui preview &
 pnpm --dir notify-ui preview &
 node scripts/open-when-ready.mjs http://localhost:5173 http://localhost:3001/health &
@@ -251,8 +274,12 @@ exec cargo run -p letterhead-api
 # migrations yet (T5 lands prisma/migrations/0001_init) — `db:deploy` against
 # an empty migrations directory is a no-op, not an error, so this stays safe
 # to run today.
+#
+# hours-api (specs/20261112-time-tracking) comes last: its `DATABASE_URL` (the `hours` database) comes from hours-api/.env,
+# which a person creates (see the note above `dev`); without it, its `db:deploy` fails on the missing URL and the
+# other nine databases are already migrated.
 [tasks."db:migrate"]
-description = "Apply DB migrations for auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + projects-api + activities-api + letterhead-api (needs backend env configured)"
+description = "Apply DB migrations for auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + projects-api + activities-api + letterhead-api + hours-api (needs backend env configured)"
 run = """
 docker compose up -d postgres
 (cd auth && direnv exec . bun run db:deploy)
@@ -268,6 +295,7 @@ docker compose up -d postgres
 # migrations (`letterhead-api migrate`; DATABASE_URL is the only variable it reads).
 docker compose run --rm letterhead-createdb
 (cd letterhead-api && DATABASE_URL="postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@localhost:5435/letterhead" cargo run -p letterhead-api -- migrate)
+(cd hours-api && direnv exec . bun run db:deploy)
 """
 # specs/20261117-legal-entities (T9): copy the CRM's legal details into the legal-entity registry (auth). LOCAL compose
 # databases only: both URLs are built here from POSTGRES_* and never taken from the environment, so a production

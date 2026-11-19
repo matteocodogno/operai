@@ -50,6 +50,7 @@ function remoteFixture(
     meetings: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
     projects: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
     letterheads: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
+    hours: () => Promise.resolve({ REMOTE_VERSION: '0.3.2' }),
   }
   return [
     { id: 'estimai', label: 'EstimAI', loader: overrides.estimai ?? defaults.estimai },
@@ -61,6 +62,7 @@ function remoteFixture(
     { id: 'meetings', label: 'Meetings', loader: overrides.meetings ?? defaults.meetings },
     { id: 'projects', label: 'Projects', loader: overrides.projects ?? defaults.projects },
     { id: 'letterheads', label: 'Letterheads', loader: overrides.letterheads ?? defaults.letterheads },
+    { id: 'hours', label: 'Hours', loader: overrides.hours ?? defaults.hours },
   ]
 }
 
@@ -215,6 +217,67 @@ describe('AboutModal', () => {
         expect(screen.getByTestId('remote-version-estimai').textContent).toBe('1.2.3')
       })
       expect(screen.getByTestId('remote-version-inventory').textContent).toBe('—')
+      expect(screen.getByRole('dialog', { name: `About ${APP_NAME}` })).not.toBeNull()
+    })
+
+    // specs/20261112-time-tracking (T23, ADR 20260803-suite-version-generated-file-federated-export, AC-5.1): the Hours row. hours-ui is a remote that is not a
+    // TOOLS entry, so the dialog (which lists every remote the shell can mount) is the one place its
+    // version shows.
+    it('lists Hours among the real default sources', async () => {
+      render(<AboutModal onClose={() => {}} />)
+
+      expect(screen.getByText('Hours')).not.toBeNull()
+      // Resolved through the federation resolution stub (0.0.0-stub).
+      await waitFor(() => {
+        expect(screen.getByTestId('remote-version-hours').textContent).toBe('0.0.0-stub')
+      })
+    })
+
+    it('shows the Hours version once its import resolves', async () => {
+      render(<AboutModal onClose={() => {}} remoteVersionSources={remoteFixture()} />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('remote-version-hours').textContent).toBe('0.3.2')
+      })
+    })
+
+    it('degrades to a muted dash for Hours, and leaves the others alone, when hours/version is not exposed (REJECTS)', async () => {
+      const sources = remoteFixture({
+        hours: () => Promise.reject(new Error('Module ./version does not exist in container')),
+      })
+
+      render(<AboutModal onClose={() => {}} remoteVersionSources={sources} />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('remote-version-estimai').textContent).toBe('1.2.3')
+      })
+      expect(screen.getByTestId('remote-version-hours').textContent).toBe('—')
+      expect(screen.getByRole('dialog', { name: `About ${APP_NAME}` })).not.toBeNull()
+    })
+
+    it('degrades to a muted dash for Hours when hours/version resolves without a REMOTE_VERSION string', async () => {
+      const sources = remoteFixture({ hours: () => Promise.resolve({}) })
+
+      render(<AboutModal onClose={() => {}} remoteVersionSources={sources} />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('remote-version-projects').textContent).toBe('0.1.0')
+      })
+      expect(screen.getByTestId('remote-version-hours').textContent).toBe('—')
+    })
+
+    it('still renders, with a muted dash for Hours, when hours/version TIMES OUT', async () => {
+      vi.useFakeTimers()
+      const sources = remoteFixture({ hours: () => new Promise(() => {}) })
+
+      render(<AboutModal onClose={() => {}} remoteVersionSources={sources} />)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REMOTE_VERSION_TIMEOUT_MS + 50)
+      })
+
+      expect(screen.getByTestId('remote-version-hours').textContent).toBe('—')
+      expect(screen.getByTestId('remote-version-estimai').textContent).toBe('1.2.3')
       expect(screen.getByRole('dialog', { name: `About ${APP_NAME}` })).not.toBeNull()
     })
 

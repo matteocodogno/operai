@@ -177,7 +177,14 @@ describe('the mixed list', () => {
   it('a pre-sales row with no company at all has no CRM link rather than a broken one', async () => {
     await renderPage({ 'GET /tasks': () => ({ status: 200, body: page([preSalesTask('s1', { company: null, deal: null })]) }) })
     const row = await screen.findByTestId('my-task-s1')
-    expect(within(row).queryByRole('link')).toBeNull()
+    // Ada is the assignee, so the row also carries Record hours' fallback link to My hours (specs/20261116-record-hours-in-place):
+    // it is the CRM link that must not exist.
+    expect(within(row).queryByTestId('my-task-s1-crm')).toBeNull()
+    expect(
+      within(row)
+        .queryAllByRole('link')
+        .filter((link) => link.getAttribute('href')?.startsWith('/crm')),
+    ).toEqual([])
   })
 })
 

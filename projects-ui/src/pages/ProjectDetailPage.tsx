@@ -6,6 +6,7 @@ import PickProjectManagerDialog from '../components/PickProjectManagerDialog'
 import ProjectEditDialog from '../components/ProjectEditDialog'
 import { LoadFailure, Loading, Saved, StaleWriteBanner } from '../components/LoadState'
 import PurchaseOrderCard from '../components/PurchaseOrderCard'
+import RecordHoursAction from '../components/RecordHoursAction'
 import StateActions from '../components/StateActions'
 import TasksCard from '../components/TasksCard'
 import TeamCard from '../components/TeamCard'
@@ -16,6 +17,7 @@ import { useScope } from '../hooks/useScope'
 import { statusOf } from '../lib/errors'
 import { personName } from '../lib/people'
 import { getProject } from '../lib/projectsApi'
+import { mayRecordOnProject, recordHoursPropsOf } from '../lib/recordHours'
 import type { Project } from '../lib/types'
 import { strings } from '../strings'
 
@@ -118,6 +120,9 @@ export default function ProjectDetailPage() {
 
   const project = resource.data!
   const canManage = canManageEntity(project.entity)
+  // Record hours is offered to the project's manager and its team, whatever they may manage (AC-1.1, AC-1.2): a
+  // convenience of this page; hours-api decides every save (ADR 20261116-record-hours-widget-through-the-host-extension-seam).
+  const canRecordHours = mayRecordOnProject(project, currentUserId)
   const changed = (next: Project, message: string) => {
     resource.replace(next)
     setSaved(message)
@@ -162,13 +167,18 @@ export default function ProjectDetailPage() {
         status={<ProjectStateBadge state={project.state} />}
         back={<BackLink />}
         actions={
-          canManage && (
-            <StateActions
-              project={project}
-              onChanged={changed}
-              onStale={() => setStale(true)}
-              onError={setActionError}
-            />
+          (canRecordHours || canManage) && (
+            <>
+              {canRecordHours && <RecordHoursAction {...recordHoursPropsOf(project)} />}
+              {canManage && (
+                <StateActions
+                  project={project}
+                  onChanged={changed}
+                  onStale={() => setStale(true)}
+                  onError={setActionError}
+                />
+              )}
+            </>
           )
         }
       />

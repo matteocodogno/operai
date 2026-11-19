@@ -14,11 +14,17 @@
  * throw (error boundary) ALL render the host's own `fallback`; nothing is ever
  * rethrown. Each host keeps its own fallback copy — this module has no strings.
  *
- * The prop contract is declared ONCE here (`ExtensionProps`): three plain
- * strings and nothing else crosses the boundary. crm-ui keeps a hand-written
- * ambient copy (`crm-ui/src/federation/remotes.d.ts`) — keep them in sync, and
- * crm-ui imports this module dynamically so a shell that predates the expose
+ * The prop contract is declared ONCE here (`ExtensionProps`): plain strings
+ * (three for Meetings' panel, six for hours-ui's Record hours button) and
+ * nothing else crosses the boundary. crm-ui and projects-ui keep a hand-written
+ * ambient copy (`<app>/src/federation/remotes.d.ts`) — keep them in sync, and
+ * each imports this module dynamically so a shell that predates the expose
  * degrades to the host's fallback.
+ *
+ * `hours.recordHours` (specs/20261116-record-hours-in-place, ADR
+ * 20261116-record-hours-widget-through-the-host-extension-seam) is a second use
+ * of the same seam: the project page, the deal page and the task rows embed it,
+ * and the host's `fallback` is a link to My hours.
  */
 import { Component, useEffect, useState } from 'react'
 import type { ComponentType, JSX, ReactNode } from 'react'
@@ -31,6 +37,24 @@ export interface ExtensionProps {
   'meetings.hostMeetings': { hostApp: string; entityType: string; entityId: string }
   /** The recorder widget, shown by the floating slot (spec A13, ADR 20261110-shell-floating-slot-for-remote-widgets), not by a host page. */
   'meetings.recorderDock': { meetingId: string; title: string }
+  /**
+   * hours-ui's Record hours button (specs/20261116-record-hours-in-place, ADR 20261116-record-hours-widget-through-the-host-extension-seam):
+   * the project page, the deal page and the task rows of projects-ui and crm-ui embed it. Six plain strings; nothing
+   * comes back. crm-ui and projects-ui keep a hand-written copy in their `remotes.d.ts`.
+   */
+  'hours.recordHours': {
+    on: 'project' | 'deal' | 'none'
+    /** The project or deal id; '' when `on` is 'none'. */
+    targetId: string
+    /** The target's name as the host shows it; '' when the host cannot name it, or `on` is 'none'. */
+    targetName: string
+    /** The task's id when recorded from a task row on a project or a deal; otherwise ''. */
+    activityId: string
+    /** The task's subject; '' when there is no task. With `on` 'none' (a CRM task with no deal) it only names the button. */
+    activityName: string
+    /** The page header's button, or a task row's smaller one. */
+    placement: 'page' | 'row'
+  }
 }
 
 type ExtensionName = keyof ExtensionProps
@@ -41,6 +65,7 @@ type ExtensionLoader<K extends ExtensionName> = () => Promise<{ default?: Compon
 const LOADERS: { [K in ExtensionName]: ExtensionLoader<K> } = {
   'meetings.hostMeetings': () => import('meetings/HostMeetings'),
   'meetings.recorderDock': () => import('meetings/RecorderDock'),
+  'hours.recordHours': () => import('hours/RecordHours'),
 }
 
 export interface HostExtensionProps<K extends ExtensionName> {

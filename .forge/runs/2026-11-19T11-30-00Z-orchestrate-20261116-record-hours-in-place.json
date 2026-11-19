@@ -1,0 +1,254 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.61.0",
+  "run_id": "2026-11-19T11-30-00Z-orchestrate-20261116-record-hours-in-place",
+  "command": "orchestrate",
+  "feature": "20261116-record-hours-in-place",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "started": "2026-11-19T11:30:00Z",
+  "finished": "2026-11-19T17:45:00Z",
+  "agents": [
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "commits": [
+        "0324d699"
+      ],
+      "note": "plan § Amendment 2026-11-19: the table view, week and month; re-approved by the user with D25"
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "commits": [
+        "b18343b3"
+      ],
+      "note": "ADR 20261116-week-view-sums-a-complete-read-in-the-browser amended for the month (plan R3)"
+    },
+    {
+      "agent": "designer",
+      "outcome": "completed",
+      "commits": [
+        "b420dcf4"
+      ],
+      "note": "design § Amendment 2026-11-19; re-approved by the user with D26 (Month → Week returns to the week left) and D27 (DataTable pin)"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T17",
+      "outcome": "completed",
+      "commits": [
+        "a799d441"
+      ],
+      "note": "rename week → table, no behaviour change, 2153/2153"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T18",
+      "outcome": "completed",
+      "commits": [
+        "d3310a58"
+      ],
+      "note": "TablePeriod (week), tableGrid(entries, days), 2186"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T19",
+      "outcome": "completed",
+      "commits": [
+        "2f04146a"
+      ],
+      "note": "address, table view default, full width; e2e 22/22"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T20",
+      "outcome": "completed",
+      "commits": [
+        "8f57b5e9"
+      ],
+      "note": "inert empty cells, Next stops at current, future clamp; 2251"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T21",
+      "outcome": "completed",
+      "commits": [
+        "a36b3d14"
+      ],
+      "note": "@operai/ui DataTable column pin; operai-ui 389, ui:check green"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T22",
+      "outcome": "completed",
+      "commits": [
+        "03146b53"
+      ],
+      "note": "the month, period switch, toolbar, month grid, copy; 2567"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T23",
+      "outcome": "completed",
+      "commits": [
+        "51302166"
+      ],
+      "note": "period date field up to today (R16 uncontrolled input); 2709"
+    },
+    {
+      "agent": "quality-engineer",
+      "task": "T24",
+      "outcome": "completed",
+      "commits": [
+        "06f2721a"
+      ],
+      "note": "e2e A adapted, F rewritten, G new; 29/29"
+    },
+    {
+      "agent": "devops",
+      "task": "T25",
+      "outcome": "completed",
+      "commits": [
+        "32d05c87"
+      ],
+      "note": "AGENTS.md, infra/README.md, hours-ui changeset; deploy order shell → hours-ui → hosts"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "task": "T26",
+      "outcome": "PASS WITH NOTES",
+      "commits": [
+        "baf60340"
+      ],
+      "note": "L1 low: a long row label hides the month's days behind the pinned column"
+    },
+    {
+      "agent": "frontend-dev",
+      "outcome": "completed",
+      "commits": [
+        "39ceb3de"
+      ],
+      "note": "owasp L1 fix (wrap-anywhere) + e2e G.7; 30/30"
+    },
+    {
+      "agent": "frontend-dev",
+      "outcome": "completed",
+      "commits": [
+        "b3725fb6"
+      ],
+      "note": "L1 mechanism changed to break-words + max-w-64 (ordinary words stay whole); e2e tsc errors fixed"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "FAIL",
+      "commits": [
+        "687204b8"
+      ],
+      "note": "QE pass 4: 51/51 ACs, all gates green; D1 low — a long unbreakable name spills out of the cell dialog (× off-screen), entry link, delete confirmation, Record hours description, host message"
+    },
+    {
+      "agent": "frontend-dev",
+      "outcome": "completed",
+      "commits": [
+        "7e7397e5"
+      ],
+      "note": "fix round for D1 (hours-ui only) and O3 (G.3 hardened); e2e G.8; 31/31"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "PASS",
+      "commits": [
+        "1c72af5f"
+      ],
+      "note": "QE pass 5: D1 98/98 placement checks, mutants killed, e2e 31/31, gates green; screen-reader readback out of the gate (D14)"
+    },
+    {
+      "agent": "evaluator",
+      "outcome": "PASS",
+      "score": 80.0,
+      "commits": [
+        "e026faa5"
+      ],
+      "note": "rubric default-v2, 92/115 = 80.0, no margin: every dimension 4 (AC satisfaction at its floor: the month halves of AC-5.7, 5.23 and the unreadable half of 5.24 are unit-tested only); trajectory 4"
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "main loop",
+      "artifact": "spec.md",
+      "summary": "the user asked for a Month view, a date picker, no width jump and no plus on empty cells after the first close; feature reopened by reverting 29c97359 (9ab6b879, D22), spec amended (D15–D24) and re-approved",
+      "resolved": true
+    },
+    {
+      "agent": "architect",
+      "artifact": "spec.md",
+      "summary": "AC-5.26 on a current week straddling two months — settled by the user at the plan gate (D25)",
+      "resolved": true
+    },
+    {
+      "agent": "designer",
+      "artifact": "spec.md",
+      "summary": "AC-5.27 lost the week left and could show a week mostly in the previous month (G14, G15) — settled by the user at the design gate (D26)",
+      "resolved": true
+    },
+    {
+      "agent": "frontend-dev",
+      "artifact": "plan.md",
+      "summary": "T22: § The address had withList after the month removing week, contrary to D26; plan corrected (bf47e492)",
+      "resolved": true
+    }
+  ],
+  "collision_events": [],
+  "worktree": {
+    "mode": "main tree, sequential",
+    "reason": "T17–T23 share MyHoursPage*, TableView*, strings/table.ts; T21 could have run beside them but a worktree needs every app reinstalled for ui:check; T24/T25/T26 ran together in the main tree with disjoint files and a single committer (T24)"
+  },
+  "env_faults": [
+    {
+      "agent": "every frontend dispatch",
+      "class": "runtime",
+      "detail": "Node 26 on this machine needs NODE_OPTIONS=--no-webstorage for the frontend unit suites; green with it (pinned Node 24 needs nothing)",
+      "resolved_by": "flag used on every run"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "tooling",
+      "detail": "betterleaks not installed; secret scan run with gitleaks 8.30.1, no leaks",
+      "resolved_by": "gitleaks binary"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "tooling",
+      "detail": "only Chromium installed; Firefox and WebKit not run and not claimed",
+      "resolved_by": null
+    }
+  ],
+  "verdicts": {
+    "qe": "PASS",
+    "security": "PASS",
+    "eval": "PASS"
+  },
+  "fix_rounds": {
+    "used": 2,
+    "cap": 2,
+    "extensions": [],
+    "note": "1 used in the feature's earlier run (2026-11-19T07-40-00Z trace, before the reopening); 1 here for QE pass 4 D1. The owasp L1 fix (39ceb3de, b3725fb6) was a low security note acted on, not a QE fix round."
+  },
+  "security": {
+    "matched_rules": [
+      "always_at_tier: production",
+      "path_contains: token (operai-ui/src/styles/tokens.css)"
+    ],
+    "dispatched": true,
+    "notes": [
+      "L1 (low, A04): a long unbreakable row label widened the pinned month column past the scroll region; fixed in 39ceb3de and b3725fb6 (break-words + max-w-64), e2e G.7"
+    ]
+  },
+  "result": "completed",
+  "notes": "Reopened run of 2026-11-19 after the first close (29c97359, reverted). Eval PASS 80.0 (e026faa5), exactly at pass_score. Follow-ups outside the gate: QE O1 (week scroll hint with the shell rail open at 1024–1100 px), O2 (a filled cell reads as plain text at rest), O4 (375 px with the shell rail open), O5 (the current month opens at the 1st), same-class long names in the List's Totals and Everyone's hours tables and projects-ui's page title, the screen-reader readback (D14).",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}

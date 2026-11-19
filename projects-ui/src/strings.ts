@@ -18,6 +18,7 @@ import { projects } from './strings/projects'
 import { tasks } from './strings/tasks'
 import { purchaseOrder } from './strings/purchaseOrder'
 import { queue } from './strings/queue'
+import { recordHours } from './strings/recordHours'
 import { terms } from './strings/terms'
 
 /** The English catalog: the reference every other language is checked against. */
@@ -31,6 +32,7 @@ export const en = {
   tasks: tasks.en,
   purchaseOrder: purchaseOrder.en,
   queue: queue.en,
+  recordHours: recordHours.en,
   terms: terms.en,
 }
 
@@ -45,6 +47,7 @@ export const it: typeof en = {
   tasks: tasks.it,
   purchaseOrder: purchaseOrder.it,
   queue: queue.it,
+  recordHours: recordHours.it,
   terms: terms.it,
 }
 

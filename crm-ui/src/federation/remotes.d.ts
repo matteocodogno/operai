@@ -56,6 +56,18 @@ declare module 'shell/extensions' {
 
   export interface ExtensionProps {
     'meetings.hostMeetings': { hostApp: string; entityType: string; entityId: string }
+    // Record hours in place (specs/20261116-record-hours-in-place, ADR 20261116-record-hours-widget-through-the-host-extension-seam):
+    // hours-ui's own widget, plain strings in and nothing back. `on: 'none'` is other work (a CRM task about a company
+    // with no deal); `targetId`/`targetName`/`activityId` are then ''. `activityName` names the task when there is one
+    // (and, for `on: 'none'`, only the button, never sent). `placement`: the page header's button, or a task row's.
+    'hours.recordHours': {
+      on: 'project' | 'deal' | 'none'
+      targetId: string
+      targetName: string
+      activityId: string
+      activityName: string
+      placement: 'page' | 'row'
+    }
   }
 
   export function HostExtension<K extends keyof ExtensionProps>(props: {

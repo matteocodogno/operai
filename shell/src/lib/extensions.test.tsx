@@ -11,9 +11,10 @@
  * `./extensions`, the shape router.inventory.test.tsx uses for a failing remote.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import type { ComponentType } from 'react'
+import type { ExtensionProps } from './extensions'
 
 type HostProps = { hostApp: string; entityType: string; entityId: string }
 
@@ -48,6 +49,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.doUnmock('meetings/HostMeetings')
+  vi.doUnmock('hours/RecordHours')
 })
 
 describe('HostExtension — the happy path', () => {
@@ -261,5 +263,197 @@ describe('HostExtension — a new entity gets a fresh panel', () => {
     await flush()
 
     expect(screen.getByTestId('panel').textContent).toBe('ok good')
+  })
+})
+
+// specs/20261116-record-hours-in-place, T3 (AC-4.5, AC-1.1, AC-2.1, AC-3.1; ADR 20261116-record-hours-widget-through-the-host-extension-seam):
+// `hours.recordHours` is hours-ui's own Record hours button, embedded by the project page, the deal page and the
+// task rows. Same seam, same failure rule: whatever goes wrong on hours-ui's side shows the HOST's fallback (a
+// link to My hours), never a broken page. Each test asserts that the federated module was actually asked for, so
+// none can pass by way of the "unknown extension name" fallback.
+type RecordHoursProps = ExtensionProps['hours.recordHours']
+
+const RECORD_PROPS: RecordHoursProps = {
+  on: 'project',
+  targetId: 'project-1',
+  targetName: 'Atlas',
+  activityId: 'task-9',
+  activityName: 'Write the API',
+  placement: 'row',
+}
+
+const myHoursLink = (
+  <a data-testid="fallback" href="/hours">
+    My hours
+  </a>
+)
+
+describe('ExtensionProps["hours.recordHours"] — the contract is six strings and nothing else', () => {
+  it('has exactly the members of plan § "The shell\'s extension", all strings or string unions', () => {
+    // Checked by `tsc -b` (the build), not at run time: an extra, a missing or a retyped member fails the build.
+    expectTypeOf<RecordHoursProps>().toEqualTypeOf<{
+      on: 'project' | 'deal' | 'none'
+      targetId: string
+      targetName: string
+      activityId: string
+      activityName: string
+      placement: 'page' | 'row'
+    }>()
+    expectTypeOf<RecordHoursProps[keyof RecordHoursProps]>().toBeString()
+  })
+})
+
+describe('HostExtension — hours.recordHours', () => {
+  it('imports hours/RecordHours and renders it with exactly the six props, nothing else', async () => {
+    const seen = vi.fn()
+    const factory = vi.fn(() => ({
+      default: (props: RecordHoursProps) => {
+        seen(props)
+        return <p data-testid="panel">Record hours on {props.targetName}</p>
+      },
+    }))
+    vi.doMock('hours/RecordHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    render(<HostExtension name="hours.recordHours" props={RECORD_PROPS} fallback={myHoursLink} />)
+    await flush()
+
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('panel').textContent).toBe('Record hours on Atlas')
+    expect(seen).toHaveBeenCalledWith(RECORD_PROPS)
+    expect(Object.keys(seen.mock.calls[0]?.[0] as object).sort()).toEqual([
+      'activityId',
+      'activityName',
+      'on',
+      'placement',
+      'targetId',
+      'targetName',
+    ])
+    expect(screen.queryByTestId('fallback')).toBeNull()
+  })
+
+  it('renders nothing while the remote loads (the host passes no `loading`) and leaves no timer once loaded', async () => {
+    const factory = vi.fn(() => ({ default: () => <p data-testid="panel">Record hours</p> }))
+    vi.doMock('hours/RecordHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    const { container } = render(<HostExtension name="hours.recordHours" props={RECORD_PROPS} fallback={myHoursLink} />)
+    expect(container.textContent).toBe('')
+    expect(screen.queryByTestId('fallback')).toBeNull()
+
+    await flush()
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('panel')).toBeDefined()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a rejected import (hours remote down, or one that predates the expose) shows the host fallback (AC-4.5)', async () => {
+    const factory = vi.fn(() => {
+      throw new Error('Failed to fetch remoteEntry.js')
+    })
+    vi.doMock('hours/RecordHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    render(<HostExtension name="hours.recordHours" props={RECORD_PROPS} fallback={myHoursLink} />)
+    await flush()
+
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('fallback').textContent).toBe('My hours')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a remote that never answers shows the host fallback after 5 s, not before (AC-4.5)', async () => {
+    const factory = vi.fn(() => new Promise(() => {}))
+    vi.doMock('hours/RecordHours', factory)
+    const { HostExtension, EXTENSION_TIMEOUT_MS } = await loadHostExtension()
+    expect(EXTENSION_TIMEOUT_MS).toBe(5000)
+
+    render(<HostExtension name="hours.recordHours" props={RECORD_PROPS} fallback={myHoursLink} />)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4999)
+    })
+    expect(factory).toHaveBeenCalled()
+    expect(screen.queryByTestId('fallback')).toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+
+    expect(screen.getByTestId('fallback').textContent).toBe('My hours')
+  })
+
+  it('a widget that throws on render (an invalid prop set is a host bug) shows the host fallback and the host page is intact (AC-4.5)', async () => {
+    const factory = vi.fn(() => ({
+      default: () => {
+        throw new Error('invalid RecordHours props')
+      },
+    }))
+    vi.doMock('hours/RecordHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    expect(() => {
+      render(
+        <div data-testid="host-page">
+          <HostExtension name="hours.recordHours" props={RECORD_PROPS} fallback={myHoursLink} />
+        </div>,
+      )
+    }).not.toThrow()
+    await flush()
+
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('fallback')).toBeDefined()
+    expect(screen.getByTestId('host-page')).toBeDefined()
+  })
+
+  it('a module without a default export shows the host fallback', async () => {
+    const factory = vi.fn(() => ({ somethingElse: 1 }))
+    vi.doMock('hours/RecordHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    render(<HostExtension name="hours.recordHours" props={RECORD_PROPS} fallback={myHoursLink} />)
+    await flush()
+
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('fallback')).toBeDefined()
+  })
+
+  it('several instances on one page (a task list) each get their own props, and one that throws blanks only itself', async () => {
+    const factory = vi.fn(() => ({
+      default: (props: RecordHoursProps) => {
+        if (props.activityId === 'bad') {
+          throw new Error('bad row')
+        }
+        return <p data-testid="panel">Record hours on {props.activityName}</p>
+      },
+    }))
+    vi.doMock('hours/RecordHours', factory)
+    const { HostExtension } = await loadHostExtension()
+    const row = (activityId: string, activityName: string) => (
+      <li key={activityId}>
+        <HostExtension
+          name="hours.recordHours"
+          props={{ ...RECORD_PROPS, activityId, activityName }}
+          fallback={myHoursLink}
+        />
+      </li>
+    )
+
+    // One row is mounted and loaded before the next arrives: under vitest only the first of several CONCURRENT
+    // imports of one `doMock`ed specifier gets the factory's module (in the browser Module Federation
+    // de-duplicates the load), so a list that mounts every row in one tick cannot be reproduced here.
+    const rows = [row('task-1', 'First task'), row('bad', 'Broken task'), row('task-3', 'Third task')]
+    const { rerender } = render(<ul>{rows.slice(0, 1)}</ul>)
+    await flush()
+    for (const count of [2, 3]) {
+      rerender(<ul>{rows.slice(0, count)}</ul>)
+      await flush()
+    }
+
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getAllByTestId('panel').map((node) => node.textContent)).toEqual([
+      'Record hours on First task',
+      'Record hours on Third task',
+    ])
+    expect(screen.getAllByTestId('fallback')).toHaveLength(1)
   })
 })

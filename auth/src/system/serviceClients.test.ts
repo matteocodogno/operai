@@ -69,7 +69,7 @@ describe("parseServiceClients", () => {
     if (!result.ok) expect(result.errors.join("\n")).not.toContain(SECRET_A);
   });
 
-  test("the scope allowlist is exactly the known service scopes (specs/20261103-projects, specs/20261103-projects-handoff)", () => {
+  test("the scope allowlist is exactly the known service scopes (specs/20261103-projects, specs/20261103-projects-handoff, specs/20261112-time-tracking)", () => {
     expect([...KNOWN_SERVICE_SCOPES]).toEqual([
       "notifications.push",
       "emails.send",
@@ -85,6 +85,7 @@ describe("parseServiceClients", () => {
       "projects.purchase-orders.read",
       "letterhead:render",
       "legal-entities:read",
+      "meetings.hosts.read",
     ]);
   });
 
@@ -307,6 +308,44 @@ describe("parseServiceClients", () => {
     if (!result.ok) return;
     expect([...(result.clients.get("activities-api")?.scopes ?? [])].sort()).toEqual(["emails.send", "notifications.push"]);
     expect(result.clients.get("activities-api")?.scopes).not.toContain("activities.write");
+  });
+
+  test("the documented hours-api entry is exactly meetings.hosts.read: it reads meeting-deal links and neither pushes nor emails (specs/20261112-time-tracking AC-2.6, AC-4.5, AC-4.11)", () => {
+    expect(DOCUMENTED_CLIENT_SCOPES["hours-api"]).toBe("meetings.hosts.read");
+    const result = parseServiceClients(
+      raw({ "hours-api": { secret: SECRET_A, scope: DOCUMENTED_CLIENT_SCOPES["hours-api"] } }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.clients.get("hours-api")?.scopes).toEqual(["meetings.hosts.read"]);
+  });
+
+  test("meetings.hosts.read is documented for hours-api alone: no other documented client may read the hosts of meetings (specs/20261112-time-tracking ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route)", () => {
+    const holders = Object.entries(DOCUMENTED_CLIENT_SCOPES)
+      .filter(([, scope]) => scope.split(" ").includes("meetings.hosts.read"))
+      .map(([clientId]) => clientId);
+    expect(holders).toEqual(["hours-api"]);
+  });
+
+  test("meetings.hosts.read is an accepted scope; a nearby misspelling or another verb is still refused (specs/20261112-time-tracking)", () => {
+    const ok = parseServiceClients(raw({ "hours-api": { secret: SECRET_A, scope: "meetings.hosts.read" } }));
+    expect(ok.ok).toBe(true);
+    for (const scope of [
+      "meetings.hosts.write",
+      "meetings.host.read",
+      "meeting.hosts.read",
+      "meetings.hosts",
+      "meetings.hosts.reads",
+      "MEETINGS.HOSTS.READ",
+      "meetings.read",
+    ]) {
+      const result = parseServiceClients(raw({ "hours-api": { secret: SECRET_A, scope } }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.join("\n")).toContain('"hours-api"');
+        expect(result.errors.join("\n")).not.toContain(SECRET_A);
+      }
+    }
   });
 
   test("a client holding emails.send parses, alone or beside notifications.push", () => {

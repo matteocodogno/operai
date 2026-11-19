@@ -501,6 +501,89 @@ letterheads-ui is **not** migrated in this change: it keeps its own copies, beca
 may still fix them in its QE/eval. **Follow-up (open):** once that spec is done, replace letterheads-ui's
 `ErrorSummary.tsx`, the table in `HistoryPanel.tsx` and the banner in `HistoryPanelVersion.tsx` with thin adapters
 over these three (binding its strings and its e2e test ids), and delete the copies.
+**D-67 — `SearchPicker` for a server-side search (2026-11-13, specs/20261112-time-tracking).** hours-ui is the
+third app that picks a record out of a search the server answers, with five uses (project,
+deal and meeting in the entry dialog, project and deal in the filters); crm-ui and
+projects-ui each already carry a near-identical `CompanyPicker`. The library's `SearchPicker`
+is that component with its rules written down and tested: one `search` call per settled text
+(250 ms), the request in flight aborted when the text changes, the list closes or the picker
+unmounts, a late answer to an older text discarded even when the app's `search` ignores the
+signal, "picked, never typed", and a polite announcement of each state. It differs from the
+two copies on purpose: it asks again on every open and says "searching" until that answer
+arrives (they showed the cached list, which can be one permission or one booking out of
+date); it follows `value` when the app changes it (they read it once, so a "Clear filters"
+left the old name in the field); it keeps `forbidden` and `unavailable` apart (a 403 and an
+unreachable service are different sentences, and neither is "no match"); and it announces
+searching, no match and the failures as well as the count. `PersonPicker` could not be
+stretched to it (it loads a whole list once and filters in the browser) and `Combobox` stays
+the dumb primitive (D-56), with one fix made for this use: Escape with the popup open now stops
+there (`Combobox` consumes it), where before it also closed the `Dialog` around the field
+(`useDialogBehavior` listens on the window), so the first Escape closes the list and the next
+the dialog. The two `CompanyPicker`s are not migrated here; they move when their screens are
+next touched. Undo: an app keeps its own picker; nothing else depends on it.
+
+**D-68 — `ExportButton` for a download (2026-11-13, specs/20261112-time-tracking).** inventory-ui's
+`ExportYearButton` is "Export XLSX" on the fiscal-year page; hours-ui needs the same control
+in two views, so by the library rule it moves in. The library's `ExportButton` is that
+button with the app-specific parts passed in: `build` returns the file (`data`, `fileName`,
+and an optional `readyMessage` for a caveat such as "names are missing"), `mimeType` defaults
+to XLSX, the three sentences are props, and `resetKey` replaces the year's status that the old
+button tied to by hand. Kept from the original: `aria-busy`, never `disabled` (it would drop
+keyboard focus), a second click ignored (also within one tick, with a ref, since a click can
+land before React shows the busy state), a polite "preparing" then "ready", an inline alert on
+failure with the button usable again. Changed on purpose: the status is cleared when `resetKey`
+changes and does not return if the key does; a file that finishes after the key changed is
+still handed over (the person asked for it) and says nothing, and does not swallow the next
+click; the anchor is attached to the page for the click (some browsers ignore a detached
+one) and the object URL is revoked after 30 s instead of at once (a browser reads it
+asynchronously, and an early revoke can cancel the download). A failure has one fixed
+sentence; an app that must say why routes that to its own banner and rejects. inventory-ui is
+not migrated here; it moves when its year page is next touched. Undo: an app keeps its own
+button; nothing else depends on it.
+
+## Pinned table columns (2026-11-19, specs/20261116-record-hours-in-place)
+
+**D-69 — `DataTableColumn.pin?: 'start' | 'end'` (D27 of that spec, plan R12).** My hours' month is a table of 30 or 31
+day columns that scrolls on every ordinary window, and on its first scroll the row's name and its total left the
+screen. `pin` keeps one column at each edge of the scroll region while the others scroll under it. Rules:
+
+- **At most one column per edge; the first wins, a later one is ignored** (not an error: a column list that
+  is built from data should not throw while rendering). Meant for the first and the last column; a pinned column in the
+  middle works (it sticks once the columns before it have scrolled past) but nothing in the library asks for it.
+- **From 48 rem up only.** Every rule that makes a cell stick sits in one `@media (min-width: 48rem)` block of
+  `tokens.css` (a unit test reads the file and fails if one leaves it). Below it the table scrolls whole, as before:
+  two sticky columns would leave a phone no room for the days.
+- **No `pin`, no change.** The markup of a table without a pin is byte-for-byte what it was (a snapshot test holds
+  it); a pinned one adds `is-pinned-start` / `is-pinned-end` to that column's cells and `has-pin-start` /
+  `has-pin-end` to the region.
+- **The surface is the one the table sits on**, not a fixed colour: `--ink-soft` inside a `.card`, `.dialog`,
+  `.drawer` or `.floating-panel` (the card's, as the design asks), `--ink` on the page. A fixed `--ink-soft`
+  would draw a lighter stripe on a table that sits directly on the page, which is where most of the library's
+  tables are. The row-hover tint (`interactiveRows`) is repeated on the pinned cells, which would otherwise hide it.
+- **The edge hairline is an inset `box-shadow`**, on the edge that faces the scrolling columns (`:dir(rtl)` flips it,
+  `inset-inline-*` places the cell). The table has collapsed borders and a sticky cell does not carry its own; the
+  row hairlines are drawn by the table and continue across the pinned cells (checked in Chromium, both themes).
+- **A focused cell is never left under a pinned column (WCAG 2.4.11).** The browser does not know a sticky cell covers
+  the cells under it, so the region reserves the pinned column's width as `scroll-padding-inline-start` / `-end`
+  plus 8 px (a cell's padding, which clears the focus ring), and the browser honours it when Tab, Shift+Tab or
+  `focus()` scrolls a cell into view. The width is the **measured** one: `DataTable` observes the pinned header cells
+  (`ResizeObserver`, one measure where it does not exist) and writes `--data-table-pin-start` / `-end` on the region
+  as an element style, not as state, so a resize does not re-render the table. Measured in Chromium: a button 40 px
+  under the pin is scrolled clear with the padding and left there without it, at both edges.
+- **Known edge, kept:** the reserved padding makes the browser treat a *pinned* cell as obscured too, so
+  moving keyboard focus onto a control inside a pinned cell scrolls the region (by an arbitrary amount, toward that
+  cell's natural place). A mouse click does not (checked), and the month's pinned cells hold text only, so no one
+  reaches it today. Not fixable in CSS: `scroll-margin` on the focused element was tried instead and Chrome ignored
+  it for focus scrolling, and a `focusin` handler would run before the browser's scroll. Revisit if a pinned column
+  ever holds a control (a row-actions menu at the end, say).
+- **Compatibility** (README § Versioning). Adding a prop that only the library implements: a remote that passes `pin`
+  to a shell whose library predates it gets an unpinned table, with no error. The shell deploys first, hours-ui uses
+  it after.
+- **Not verified:** Firefox and Safari (only Chromium was available). The CSS is standard (`position: sticky`,
+  `scroll-padding`, `:dir()`); the collapsed-border and `scroll-padding`-on-focus behaviour are the two things to look at.
+
+Undo: remove the prop, the `is-pinned-*` / `has-pin-*` classes and the block under "Pinned columns" in `tokens.css`;
+an app that passes `pin` then shows an unpinned table.
 
 ## Not done (deliberately)
 

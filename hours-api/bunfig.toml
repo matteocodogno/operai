@@ -1,0 +1,12 @@
+[install]
+exact = true
+production = false
+
+[run]
+bun = true
+
+[test]
+timeout = 10000
+# Sets the test environment, and points DATABASE_URL at the `*_test` database, BEFORE any
+# module reads env: the suite TRUNCATEs tables, so it must never see the dev database.
+preload = ["./src/test-support/env.ts"]

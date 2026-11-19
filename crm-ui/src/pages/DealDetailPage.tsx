@@ -22,10 +22,12 @@ import { LoadFailure, Loading, Saved, StaleWriteBanner } from '../components/Loa
 import MeetingsSection from '../components/MeetingsSection'
 import MoveStageDialog from '../components/MoveStageDialog'
 import OffersCard from '../components/OffersCard'
+import RecordHoursAction from '../components/RecordHoursAction'
 import { getDeal, getPipeline } from '../lib/crmApi'
 import { statusOf } from '../lib/errors'
 import { dealAmount, weightedCents } from '../lib/money'
 import { personName } from '../lib/people'
+import { mayRecordOnDeal, recordHoursPropsOfDeal } from '../lib/recordHours'
 import type { Deal, DealStage, Pipeline } from '../lib/types'
 import { useCrmCapabilities } from '../hooks/scopeContext'
 import { useCurrentUserId } from '../hooks/useCurrentUserId'
@@ -99,6 +101,8 @@ export default function DealDetailPage() {
 
   const [current, probabilities] = deal.data!
   const canManage = canManageDealsOf(current.entity)
+  // Whether the page OFFERS Record hours; hours-api decides every save (ADR 20261116-record-hours-widget-through-the-host-extension-seam).
+  const mayRecord = mayRecordOnDeal(current, currentUserId)
   const probability = probabilities?.[current.stage]
   const showsMoney = financials && current.amountCents !== undefined && current.currency !== undefined
   const hasAmount = showsMoney && current.amountCents !== null
@@ -130,19 +134,26 @@ export default function DealDetailPage() {
         }
         back={<BackLink />}
         actions={
-          canManage && (
+          // Record hours first: it is the one item every person who has it sees at the left end of the cluster,
+          // whether or not they also manage the deal (specs/20261116-record-hours-in-place design S1).
+          (mayRecord || canManage) && (
             <>
-              <Button onClick={() => setDialog('edit')} aria-haspopup="dialog" data-testid="crm-deal-edit">
-                {strings.common.edit}
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => setDialog('stage')}
-                aria-haspopup="dialog"
-                data-testid="crm-deal-move"
-              >
-                {t.move}
-              </Button>
+              {mayRecord && <RecordHoursAction {...recordHoursPropsOfDeal(current)} />}
+              {canManage && (
+                <>
+                  <Button onClick={() => setDialog('edit')} aria-haspopup="dialog" data-testid="crm-deal-edit">
+                    {strings.common.edit}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => setDialog('stage')}
+                    aria-haspopup="dialog"
+                    data-testid="crm-deal-move"
+                  >
+                    {t.move}
+                  </Button>
+                </>
+              )}
             </>
           )
         }

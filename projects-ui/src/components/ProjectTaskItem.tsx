@@ -3,9 +3,11 @@ import { Button, ConfirmDialog, TaskRow, formatDate } from '@operai/ui'
 import { deleteTask, setTaskCompleted } from '../lib/activitiesApi'
 import type { ProjectTask } from '../lib/activitiesApi'
 import { codeOf, statusOf, taskErrorMessage } from '../lib/errors'
+import { mayRecordOnTask, recordHoursPropsOf } from '../lib/recordHours'
 import { RichTextFilesView } from '@operai/ui/rich-text'
 import { openTaskFile, taskFileUrlResolver } from '../lib/taskFiles'
 import { strings } from '../strings'
+import RecordHoursAction from './RecordHoursAction'
 import { TASK_STATE_MEANING, refName, taskState } from './TaskModel'
 
 /** A refusal that means the row's buttons were stale: the list is read again to get fresh `may` flags. */
@@ -18,6 +20,11 @@ const staleFlags = (failure: unknown): boolean =>
  * flags (AC-3.2, AC-3.3, AC-3.8): the server decided them for this caller, the
  * row never infers them from scope or assignee. Mark done / Reopen run here;
  * Edit is the card's dialog; Delete asks first.
+ *
+ * Record hours (specs/20261116-record-hours-in-place AC-3.1, AC-3.6, design S2) is the one button that is NOT a `may`
+ * flag of the task: it is hours-ui's widget, offered to the task's assignee and its participants, done tasks
+ * included, as the last of the row's actions. The rule is `mayRecordOnTask`, from what the row already holds
+ * and the person's id; hours-api decides every save.
  *
  * The row's error is owned by the card (`error`), because a failed action
  * reloads the list and the row would otherwise lose its own alert.
@@ -48,6 +55,8 @@ export default function ProjectTaskItem({
   const done = task.task.completedAt !== null
   const openBlockers = task.task.blockedBy?.filter((blocker) => !blocker.completed) ?? []
   const participants = task.participants ?? []
+  // Only a row the person may record on mounts a widget, so a long list loads the seam once for the rows that use it (R1).
+  const recordHours = mayRecordOnTask(task, currentUserId) ? recordHoursPropsOf(task) : null
 
   const toggle = () => {
     setBusy(true)
@@ -151,6 +160,7 @@ export default function ProjectTaskItem({
               {t.delete}
             </Button>
           )}
+          {recordHours && <RecordHoursAction {...recordHours} />}
         </>
       }
       error={error}

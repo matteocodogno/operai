@@ -14,7 +14,7 @@ export default defineConfig({
       '@tiptap/react',
       '@tiptap/starter-kit',
     ],
-    // `shell/session` and `shell/tokens.css` are federated specifiers that only
+    // `shell/session`, `shell/extensions` and `shell/tokens.css` are federated specifiers that only
     // resolve at runtime through `@module-federation/vite` (vite.config.ts), a
     // plugin this test config deliberately does not load. Vite's import
     // analysis still needs something resolvable before a test's
@@ -23,10 +23,23 @@ export default defineConfig({
     // refund-ui/vitest.config.ts.
     alias: [
       // The shared component library, compiled from source (ADR 20261031-shared-ui-library-consumed-as-source); exact matches, the longer first.
-      { find: /^@operai\/ui\/rich-text$/, replacement: fileURLToPath(new URL('../operai-ui/src/richText.ts', import.meta.url)) },
+      {
+        find: /^@operai\/ui\/rich-text$/,
+        replacement: fileURLToPath(new URL('../operai-ui/src/richText.ts', import.meta.url)),
+      },
       { find: /^@operai\/ui$/, replacement: fileURLToPath(new URL('../operai-ui/src/index.ts', import.meta.url)) },
-      { find: 'shell/session', replacement: fileURLToPath(new URL('./src/federation/__stubs__/shellSession.ts', import.meta.url)) },
-      { find: 'shell/tokens.css', replacement: fileURLToPath(new URL('./src/federation/__stubs__/shellTokens.css', import.meta.url)) },
+      {
+        find: 'shell/session',
+        replacement: fileURLToPath(new URL('./src/federation/__stubs__/shellSession.ts', import.meta.url)),
+      },
+      {
+        find: 'shell/extensions',
+        replacement: fileURLToPath(new URL('./src/federation/__stubs__/shellExtensions.ts', import.meta.url)),
+      },
+      {
+        find: 'shell/tokens.css',
+        replacement: fileURLToPath(new URL('./src/federation/__stubs__/shellTokens.css', import.meta.url)),
+      },
     ],
   },
   test: {

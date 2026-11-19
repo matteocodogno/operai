@@ -25,9 +25,12 @@ vi.mock('shell/session', () => ({
 }))
 
 // The Meetings panel is Meetings' own, loaded through `shell/extensions` (ADR 20261104-host-extension-federated-panel-through-the-shell).
+// The page's other extension, Record hours (specs/20261116-record-hours-in-place), is answered by name: this file's
+// session user owns the deal, so it is offered here too, and is covered in DealDetailPage.recordHours.test.tsx.
 const { hostExtensionProps } = vi.hoisted(() => ({ hostExtensionProps: [] as unknown[] }))
 vi.mock('shell/extensions', () => ({
-  HostExtension: ({ props }: { props: unknown }) => {
+  HostExtension: ({ name, props }: { name: string; props: unknown }) => {
+    if (name !== 'meetings.hostMeetings') return null
     hostExtensionProps.push(props)
     return <section data-testid="host-meetings-panel" />
   },

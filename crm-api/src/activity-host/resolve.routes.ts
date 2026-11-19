@@ -17,6 +17,16 @@
  *
  * A related id that is not found, or whose company is not among the asked ones, is omitted
  * (activities-api turns that into `contact_not_in_company` / `deal_not_in_company`).
+ *
+ * `entityType: "deal"` (specs/20261112-time-tracking T7, AC-2.3): asked by hours-api, as the caller, to decide who may
+ * book time on a deal. Same grant and same silence for a non-reader (`reader:false`, no items, so
+ * not even whether a deal exists leaks); a reader gets each deal `open` (any stage — won and lost
+ * included, A13) or `missing`, with `involved`: the user ids of the deal's owner and, once an
+ * estimate is linked, its technical contact (as the deal view reads it) — the CRM's half of "who is
+ * involved"; the activities' half (assignees, participants) is asked of activities-api by hours-api.
+ * `related` belongs to companies only: sent with a deal it is a 422. The answer is no wider than
+ * `GET /deals/{id}`, which shows every `crm:access` holder the same owner and technical contact
+ * (ADR 20261101-crm-tool-shape-and-authorization).
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -41,7 +51,7 @@ const Id = z
   .max(64)
   .refine((value) => !value.includes("\u0000"), "Must not contain a NUL character");
 
-const ResolveBody = z
+const CompanyBody = z
   .object({
     entityType: z.literal("company"),
     ids: z.array(Id).max(MAX_RESOLVE_IDS),
@@ -55,6 +65,11 @@ const ResolveBody = z
   })
   .strict();
 
+// Strict: `related` is a company-only member, so a deal body carrying it is refused, not ignored.
+const DealBody = z.object({ entityType: z.literal("deal"), ids: z.array(Id).max(MAX_RESOLVE_IDS) }).strict();
+
+const ResolveBody = z.discriminatedUnion("entityType", [CompanyBody, DealBody]);
+
 const ResolvedItem = z.object({
   id: z.string(),
   state: z.enum(["open", "missing"]),
@@ -63,6 +78,19 @@ const ResolvedItem = z.object({
   href: z.string().optional(),
   may: z.object({ write: z.boolean(), manage: z.boolean() }).optional(),
 });
+
+const ResolvedDealItem = z.union([
+  z.object({ id: z.string(), state: z.literal("missing") }),
+  z.object({
+    id: z.string(),
+    state: z.literal("open"),
+    writable: z.literal(true),
+    label: z.string(),
+    href: z.string(),
+    may: z.object({ write: z.literal(true), manage: z.literal(true) }),
+    involved: z.array(z.string()),
+  }),
+]);
 
 const RelatedItem = z.object({
   type: z.enum(["contact", "deal"]),
@@ -80,22 +108,59 @@ const resolveRoute = createRoute({
   method: "post",
   path: "/activity-host/v1/resolve",
   tags: ["Activity host"],
-  summary: "May this caller read the activities of these companies? (host contract v1)",
+  summary: "May this caller read the activities of these companies or deals? (host contract v1)",
   // jwt + live authz, but NOT crm:access: a caller without it is answered `reader:false`.
   middleware: hostCaller,
   request: { body: { content: { "application/json": { schema: ResolveBody } }, required: true } },
   responses: {
     200: {
-      description: "reader, one item per distinct company id in the order asked, and the related rows found",
+      description:
+        "reader and one item per distinct id in the order asked; for a company also the related rows found, for a deal each open item carries `involved`",
       content: {
         "application/json": {
-          schema: z.object({ reader: z.boolean(), items: z.array(ResolvedItem), related: z.array(RelatedItem) }),
+          schema: z.union([
+            z.object({ reader: z.boolean(), items: z.array(ResolvedItem), related: z.array(RelatedItem) }),
+            z.object({ reader: z.boolean(), items: z.array(ResolvedDealItem) }),
+          ]),
         },
       },
     },
     ...commonErrors,
   },
 });
+
+/** One item per distinct deal id, in the order asked. Reads are open to every holder: no entity scope. */
+async function resolveDeals(ids: readonly string[]): Promise<z.infer<typeof ResolvedDealItem>[]> {
+  const deals = await db.deal.findMany({
+    where: { id: { in: [...ids] } },
+    select: {
+      id: true,
+      title: true,
+      ownerUserId: true,
+      estimate: { select: { estimateId: true, technicalUserId: true } },
+    },
+  });
+  const byId = new Map(deals.map((deal) => [deal.id, deal]));
+
+  return ids.map((id) => {
+    const deal = byId.get(id);
+    if (deal === undefined) return { id, state: "missing" as const };
+    // The technical contact exactly as the deal view reads it (deals.routes.ts `toViews`): a row whose
+    // `estimateId` is "" links no estimate (an admin's override with no estimate, or one left after an
+    // unlink), and the `technicalUserId` it still carries is the overriding admin or a past contact.
+    const technical = deal.estimate && deal.estimate.estimateId !== "" ? [deal.estimate.technicalUserId] : [];
+    return {
+      id,
+      state: "open" as const,
+      writable: true as const,
+      label: deal.title,
+      href: `/crm/deals/${id}`,
+      may: { write: true as const, manage: true as const },
+      // People, not roles: the owner who is also the technical contact is listed once.
+      involved: [...new Set([deal.ownerUserId, ...technical])],
+    };
+  });
+}
 
 export const activityHostResolveRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: validationHook,
@@ -106,6 +171,12 @@ activityHostResolveRouter.openapi(resolveRoute, async (c) => {
   const { permissions } = c.get("authz");
   const reader = hasCapability(permissions, CRM_ACCESS[0], CRM_ACCESS[1]);
   const ids = [...new Set(body.ids)];
+
+  if (body.entityType === "deal") {
+    // No grant, or nothing asked about: no lookup at all, so nothing can leak.
+    if (!reader || ids.length === 0) return c.json({ reader, items: [] }, 200);
+    return c.json({ reader, items: await resolveDeals(ids) }, 200);
+  }
 
   // No grant, or nothing asked about: no lookup at all, so nothing can leak.
   if (!reader || ids.length === 0) return c.json({ reader, items: [], related: [] }, 200);

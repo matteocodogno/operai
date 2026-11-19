@@ -16,11 +16,13 @@ import { openTaskFile, taskFileUrlResolver } from '../lib/taskFiles'
 import { isOverdue } from '../lib/dates'
 import { errorMessage } from '../lib/errors'
 import { personName } from '../lib/people'
+import { mayRecordOnTask, recordHoursPropsOf } from '../lib/recordHours'
 import { TASK_STATE_MEANING } from '../lib/statusMeanings'
 import type { TaskState } from '../lib/statusMeanings'
 import type { Activity } from '../lib/types'
 import { useCurrentUserId } from '../hooks/useCurrentUserId'
 import { strings } from '../strings'
+import RecordHoursAction from './RecordHoursAction'
 
 /**
  * ActivityItem — one row of a timeline or of "Tasks": the type, subject,
@@ -34,6 +36,11 @@ import { strings } from '../strings'
  * redesign — the copy and the content of every line are unchanged). The one
  * visible difference: a blocked Mark done is `aria-disabled` instead of
  * `disabled`, so it stays reachable and its "Waiting on" line is read.
+ *
+ * A task's actions end with hours-ui's Record hours (specs/20261116-record-hours-in-place US-3, design S2) for its
+ * assignee and its participants, a done task as an open one; it is the last item so the message it shows after a save
+ * displaces nothing the person is using. Every list of CRM tasks — the Tasks page and the deal, company and contact
+ * timelines — renders its rows here, so this is the one place the rule is applied.
  */
 export default function ActivityItem({
   activity,
@@ -178,6 +185,9 @@ export default function ActivityItem({
     </>
   )
 
+  // Whether the button shows, from what the row already holds; hours-api decides every save (AC-3.1).
+  const recordHoursProps = mayRecordOnTask(activity, currentUserId) ? recordHoursPropsOf(activity) : null
+
   const confirmDialog = confirming && (
     <ConfirmDialog
       title={t.deleteDialog.title(activity.subject)}
@@ -229,7 +239,14 @@ export default function ActivityItem({
         completeLabel={task.completedAt === null ? t.complete : t.reopen}
         completing={busy}
         completingLabel={t.completing}
-        actions={authorActions}
+        actions={
+          (authorActions || recordHoursProps) && (
+            <>
+              {authorActions}
+              {recordHoursProps && <RecordHoursAction {...recordHoursProps} />}
+            </>
+          )
+        }
         actionsLabel={actionsLabel}
         error={error}
         testId={`crm-activity-${activity.id}`}

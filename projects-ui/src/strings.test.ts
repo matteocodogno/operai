@@ -76,6 +76,11 @@ describe('strings catalogs (AC-4.7)', () => {
     expect(italian.common.permissionDenied.heading).not.toBe(en.common.permissionDenied.heading)
   })
 
+  it('the fallback link to My hours (specs/20261116-record-hours-in-place AC-4.5, AC-4.6) exists in both languages and names My hours in its own', () => {
+    expect(en.recordHours.fallback).toBe('Record hours in My hours')
+    expect(italian.recordHours.fallback).toBe('Registra ore in Le mie ore')
+  })
+
   it('sentence values with a parameter render it in both languages', () => {
     expect(en.common.pagination.status({ page: 2, totalPages: 3, rangeStart: 26, rangeEnd: 50, total: 60 })).toContain(
       '60',

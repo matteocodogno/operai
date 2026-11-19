@@ -1,7 +1,7 @@
 # Operai
 
 Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting and
-back-office workflows. Eight tools ship today, composed into one suite by a
+back-office workflows. Nine tools ship today, composed into one suite by a
 Module Federation shell (ADR 20260709-suite-frontend-module-federation):
 
 | Tool | Route | What it does |
@@ -13,8 +13,9 @@ Module Federation shell (ADR 20260709-suite-frontend-module-federation):
 | **CRM** | `/crm` | Companies, contacts, deals through a stage pipeline, activities and follow-up tasks (specs/20261101-crm, ADR 20261101-crm-tool-shape-and-authorization) |
 | **Meetings** | `/meetings` | Record (browser), upload or paste a meeting; EU transcription, summaries from editable templates and cited Q&A; files and links attached as AI context; linkable to a host record such as a CRM deal; audio and attached files kept 29 days (specs/20261104-meetings, ADR 20261104-meetings-tool-shape-visibility-by-participation–0068) |
 | **Projects** | `/projects` | The delivery work wellD runs — projects (type, state, project manager, team), their terms (per-type delivery terms) and, for a project made from a won deal, its purchase order (Bexio order id, referent, ops-manager); no money (specs/20261103-projects, 022, ADR 20261103-projects-tool-shape-and-authorization/0080/0093/0094) |
+| **Hours** | `/hours` | Time tracking — every employee records the hours spent on a project, a deal, a meeting or other work (a duration on a day, never a time of day) and reads their own, as a table (a week or a month) or a list; holders of `time-entry:read-all` also see everyone's, with totals and an XLSX export; the Projects and CRM pages and task rows offer Record hours in place; ungated, so **not** a `TOOLS` entry; the admin lists (categories, work types) are its Settings tab, `/hours/settings`, for holders of `time-list:manage` (specs/20261112-time-tracking, ADR 20261112-hours-api-time-entries-own-service-hours-catalog to 20261112-hours-ui-ungated-remote) |
 
-Those seven are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
+The first seven are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
 notification center (`notify-ui`) is a further remote but **not** a `TOOLS` entry: it mounts at
 the shell-owned `/notify` route, reached from the header bell (ADR 20260713-notification-center-standalone-service-shell-seam). `inventory-ui` also
 exposes a second, UNGATED entry, `./MyDevices`, mounted at the shell-owned `/devices` route
@@ -23,17 +24,43 @@ exposes a second, UNGATED entry, `./MyDevices`, mounted at the shell-owned `/dev
 ADR 20261104-meetings-tool-shape-visibility-by-participation) and exposes a coarse `./HostMeetings` panel that a host app (today the CRM deal page)
 embeds through the shell's `HostExtension` seam with a timeout and an error boundary (ADR 20261104-host-extension-federated-panel-through-the-shell). It also exposes
 `./RecorderDock`, the recorder widget the shell shows in its floating slot while a recording runs and the person
-is elsewhere in Operai (ADR 20261110-shell-floating-slot-for-remote-widgets).
+is elsewhere in Operai (ADR 20261110-shell-floating-slot-for-remote-widgets). `hours-ui` is a remote with **no gated half at all**: recording and reading your
+own hours is not a tool grant (AC-5.1), so the shell mounts its one routed entry, `./App`, at the ungated splat route
+`/hours/$` (a child of `shellRoute`, no `beforeLoad`), reached from the user menu's **My hours** link and never from
+the sidebar (ADR 20261112-hours-ui-ungated-remote). Its second tab, Everyone's hours (`/hours/all`), is for holders of `time-entry:read-all`;
+its third tab, Settings (`/hours/settings`), holds the admin lists (categories, work types) for holders of `time-list:manage`.
+My hours is a **table view** or a List (a `Table | List` switch), and opens on the table: one Monday-to-Sunday week or one calendar month
+(a `Period` switch, `Week | Month`), a row per project, deal, meeting or kind of other work, a column per day, Previous / This week or month /
+Next and a date field that shows the week or month holding the day picked. `/hours` is the current week, `?week=<day>` another,
+`?view=month[&month=YYYY-MM]` a month and `?view=list` the List (the old `?view=week` is still read). A filled cell opens its
+entries; an empty cell offers nothing. The date field offers no day after today, Next stops at the current period and an address naming a
+later week or month shows the current one. A month scrolls sideways with its row-label and Total columns pinned (`@operai/ui`
+`DataTable`'s `pin`). Every hours page — My hours in either view and period, Everyone's hours, Settings — takes the full width
+(`ToolLayout` `wide`, as EstimAI's), so switching view, period or tab never resizes the page. The table view's figures are folded in the
+browser from ONE complete, all-or-nothing read of the period (`readAllEntries`, the export's walk), so a failed page is an error, never a
+partial grid (specs/20261116-record-hours-in-place, ADR 20261116-week-view-sums-a-complete-read-in-the-browser). `hours-ui` also exposes
+`./RecordHours`, not a route but a widget: a button that opens My hours' own entry dialog on a project, a deal or a task and records as
+the person through the unchanged `POST /time-entries`. Hosts embed it through the shell's `HostExtension` seam as the extension
+**`hours.recordHours`** (six plain strings in, nothing back, the same 5 s timeout and error boundary, and the host's own fallback, a link
+to My hours): projects-ui's project page and task rows (the Tasks card, My tasks; projects-ui's first use of `shell/extensions`) and
+crm-ui's deal page and task rows (the Tasks page, every activity timeline). A host decides only whether to show it, from what it already
+shows; hours-api still decides every save as the caller (ADR 20261116-record-hours-widget-through-the-host-extension-seam).
 
-Backed by nine Bun services: `auth` (identity + authorization), `estimai-api`,
+Backed by ten Bun services: `auth` (identity + authorization), `estimai-api`,
 `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`,
-`activities-api`.
+`activities-api`, `hours-api`.
 
 `activities-api` is the ninth service and is **backend-only**: it has no remote, no `TOOLS` entry and
 no screen of its own. It holds the activities, tasks and task blockers of two hosts — the CRM
 (pre-sales, about a company) and Projects (operational, about a project) — and the CRM and Projects
 screens call it directly through `shell/session` (specs/20261110-activities, ADR 20261110-activities-service-access-delegated-to-host). The CRM's activity timeline
 and task list, the project's Tasks card and the **My tasks** page at `/projects/tasks` all read from it.
+
+`hours-api` is the tenth service. It holds time entries — one person's own declaration of a duration, on one
+day, on a project, a deal, a meeting or other work — and the categories and work types an admin manages. Its
+screens are `hours-ui`'s (`/hours`); its permissions are `auth`'s `hours` catalog, which has **no `access`
+resource** (the tool is ungated) and carries only `time-entry:read-all` and `time-list:manage`
+(specs/20261112-time-tracking, ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, 20261112-hours-ui-ungated-remote).
 
 **Tagline:** *AI tools built by craftspeople, for craftspeople.*
 
@@ -70,7 +97,9 @@ operai/
 ├── shell/               # Suite host (Module Federation) — shared chrome + session; mounts remotes (specs/20260709-suite-shell, ADR 20260709-suite-frontend-module-federation).
 │   │                    # Also owns identity-scoped non-tool screens: /account (ADR 20260804-shell-identity-scoped-non-tool-screens-account-route), /notify (ADR 20260713-notification-center-standalone-service-shell-seam),
 │   │                    # the notification bell + SSE manager + ToastHost, the About modal (ADR 20260803-suite-version-generated-file-federated-export), the
-│   │                    # floating slot (`openFloating`/`closeFloating` in shell/session, FloatingHost; ADR 20261110-shell-floating-slot-for-remote-widgets) and
+│   │                    # floating slot (`openFloating`/`closeFloating` in shell/session, FloatingHost; ADR 20261110-shell-floating-slot-for-remote-widgets), the
+│   │                    # host-extension seam (`shell/extensions`: `meetings.hostMeetings`, `meetings.recorderDock`, and `hours.recordHours`, hours-ui's Record hours button
+│   │                    # embedded by projects-ui and crm-ui, specs/20261116-record-hours-in-place) and
 │   │                    # desktop push: the `/push-sw.js` service worker and the My profile push section (specs/20261111-push-notifications).
 │   └── e2e/             # Playwright e2e for the WHOLE suite — every remote's journeys run through the
 │                        # host, since a remote has no standalone authed bootstrap (specs/20260709-suite-shell retired
@@ -87,7 +116,8 @@ operai/
 │                        # (ungated, /devices; ADR 20261006-ungated-second-federated-entry-of-a-gated-remote) and ./version; calls inventory-api and auth's user directory
 │                        # through shell/session (no VITE_* of its own) (specs/20261006-hardware-inventory)
 ├── crm-ui/              # CRM tool — federated remote (port 5179): exposes ./App (gated, /crm) and ./version; calls
-│                        # crm-api, activities-api and auth's user directory through shell/session (specs/20261101-crm, ADR 20261101-crm-tool-shape-and-authorization/0053, 028)
+│                        # crm-api, activities-api and auth's user directory through shell/session (specs/20261101-crm, ADR 20261101-crm-tool-shape-and-authorization/0053, 028);
+│                        # embeds hours-ui's Record hours (`hours.recordHours` via shell/extensions) on the deal page and the task rows (specs/20261116-record-hours-in-place)
 ├── meetings-ui/         # Meetings tool — federated remote (port 5180): exposes ./App (gated, /meetings), ./MyMeetings
 │                        # (ungated, /my-meetings; ADR 20261104-meetings-tool-shape-visibility-by-participation), ./HostMeetings (panel embedded by hosts via shell/extensions,
 │                        # ADR 20261104-host-extension-federated-panel-through-the-shell), ./RecorderDock (the shell's floating recorder widget, ADR 20261110-shell-floating-slot-for-remote-widgets) and ./version;
@@ -95,7 +125,14 @@ operai/
 │                        # (specs/20261104-meetings)
 ├── projects-ui/         # Projects tool — federated remote (port 5181): exposes ./App (gated, /projects) and ./version; calls
 │                        # projects-api, activities-api (project tasks, My tasks) and auth's user directory through
-│                        # shell/session (specs/20261103-projects, 028, ADR 20261103-projects-tool-shape-and-authorization)
+│                        # shell/session (specs/20261103-projects, 028, ADR 20261103-projects-tool-shape-and-authorization); its FIRST use of
+│                        # shell/extensions: hours-ui's Record hours (`hours.recordHours`) on the project page and the task rows (specs/20261116-record-hours-in-place)
+├── hours-ui/            # Hours (time tracking) — federated remote (port 5184): exposes ./App (UNGATED, mounted at the shell's
+│                        # `/hours/$`, NOT a TOOLS entry; My hours as a table view, week or month (`/hours`, `?view=month`), or a List (`?view=list`), plus Everyone's hours for `time-entry:read-all`, ADR 20261112-hours-ui-ungated-remote),
+│                        # ./RecordHours (a widget, not a route: the Record hours button other tools embed through shell/extensions `hours.recordHours`,
+│                        # ADR 20261116-record-hours-widget-through-the-host-extension-seam) and ./version; calls hours-api through shell/session
+│                        # (`getHoursApiBaseUrl()`, `VITE_HOURS_API_URL` is the shell's) and, as the person, projects-api, crm-api, meetings-api and
+│                        # activities-api for its pickers (specs/20261112-time-tracking, specs/20261116-record-hours-in-place)
 ├── operai-ui/           # @operai/ui — the DESIGN SYSTEM (ADR 20261031-shared-ui-library-consumed-as-source): tokens/themes/fonts + component classes
 │                        # (src/styles/tokens.css, re-exported by shell/tokens.css), React components (src/components),
 │                        # Storybook (`mise run ui:storybook`), rules in docs/. NOT an app: never built or deployed;
@@ -165,6 +202,12 @@ operai/
 │                        # (ADR 20261116-letterhead-api-is-a-rust-service-with-typst-embedded-for-document-layout-only; see ### Rust service).
 │                        # Cargo workspace: engine/ (pure) + api/ (HTTP supervisor); package.json is a Changesets shim only
 │                        # (specs/20261116-letterhead-service)
+├── hours-api/           # Bun + Hono + TypeScript backend (port 8089, DB `hours`) — time entries (a person's hours on a project, a deal,
+│                        # a meeting or no entity), time categories and work types; own hours need only a JWT, everyone's hours is the
+│                        # oversight path (`time-entry:read-all`, live, fail closed), the lists need `time-list:manage` (ADR 20261112-hours-api-time-entries-own-service-hours-catalog);
+│                        # whether a person may record on a project, deal or meeting is asked of its owner as the caller, failing
+│                        # closed (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route); reads a meeting's current deal from meetings-api `GET /system/meetings/hosts` with its own
+│                        # service credential (scope `meetings.hosts.read`); no If-Match, no notifications (specs/20261112-time-tracking)
 ├── .railway/           # railway.ts — the Railway project as code (services, Postgres, buckets, domains, build/deploy,
 │                        # replicas, EU region); variables unmanaged; plan → apply by a person (ADR 20261113-railway-infrastructure-as-code)
 ├── docs/adr/            # Architecture Decision Records (0001–0094; see ## Architecture decisions)
@@ -180,21 +223,21 @@ operai/
 ├── lerna.json           # The package list Changesets reads — NOT a pnpm/Bun workspace (see ### Git)
 ├── mise.toml            # Node 24, corepack-managed pnpm, Rust 1.100.0 (letterhead-api); `mise run dev` / `dev:letterhead` / `db:migrate` / `changeset` /
 │                        # `release:version` / `release:tag` / `env:doctor`
-└── specs/               # Spec-driven workflow (001–024; 015 hardware-inventory, 017 crm, 021 meetings and 024 estimate-list-oversight are in progress; see below)
+└── specs/               # Spec-driven workflow (YYYYMMDD-slug; 20261006-hardware-inventory and 20261101-crm are in progress; see below)
 ```
 
 ---
 
 ## Tech stack
 
-### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui, meetings-ui, projects-ui)
-All eight share one stack. Each is installed and deployed on its own (no npm workspace).
+### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui, meetings-ui, projects-ui, hours-ui)
+All ten share one stack. Each is installed and deployed on its own (no npm workspace).
 
 - **Runtime:** Node 24 via mise (pnpm via corepack, see `mise.toml`)
 - **Package manager:** pnpm
 - **Framework:** Vite 8 + React 19 (TypeScript)
 - **Composition:** Module Federation (`@module-federation/vite`) — the shell is the host, the
-  other seven are remotes whose URLs resolve at runtime per-env, never build-baked (ADR 20260709-suite-frontend-module-federation)
+  other nine are remotes whose URLs resolve at runtime per-env, never build-baked (ADR 20260709-suite-frontend-module-federation)
 - **Routing:** TanStack Router
 - **Auth/session:** better-auth client; in-memory JWT + `apiFetch` interceptor, owned by
   `shell/session` and reused by every remote (ADR 20260607-jwt-in-memory-never-web-storage/0002)
@@ -224,6 +267,15 @@ admin-ui additionally calls the Google Places API (New) browser-direct with a
 referrer-restricted key for address autocomplete — never proxied through `auth`, and it
 degrades silently when the key is absent (ADR 20260804-google-places-browser-direct-referrer-restricted-key).
 
+hours-ui additionally builds its XLSX export in the browser (`exceljs`, lazy-loaded, from every page of
+`GET /time-entries` — hours-api never builds a file) and uses the `@operai/ui` components and formatters added
+for it: `SearchPicker` (a server-side search in a `Field`-wrapped `Combobox`), `ExportButton`, and
+`formatDuration`'s `short` style ("2 h 30") and `formatMonth` (specs/20261112-time-tracking), and, for the month, `DataTable`'s column
+`pin` (a remote on a shell that predates it shows the month unpinned). Its table view (`/hours`, a week or a month) is the one view that sums
+its own figures in the browser, over one complete read of the period through the same walk
+(ADR 20261116-week-view-sums-a-complete-read-in-the-browser, amended 2026-11-19, specs/20261116-record-hours-in-place); its `./RecordHours` entry imports
+only the entry dialog, `hoursApi` and the pickers, never `exceljs`, the pages or hours-ui's router, because it renders in a host's tree.
+
 ### Auth service (auth)
 - **Runtime:** Bun (`bun run --hot` for dev)
 - **Framework:** Hono + `@hono/zod-openapi` (Scalar API reference)
@@ -244,10 +296,9 @@ degrades silently when the key is absent (ADR 20260804-google-places-browser-dir
   per-source-address count of 20 invalid credentials (`SYSTEM_INVALID_CREDENTIAL_LIMIT`) shared by both
   routes. One byte-identical 429 with `Retry-After`. `SERVICE_TOKEN_RATE_*` are retired and ignored (env-doctor flags them).
 
-### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, meetings-api, projects-api, activities-api)
-All eight share the `auth` service's shape (see ADR 20260703-estimai-api-bun-hono-typescript — one backend stack across the monorepo, with ONE exception, the Rust `letterhead-api`: see **### Rust service**;
-it supersedes the earlier Kotlin/Spring intention). Six are implemented; `meetings-api` is in
-progress (specs/20261104-meetings).
+### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, meetings-api, projects-api, activities-api, hours-api)
+All nine share the `auth` service's shape (see ADR 20260703-estimai-api-bun-hono-typescript — one backend stack across the monorepo, with ONE exception, the Rust `letterhead-api`: see **### Rust service**;
+it supersedes the earlier Kotlin/Spring intention).
 
 - **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (Scalar API reference)
 - **Persistence:** Prisma 7 + PostgreSQL, own logical DB per service
@@ -288,7 +339,9 @@ Per-service specifics:
   with deal PDFs appendable as annexes (specs/20261102-crm-offer-document, ADR 20261102-crm-api-reads-attachment-bytes-for-offer-annexes);
   pushes CRM notifications to notify-api as `system:crm-api`, with email notices for handovers
   (specs/20261101-crm-notifications, ADR 20261101-notify-api-resolves-email-notice-address-from-auth); verifies meetings-api's host notices (scope `host-notices.send`,
-  `aud=SERVICE_AUDIENCE`) and answers its `resolve` calls as the caller (specs/20261104-meetings, ADR 20261104-meeting-host-contract-resolve-and-notices); its
+  `aud=SERVICE_AUDIENCE`) and answers its `resolve` calls as the caller (specs/20261104-meetings, ADR 20261104-meeting-host-contract-resolve-and-notices; since
+  specs/20261112-time-tracking `entityType: "deal"` too, with `involved` — the owner and the technical contact — for
+  hours-api, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route); its
   `GET /system/companies` is read by projects-api behind the scope `crm.companies.read` (specs/20261103-projects, ADR 20261103-projects-api-reads-crm-companies-with-scoped-service-credential), as is `GET /system/deals`
   behind `crm.deals.read` (won deals, no money, specs/20261103-projects-handoff, ADR 20261104-projects-handoff-live-reads-between-crm-and-projects-over-service-credentials) and `GET /system/contacts` behind
   `crm.contacts.read` (a PO's referent: one minimal shape per mode, `ids` ≤ 20, ADR 20261105-handoff-take-and-purchase-order-receive-capabilities-auth-holders-listing-amends-0047); its deal page
@@ -309,7 +362,11 @@ Per-service specifics:
   in-process Postgres job runner for asked-for work, so it runs as a single replica (ADR 20261104-durable-job-runner-work-queued-state-derived);
   the THIRD reader of bucket bytes, bounded (ADR 20261104-meetings-api-reads-audio-bytes-third-reader); model output is validated structure and
   plain text only (ADR 20261104-ai-output-structured-validated-plain-text); pushes to notify-api as `system:meetings-api` (`notifications.push`)
-  and notices to the host as the same principal (`host-notices.send`), ADR 20261104-meeting-host-contract-resolve-and-notices/0065
+  and notices to the host as the same principal (`host-notices.send`), ADR 20261104-meeting-host-contract-resolve-and-notices/0065; for hours-api
+  (specs/20261112-time-tracking, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route) `GET /meetings?ids=` narrows the caller's own meetings (a host-only reader's is
+  absent) and its FIRST `/system/*` route, `GET /system/meetings/hosts` (`ids=` or `dealId=`; scope
+  `meetings.hosts.read`, `sub` `system:hours-api` only, `aud=SERVICE_AUDIENCE`, one identical 401), answers
+  each meeting's current host as `{id, host}` and nothing else — never a title, participant or content
 - `projects-api` — Projects (specs/20261103-projects, 026): authorization-enforcing (live `/authz/resolve`, fails closed) with
   `projects:access` (read every project, its terms and purchase order), entity-scoped `project:manage` (403
   `out_of_scope`, not 404 — records are readable, ADR 20261101-crm-tool-shape-and-authorization posture), `handoff:take` (sales, own entity; the
@@ -328,7 +385,8 @@ Per-service specifics:
   (ADR 20261104-projects-handoff-live-reads-between-crm-and-projects-over-service-credentials/0092); the PO's referent is a CRM contact id read live from crm-api, never stored or cached
   (`no-store`, ADR 20261105-handoff-take-and-purchase-order-receive-capabilities-auth-holders-listing-amends-0047); a project from a deal awaits its project manager until the ops-manager (or an admin)
   picks one; `GET /system/purchase-orders` serves crm-api behind `projects.purchase-orders.read`; answers activities-api's
-  `POST /activity-host/v1/resolve` for entity type `project` (specs/20261110-activities)
+  `POST /activity-host/v1/resolve` for entity type `project` (specs/20261110-activities), whose `assignees` (project manager and
+  team) are also what tells hours-api who may record hours on a project (specs/20261112-time-tracking)
 - `activities-api` — activities, tasks and blockers of the CRM and Projects (specs/20261110-activities): a JWKS resource
   server with **no permission catalog** — who may read or change an activity is asked of the host as the
   caller on every request (`POST /activity-host/v1/resolve` on crm-api or projects-api with the forwarded JWT,
@@ -343,7 +401,36 @@ Per-service specifics:
   images inside it, attachments under it — in activities-api's OWN EU bucket `activities` (`ACTIVITIES_S3_*`,
   presigned POST/GET, images named by file id never by URL, object deleted before its row, ADR 20261113-task-description-files-in-activities-api-bucket); port 8087,
   DB `activities`; the one-off
-  `scripts/import-crm-activities.ts` copies the CRM's activities in (dry run by default, found-vs-present report)
+  `scripts/import-crm-activities.ts` copies the CRM's activities in (dry run by default, found-vs-present report);
+  `GET /activities?ids=` (≤ 50, a fifth "exactly one of" filter, each id's host asked as the caller, an
+  unreadable id omitted exactly like a missing one) is how hours-api checks an activity pointer (specs/20261112-time-tracking)
+- `hours-api` — Time tracking (specs/20261112-time-tracking): **ungated** — the `hours` catalog has no `access` resource, so a
+  person's own hours need only a valid JWT: every query is scoped to the verified `sub`
+  and an entry that is not theirs is a 404 identical to a nonexistent one (ADR 20261112-hours-api-time-entries-own-service-hours-catalog). Two permissions, both
+  unconditioned, seeded to `admin` only and in neither user-directory gate (ADR 20261104-user-directory-gate-meetings-access): `time-entry:read-all`
+  (see everyone's hours) is the **oversight path** (`whose=all` or a `userId` filter, ADR 20261108-estimai-oversight-permission-amends-0036 shape) —
+  resolved live from `auth GET /authz/resolve` ONLY there, a grant never remembered, 503 `authz_unavailable` on
+  an `auth` outage, and a holder never writes someone else's entry (403 `owner_only`); `time-list:manage` is
+  live and fails closed on every write to the categories and work types (retire and restore, never delete;
+  names unique per list, case-insensitively). An entry is a duration in whole 30-minute steps (30 min–24 h) on
+  one real day not in the future, never a time of day, on a project, a deal, a meeting or no entity (then with
+  a category); it has one writer, so no `If-Match` (ADR 20261112-hours-api-time-entries-own-service-hours-catalog). Whether a person may record on a project
+  (`assignees` of projects-api's host resolve), a deal (`involved` of crm-api's, or assignee/participant of one
+  of its activities from activities-api) or a meeting (creator or participant from meetings-api) is asked of
+  the owner as the caller, with the forwarded JWT, at write time and fails closed (403 `not_on_project` /
+  `not_involved_in_deal`, 503 `host_unavailable`, never decided from a copy; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). A meeting's current
+  deal is read live from meetings-api `GET /system/meetings/hosts` with hours-api's OWN credential (client
+  `hours-api`, scope `meetings.hosts.read`, `aud=SERVICE_AUDIENCE`, pair `SERVICE_CLIENT_ID` /
+  `SERVICE_CLIENT_SECRET` and `SERVICE_AUDIENCE` ≠ `AUTH_AUDIENCE`), so a fact read that way reaches a viewer only
+  together with that viewer's own right to read the deal (id and name, or neither); labels follow the viewer's
+  access and totals (`GET /time-entries/totals`, `groupBy` person, project, deal, category, month or day) merge
+  what the viewer cannot name into one `hidden` / `unavailable` / `deal-unknown` group (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route § 6, A1). People's names come from
+  `auth POST /authz/users/identities` through a 60 s in-process cache keyed by user id, as every other caller of that
+  route (ADR 20260807-live-identity-resolution-by-id-fail-soft § 3); a failed or refused answer is never cached, so
+  ordinary use stays inside auth's per-person budget (plan amendment of 2026-11-18, T46). A
+  `dealId` filter is refused 503 while meetings-api cannot say which meetings are linked, never answered low
+  (AC-4.11); port 8089, DB `hours`, no object storage, sends no notification. It holds personal data about
+  workers: informing employees is a go-live sign-off owned by management / HR (specs/20261112-time-tracking O3)
 - `notify-api` — notification persistence + ticket-authed SSE stream (ADR 20260713-sse-stream-auth-short-lived-ticket); pinned to a
   single production instance (in-process ticket store + fan-out); email channel via Resend;
   internal `/system/emails` (scope `emails.send`) + `/system/notifications` (scope
@@ -469,7 +556,7 @@ Money is always integer minor units (cents); mileage rates are integer micros (A
 | `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
 | `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims) |
 | `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR 20260714-invitation-lifecycle-derived-expiry-state) |
-| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact`, `host-notices.send`, `estimate-notices.send`, `deal-link-notices.send`, `crm.companies.read` and/or `activities.write`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api` (also `activities.write`, for activities-api's `/system/v1/*`), `meetings-api`, `notify-api`, `projects-api` and `activities-api` (`notifications.push emails.send`) (`auth` mints its own in process and may not be a client, ADR 20261013-auth-mints-own-service-credential-in-process/0049); `auth` limits each client to 300 tokens and 600 contact lookups per 10 min, counted per verified service, with one per-address count of 20 invalid credentials (ADR 20261112-system-endpoints-limited-per-verified-service) |
+| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact`, `host-notices.send`, `estimate-notices.send`, `deal-link-notices.send`, `crm.companies.read`, `activities.write` and/or `meetings.hosts.read`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api` (also `activities.write`, for activities-api's `/system/v1/*`), `meetings-api`, `notify-api`, `projects-api`, `activities-api` (`notifications.push emails.send`) and `hours-api` (`meetings.hosts.read` only — it reads which deal a meeting is linked to from meetings-api's `GET /system/meetings/hosts`, whose `sub` allowlist names `system:hours-api`; every other owner it asks as the caller, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route) (`auth` mints its own in process and may not be a client, ADR 20261013-auth-mints-own-service-credential-in-process/0049); `auth` limits each client to 300 tokens and 600 contact lookups per 10 min, counted per verified service, with one per-address count of 20 invalid credentials (ADR 20261112-system-endpoints-limited-per-verified-service) |
 
 ### Inventory (specs/20261006-hardware-inventory)
 
@@ -517,6 +604,18 @@ The authoritative glossary is `.claude/context/glossary.md` § Activities.
 | `host` | The Operai app whose record an activity is about (`crm` → company, `projects` → project); it alone decides who may read or change the activity, via `POST /activity-host/v1/resolve` (ADR 20261110-activities-service-access-delegated-to-host) |
 | `My tasks` | The tasks assigned to the caller or in which the caller takes part. The CRM shows only pre-sales ones; Projects shows both, pre-sales ones badged |
 | `maintenance` | The switch (`ACTIVITIES_MAINTENANCE`) that makes activities-api refuse everything but `/health` while the CRM's activities are copied in (ADR 20261110-activities-migration-write-pause) |
+
+### Time tracking (specs/20261112-time-tracking)
+
+The authoritative glossary is `.claude/context/glossary.md` § Time tracking.
+
+| Term | Meaning |
+|---|---|
+| `time entry` | One person's own declaration that they spent a duration, on one day, on one thing — a project, a deal, a meeting, or no entity (then with a category); whole 30-minute steps (30 min–24 h), never a time of day. Not an activity, but may point at one (`activityId`, only on a project or a deal) |
+| `category` | What a time entry on no entity is about (training, talk preparation, administration, …), from a list an admin manages; it may require a note. Not the inventory's asset category |
+| `work type` | The optional kind of work of a time entry on a project or a deal, from one of two lists an admin manages (one per target); never on a meeting or on no entity |
+| `retired` | A category or work type an admin withdrew: no longer offered for a new entry, kept by the entries that already have it, restorable; nobody, admins included, deletes one (AC-3.1, AC-3.2) |
+| `see everyone's hours` | The permission `time-entry:read-all` (`admin` only by seed): reads every person's entries and totals through hours-api's oversight path (ADR 20261112-hours-api-time-entries-own-service-hours-catalog); never a write, and not part of the user directory's gate |
 
 ---
 
@@ -728,7 +827,7 @@ TypeScript, and a second Rust service, or Rust in any other service, needs its o
 
 ### The whole suite (preferred)
 ```bash
-mise run db:migrate   # once: Postgres up + Prisma migrations for every backend (meetings included)
+mise run db:migrate   # once: Postgres up + Prisma migrations for every backend (meetings and hours included)
 mise run dev          # everything, with HMR — opens http://localhost:5173 (the shell) once it answers;
                       # OPERAI_NO_OPEN=1 skips the browser
 mise run dev:web      # frontends only (backends already running elsewhere)
@@ -736,16 +835,22 @@ mise run dev:preview  # frontends build+preview — no HMR, mirrors the deploy s
 ```
 
 Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, inventory-api `8083`,
-crm-api `8084`, meetings-api `8085`, projects-api `8086`, activities-api `8087`, letterhead-api `8088` (Rust), shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`,
-admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`, projects-ui `5181`; MinIO S3 `9000`
+crm-api `8084`, meetings-api `8085`, projects-api `8086`, activities-api `8087`, letterhead-api `8088` (Rust), hours-api `8089`, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`,
+admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`, projects-ui `5181`, letterheads-ui `5182`, hours-ui `5184`; MinIO S3 `9000`
 (console `9001`). Frontend ports are pinned in each app's `vite.config.ts`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`, `activities-api`, `admin-ui`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`, `activities-api`, `admin-ui`; hours-api reads its `.env`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
 explicitly — direnv's shell hook does not fire for a non-interactive mise task. Meetings runs against
 fake transcription/LLM providers locally (`MEETINGS_AI_PROVIDER=fake`, refused in production) until
-the Google Cloud project is provisioned (ADR 20261105-meetings-ai-providers-google-cloud-eu).
+the Google Cloud project is provisioned (ADR 20261105-meetings-ai-providers-google-cloud-eu). `hours-api` has no direnv file: a
+person copies `hours-api/.env.example` to its gitignored `hours-api/.env` and fills it (bun and `prisma.config.ts` load
+it). **Secret values never go in a `.envrc`** — those are committed and hold only `op read` references — but in the
+uncommitted per-service `.env`. Until hours-api's `.env` exists hours-api exits at start naming each missing variable
+and the rest of the stack keeps running. It also needs an `hours-api` entry (scope `meetings.hosts.read`) in `auth`'s
+`SERVICE_CLIENTS`, its secret kept where auth keeps the others (never a committed file), and `SERVICE_AUDIENCE` in
+meetings-api's environment — without them a meeting's deal reads as unavailable and nothing else is affected.
 
 ### Database + object storage (shared)
 ```bash
@@ -763,7 +868,7 @@ MEETINGS_S3_ACCESS_KEY_ID=minioadmin MEETINGS_S3_SECRET_ACCESS_KEY=minioadmin \
 
 ### A single frontend
 ```bash
-cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui / meetings-ui / projects-ui
+cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui / meetings-ui / projects-ui / hours-ui
 pnpm install
 pnpm dev              # standalone; a remote still needs the shell for an authed session
 pnpm lint             # ESLint
@@ -802,7 +907,7 @@ bun test
 Not the shape below: see **### Rust service (letterhead-api)** — `mise run dev:letterhead` (host) or `docker compose up letterhead-api`;
 `cd letterhead-api && cargo test --workspace --locked`.
 
-### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084, meetings-api :8085, projects-api :8086, activities-api :8087)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084, meetings-api :8085, projects-api :8086, activities-api :8087, hours-api :8089)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
 `bun install`, `bun run db:migrate`, `bun run dev`. See **### Resource backends** under
 Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` / `MEETINGS_S3_*` point at local MinIO in dev
@@ -834,8 +939,8 @@ mise run changeset:check   # local parity with CI — did this branch's app-code
 
 ## Operai suite — future tools
 
-Shipped today: **EstimAI**, **Rimborsi** (refund), **Admin**, **Notify**, **Inventory**, **CRM**, **Meetings** — see the table at
-the top. Still on the roadmap, not yet built:
+Shipped today: **EstimAI**, **Rimborsi** (refund), **Admin**, **Notify**, **Inventory**, **CRM**, **Meetings**, **Projects**,
+**Hours** — see the table at the top. Still on the roadmap, not yet built:
 
 | Tool | Purpose |
 |---|---|
@@ -980,11 +1085,16 @@ These defaults are optimized for AI coding agents (and humans) working on apps t
 - [20261115] A default that rewrites a copy it once wrote decides from the copy's content, once, under the lock and a version guard — a seeded row is replaced only while its SHA-256 equals a recorded shipped revision, otherwise marked kept and never revisited; an edit that differs only in spacing is still an edit, and no new default may insert a row beside a person's or rewrite text on every read (see docs/adr/20261115-seeded-content-upgraded-in-place-only-when-unedited.md)
 - [20261115] Bytes a person supplied are sized by what a parser would decode, never by what the file says about itself — a length, a dimension or an object count the file writes is a claim, not a bound: any parser or renderer of a user PDF (crm-api, the browser, a deal annex, any future reader) runs only after `boundPdf` (decoded size, objects, streams, image pixels; `/Length` never read; JBIG2, Crypt and unknown filters refused) and stores only the checked bytes under a key nobody can still write (see docs/adr/20261115-uploaded-pdf-decoded-size-bound-before-parse.md)
 - [20261115] A page break in an HTML rendering is layout, never content — one continuous text flow with empty floats for the gaps and a decorative, `aria-hidden`, `inert` page layer behind it: no page element, clipped copy, hidden measuring copy or multicol, and nothing in the flow establishes a block formatting context or paints a border except tables, their cells and a hand-edited section's clipped rule; any new flow element is checked against the in-page measurement (see docs/adr/20261115-paginated-preview-one-flow-float-rail.md)
+- [20261112] Time entries get their own service and an ungated catalog with one oversight permission — `hours-api` (port 8089, DB `hours`) owns entries, categories and work types; the `hours` catalog has no `access` resource and carries `time-entry:read-all` (resolved live only on the oversight path, ADR 20261108-estimai-oversight-permission-amends-0036 shape) and `time-list:manage`, both admin-only and unconditioned; a holder of a read privilege never gains a write, and a record with a single writer takes no version precondition (see docs/adr/20261112-hours-api-time-entries-own-service-hours-catalog.md)
+- [20261112] Time bookability is asked of the owner, as the caller, at write time — never decided from a copy of who is involved or with a service's authority: hours-api asks projects-api (`assignees`), crm-api (resolve `entityType: "deal"` → `involved`), activities-api (`GET /activities?dealId=` / `?ids=`) and meetings-api (`GET /meetings?ids=`) live with the forwarded JWT and fails closed, and reads a meeting's current deal from meetings-api's content-free `GET /system/meetings/hosts` (scope `meetings.hosts.read`, sub `system:hours-api`); a fact read with that credential (a meeting's deal) reaches a viewer only with the right to name it, id and name or neither, for every viewer including the author, and totals merge what cannot be named into `hidden` / `unavailable` / `deal-unknown` groups; a `dealId`-filtered read is refused 503 while meetings-api cannot say which meetings are linked, never answered low (the failure shape: a fact held under one service's right shown under another person's right, or a total that looks complete while it is not; see docs/adr/20261112-time-bookability-asked-of-owners-meeting-hosts-system-route.md, amendment 2026-11-12)
+- [20261112] A screen every signed-in user must reach is ungated and absent from `TOOLS`, mounted on a shell-owned route with no `beforeLoad` — the hours screens are a new remote `hours-ui` at `/hours/$`, whose self-service calls never check a catalog permission while the oversight view stays behind its own; the admin lists are its Settings tab for `time-list:manage` holders (amended 2026-11-16: moved from admin-ui, as Refund's settings moved to refund-ui) (see docs/adr/20261112-hours-ui-ungated-remote.md)
 - [20261116] A stack exception granted for one capability must not become the template for the next, and a service in another language gets none of the controls that a `package.json` used to trigger — `letterhead-api` is Rust with Typst 0.15.1 embedded for document layout ONLY (amends 20260703's "one backend stack"); every other backend stays Bun/Hono/TypeScript, a second Rust service needs its own ADR, and the missing triggers are attached by hand: mise `rust` pin, slim non-root Docker image, Changesets via a `package.json` shim + CHANGELOG, env-doctor entries, compose/Railway (`europe-west4`, DB `letterhead`, EU bucket) (see docs/adr/20261116-letterhead-api-is-a-rust-service-with-typst-embedded-for-document-layout-only.md)
 - [20261116] A computation that cannot be stopped from inside must not run where other callers' availability, memory or secrets live, and a limit must be in the unit that runs out — Typst cannot be cancelled, so every render runs in a pre-started worker process (cleared environment, no secret, no network) that the supervisor SIGKILLs at 30 s or at the RSS cap; concurrency is set by worst-request memory (~855 MiB), `LH_WORKERS=2`, `LH_QUEUE=4`, 2 per caller, else 429 `busy`; the comemo cache is evicted after each render; image sizes are bounded from the header before decode (see docs/adr/20261116-renders-run-in-killable-worker-processes-and-concurrency-is-bounded-by-memory.md)
 - [20261116] A stored record that promises to reproduce must name the code that produces it, and a guard nobody runs is not a guard — each letterhead version stores a `layout_version` (template + Typst version + fonts pinned by SHA-256), a render always uses the version's own layout (read as well as write; unknown layout refuses), old layouts stay compiled in (newer Typst as a renamed Cargo dependency), and a per-layout golden corpus runs in `.github/workflows/letterhead-api.yml`, a deliberate exception to "no CI runs service tests"; never edit an existing layout to fix a drift (see docs/adr/20261116-a-letterhead-version-pins-its-layout-and-old-layouts-stay-compiled-in.md)
 - [20261116] A preview must be made by the same engine as the thing it previews, and a restricted service is reached through the party that holds its credential — the letterhead preview is the PDF's own compile rasterised to 64-colour PNG pages (1.5 px/pt, ~65 KiB a page) plus page text, never SVG/HTML (browser fonts break AC-1.3); crm-ui calls crm-api `POST /deals/{id}/offer-draft/preview` (unsaved draft body), which calls letterhead-api with a service token, never the browser; at the `LETTERHEAD_SERVICE_ENABLED` switch this supersedes 20261115-paginated-preview-one-flow-float-rail and 20261115-letterhead-preview-pdfjs-main-thread-in-the-remote (those files are deliberately not edited) (see docs/adr/20261116-the-preview-is-the-pdfs-own-compile-as-palette-png-pages-and-the-crm-wizard-reaches-it-through-crm-api.md)
 - [20261116] A record promised permanent must be protected at the database, not by the absence of a route, and its references must be permanent too — `letterhead_version`, `letterhead_version_asset`, `letterhead_change` and any referenced `letterhead_asset` have `BEFORE UPDATE OR DELETE` triggers that raise (Tier 1, as refund), FKs are `ON DELETE RESTRICT`, actor columns carry no FK (an FK `SET NULL` is an UPDATE), restore creates a new version, only unreferenced uploads older than 24 h are swept; any new history or version-dependent table gets the same triggers and a real-Postgres UPDATE/DELETE refusal test (see docs/adr/20261116-letterhead-versions-assets-and-change-record-are-immutable-in-the-database.md)
+- [20261116] A view may sum its own figures in the browser only over one complete, all-or-nothing read of a bounded span — the Week view of My hours folds one week from the export's full walk, so every cell, row, day and week agrees, and a failed page is an error, never a partial grid; sums over loaded pages, a second server grid or a totals `groupBy=day` beside browser cells are rejected, and the time-tracking "no figure computed in the browser" convention narrows for that view only; amended 2026-11-19: the table view of My hours, week or month, folds a calendar month from the same complete walk (see docs/adr/20261116-week-view-sums-a-complete-read-in-the-browser.md)
+- [20261116] A host embeds another tool's write as that tool's widget through the shell seam — plain strings in, nothing back; the host decides only whether to show the offer, never whether the person is allowed, because an affordance copied from the owner's rule stands in for asking the owner (hours-api decides each save as the caller; no copy of the dialog, no prefilled link, no callback) (see docs/adr/20261116-record-hours-widget-through-the-host-extension-seam.md)
 - [20261117] Context a person attaches is kept as long as the raw material it explains, and reaches a model unparsed — meeting attachments (files and links, specs/20261104-meetings US-15, A14) live in the meetings bucket under `meetings/<id>/attachments/<uuid>` (presigned POST pinned to an allowlisted type and the exact size, ≤ 20 MiB, 10 files + 10 links per meeting, confirmed by HEAD) and are deleted by the bucket's 29-day rule like the audio (`expired` derived on read); deleting the recording keeps them (`Storage.deleteAudio`), deleting the meeting removes them; editors are the agenda's (`assertMeetingEditor`, host reader 403 `attachment_editors_only`), readers everyone who can open the meeting, downloads a 60 s GET forcing `attachment`; a link is `http(s)` without credentials and NEVER fetched, only its label reaches a model; the fourth byte reader is bounded (PDF/PNG/JPEG/WebP/text only, ≤ 5 MiB each, ≤ 8 MiB total, oldest first, one `aiContextOf` for page and models, signature check only) and forwards bytes UNPARSED to Gemini (transcription) and Claude (summaries, Q&A) on Vertex `eu` — no parser in our process, Office files stored but never read; attachments are quoted data, never instructions, never cited, never evidence; best effort, and a refused request is retried once without them; amends ADR 20261104-audio-retention-bucket-lifecycle-verified-at-startup ("audio only") and ADR 20261104-meetings-api-reads-audio-bytes-third-reader; rejected: a dedicated non-expiring bucket, fetching links, parsing in process, Office to the AI, bytea in Postgres (see docs/adr/20261117-meeting-attachments-in-the-audio-bucket-forwarded-unparsed.md)
 - [20261118] Something the system must do on a schedule runs in the service that owns the record, claimed before it acts — inventory-api reminds an employee to confirm a pending assignment 24 h after the offer, then every 7 days until answered (specs/20261006-hardware-inventory US-15): an in-process 15-minute tick (`startReminderScheduler`, off in tests and with `ASSIGNMENT_REMINDERS=off`), the due rule derived from `lastReminderAt` (pure `reminderClock.ts`, shared with the asset view), each reminder claimed by a CAS on `lastReminderAt` before the push and given back when notify-api does not take it or the history write fails; the push is a notify-api email notice (`email: true`), so inventory-api's service client holds `emails.send` too (grant it in `auth` `SERVICE_CLIENTS` before deploying); `POST /assignments/{id}/remind` forces one (`asset:manage`, 409 `reminder_too_soon` within the hour, 502 `reminder_not_sent`); a reminder is an action, not derived state, so ADR 20260714-invitation-lifecycle-derived-expiry-state still holds; rejected: a Railway cron service, jobs queued at offer time, send-without-claim, notify-api scheduling (see docs/adr/20261118-assignment-reminders-in-process-scheduler-claimed-by-cas.md)
 - [20261117] A record people rely on to prove what was true must be protected at the database, and its history must not be rebuilt from a weaker record; and two resources must not get names a reader can swap — the legal-entity registry is `legal_entity_version` in auth, append-only (current = highest, no mutable row, a restore inserts n+1), `BEFORE UPDATE OR DELETE` and `BEFORE TRUNCATE` triggers raise (the first Tier 1 table in auth; `audit_log` stays Tier 2), actor columns carry no FK (an FK `SET NULL` is an UPDATE), tests run in a rolled-back transaction, never by deleting rows; read by any signed-in person and by services through `legal-entities:read` (one serializer, two routes); a scope for a suite resource hosted by auth has no service prefix and uses the colon form, in the resource's own word (never `companies:read` beside `crm.companies.read`) (see docs/adr/20261117-legal-entity-registry-in-auth-is-append-only-versions-immutable-in-the-database.md)

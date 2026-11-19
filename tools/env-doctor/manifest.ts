@@ -38,6 +38,9 @@ export const SERVICES = {
   // specs/20261116-letterhead-service (ADR 20261116-letterhead-api-is-a-rust-service-with-typst-embedded-for-document-layout-only): the one Rust service, in letterhead-api/. It is listed here BY NAME: nothing else
   // would put it in the contract, because it has no package.json of its own to trigger a check (the ADR's failure shape).
   "letterhead-api": { platform: "railway", kind: "backend" },
+  // specs/20261112-time-tracking: time entries, categories and work types (ADR 20261112-hours-api-time-entries-own-service-hours-catalog). Its UI is the
+  // ungated hours remote below (ADR 20261112-hours-ui-ungated-remote).
+  "hours-api": { platform: "railway", kind: "backend" },
   shell: { platform: "vercel", kind: "frontend" },
   "estimai-ui": { platform: "vercel", kind: "frontend" },
   "refund-ui": { platform: "vercel", kind: "frontend" },
@@ -49,6 +52,7 @@ export const SERVICES = {
   "projects-ui": { platform: "vercel", kind: "frontend" },
   // specs/20261116-letterhead-service: the letterhead configurator, a federated remote reached through the shell.
   "letterheads-ui": { platform: "vercel", kind: "frontend" },
+  "hours-ui": { platform: "vercel", kind: "frontend" },
 } as const satisfies Record<string, ServiceDef>;
 
 export type ServiceName = keyof typeof SERVICES;
@@ -78,6 +82,8 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "projects-ui": "https://projects.operai.welld.io",
     // ASSUMED (specs/20261116-letterhead-service) — confirm once the Vercel project exists.
     "letterheads-ui": "https://letterheads.operai.welld.io",
+    // ASSUMED (infra/provision-tool.sh derives <tool>.operai.welld.io, specs/20261112-time-tracking) — confirm once the Vercel project exists.
+    "hours-ui": "https://hours.operai.welld.io",
   },
   preview: {
     // Vercel preview URLs are per-deploy; usually validated via the live-diff
@@ -94,12 +100,13 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "meetings-ui": "http://localhost:5180",
     "projects-ui": "http://localhost:5181",
     "letterheads-ui": "http://localhost:5182",
+    "hours-ui": "http://localhost:5184",
   },
 };
 
 /** Vars that MUST hold a byte-for-byte identical value across the listed services. */
 export const SHARED_VARS: ReadonlyArray<{ name: string; services: ServiceName[] }> = [
-  { name: "AUTH_AUDIENCE", services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api"] },
+  { name: "AUTH_AUDIENCE", services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api", "hours-api"] },
   // The `aud` auth stamps on scoped service JWTs and the resource servers that take them verify:
   // notify-api (ADR 20261006-scoped-service-jwt-fourth-notify-caller); crm-api for estimai-api's estimate notices (specs/20261101-crm-sales-flow AC-3.3, ADR 20261105-estimai-closes-the-estimate-crm-follows),
   // meetings-api's host notices (`system:meetings-api`, scope `host-notices.send`, ADR 20261104-meeting-host-contract-resolve-and-notices) and
@@ -109,7 +116,10 @@ export const SHARED_VARS: ReadonlyArray<{ name: string; services: ServiceName[] 
   // specs/20261110-activities (ADR 20261110-caller-chosen-ids-replace-cross-service-transactions): activities-api verifies crm-api's /system/v1/* calls (scope `activities.write`,
   // sub `system:crm-api`) against it.
   // specs/20261116-letterhead-service: letterhead-api verifies crm-api's /v1/render/* calls (scope `letterhead:render`) against it.
-  { name: "SERVICE_AUDIENCE", services: ["auth", "notify-api", "crm-api", "estimai-api", "projects-api", "activities-api", "letterhead-api"] },
+  // specs/20261112-time-tracking (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route): meetings-api verifies hours-api's `GET /system/meetings/hosts` (scope
+  // `meetings.hosts.read`, sub `system:hours-api`) against it; hours-api needs the same value as the
+  // audience of the service JWT it fetches from auth (`POST /system/service-token`).
+  { name: "SERVICE_AUDIENCE", services: ["auth", "notify-api", "crm-api", "estimai-api", "projects-api", "activities-api", "letterhead-api", "meetings-api", "hours-api"] },
 ];
 
 /**
@@ -134,6 +144,14 @@ export const DISTINCT_VARS: ReadonlyArray<{ a: string; b: string; services: Serv
     services: ["estimai-api", "projects-api"],
     why: "a service token would be accepted on user routes and a user JWT on /system/estimates and /system/purchase-orders (ADR 20261006-scoped-service-jwt-fourth-notify-caller, specs/20261103-projects-handoff)",
   },
+  // specs/20261112-time-tracking: meetings-api's `/system/meetings/hosts` (its env.ts refuses an equal pair at start) and
+  // hours-api (required there, refuses an equal pair at start).
+  {
+    a: "SERVICE_AUDIENCE",
+    b: "AUTH_AUDIENCE",
+    services: ["meetings-api", "hours-api"],
+    why: "a service token would be accepted on user routes and a user JWT on /system/meetings/hosts (ADR 20261006-scoped-service-jwt-fourth-notify-caller, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route)",
+  },
 ];
 
 /**
@@ -146,7 +164,7 @@ export const DISTINCT_VARS: ReadonlyArray<{ a: string; b: string; services: Serv
 export const FORBIDDEN_VARS: ReadonlyArray<{ name: string; services: ServiceName[]; why: string }> = [
   {
     name: "NOTIFY_INTERNAL_TOKEN",
-    services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api"],
+    services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api", "hours-api"],
     why: "the shared notify token was retired (specs/20261013-notify-service-credentials, ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired): every caller uses its own scoped service credential",
   },
   // specs/20261111-push-notifications US-7 (ADR 20261112-system-endpoints-limited-per-verified-service): the one address-keyed bucket of the two /system endpoints is replaced by
@@ -245,6 +263,11 @@ export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
   // the shared secret and this caller's SERVICE_CLIENT_ID/SECRET are one change (release step 2); auth refuses to start with a
   // scope it does not know, so the entry is added only after the new auth is live.
   { ...LINK_BASE, caller: "letterhead-api", requiredScopes: ["legal-entities:read"] },
+  // specs/20261112-time-tracking (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route): hours-api reads which deal a meeting is linked to from meetings-api's
+  // `GET /system/meetings/hosts` as itself. EXACTLY this one scope: every other owner (projects-api,
+  // crm-api, activities-api, meetings-api's `ids`) is asked as the caller with the forwarded JWT, never
+  // with a service credential, and hours-api sends no notification.
+  { ...LINK_BASE, caller: "hours-api", requiredScopes: ["meetings.hosts.read"] },
 ];
 
 /**
@@ -280,7 +303,7 @@ export const ISSUER = {
   authService: "auth" as ServiceName,
   authVar: "BETTER_AUTH_URL",
   issuerVar: "AUTH_ISSUER",
-  resourceServers: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api"] as ServiceName[],
+  resourceServers: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api", "hours-api"] as ServiceName[],
 };
 
 /**
@@ -321,6 +344,15 @@ export const INTERNAL_URL_VARS: ReadonlyArray<{
   // specs/20261116-letterhead-service (plan § Architecture): crm-api renders offers through letterhead-api as itself (service JWT,
   // scope `letterhead:render`). Optional in crm-api until the switch: LETTERHEAD_SERVICE_ENABLED is off and the CRM behaves as before (AC-10.12).
   { name: "LETTERHEAD_API_URL", services: ["crm-api"], target: "letterhead-api" },
+  // specs/20261112-time-tracking (ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route): hours-api's calls, all over Railway private networking. auth for the JWKS,
+  // identities, the live permissions and the service token; the four owners it asks "may this person
+  // book ..." as the caller (the forwarded JWT); meetings-api also gets hours-api's own service JWT.
+  { name: "AUTH_JWKS_URL", services: ["hours-api"], target: "auth" },
+  { name: "AUTH_BASE_URL", services: ["hours-api"], target: "auth" },
+  { name: "PROJECTS_API_URL", services: ["hours-api"], target: "projects-api" },
+  { name: "CRM_API_URL", services: ["hours-api"], target: "crm-api" },
+  { name: "ACTIVITIES_API_URL", services: ["hours-api"], target: "activities-api" },
+  { name: "MEETINGS_API_URL", services: ["hours-api"], target: "meetings-api" },
 ];
 
 /** Browser-facing / identity-claim URLs — must stay PUBLIC (`https://`, not localhost/internal in prod). */
@@ -333,6 +365,8 @@ export const PUBLIC_URL_VARS: ReadonlyArray<{ name: string; services: ServiceNam
   { name: "APP_BASE_URL", services: ["notify-api"] },
   // specs/20261116-letterhead-service: the configurator talks to letterhead-api's person routes from the browser, so this origin is public.
   { name: "VITE_LETTERHEADS_API_URL", services: ["letterheads-ui"] },
+  // specs/20261112-time-tracking: hours-api's JWT `iss` (it is also in ISSUER.resourceServers).
+  { name: "AUTH_ISSUER", services: ["hours-api"] },
 ];
 
 /** Each backend's `ALLOWED_ORIGINS` must include the public origin of these frontends (CORS). */
@@ -355,6 +389,9 @@ export const CORS_REQUIREMENTS: ReadonlyArray<{ backend: ServiceName; mustAllow:
   { backend: "activities-api", mustAllow: ["shell"] },
   // letterheads-ui is a remote reached through the shell (specs/20261116-letterhead-service), so the browser Origin is the shell's.
   { backend: "letterhead-api", mustAllow: ["shell"] },
+  // hours-ui is a remote reached through the shell (ADR 20260709-suite-frontend-module-federation, ADR 20261112-hours-ui-ungated-remote),
+  // its Settings tab with the time lists included since specs/20261112-time-tracking D51 (they left admin-ui).
+  { backend: "hours-api", mustAllow: ["shell"] },
 ];
 
 /**
@@ -461,6 +498,15 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE", "SERVICE_AUDIENCE",
     "LETTERHEAD_S3_ENDPOINT", "LETTERHEAD_S3_REGION", "LETTERHEAD_S3_EU_ENDPOINT_HOSTS", "PORT",
   ],
+  // specs/20261112-time-tracking (ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route): a JWKS resource server whose `src/lib/env.ts` requires EVERY
+  // variable at start (nothing optional, no group): the four owners it asks as the caller, its own service
+  // credential (a meeting's current deal is read from meetings-api as itself) and the audience of that
+  // credential, which must differ from AUTH_AUDIENCE. It sends no notification, so no NOTIFY_INTERNAL_URL.
+  "hours-api": [
+    "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
+    "PROJECTS_API_URL", "CRM_API_URL", "ACTIVITIES_API_URL", "MEETINGS_API_URL",
+    "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", "SERVICE_AUDIENCE", "PORT",
+  ],
 };
 
 /**
@@ -498,6 +544,12 @@ export const PRODUCTION_REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = 
   // pair every registry read fails closed (503 legal_entities_unavailable) and no document prints an issuer. Production states both, so
   // that the link to auth's SERVICE_CLIENTS entry (scope `legal-entities:read`) is actually checked rather than skipped as "missing".
   "letterhead-api": ["SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"],
+  // specs/20261112-time-tracking T9 (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route): optional in meetings-api's env.ts on purpose (a missing value must close
+  // /system/meetings/hosts with a 401, not stop a service that holds recordings from starting), required
+  // here for production: without it hours-api's deal-filtered reads are refused 503 and its by-deal
+  // totals cannot name a meeting's deal. Equal across auth, notify-api, crm-api, estimai-api,
+  // projects-api, activities-api, meetings-api and hours-api, and different from AUTH_AUDIENCE.
+  "meetings-api": ["SERVICE_AUDIENCE"],
 };
 
 /**

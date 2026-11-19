@@ -138,6 +138,8 @@ const TECHNICAL = new Set([
   '/crm/$',
   // A host-extension name (lib/extensions.tsx): a dotted id, not copy.
   'meetings.hostMeetings',
+  // specs/20261116-record-hours-in-place: hours-ui's Record hours button, embedded by the project and deal pages and the task rows.
+  'hours.recordHours',
   // The floating slot (lib/floating.ts, FloatingHost): a widget id, a perimeter edge, a typeof check.
   'meetings.recorderDock',
   '/meetings/m/',
@@ -151,6 +153,9 @@ const TECHNICAL = new Set([
   '/projects/$',
   '/letterheads',
   '/letterheads/$',
+  // specs/20261112-time-tracking: the ungated hours route (router.tsx) and its menu link (UserMenu.tsx).
+  '/hours',
+  '/hours/$',
   '/operai.svg',
   // The product name, the same in every language.
   'Operai',

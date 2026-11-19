@@ -104,7 +104,7 @@ describe("env-doctor resolver", () => {
   test("the committed production templates pass the doctor offline (no errors, no warnings)", () => {
     const r = loadTemplateSuite("production"); // real TEMPLATES_DIR, offline
     expect(r.errors).toEqual([]);
-    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api"]);
+    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api", "activities-api", "letterhead-api", "hours-api"]);
     const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
     const bad = findings.filter((f) => f.level !== "ok");
     expect(bad).toEqual([]);
@@ -253,5 +253,101 @@ describe("env-doctor resolver", () => {
         s.auth!.SERVICE_CLIENTS = JSON.stringify(reg);
       }),
     ).toContain('entry "crm-api" lacks the "projects.purchase-orders.read" scope');
+  });
+
+  // specs/20261112-time-tracking T33: the shipped templates carry the hours-api contract and meetings-api's service audience;
+  // losing a piece fails offline, before any deploy. The errors come back as "<scope>: <message>".
+  describe("the committed templates — hours-api and meetings-api's service audience (specs/20261112-time-tracking)", () => {
+    type Suite = ReturnType<typeof loadTemplateSuite>["suite"];
+    const errorsAfter = (mutate: (s: Suite) => void) => {
+      const r = loadTemplateSuite("production");
+      mutate(r.suite);
+      return checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved })
+        .filter((f) => f.level === "error")
+        .map((f) => `${f.scope}: ${f.message}`);
+    };
+    const withRegistry = (s: Suite, change: (reg: Record<string, { secret: string; scope: string }>) => void) => {
+      const reg = JSON.parse(s.auth!.SERVICE_CLIENTS!);
+      change(reg);
+      s.auth!.SERVICE_CLIENTS = JSON.stringify(reg);
+    };
+
+    test("hours-api or meetings-api without SERVICE_AUDIENCE fails", () => {
+      expect(errorsAfter((s) => delete s["hours-api"]!.SERVICE_AUDIENCE)).toContain("hours-api: SERVICE_AUDIENCE is missing");
+      expect(errorsAfter((s) => delete s["meetings-api"]!.SERVICE_AUDIENCE)).toContain("meetings-api: SERVICE_AUDIENCE is missing");
+    });
+
+    test("hours-api's SERVICE_AUDIENCE equal to its AUTH_AUDIENCE fails (so does meetings-api's)", () => {
+      for (const svc of ["hours-api", "meetings-api"] as const) {
+        const errors = errorsAfter((s) => (s[svc]!.SERVICE_AUDIENCE = s[svc]!.AUTH_AUDIENCE!));
+        expect(errors.some((e) => e.startsWith(`${svc}: ${svc}.SERVICE_AUDIENCE must differ from ${svc}.AUTH_AUDIENCE`))).toBe(true);
+      }
+    });
+
+    test("auth's hours-api entry without meetings.hosts.read, with an extra scope, or missing fails", () => {
+      expect(
+        errorsAfter((s) => withRegistry(s, (reg) => (reg["hours-api"]!.scope = "notifications.push"))).join(" | "),
+      ).toContain('entry "hours-api" lacks the "meetings.hosts.read" scope');
+      expect(
+        errorsAfter((s) => withRegistry(s, (reg) => (reg["hours-api"]!.scope = "meetings.hosts.read crm.deals.read"))).join(" | "),
+      ).toContain('entry "hours-api" holds the "crm.deals.read" scope, which hours-api does not need');
+      expect(errorsAfter((s) => withRegistry(s, (reg) => delete reg["hours-api"])).join(" | ")).toContain(
+        'has no entry for client id "hours-api"',
+      );
+    });
+
+    test("hours-api's CORS missing the shell origin fails; the shell origin alone is enough (D51)", () => {
+      expect(errorsAfter((s) => (s["hours-api"]!.ALLOWED_ORIGINS = "https://admin.operai.welld.io")).join(" | ")).toContain(
+        "hours-api.ALLOWED_ORIGINS is missing shell's origin https://operai.welld.io",
+      );
+      expect(errorsAfter((s) => (s["hours-api"]!.ALLOWED_ORIGINS = "https://operai.welld.io")).join(" | ")).not.toContain(
+        "hours-api.ALLOWED_ORIGINS",
+      );
+    });
+
+    test("each of hours-api's four owner URLs made public fails", () => {
+      for (const [name, target] of [
+        ["PROJECTS_API_URL", "projects-api"],
+        ["CRM_API_URL", "crm-api"],
+        ["ACTIVITIES_API_URL", "activities-api"],
+        ["MEETINGS_API_URL", "meetings-api"],
+      ] as const) {
+        const errors = errorsAfter((s) => (s["hours-api"]![name] = `https://${target}.operai.welld.io`));
+        expect(errors.some((e) => e.startsWith(`hours-api: ${name} should call ${target} over private networking`))).toBe(true);
+      }
+    });
+
+    test("each of hours-api's required variables dropped from the template fails", () => {
+      for (const key of [
+        "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
+        "PROJECTS_API_URL", "CRM_API_URL", "ACTIVITIES_API_URL", "MEETINGS_API_URL",
+        "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", "SERVICE_AUDIENCE", "PORT",
+      ]) {
+        expect(errorsAfter((s) => delete s["hours-api"]![key])).toContain(`hours-api: ${key} is missing`);
+      }
+    });
+
+    test("the shipped hours-api template: port, client id, a referenced secret, one scope in auth's entry, the same secret on both sides", () => {
+      const r = loadTemplateSuite("production");
+      const hours = r.suite["hours-api"]!;
+      expect(hours.PORT).toBe("8089");
+      expect(hours.SERVICE_CLIENT_ID).toBe("hours-api");
+      expect(hours.NODE_ENV).toBe("production");
+      // The secret is a Railway Shared Variable reference, never a literal, and auth's entry carries the SAME reference.
+      expect(hours.SERVICE_CLIENT_SECRET).toStartWith("${{shared.");
+      const entry = JSON.parse(r.suite.auth!.SERVICE_CLIENTS!)["hours-api"];
+      expect(entry.secret).toBe(hours.SERVICE_CLIENT_SECRET!);
+      expect(entry.scope).toBe("meetings.hosts.read");
+      // It sends no notification and holds no retired variable.
+      expect(hours.NOTIFY_INTERNAL_URL).toBeUndefined();
+      expect(hours.NOTIFY_INTERNAL_TOKEN).toBeUndefined();
+    });
+
+    test("the shipped meetings-api template carries the shared SERVICE_AUDIENCE, as auth does", () => {
+      const r = loadTemplateSuite("production");
+      expect(r.suite["meetings-api"]!.SERVICE_AUDIENCE).toBe("${{shared.SERVICE_AUDIENCE}}");
+      expect(r.suite.auth!.SERVICE_AUDIENCE).toBe("${{shared.SERVICE_AUDIENCE}}");
+      expect(r.suite["hours-api"]!.SERVICE_AUDIENCE).toBe("${{shared.SERVICE_AUDIENCE}}");
+    });
   });
 });

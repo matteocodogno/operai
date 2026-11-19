@@ -50,7 +50,8 @@ const signJwt = async (payload: ServiceJwtPayload): Promise<string> =>
     .setJti(payload.jti)
     .sign(privateKey);
 
-// The nine service clients of the suite (infra/README.md § Notify credential rollout; letterhead-api reads the registry).
+// The ten service clients of the suite (infra/README.md § Notify credential rollout; letterhead-api reads the registry; hours-api
+// since specs/20261112-time-tracking, scope meetings.hosts.read only).
 const SECRET = "dummy-capacity-secret-0123456789-abcdefgh";
 const CLIENTS = [
   "inventory-api",
@@ -62,15 +63,18 @@ const CLIENTS = [
   "meetings-api",
   "notify-api",
   "letterhead-api",
+  "hours-api",
 ] as const;
 const scopesOf = (id: string) =>
   id === "notify-api"
     ? ["users.contact"]
     : id === "letterhead-api"
       ? ["legal-entities:read"]
-      : id === "crm-api"
-        ? ["notifications.push", "emails.send", "legal-entities:read"]
-        : ["notifications.push", "emails.send"];
+      : id === "hours-api"
+        ? ["meetings.hosts.read"]
+        : id === "crm-api"
+          ? ["notifications.push", "emails.send", "legal-entities:read"]
+          : ["notifications.push", "emails.send"];
 
 const SERVICE_AUDIENCE = "operai-service-capacity-test";
 const RUN_ID = crypto.randomUUID().slice(0, 8);
@@ -100,7 +104,7 @@ describe("suite capacity (AC-7.7) — the D-1 traffic shape, production defaults
     ]).toEqual([300, 600, 20, 600_000, 300]);
   });
 
-  test("9 clients x 30 mints + 220 lookups + 120 legal-entity reads + 15 invalid requests from one address: zero 429", async () => {
+  test("10 clients x 30 mints + 220 lookups + 120 legal-entity reads + 15 invalid requests from one address: zero 429", async () => {
     const limits = createSystemRateLimits();
     const tokenRouter = createServiceTokenRouter({ signJwt, limits });
     const contactRouter = createUserContactRouter({ getJwks: async () => jwks, limits });
@@ -185,6 +189,6 @@ describe("suite capacity (AC-7.7) — the D-1 traffic shape, production defaults
       else if (s.what === "read") expect(s.status).toBe(200);
       else expect(s.status).toBe(401);
     }
-    expect(statuses.length).toBe(270 + 2 + 220 + 120 + 15);
+    expect(statuses.length).toBe(300 + 2 + 220 + 120 + 15);
   });
 });

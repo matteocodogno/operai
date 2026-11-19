@@ -10,6 +10,9 @@
  * written (AC-8.2); a caller the host does not let read, and an entity it does not know, are
  * the same 404 as an activity that does not exist (AC-8.3). No If-Match: a single author (or
  * manager) edits, so there is nobody to race (plan D-7).
+ *
+ * `GET /activities?ids=` (specs/20261112-time-tracking T6) is the one list that names activities rather
+ * than an entity: see `listByIds`.
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -35,10 +38,10 @@ import {
 import { requireAppUsers } from "../lib/identities";
 import { announce } from "../lib/notify";
 import type { NotifyActivity, NotifyTarget } from "../lib/notificationCopy";
-import { unprocessable, validationHook } from "../lib/problem";
+import { ProblemError, unprocessable, validationHook } from "../lib/problem";
 import type { ActivityHost, HostApp } from "../hosts/registry";
 import { HostSession, type OpenEntity } from "./access";
-import { authorizationOf, ifStillThere, loadFor, type Caller } from "./load";
+import { authorizationOf, hostOf, ifStillThere, loadFor, type Caller } from "./load";
 import { MAX_BLOCKERS, announceUnblocked, assertBlockers, assertUnblocked, newBlockerRows, replaceBlockers } from "./blockers";
 import { changeRefused, completeRefused, createRefused, hostReadOnly, mayChange, mayComplete, mayCreate } from "./rules";
 import { staggered } from "./stagger";
@@ -100,11 +103,18 @@ const UpdateActivitySchema = z
   })
   .strict();
 
+/** `?ids=`: how many activities one call may ask for, and the longest id (the bound every id input has). */
+const MAX_IDS = 50;
+const MAX_ID_LENGTH = 64;
+
 const ListActivitiesQuery = z.object({
   companyId: z.string().max(64).refine(noNul, NUL_MESSAGE).optional(),
   contactId: z.string().max(64).refine(noNul, NUL_MESSAGE).optional(),
   dealId: z.string().max(64).refine(noNul, NUL_MESSAGE).optional(),
   projectId: z.string().max(64).refine(noNul, NUL_MESSAGE).optional(),
+  // The fifth filter (specs/20261112-time-tracking T6): up to MAX_IDS activity ids, comma-separated. The raw string is
+  // bounded first so a long one is a 422 before it is split; the elements are checked in `parseIds`.
+  ids: z.string().max(MAX_IDS * (MAX_ID_LENGTH + 1)).optional(),
   // `type=task&open=true`: the open tasks a task may be blocked by (US-6 picker).
   type: TypeSchema.optional(),
   open: z.enum(["true"]).optional(),
@@ -239,6 +249,67 @@ const announceParticipants = (c: Caller, session: HostSession, host: ActivityHos
         target: notifyTarget(session, host, row),
       });
 
+// ─── Listing by ids (specs/20261112-time-tracking T6) ───────────────────────────────────────────
+
+/** The ids of `?ids=a,b,c`: each 1..64 characters with no NUL, at most MAX_IDS as sent (not as distinct). One given twice is still one row. */
+function parseIds(raw: string): string[] {
+  const parts = raw.split(",");
+  const refuse = (detail: string) => unprocessable(detail, { field: "ids" });
+  if (parts.length > MAX_IDS) throw refuse(`Give at most ${MAX_IDS} ids`);
+  for (const part of parts) {
+    if (part === "") throw refuse("An id must not be empty");
+    if (part.length > MAX_ID_LENGTH) throw refuse(`An id has at most ${MAX_ID_LENGTH} characters`);
+    if (!noNul(part)) throw refuse(NUL_MESSAGE);
+  }
+  return parts;
+}
+
+/**
+ * The activities among `ids` that the caller still reads, newest first, in one page (hours-api
+ * asks it of every entry that points at an activity, and reads an absent id as "deleted, or not
+ * yours", AC-2.9 / D47). Three rules make that reading safe:
+ *
+ *   - Every host that owns some of the rows is asked about them, as the caller (ADR 20261110-activities-service-access-delegated-to-host). The
+ *     host that says the caller is no reader, and the entity it no longer knows, are one outcome
+ *     with an id that never existed: the activity is left out, with no status, field or count that
+ *     tells the three apart (`total` counts what is returned, never what was left out).
+ *   - A host that cannot answer is the existing 503 `host_unavailable`, never a shorter list: an
+ *     omission must always mean "not readable", so a failure never looks like one. Only the hosts
+ *     that own a requested row are asked, so a lookup of CRM activities does not depend on Projects.
+ *   - It is never cut: at most MAX_IDS rows exist, so there is one page, whatever `page` or
+ *     `pageSize` the caller sent (the page of 25 every other list defaults to would silently drop
+ *     half of 50 asked ids, and the caller would read those as deleted).
+ */
+async function listByIds(c: Caller, session: HostSession, ids: readonly string[], extra: Prisma.ActivityWhereInput) {
+  const rows = await db.activity.findMany({
+    where: { id: { in: [...ids] }, ...extra },
+    include: withRefs,
+    orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+  });
+  await Promise.all(
+    session.registry.all().map(async (host) => {
+      const mine = rows.filter((row) => row.hostApp === host.app && row.hostType === host.entityType);
+      if (mine.length === 0) return;
+      try {
+        await session.load(
+          host,
+          mine.map((row) => row.hostId),
+          relatedIdsOf(mine),
+        );
+      } catch (error) {
+        // The host answered, and the caller is no reader of it: none of its activities is theirs to see.
+        if (error instanceof ProblemError && error.status === 404) return;
+        throw error;
+      }
+    }),
+  );
+  const readable = rows.filter((row) => {
+    const entity = session.entity(hostOf(session, row), row.hostId);
+    return entity?.state === "open";
+  });
+  return { items: await toViews(c, readable, session), total: readable.length, page: 1, pageSize: MAX_IDS };
+}
+
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 const json = (schema: z.ZodTypeAny) => ({ content: { "application/json": { schema } } });
@@ -247,7 +318,9 @@ const listRoute = createRoute({
   method: "get",
   path: "/activities",
   tags: ["Activities"],
-  summary: "Activities of one company, contact, deal or project, newest first",
+  summary:
+    "Activities of one company, contact, deal or project, newest first; or, with `ids` (at most 50), those of them the caller still reads, " +
+    "all in one page: an id that does not exist, that the caller may not read or whose record the host no longer knows is simply left out",
   middleware: [jwtMiddleware],
   request: { query: ListActivitiesQuery },
   responses: { 200: { description: "A page of activities", ...json(pageOf(ActivitySchema)) }, ...commonErrors },
@@ -302,14 +375,15 @@ export const activitiesRouter = new OpenAPIHono<{ Variables: JwtVariables }>({
 });
 
 activitiesRouter.openapi(listRoute, async (c) => {
-  const { companyId, contactId, dealId, projectId, type, open, page, pageSize } = c.req.valid("query");
-  const given = { companyId, contactId, dealId, projectId };
+  const { companyId, contactId, dealId, projectId, ids, type, open, page, pageSize } = c.req.valid("query");
+  const given = { companyId, contactId, dealId, projectId, ids };
   const filters = Object.entries(given).filter(([, v]) => v !== undefined && v !== "");
   if (filters.length !== 1) {
-    throw unprocessable("Give exactly one of companyId, contactId, dealId or projectId", { field: "companyId" });
+    throw unprocessable("Give exactly one of companyId, contactId, dealId, projectId or ids", { field: "companyId" });
   }
   const session = new HostSession(authorizationOf(c));
   const extra: Prisma.ActivityWhereInput = { ...(type ? { type } : {}), ...(open ? { completedAt: null } : {}) };
+  if (ids) return c.json(await listByIds(c, session, parseIds(ids), extra), 200);
 
   let target: Prisma.ActivityWhereInput;
   if (companyId || projectId) {

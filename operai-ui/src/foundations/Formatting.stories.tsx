@@ -4,13 +4,15 @@ import {
   formatDate,
   formatDateLong,
   formatDateTime,
+  formatDuration,
   formatMoney,
+  formatMonth,
   formatNumber,
   formatRelative,
 } from '../lib/format'
 
 /**
- * The suite's formatters: one way to show a date, a time, an amount and a
+ * The suite's formatters: one way to show a date, a time, a month, a duration, an amount and a
  * number. Display only — APIs exchange ISO 8601 dates and integer minor units;
  * never parse what these return. Numeric dates are `dd.mm.yyyy` in both
  * languages; numbers follow the language (Italian: decimal comma, a dot
@@ -25,6 +27,7 @@ export default meta
 
 const NOW = new Date(2026, 9, 31, 15, 0)
 const ago = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000)
+const inMinutes = (count: number) => count * 60_000
 
 type Row = { call: string; en: string; it: string; note?: string }
 
@@ -66,6 +69,40 @@ const ROWS: Row[] = [
     en: formatRelative(ago(10 * 24 * 60), NOW, 'en'),
     it: formatRelative(ago(10 * 24 * 60), NOW, 'it'),
     note: 'A week or older: a plain date',
+  },
+  {
+    call: "formatMonth('2026-11')",
+    en: formatMonth('2026-11', 'en'),
+    it: formatMonth('2026-11', 'it'),
+    note: 'A YYYY-MM group key; a malformed key throws',
+  },
+  {
+    call: "formatDuration(150 min, { style: 'short' })",
+    en: formatDuration(inMinutes(150), { style: 'short' }, 'en'),
+    it: formatDuration(inMinutes(150), { style: 'short' }, 'it'),
+    note: 'Hours worked in a list or total; give a screen reader the spoken style',
+  },
+  {
+    call: "formatDuration(120 min, { style: 'short' })",
+    en: formatDuration(inMinutes(120), { style: 'short' }, 'en'),
+    it: formatDuration(inMinutes(120), { style: 'short' }, 'it'),
+  },
+  {
+    call: "formatDuration(30 min, { style: 'short' })",
+    en: formatDuration(inMinutes(30), { style: 'short' }, 'en'),
+    it: formatDuration(inMinutes(30), { style: 'short' }, 'it'),
+  },
+  {
+    call: "formatDuration(125 min, { style: 'short' })",
+    en: formatDuration(inMinutes(125), { style: 'short' }, 'en'),
+    it: formatDuration(inMinutes(125), { style: 'short' }, 'it'),
+    note: 'Minutes after hours are padded, so "2 h 05" never reads as 2.5',
+  },
+  {
+    call: "formatDuration(150 min, { style: 'spoken' })",
+    en: formatDuration(inMinutes(150), { style: 'spoken' }, 'en'),
+    it: formatDuration(inMinutes(150), { style: 'spoken' }, 'it'),
+    note: 'For an aria-label or a sentence',
   },
   { call: "formatMoney(1234550, 'EUR')", en: formatMoney(1234550, 'EUR', 'en'), it: formatMoney(1234550, 'EUR', 'it') },
   {

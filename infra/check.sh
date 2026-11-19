@@ -31,6 +31,10 @@
 # specs/20261116-letterhead-service adds letterhead-api (no UI probed here: letterheads-ui is a remote of its own): healthy,
 # the service-credential gate on GET /v1/letterheads/status and POST /v1/render/pdf (a call with no credential is the one 401),
 # and the connect-src pin. Override LETTERHEAD_API_URL.
+# specs/20261112-time-tracking adds hours-api / hours-ui (the Hours screens, open to every signed-in user): healthy, an
+# anonymous 401 on a user route (GET /time-entries), remoteEntry.js + CORS, the three CSP pins — and
+# meetings-api's service-credential route GET /system/meetings/hosts answering 401 to a call with no
+# credential (404 = a build older than specs/20261112-time-tracking T9). Override HOURS_API_URL / HOURS_URL (ASSUMED hostnames).
 # Also probes
 # notify-api's two internal endpoints (specs/20260713-user-invitations, specs/20261013-notify-service-credentials) — see § 2b below:
 # neither accepts the retired X-Internal-Token header and neither answers an
@@ -86,6 +90,12 @@ ACTIVITIES_API_URL="${ACTIVITIES_API_URL:-https://activities-api.operai.welld.io
 # NOT resolve until the Railway service + custom domain + DNS exist (T40, infra/README.md § letterhead-api service) — until then the
 # letterhead-api checks below fail by design. Override if the real domain differs.
 LETTERHEAD_API_URL="${LETTERHEAD_API_URL:-https://letterhead-api.operai.welld.io}"
+# ASSUMED hostnames (specs/20261112-time-tracking): the ones shell/vercel.json's CSP names. They do NOT
+# resolve until the Railway service / Vercel project + custom domains + DNS exist
+# (`infra/provision-tool.sh hours`, infra/README.md § Time tracking) — until then the hours checks
+# below fail by design. Override both if the real domains differ.
+HOURS_API_URL="${HOURS_API_URL:-https://hours-api.operai.welld.io}"
+HOURS_URL="${HOURS_URL:-https://hours.operai.welld.io}"
 PREREQS_ONLY=false; [[ "${1:-}" == "--prereqs" ]] && PREREQS_ONLY=true
 
 PASS=0; FAIL=0
@@ -202,6 +212,21 @@ LRC="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST -H 'Content-Type: app
 [[ "$(code "$MEETINGS_API_URL/health")" == 200 ]] && pass "meetings-api /health 200 ($MEETINGS_API_URL)" || fail "meetings-api /health not 200 ($MEETINGS_API_URL) — a failed startup check keeps it down: read its deploy log"
 MAC="$(code "$MEETINGS_API_URL/meetings")"
 [[ "$MAC" == 401 ]] && pass "meetings-api rejects an anonymous request on a gated route (401)" || fail "meetings-api GET /meetings without a token did not return 401 (got HTTP ${MAC:-?}) — the JWT gate may be missing or the service not deployed"
+# specs/20261112-time-tracking (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route): GET /system/meetings/hosts is the service-credential route hours-api reads a
+# meeting's current deal from (scope meetings.hosts.read, sub system:hours-api). No credential at all is the
+# frozen 401 — also the answer while SERVICE_AUDIENCE is unset, so this proves the route and its gate exist,
+# not that the variable is set (its absence makes hours-api read every meeting's deal as unavailable). A 404
+# means meetings-api predates specs/20261112-time-tracking T9. No credential is used, read or printed.
+MSH="$(code "$MEETINGS_API_URL/system/meetings/hosts")"
+[[ "$MSH" == 401 ]] && pass "meetings-api /system/meetings/hosts rejects a call with no credential (401)" || fail "meetings-api GET /system/meetings/hosts without a credential did not return 401 (got HTTP ${MSH:-?}) — 404 = a meetings-api build older than specs/20261112-time-tracking T9, anything else = the service-credential gate is not live (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route)"
+
+# hours-api (specs/20261112-time-tracking): same contract — healthy (the DB connection gates the status code), and
+# the JWT gate is live on every route but /health, with no credential at all. The Hours screens are open to
+# every signed-in user (AC-5.1), so there is no access grant to probe: the JWT gate is the check. ASSUMED
+# hostname until DNS exists — see HOURS_API_URL above.
+[[ "$(code "$HOURS_API_URL/health")" == 200 ]] && pass "hours-api /health 200 ($HOURS_API_URL)" || fail "hours-api /health not 200 ($HOURS_API_URL) — ASSUMED hostname until DNS exists (specs/20261112-time-tracking)"
+HRC="$(code "$HOURS_API_URL/time-entries")"
+[[ "$HRC" == 401 ]] && pass "hours-api rejects an anonymous request on a gated route (401)" || fail "hours-api GET /time-entries without a token did not return 401 (got HTTP ${HRC:-?}) — the JWT gate may be missing or the service not deployed"
 
 # JWKS: the resource-server verification key. MUST be /auth/jwks (better-auth's
 # rotating DB keypair), NOT /.well-known/jwks.json (orphaned env key).
@@ -255,7 +280,7 @@ done
 # ─── 3. Frontends (Vercel) ────────────────────────────────────────────────────
 head "Frontends (Vercel)"
 [[ "$(code "$SHELL_URL/")" == 200 ]] && pass "shell 200 ($SHELL_URL) — the entry point" || fail "shell not 200 ($SHELL_URL)"
-for pair in "estimai-ui:$ESTIMAI_URL" "refund-ui:$REFUND_URL" "admin-ui:$ADMIN_URL" "notify-ui:$NOTIFY_URL" "inventory-ui:$INVENTORY_URL" "crm-ui:$CRM_URL" "meetings-ui:$MEETINGS_URL" "projects-ui:$PROJECTS_URL"; do
+for pair in "estimai-ui:$ESTIMAI_URL" "refund-ui:$REFUND_URL" "admin-ui:$ADMIN_URL" "notify-ui:$NOTIFY_URL" "inventory-ui:$INVENTORY_URL" "crm-ui:$CRM_URL" "meetings-ui:$MEETINGS_URL" "projects-ui:$PROJECTS_URL" "hours-ui:$HOURS_URL"; do
   name="${pair%%:*}"; url="${pair#*:}"
   re="$(hdrs "$url/remoteEntry.js")"
   if echo "$re" | grep -qiE '^HTTP.* 200'; then
@@ -381,6 +406,23 @@ if [[ -n "$CSP" ]]; then
     pass "  CSP connect-src includes $PROJECTS_URL (projects-ui remote chunks — specs/20261103-projects)"
   else
     fail "  CSP connect-src is MISSING $PROJECTS_URL (specs/20261103-projects)"
+  fi
+  # specs/20261112-time-tracking — the same three pins for hours-api and hours-ui. The remote is ungated, but
+  # the browser still blocks a script or a fetch whose origin the CSP does not list.
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$HOURS_API_URL"; then
+    pass "  CSP connect-src includes $HOURS_API_URL (hours-api origin — specs/20261112-time-tracking)"
+  else
+    fail "  CSP connect-src is MISSING $HOURS_API_URL — hours-ui's API calls (My hours, Everyone's hours, Settings) will be blocked (specs/20261112-time-tracking)"
+  fi
+  if [[ -n "$SCRIPT_SRC" ]] && echo "$SCRIPT_SRC" | grep -q "$HOURS_URL"; then
+    pass "  CSP script-src includes $HOURS_URL (hours-ui remote — specs/20261112-time-tracking)"
+  else
+    fail "  CSP script-src is MISSING $HOURS_URL — the shell cannot load hours-ui's remoteEntry.js (specs/20261112-time-tracking)"
+  fi
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$HOURS_URL"; then
+    pass "  CSP connect-src includes $HOURS_URL (hours-ui remote chunks — specs/20261112-time-tracking)"
+  else
+    fail "  CSP connect-src is MISSING $HOURS_URL (specs/20261112-time-tracking)"
   fi
 
   # ADR 20260716-eu-object-storage-refund-attachments — receipt uploads POST DIRECTLY to the object-storage bucket, not

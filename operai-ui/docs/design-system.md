@@ -231,6 +231,12 @@ Rules:
    "New request"), from the app's strings module. **No glyph prefixes** in a
    label ("+ New request", "↑ Import JSON"): the variant says it is an action
    (INC-11). Glyphs belong in badges, where they are the non-colour signal.
+7. **A download is `ExportButton`.** Not a `Button` with an `onClick` of your own: it builds
+   the file on click (`build` — lazy-import the spreadsheet library there), is `aria-busy` and
+   never `disabled` while it builds, ignores a second click, says "preparing" then "ready"
+   politely (`readyMessage` when the file has a caveat), shows an alert on failure and is usable
+   again, and revokes the object URL. `secondary` (default) or `ghost`, never the page's
+   primary. A new `resetKey` (the filters changed) clears a status that described another file.
 
 ## Dialogs — `ConfirmDialog`, `FormDialog`, `NoticeDialog`, `Dialog`, `Drawer`
 
@@ -336,6 +342,21 @@ Enter picks, Escape closes, Tab leaves without picking. Inside a `Field`, pass t
 props as `id`, `ariaInvalid`, `ariaDescribedBy`, `ariaRequired`. A row after the options
 (an attribution) is an `<li className="combobox-footer">` passed as `footer`.
 
+Which one to reach for, by where the options come from:
+
+| The options are… | Use | Why |
+|---|---|---|
+| a short list the page already holds, or anything that needs its own rules | `Combobox` | The "dumb" one: you own the text, the options, when the popup opens and what an empty list says. |
+| the Operai users, loaded once and filtered in the browser | `PersonPicker` | The typed text never leaves the browser; it loads the list, handles a 403 and a rate limit, and can add to a list. |
+| a record found by a **server-side search** (a project, a deal, a company), too many to load | `SearchPicker` | It owns the debounce, the abort of a request the text has outrun, the discard of a late answer, "picked, never typed" (typing after a pick reports `null`; free text is never reported), the empty-list line for searching / no match / forbidden / unavailable and the announced result count. You pass `search`, `toOption` and the strings. |
+
+`SearchPicker` asks again every time the list opens and says "searching" until that answer
+arrives; the app maps its own 403 to `forbidden` and a 503 or network failure to `unavailable`
+(an unreachable service is never "no match"). The field follows `value`: reset it from outside
+by setting `value`, and clear half-typed text with a new `key`. Do not wrap `Combobox` in a
+new `CompanyPicker`-style component per app: `crm-ui` and `projects-ui` still carry two such
+copies and move to `SearchPicker` when next touched.
+
 A single-line `<select>` draws the suite's chevron, 10px from the right edge,
 with 30px of right padding reserved for it (unlayered rule: padding utilities
 do not move it). An inline `background:` shorthand erases the chevron — set
@@ -352,6 +373,11 @@ indeterminate). Use the plain `<input type="checkbox">` with a `<label>`.
   added"), `numeric` columns right-aligned in DM Mono with tabular figures, a
   keyboard-scrollable region when wide. It never formats, sorts or paginates;
   the cell text carries its own currency.
+- **Pinning:** `pin: 'start' | 'end'` on a column keeps it in view at that edge while a wide table scrolls
+  sideways (the row's name at the start, its total at the end), from 48 rem up; below that, and in a shell that
+  predates the prop, it scrolls like the others. At most one column per edge. Use it only on a table that always
+  scrolls (a month of days); a table that fits does not need it. Keep the pinned cells to text: keyboard focus on a
+  control inside one scrolls the table (D-69).
 - **Sorting:** mark a column `sortable` and give the table `sort` + `onSortChange`.
   The header becomes a button and the `th` carries `aria-sort`; a first click
   sorts ascending (`firstSortDirection: 'desc'` for dates and amounts), a second
@@ -368,7 +394,10 @@ indeterminate). Use the plain `<input type="checkbox">` with a `<label>`.
   strengthens. Never `hover:opacity-*` on a row.
 - **`ListRows`** for a list where each row opens one record (`<Link
   className={listRowClassName}>`): a status, one or two meta lines, a figure.
-  More than about three comparable columns → `DataTable`.
+  More than about three comparable columns → `DataTable`. Give each row a `key`
+  that names its record (its id): the list keeps a keyed row's element, and what
+  it holds (a message shown in the row, an open menu), when a row above it is
+  added or removed. A row with no key is kept by its position.
 - **Paging (INC-15) follows the API:** an offset endpoint that reports a total
   uses `Pagination` (Previous / Next, "Page 2 of 5 — showing 26–50 of 112"); a
   cursor endpoint uses `LoadMore`. A list whose endpoint returns everything is
@@ -517,6 +546,10 @@ Display only; APIs keep ISO 8601 and integer minor units (ADR 20260720-mileage-r
 | a date and time | `formatDateTime` | 31.10.2026 14:05 | 31.10.2026 14:05 |
 | a date in prose | `formatDateLong` | 31 October 2026 | 31 ottobre 2026 |
 | a recent moment | `formatRelative` | 3 hours ago | 3 ore fa |
+| a calendar month (a `YYYY-MM` key) | `formatMonth` | November 2026 | novembre 2026 |
+| hours worked, in a list or a total | `formatDuration(ms, { style: 'short' })` | 2 h 30 · 2 h · 30 min | 2 h 30 · 2 h · 30 min |
+| a duration in a sentence or an `aria-label` | `formatDuration(ms, { style: 'spoken' })` | 2 hours, 30 minutes | 2 ore e 30 minuti |
+| a timer or a segment time | `formatDuration(ms, { style: 'clock' })` | 02:30:00 | 02:30:00 |
 | an amount | `formatMoney(cents, 'EUR')` | EUR 12,345.50 | 12.345,50 EUR |
 | an amount, currency shown elsewhere | `formatAmount(cents)` | 12,345.50 | 12.345,50 |
 | any other number | `formatNumber(n, options)` | 30% | 30% |

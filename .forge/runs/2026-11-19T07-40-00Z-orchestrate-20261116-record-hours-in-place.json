@@ -1,0 +1,39 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.61.0",
+  "run_id": "2026-11-19T07-40-00Z-orchestrate-20261116-record-hours-in-place",
+  "command": "orchestrate",
+  "feature": "20261116-record-hours-in-place",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "started": "2026-11-19T07:40:00Z",
+  "finished": "2026-11-19T09:50:00Z",
+  "agents": [
+    { "agent": "quality-engineer", "outcome": "completed", "commits": ["bbe8747c"], "note": "after the clean rebase onto the rebased feat/time-tracking: hours-in-place.spec.ts waited for networkidle, which never settles with notify-api's SSE stream up; test-only fix, mutation-checked; 10/10" },
+    { "agent": "quality-engineer", "outcome": "PASS", "commits": ["52262f64"], "note": "pass 3: 41/41 ACs, e2e 10/10 + 12/12, no production line changed since pass 2; screen-reader readback excluded by the user's decision D14, not verified and not claimed" },
+    { "agent": "evaluator", "outcome": "PASS", "score": 82.6, "commits": ["243890b2"], "note": "rubric default-v2, scope limited to the diff over feat/time-tracking; the PASS rests on AC satisfaction 5 (eight ACs seen live only in QE pass 1 on identical production code), at 4 it would be 76.5" }
+  ],
+  "drift_events": [
+    { "agent": "quality-engineer", "artifact": "design.md", "summary": "the screen-reader readback (NVDA, VoiceOver) could not be run here and kept QE BLOCKED; the user took it out of the gate (D14, design.md § Amendment 2026-11-19, c4b4f0cd) instead of running the VoiceOver check", "resolved": true }
+  ],
+  "collision_events": [],
+  "env_faults": [
+    { "agent": "main loop", "class": "external service", "detail": "notify-api's SSE stream, down during QE passes 1-2, made a networkidle wait in hours-in-place.spec.ts hang once it was up", "resolved_by": "bbe8747c (test waits for the user menu and the seam's grace)" },
+    { "agent": "quality-engineer", "class": "runtime", "detail": "crm-ui useOfferDraft.test.tsx (from main) fails on this machine's Node 26 without --no-webstorage; green on the pinned Node 24", "resolved_by": "NODE_OPTIONS=--no-webstorage locally; not a defect" }
+  ],
+  "verdicts": { "qe": "PASS", "security": "PASS", "eval": "PASS" },
+  "fix_rounds": { "used": 1, "cap": 2, "extensions": [] },
+  "security": {
+    "matched_rules": [],
+    "dispatched": false,
+    "notes": [
+      "owasp-report.md PASS (review 7bdbab0e, follow-up after fix round 1 at 239a6302, N1 fixed); since then only tests and docs changed and the rebase applied with no conflict, so no new review was dispatched"
+    ]
+  },
+  "result": "completed",
+  "notes": "This trace covers the closing run of 2026-11-19; earlier work (implementation T1-T15, QE pass 1 FAIL, fix round 1, QE pass 2 BLOCKED on the readback, OWASP review and follow-up) ran in earlier sessions without a trace and is recorded in git, decisions.md and qe-report.md. Follow-ups outside the gate: the screen-reader readback (D14), the hours-ui Settings dialog focus, the shell rail at phone width, the eval's spec-fidelity notes (ListRows keyed by record, Tasks card and CRM timeline keeping rows while reloading, dialog opening after its lists) to be written into plan/design.",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
