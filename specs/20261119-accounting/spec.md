@@ -12,9 +12,9 @@ approved: 2026-11-19
 ## Amendments
 
 - **2026-11-19 (post-approval, autonomous run chosen by the owner; made by the product-owner agent;
-  owner to confirm):** three wording amendments, proposed by the architect in plan.md ("Spec
-  amendments proposed", SA-1 to SA-3, and D27). Status stays `approved`; every AC id is unchanged;
-  each touched AC or non-goal is tagged "(owner to confirm)" inline.
+  confirmed by the owner, Matteo Codogno, on 2026-11-19):** three wording amendments, proposed by
+  the architect in plan.md ("Spec amendments proposed", SA-1 to SA-3, and D27). Status stays
+  `approved`; every AC id is unchanged.
   - **SA-1, one-off seed of the initial list.** The Non-goal "Bulk import of accounts or VAT codes"
     allows a one-off, operator-run seed of the WellD CH list that accounting signed off (the
     fallback for the open question on who enters the initial entries); no import feature is
@@ -25,6 +25,13 @@ approved: 2026-11-19
   - **SA-3, entry no longer found.** AC-4.5 also covers a default or foreign-currency VAT code
     designation whose entry is no longer found in Accounting, not only a deactivated one: shown as
     such, and counts as no default.
+
+- **2026-11-19 (fix round 1, confirmed by the owner, Matteo Codogno, on 2026-11-19):** **SA-4,
+  catalog cap.** Each entity holds at most 200 ledger accounts and 50 VAT codes, deactivated ones
+  included. Entries are never deleted (AC-1.12), so this is a lifetime limit on additions; an
+  addition beyond it is refused and nothing is added. The cap keeps Accounting's answer to its
+  consumers under Refund's read limit (security review F-01). It complements AC-1.1 and AC-1.5;
+  every AC id is unchanged.
 
 ## Problem
 
@@ -62,7 +69,7 @@ condition). New or refined terms:
   currency for one calendar month. For WellD CH: EUR, USD and GBP to CHF, from the official Swiss
   monthly averages. The **rate in effect** is the latest correction if there is one, otherwise the
   fetched rate. The entity's own currency has no rate.
-- **Published** *(owner to confirm)* — a month's average rate counts as published from the 5th day
+- **Published** — a month's average rate counts as published from the 5th day
   of the following month (Europe/Zurich), because the source answers provisional values before
   that. Before that day the rate is not fetchable and is shown as missing.
 - **Active / deactivated** — whether an entry is offered for new use. A deactivated entry stays
@@ -192,7 +199,7 @@ be able to correct them, so that every module converts at the rate the books use
 typing it.
 
 **Acceptance criteria:**
-- AC-2.1 *(owner to confirm)*: Given WellD CH and a calendar month whose official average rate has been published (from
+- AC-2.1: Given WellD CH and a calendar month whose official average rate has been published (from
   the 5th day of the following month, Europe/Zurich), when Accounting fetches the rates, then the
   rate of each of EUR, USD and GBP to CHF for that month is recorded for WellD CH with its source
   and the moment it was fetched.
@@ -211,7 +218,7 @@ typing it.
   then it is refused with a message saying why, and nothing is recorded or audited.
 - AC-2.6: Given a month whose rate an accounting manager corrected, when the rates are fetched
   again, then the correction stays in effect.
-- AC-2.7 *(owner to confirm)*: Given a month and currency with no published rate (a month before the 5th day of the
+- AC-2.7: Given a month and currency with no published rate (a month before the 5th day of the
   following month counts as not published), when someone opens the exchange rates, then that month
   and currency are shown as missing; no value is estimated or taken from another month.
 - AC-2.8: Given the official source unreachable, when Accounting tries to fetch the rates, then
@@ -220,7 +227,7 @@ typing it.
 - AC-2.9: Given an accounting manager, when they ask for a fetch ("Fetch now"), then the fetch of
   AC-2.1 is attempted for the months that have no recorded rate; a person without Accounting
   manage cannot ask for it (AC-3.4).
-- AC-2.10 *(owner to confirm)*: Given a consumer asking for the rate in effect of a month and currency with no recorded
+- AC-2.10: Given a consumer asking for the rate in effect of a month and currency with no recorded
   rate, when the official rate has been published (from the 5th day of the following month,
   Europe/Zurich), then Accounting fetches and records it as in AC-2.1 and answers with it; when it
   cannot, or the month is not yet published, the answer says the rate is missing. The consumer's
@@ -288,7 +295,7 @@ entry that exists in the books, without anyone retyping it in Refund.
   active WellD CH entries of Accounting are offered, whether or not the admin holds an Accounting
   capability; choosing a deactivated, unknown or non-WellD CH entry (also by a direct request) is
   refused and nothing changes.
-- AC-4.5 *(owner to confirm)*: Given the twelve expense types, when Refund's Settings is opened, then each shows its
+- AC-4.5: Given the twelve expense types, when Refund's Settings is opened, then each shows its
   default account (number and name) and default VAT code, or that it has none. A default or
   designation whose entry has since been deactivated in Accounting, or is no longer found there,
   is shown as such (deactivated, or not found) with a note that a new choice is needed, and counts
@@ -451,7 +458,7 @@ other tools, so that I find it where I find the others, in my language.
 - **A screen for browsing the audit trail or an entry's history.** 20261118 had none for accounts
   and VAT codes either (it recorded the audit, AC-1.8); changes are recorded (AC-1.13, AC-2.4),
   not displayed beyond the active state and the origin of each rate.
-- **Bulk import of accounts or VAT codes** *(owner to confirm)*. The initial WellD CH list is
+- **Bulk import of accounts or VAT codes**. The initial WellD CH list is
   entered in the app, or loaded once, on the release day, by an operator-run seed of the list that
   accounting signed off; no import feature is offered to users.
 - **Moving Refund's own rules into Accounting.** Per-type defaults, the foreign-currency VAT code
