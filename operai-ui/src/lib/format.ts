@@ -9,6 +9,7 @@ import type { Locale } from './i18n'
  *   formatDate('2026-10-31')            31.10.2026   (both languages)
  *   formatDateTime('2026-10-31T14:05Z') 31.10.2026 15:05
  *   formatDateLong('2026-10-31')        31 October 2026 / 31 ottobre 2026
+ *   formatMonth('2026-11')              November 2026 / novembre 2026
  *   formatRelative(date)                3 hours ago / 3 ore fa (a week or older: formatDate)
  *   formatMoney(1234550, 'EUR')         EUR 12,345.50 / 12.345,50 EUR
  *   formatAmount(1234550)               12,345.50 / 12.345,50
@@ -51,6 +52,27 @@ export function formatDateLong(value: string | Date, locale: Locale = resolveLoc
   return new Intl.DateTimeFormat(NUMBER_LOCALE[locale], { day: 'numeric', month: 'long', year: 'numeric' }).format(
     toDate(value),
   )
+}
+
+const MONTH_KEY = /^(\d{4})-(0[1-9]|1[0-2])$/
+
+/**
+ * A calendar month in the person's language: "November 2026" / "novembre 2026". Takes the
+ * `YYYY-MM` key an API groups by (never shifted by the time zone) or a Date, shown by its local
+ * year and month. A malformed key or an invalid Date throws, so a wrong group key never shows as
+ * "Invalid Date" in a table.
+ */
+export function formatMonth(month: string | Date, locale: Locale = resolveLocale()): string {
+  let date: Date
+  if (month instanceof Date) {
+    date = month
+  } else {
+    const key = MONTH_KEY.exec(month)
+    if (!key) throw new TypeError(`formatMonth: expected a YYYY-MM month key, got ${JSON.stringify(month)}`)
+    date = new Date(Number(key[1]), Number(key[2]) - 1, 1)
+  }
+  if (Number.isNaN(date.getTime())) throw new TypeError('formatMonth: expected a valid Date')
+  return new Intl.DateTimeFormat(NUMBER_LOCALE[locale], { month: 'long', year: 'numeric' }).format(date)
 }
 
 const RELATIVE_STEPS: ReadonlyArray<[Intl.RelativeTimeFormatUnit, number]> = [
@@ -104,7 +126,7 @@ export function formatNumber(
   return minus(new Intl.NumberFormat(NUMBER_LOCALE[locale], options).format(value))
 }
 
-export type DurationStyle = 'clock' | 'spoken'
+export type DurationStyle = 'clock' | 'spoken' | 'short'
 
 type DurationFormatCtor = new (
   locale: string,
@@ -118,10 +140,16 @@ type DurationFormatCtor = new (
  *
  *   formatDuration(3_723_000, { style: 'clock' })    01:02:03   (hours are never capped: 100:00:00)
  *   formatDuration(3_723_000, { style: 'spoken' })   1 hour, 2 minutes, 3 seconds / 1 ora, 2 minuti e 3 secondi
+ *   formatDuration(9_000_000, { style: 'short' })    2 h 30   (7_200_000: 2 h; 1_800_000: 30 min; 7_500_000: 2 h 05)
  *
  * `clock` is for a timer, a segment time or a citation; `spoken` is for an
  * `aria-label` or a sentence. Spoken uses `Intl.DurationFormat` where the
  * browser has it and the same words from `Intl.NumberFormat` units otherwise.
+ * `short` is for a list or a total of hours worked (specs/20261112-time-tracking): whole minutes, the
+ * remainder dropped; the minutes after the hours are padded ("2 h 05") so they never
+ * read as a decimal; hours are never capped and are grouped like any number in the
+ * language. The same text in both languages, since "h" and "min" are one symbol in each.
+ * A screen reader may say "h" as a letter, so give it the `spoken` form as an `aria-label`.
  */
 export function formatDuration(
   ms: number,
@@ -134,6 +162,11 @@ export function formatDuration(
   const minutes = Math.floor((total % 3600) / 60)
   const seconds = total % 60
   if (options.style === 'clock') return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+  if (options.style === 'short') {
+    if (hours === 0) return `${minutes} min`
+    const shownHours = `${formatNumber(hours, {}, locale)} h`
+    return minutes === 0 ? shownHours : `${shownHours} ${pad(minutes)}`
+  }
 
   const intlLocale = NUMBER_LOCALE[locale]
   const DurationFormat = (Intl as unknown as { DurationFormat?: DurationFormatCtor }).DurationFormat

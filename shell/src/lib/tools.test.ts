@@ -86,6 +86,31 @@ describe('TOOLS — meetings', () => {
   })
 })
 
+// specs/20261112-time-tracking (AC-5.1, ADR 20261112-hours-ui-ungated-remote): Hours is deliberately NOT a tool. Every signed-in user
+// records and reads their own hours, so it has no `access` grant to filter the sidebar on; listing it
+// in TOOLS behind an `hours:access` grant would recreate the zero-grant lockout (ADR 20260804-shell-identity-scoped-non-tool-screens-account-route's test).
+describe('TOOLS — hours is not a tool (ADR 20261112-hours-ui-ungated-remote)', () => {
+  it('has no entry for /hours — a self-service screen, mounted on a shell-owned ungated route', () => {
+    expect(TOOLS.some((t) => t.to === '/hours' || t.to.startsWith('/hours/'))).toBe(false)
+    expect(TOOLS.some((t) => t.id === ('hours' as never))).toBe(false)
+  })
+
+  it('does not recognise hours as a tool id, so it can never be recorded as the last tool', () => {
+    expect(isToolId('hours')).toBe(false)
+    // A tampered `operai_last_tool` naming it is ignored like any other unknown value.
+    localStorage.setItem(LAST_TOOL_STORAGE_KEY, 'hours')
+    expect(readLastToolId()).toBeNull()
+    expect(resolveLastToolPath()).toBe('/estimai')
+  })
+
+  it('is offered to no caller through the sidebar filter, whatever apps they hold', () => {
+    const visibleFor = (apps: string[]) => TOOLS.filter((tool) => apps.includes(tool.id)).map((tool) => tool.id)
+
+    expect(visibleFor(['hours'])).toEqual([])
+    expect(visibleFor(['estimai', 'hours'])).toEqual(['estimai'])
+  })
+})
+
 // specs/20261103-projects (AC-4.1): Projects is a gated tool, after CRM. The id is the
 // auth catalog resource (`projects`), so the sidebar's `apps.includes(tool.id)`
 // filter shows it exactly to the callers `/authz/me` reports `projects:access` for.

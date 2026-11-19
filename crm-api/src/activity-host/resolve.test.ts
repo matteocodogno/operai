@@ -4,10 +4,24 @@
  * forwarded JWT. A `crm:access` holder gets `reader:true`, each company `open` (label, href,
  * `writable`, `may`) or `missing`, and the related contacts/deals OF THOSE COMPANIES only; anyone
  * else gets `reader:false` and nothing about any record. An `auth` outage is a 503 (fail closed).
+ *
+ * specs/20261112-time-tracking T7 (AC-2.3, AC-2.10, AC-4.10; plan § API contracts, crm-api): the same route learns
+ * `entityType: "deal"`, answered with the people `involved` in the deal (its owner, plus the
+ * technical contact as the deal view reads it) so hours-api can decide who may book time on it.
  */
 import { beforeEach, describe, expect, it } from "bun:test";
 import { setupTestAuth } from "../test-support/testAuth";
-import { PERSONAS, app, call, db, makeCompany, makeDeal, resetWorld, type PersonaName } from "../test-support/world";
+import {
+  PERSONAS,
+  app,
+  call,
+  db,
+  makeCompany,
+  makeDeal,
+  markEstimateReady,
+  resetWorld,
+  type PersonaName,
+} from "../test-support/world";
 
 beforeEach(resetWorld);
 
@@ -116,6 +130,140 @@ describe("a caller who holds crm:access", () => {
   });
 });
 
+// ─── entityType: "deal" (specs/20261112-time-tracking T7) ───────────────────────────────────────
+
+const resolveDeals = (as: PersonaName | null, ids: string[], extra: Record<string, unknown> = {}) =>
+  call("POST", URL, { as, body: { entityType: "deal", ids, ...extra } });
+
+/** A deal owned by `salesCh` (user-sales-ch), so the owner is neither the caller nor the admin. */
+const makeOwnedDeal = async (overrides: Record<string, unknown> = {}) => {
+  const company = await makeCompany();
+  return makeDeal(company.id, { title: "Platform rebuild", ...overrides }, "salesCh");
+};
+
+describe("entityType: deal (specs/20261112-time-tracking AC-2.3)", () => {
+  it("opens a deal with label, href, writable and may, `involved` being its owner when no estimate is linked", async () => {
+    const deal = await makeOwnedDeal({ title: "Website relaunch" });
+    const res = await resolveDeals("consultant", [deal.id]);
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({
+      reader: true,
+      items: [
+        {
+          id: deal.id,
+          state: "open",
+          writable: true,
+          label: "Website relaunch",
+          href: `/crm/deals/${deal.id}`,
+          may: { write: true, manage: true },
+          involved: [PERSONAS.salesCh.sub],
+        },
+      ],
+    });
+  });
+
+  it("adds the technical contact to `involved` once an estimate is linked, ready or not (AC-2.3)", async () => {
+    const ready = await makeOwnedDeal();
+    await markEstimateReady(ready.id, PERSONAS.tech.sub);
+    const requested = await makeOwnedDeal();
+    await db.dealEstimate.create({
+      data: {
+        dealId: requested.id,
+        estimateId: "est-requested",
+        estimateName: "Requested estimate",
+        technicalUserId: PERSONAS.tech.sub,
+        state: "requested",
+        requestedBy: PERSONAS.admin.sub,
+      },
+    });
+    const res = await resolveDeals("consultant", [ready.id, requested.id]);
+    expect(res.json.items.map((i: { involved: string[] }) => i.involved)).toEqual([
+      [PERSONAS.salesCh.sub, PERSONAS.tech.sub],
+      [PERSONAS.salesCh.sub, PERSONAS.tech.sub],
+    ]);
+    // The same two people the deal view names: the owner and `estimate.technical`.
+    const view = (await call("GET", `/deals/${ready.id}`, { as: "consultant" })).json;
+    expect([view.owner.id, view.estimate.technical.id]).toEqual(res.json.items[0].involved);
+  });
+
+  it("answers a won and a lost deal `open` like any other: the deal may be in any stage (A13)", async () => {
+    const won = await makeOwnedDeal();
+    const lost = await makeOwnedDeal();
+    await db.deal.update({ where: { id: won.id }, data: { stage: "won", closedAt: new Date() } });
+    await db.deal.update({ where: { id: lost.id }, data: { stage: "lost", closedAt: new Date(), lostReason: "Budget" } });
+    const res = await resolveDeals("consultant", [won.id, lost.id]);
+    expect(res.json.items.map((i: { state: string; writable: boolean }) => [i.state, i.writable])).toEqual([
+      ["open", true],
+      ["open", true],
+    ]);
+  });
+
+  it("answers `missing` for an unknown deal, with no label, href or involved", async () => {
+    const res = await resolveDeals("consultant", ["nope"]);
+    expect(res.json).toEqual({ reader: true, items: [{ id: "nope", state: "missing" }] });
+  });
+
+  it("answers a mixed batch in the order asked, once per distinct id", async () => {
+    const a = await makeOwnedDeal({ title: "A" });
+    const b = await makeOwnedDeal({ title: "B" });
+    const res = await resolveDeals("consultant", [b.id, "nope", a.id, b.id]);
+    expect(res.json.items.map((i: { id: string; state: string }) => [i.id, i.state])).toEqual([
+      [b.id, "open"],
+      ["nope", "missing"],
+      [a.id, "open"],
+    ]);
+  });
+
+  it("opens a deal of another entity for any holder: reads are open and entity scope plays no part (ADR 20261101-crm-tool-shape-and-authorization)", async () => {
+    const company = await makeCompany({ entity: "welld_it" });
+    const deal = await makeDeal(company.id, { entity: "welld_it" }, "admin");
+    expect(PERSONAS.salesCh.entity).toBe("welld_ch");
+    const res = await resolveDeals("salesCh", [deal.id]);
+    expect(res.json.items[0]).toMatchObject({ state: "open", involved: [PERSONAS.admin.sub] });
+  });
+
+  it("`ids: []` answers only `reader`", async () => {
+    expect((await resolveDeals("consultant", [])).json).toEqual({ reader: true, items: [] });
+  });
+
+  it("lists a person once when the owner is also the technical contact", async () => {
+    const deal = await makeOwnedDeal();
+    await markEstimateReady(deal.id, PERSONAS.salesCh.sub);
+    expect((await resolveDeals("consultant", [deal.id])).json.items[0].involved).toEqual([PERSONAS.salesCh.sub]);
+  });
+
+  it("an override row with no estimate (estimateId \"\") adds no technical contact, and the deal view shows none either (AC-2.3)", async () => {
+    const deal = await makeOwnedDeal();
+    const overridden = await call("POST", `/deals/${deal.id}/estimate/override`, { as: "admin", body: { reason: "Framework contract" } });
+    expect(overridden.status).toBe(200);
+    // The premise: the row exists, names the overriding admin in `technicalUserId`, and links nothing.
+    expect(await db.dealEstimate.findUniqueOrThrow({ where: { dealId: deal.id } })).toMatchObject({
+      estimateId: "",
+      technicalUserId: PERSONAS.admin.sub,
+    });
+    expect((await call("GET", `/deals/${deal.id}`, { as: "consultant" })).json.estimate).toBeNull();
+
+    const res = await resolveDeals("consultant", [deal.id]);
+    expect(res.json.items[0].involved).toEqual([PERSONAS.salesCh.sub]);
+  });
+
+  it("an unlinked estimate whose override stays no longer counts its old technical contact", async () => {
+    const deal = await makeOwnedDeal();
+    await markEstimateReady(deal.id, PERSONAS.tech.sub);
+    expect((await call("POST", `/deals/${deal.id}/estimate/override`, { as: "admin", body: { reason: "Framework contract" } })).status).toBe(200);
+    // Still linked and overridden: the deal view shows the technical contact, so `involved` does too.
+    expect((await resolveDeals("consultant", [deal.id])).json.items[0].involved).toEqual([PERSONAS.salesCh.sub, PERSONAS.tech.sub]);
+
+    expect((await call("DELETE", `/deals/${deal.id}/estimate`, { as: "salesCh" })).status).toBe(200);
+    // The unlink keeps the row (and its stale `technicalUserId`) for the override's sake.
+    expect(await db.dealEstimate.findUniqueOrThrow({ where: { dealId: deal.id } })).toMatchObject({
+      estimateId: "",
+      technicalUserId: PERSONAS.tech.sub,
+    });
+    expect((await resolveDeals("consultant", [deal.id])).json.items[0].involved).toEqual([PERSONAS.salesCh.sub]);
+  });
+});
+
 describe("a caller without crm:access", () => {
   it("gets `reader:false` and nothing about any record (AC-8.3)", async () => {
     const company = await makeCompany({ name: "Secret SA" });
@@ -128,6 +276,26 @@ describe("a caller without crm:access", () => {
 
   it("`ids: []` still answers `reader:false`", async () => {
     expect((await resolve("outsider", [])).json).toEqual({ reader: false, items: [], related: [] });
+  });
+
+  it("for a deal gets `reader:false` and nothing: the same body whether the deal exists or not, no title, owner or technical contact (AC-2.10, AC-4.10)", async () => {
+    const deal = await makeOwnedDeal({ title: "Secret deal" });
+    await markEstimateReady(deal.id, PERSONAS.tech.sub);
+    const real = await resolveDeals("outsider", [deal.id]);
+    const unknown = await resolveDeals("outsider", ["nope"]);
+    expect(real.status).toBe(200);
+    expect(real.json).toEqual({ reader: false, items: [] });
+    expect(unknown.json).toEqual(real.json);
+    expect(JSON.stringify(real.json)).not.toContain("Secret");
+    expect(JSON.stringify(real.json)).not.toContain(PERSONAS.salesCh.sub);
+    expect(JSON.stringify(real.json)).not.toContain(PERSONAS.tech.sub);
+    expect((await resolveDeals("outsider", [])).json).toEqual({ reader: false, items: [] });
+  });
+
+  it("is a reader for a deal exactly when it is one for a company: `crm:access` alone, no deal:manage needed", async () => {
+    const deal = await makeOwnedDeal();
+    expect(PERSONAS.consultant.permissions.some((p) => p.resource === "deal")).toBe(false);
+    expect((await resolveDeals("consultant", [deal.id])).json.items[0].state).toBe("open");
   });
 
   it("stops being a reader the moment the grant goes: a new perm_epoch is a fresh live resolve", async () => {
@@ -178,6 +346,61 @@ describe("failure modes", () => {
     }
   });
 
+  it("deal: 503 when `auth` cannot resolve the caller: fail closed, never a reader and no deal answered", async () => {
+    const deal = await makeOwnedDeal();
+    const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
+    __resetAuthzCacheForTests();
+    const harness = setupTestAuth();
+    try {
+      harness.setResolve(async () => {
+        throw new Error("auth down");
+      });
+      const res = await resolveDeals("admin", [deal.id]);
+      expect(res.status).toBe(503);
+      expect(res.json.reader).toBeUndefined();
+      expect(res.json.items).toBeUndefined();
+    } finally {
+      harness.setResolve(async (header) => {
+        const persona = Object.values(PERSONAS).find((p) => p.sub === subOf(header))!;
+        return { sub: persona.sub, epoch: 0, permissions: persona.permissions, entity: persona.entity, jobTitle: null };
+      });
+    }
+  });
+
+  it("deal: 401 without a token", async () => {
+    expect((await resolveDeals(null, ["x"])).status).toBe(401);
+  });
+
+  it("deal: 422 for 26 ids, 25 are fine", async () => {
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `id-${i}`);
+    const over = await resolveDeals("consultant", ids(26));
+    expect(over.status).toBe(422);
+    expect(over.json.field).toBe("ids");
+    const ok = await resolveDeals("consultant", ids(25));
+    expect(ok.status).toBe(200);
+    expect(ok.json.items).toHaveLength(25);
+  });
+
+  it("deal: 422 when `related` is sent, even an empty one: it belongs to companies only", async () => {
+    const deal = await makeOwnedDeal();
+    const withRelated = await resolveDeals("consultant", [deal.id], { related: { deal: [deal.id] } });
+    expect(withRelated.status).toBe(422);
+    expect(withRelated.json.items).toBeUndefined();
+    expect((await resolveDeals("consultant", [deal.id], { related: {} })).status).toBe(422);
+    // The refusal does not depend on the grant: a non-reader is told the same, and nothing else.
+    expect((await resolveDeals("outsider", [deal.id], { related: {} })).status).toBe(422);
+  });
+
+  it("deal: 422 for an empty, oversized or NUL-carrying id, a missing `ids` or an extra key", async () => {
+    expect((await resolveDeals("consultant", [""])).status).toBe(422);
+    expect((await resolveDeals("consultant", ["x".repeat(65)])).status).toBe(422);
+    const nul = await resolveDeals("consultant", ["ok", "de\u0000al"]);
+    expect(nul.status).toBe(422);
+    expect(nul.json.field).toBe("ids.1");
+    expect((await call("POST", URL, { as: "consultant", body: { entityType: "deal" } })).status).toBe(422);
+    expect((await resolveDeals("consultant", ["x"], { extra: 1 })).status).toBe(422);
+  });
+
   it("422 for 26 ids, 25 are fine", async () => {
     const ids = (n: number) => Array.from({ length: n }, (_, i) => `id-${i}`);
     const over = await resolve("consultant", ids(26));
@@ -199,7 +422,7 @@ describe("failure modes", () => {
     expect((await resolve("consultant", [""])).status).toBe(422);
     expect((await resolve("consultant", ["x".repeat(65)])).status).toBe(422);
     expect((await resolve("consultant", ["x"], { project: ["p"] })).status).toBe(422);
-    expect((await call("POST", URL, { as: "consultant", body: { entityType: "deal", ids: ["x"] } })).status).toBe(422);
+    expect((await call("POST", URL, { as: "consultant", body: { entityType: "project", ids: ["x"] } })).status).toBe(422);
     expect((await call("POST", URL, { as: "consultant", body: { ids: ["x"] } })).status).toBe(422);
     expect((await call("POST", URL, { as: "consultant", body: { entityType: "company" } })).status).toBe(422);
     expect((await call("POST", URL, { as: "consultant", body: { entityType: "company", ids: [], extra: 1 } })).status).toBe(422);

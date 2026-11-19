@@ -690,6 +690,14 @@ export const ROWS: readonly RouteRow[] = [
 /** Served without a token, on purpose. Pinned, so another route cannot hide here. */
 export const PUBLIC_ROUTES: ReadonlySet<string> = new Set(["GET /health", "GET /openapi.json", "GET /docs"]);
 
+/**
+ * Served to a service credential and to no person (ADR 20261006-scoped-service-jwt-fourth-notify-caller, 20261013-all-notify-callers-scoped-credentials-shared-token-retired, specs/20261112-time-tracking T9): a scoped service JWT
+ * (`aud` = SERVICE_AUDIENCE) is the ONLY way in, so no persona has a cell here and none can: every
+ * user token, whatever it holds, is refused with the one 401 an anonymous caller gets. Pinned, so
+ * another `/system` route cannot hide here without its credential tests.
+ */
+export const SYSTEM_ROUTES: ReadonlySet<string> = new Set(["GET /system/meetings/hosts"]);
+
 export const rowName = (r: RouteRow) => (r.variant ? `${r.route} (${r.variant})` : r.route);
 
 /** The kinds of meeting a row needs seeded. */

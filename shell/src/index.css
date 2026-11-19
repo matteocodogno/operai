@@ -20,6 +20,7 @@
 @source "../../meetings-ui/src";
 @source "../../projects-ui/src";
 @source "../../letterheads-ui/src";
+@source "../../hours-ui/src";
 @source "../../notify-ui/src";
 /* The shared component library (ADR 20261031-shared-ui-library-consumed-as-source). Its components render only the
    classes in its tokens.css, but a page may compose them with utilities. */

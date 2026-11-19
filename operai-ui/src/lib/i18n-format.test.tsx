@@ -12,6 +12,7 @@ import {
   formatDateTime,
   formatDuration,
   formatMoney,
+  formatMonth,
   formatNumber,
   formatRelative,
 } from './format'
@@ -92,6 +93,74 @@ describe('formatters', () => {
     expect(formatDuration(3_723_000, { style: 'spoken' }, 'it')).toBe('1 ora, 2 minuti e 3 secondi')
     expect(formatDuration(0, { style: 'spoken' }, 'en')).toBe('0 seconds')
     expect(formatDuration(7_200_000, { style: 'spoken' }, 'it')).toBe('2 ore')
+  })
+})
+
+describe('short durations and months (specs/20261112-time-tracking: AC-4.9, AC-4.5)', () => {
+  const minutes = (n: number) => n * 60_000
+
+  it.each(['en', 'it'] as const)('writes a duration short as "2 h 30", "2 h" or "30 min" in %s', (locale) => {
+    expect(formatDuration(minutes(150), { style: 'short' }, locale)).toBe('2 h 30')
+    expect(formatDuration(minutes(120), { style: 'short' }, locale)).toBe('2 h')
+    expect(formatDuration(minutes(30), { style: 'short' }, locale)).toBe('30 min')
+  })
+
+  it('reads the language from <html lang> when none is given', () => {
+    document.documentElement.setAttribute('lang', 'it')
+    expect(formatDuration(minutes(150), { style: 'short' })).toBe('2 h 30')
+  })
+
+  it('pads the minutes next to hours so "2 h 05" is never read as 2.5, and drops what is under a minute', () => {
+    expect(formatDuration(minutes(125), { style: 'short' }, 'en')).toBe('2 h 05')
+    expect(formatDuration(minutes(60), { style: 'short' }, 'en')).toBe('1 h')
+    expect(formatDuration(minutes(5), { style: 'short' }, 'en')).toBe('5 min')
+    expect(formatDuration(minutes(59) + 59_999, { style: 'short' }, 'en')).toBe('59 min')
+    expect(formatDuration(minutes(60) - 1, { style: 'short' }, 'en')).toBe('59 min')
+  })
+
+  it('shows zero as "0 min", a negative duration as zero, and refuses a non-finite one', () => {
+    expect(formatDuration(0, { style: 'short' }, 'en')).toBe('0 min')
+    expect(formatDuration(30_000, { style: 'short' }, 'it')).toBe('0 min')
+    expect(formatDuration(-minutes(30), { style: 'short' }, 'en')).toBe('0 min')
+    expect(() => formatDuration(Number.NaN, { style: 'short' })).toThrow(TypeError)
+    expect(() => formatDuration(Number.NEGATIVE_INFINITY, { style: 'short' })).toThrow(TypeError)
+  })
+
+  it('never caps the hours and groups them like any other number in the language', () => {
+    expect(formatDuration(minutes(24 * 60), { style: 'short' }, 'en')).toBe('24 h')
+    expect(formatDuration(minutes(1234 * 60 + 30), { style: 'short' }, 'en')).toBe('1,234 h 30')
+    expect(formatDuration(minutes(1234 * 60 + 30), { style: 'short' }, 'it')).toBe('1234 h 30')
+    expect(formatDuration(minutes(12345 * 60), { style: 'short' }, 'it')).toBe('12.345 h')
+  })
+
+  it('writes a month key in the language: "November 2026" / "novembre 2026"', () => {
+    expect(formatMonth('2026-11', 'en')).toBe('November 2026')
+    expect(formatMonth('2026-11', 'it')).toBe('novembre 2026')
+    expect(formatMonth('2026-01', 'en')).toBe('January 2026')
+    expect(formatMonth('2026-12', 'it')).toBe('dicembre 2026')
+  })
+
+  it('reads the language from <html lang> when none is given', () => {
+    document.documentElement.setAttribute('lang', 'it')
+    expect(formatMonth('2026-03')).toBe('marzo 2026')
+    document.documentElement.setAttribute('lang', 'en')
+    expect(formatMonth('2026-03')).toBe('March 2026')
+  })
+
+  it('takes a Date too, by its local year and month, never shifted by the time zone', () => {
+    expect(formatMonth(new Date(2026, 10, 30, 23, 59), 'en')).toBe('November 2026')
+    expect(formatMonth(new Date(2026, 0, 1, 0, 0), 'en')).toBe('January 2026')
+  })
+
+  it.each(['', 'garbage', '2026-1', '2026-00', '2026-13', '2026-11-05', '26-11', ' 2026-11', '2026-11 ', '2026/11'])(
+    'throws for the malformed key %j',
+    (key) => {
+      expect(() => formatMonth(key, 'en')).toThrow(TypeError)
+    },
+  )
+
+  it('throws for an invalid Date', () => {
+    expect(() => formatMonth(new Date('nope'), 'en')).toThrow(TypeError)
   })
 })
 

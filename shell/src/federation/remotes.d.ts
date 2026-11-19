@@ -170,3 +170,16 @@ declare module 'letterheads/App' {
 declare module 'letterheads/version' {
   export const REMOTE_VERSION: string
 }
+
+// specs/20261112-time-tracking (ADR 20261112-hours-ui-ungated-remote): the `hours` remote — `./App` (the whole hours screen,
+// UNGATED, `/hours/*`; it is not a gated tool) and `./version`.
+declare module 'hours/App' {
+  import type { ComponentType } from 'react'
+
+  const App: ComponentType
+  export default App
+}
+
+declare module 'hours/version' {
+  export const REMOTE_VERSION: string
+}

@@ -40,15 +40,23 @@ import { defineConfig, devices } from '@playwright/test'
  *      (activities-api's URL on crm-api, its SERVICE_CLIENTS entry and `activities.write` in `auth`,
  *      VITE_ACTIVITIES_API_URL / VITE_PROJECTS_API_URL on the shell build). projects-ui is served here
  *      on E2E_PROJECTS_REMOTE_PORT (default 5183).
+ *   8. specs/20261112-time-tracking (hours-*.spec.ts, T35/T36): hours-api (8089) with its own environment
+ *      (hours-api/.envrc, which a person creates: the variables are in hours-api/.env.example; the
+ *      `hours` database migrated by `mise run db:migrate`), plus projects-api (8086), crm-api (8084),
+ *      activities-api (8087) and meetings-api (8085) as the owners it asks. A meeting's deal also needs
+ *      `auth`'s `SERVICE_CLIENTS` entry `hours-api` (scope `meetings.hosts.read`) and `SERVICE_AUDIENCE`
+ *      on meetings-api and hours-api (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route); without them hours-api reads meeting-deals as unavailable.
+ *      hours-ui is served here on E2E_HOURS_REMOTE_PORT (default 5185); the shell build gets
+ *      VITE_HOURS_API_URL (the hours-api origin, its trusted-origin allowlist) and HOURS_REMOTE_URL.
  *
- *   8. specs/20261116-letterhead-service (letterheads.spec.ts, T26): letterhead-api (Rust; `mise run dev:letterhead`, :8088) with
+ *   9. specs/20261116-letterhead-service (letterheads.spec.ts, T26): letterhead-api (Rust; `mise run dev:letterhead`, :8088) with
  *      its own database and bucket, `auth` running with ENABLE_TEST_AUTH=true and `AUTH_AUDIENCE`, `letterhead-api` reading
  *      `auth`'s JWKS and `/authz/resolve` (nothing is stubbed: the journeys sign in as real users whose grants are written
- *      through `auth`'s admin API). letterheads-ui is served here on E2E_LETTERHEADS_REMOTE_PORT (default 5184) and
+ *      through `auth`'s admin API). letterheads-ui is served here on E2E_LETTERHEADS_REMOTE_PORT (default 5186) and
  *      the shell's build is told the service's origin (VITE_LETTERHEADS_API_URL, E2E_LETTERHEADS_API_URL; default
  *      http://localhost:8088).
  *
- *   9. specs/20261116-letterhead-service (crm-offer-wizard-service.spec.ts, T34): everything of item 8, PLUS the CRM side on the
+ *  10. specs/20261116-letterhead-service (crm-offer-wizard-service.spec.ts, T34): everything of item 9, PLUS the CRM side on the
  *      service path: activities-api (:8087, the estimate override's timeline note), crm-api with LETTERHEAD_SERVICE_ENABLED=true,
  *      its SERVICE_CLIENT_ID/SECRET, and `auth`'s `crm-api` SERVICE_CLIENTS entry holding the scopes `letterhead:render`
  *      and `activities.write`. crm-api's LETTERHEAD_API_URL must be the RELAY the spec runs itself
@@ -155,6 +163,11 @@ const letterheadsApiUrl =
   process.env['E2E_LETTERHEADS_API_URL'] ??
   process.env['VITE_LETTERHEADS_API_URL'] ??
   'http://localhost:8088'
+// hours-api base URL (specs/20261112-time-tracking, T34). Same reason as the ones above: the SHELL's build bakes it
+// into its trusted-origin allowlist (ADR 20260607-jwt-in-memory-never-web-storage) and exposes it to hours-ui
+// (`getHoursApiBaseUrl`); without VITE_HOURS_API_URL they send no Bearer token to hours-api and every call 401s.
+const hoursApiUrl =
+  process.env['E2E_HOURS_API_URL'] ?? process.env['VITE_HOURS_API_URL'] ?? 'http://localhost:8089'
 
 // The shell's preview port. 5173 by default — the origin in auth's committed
 // ALLOWED_ORIGINS. E2E_SHELL_PORT only exists for a machine where 5173 is
@@ -197,6 +210,11 @@ const meetingsRemoteOrigin = `http://localhost:${process.env['E2E_MEETINGS_REMOT
 // 5183 is the next free e2e-preview slot (the `mise run dev` stack has it on 5181:
 // `E2E_PROJECTS_REMOTE_PORT=5181 pnpm e2e activities-*`; Playwright then reuses what answers there).
 const projectsRemoteOrigin = `http://localhost:${process.env['E2E_PROJECTS_REMOTE_PORT'] ?? '5183'}`
+// hours-ui (specs/20261112-time-tracking, T34): ./App at the shell's own, ungated `/hours/*` (not a TOOLS entry) and
+// ./version. 5185 is the next free e2e-preview slot; its dev port (`mise run dev`, vite.config.ts) is 5184, so
+// against that stack: `E2E_HOURS_REMOTE_PORT=5184 pnpm e2e hours*`. Reads no VITE_* of its own: the hours-api
+// origin comes from the shell.
+const hoursRemoteOrigin = `http://localhost:${process.env['E2E_HOURS_REMOTE_PORT'] ?? '5185'}`
 // Running against an already-started stack (`mise run dev:preview`, whose remotes sit on their own
 // vite.config ports) instead of letting Playwright build and preview them: point every remote at the port
 // that stack uses, so a spec that intercepts a remote's origin (remote-failure.spec.ts) intercepts the right
@@ -204,12 +222,14 @@ const projectsRemoteOrigin = `http://localhost:${process.env['E2E_PROJECTS_REMOT
 // wrong remote:
 //   E2E_ESTIMAI_REMOTE_PORT=5174 E2E_REFUND_REMOTE_PORT=5175 E2E_NOTIFY_REMOTE_PORT=5176
 //   E2E_ADMIN_REMOTE_PORT=5177 E2E_INVENTORY_REMOTE_PORT=5178 E2E_CRM_REMOTE_PORT=5179
-//   E2E_MEETINGS_REMOTE_PORT=5180 E2E_PROJECTS_REMOTE_PORT=5181 E2E_LETTERHEADS_REMOTE_PORT=5182 pnpm e2e
+//   E2E_MEETINGS_REMOTE_PORT=5180 E2E_PROJECTS_REMOTE_PORT=5181 E2E_LETTERHEADS_REMOTE_PORT=5182 E2E_HOURS_REMOTE_PORT=5184 pnpm e2e
 // letterheads-ui (specs/20261116-letterhead-service, T26): ./App at /letterheads. The `mise run dev` stack has it on 5182,
-// which the meetings-ui preview above takes in THIS file's numbering, so 5184 is the next free e2e-preview slot
+// which the meetings-ui preview above takes in THIS file's numbering; 5184 is hours-ui's dev port and 5185 its e2e
+// preview, so 5186 is the next free e2e-preview slot (a default on 5184 would reuse a running hours-ui as letterheads-ui)
 // (`E2E_LETTERHEADS_REMOTE_PORT=5182 pnpm e2e letterheads` reuses the `mise run dev` one).
-const letterheadsRemoteOrigin = `http://localhost:${process.env['E2E_LETTERHEADS_REMOTE_PORT'] ?? '5184'}`
+const letterheadsRemoteOrigin = `http://localhost:${process.env['E2E_LETTERHEADS_REMOTE_PORT'] ?? '5186'}`
 const projectsRemotePort = new URL(projectsRemoteOrigin).port
+const hoursRemotePort = new URL(hoursRemoteOrigin).port
 const crmRemotePort = new URL(crmRemoteOrigin).port
 const meetingsRemotePort = new URL(meetingsRemoteOrigin).port
 const letterheadsRemotePort = new URL(letterheadsRemoteOrigin).port
@@ -423,6 +443,20 @@ export default defineConfig({
       },
     },
     {
+      // hours-ui (specs/20261112-time-tracking, T34): My hours at /hours and Everyone's hours at /hours/all,
+      // both ungated. Reads no VITE_* of its own: the hours-api origin comes from the shell.
+      command: `pnpm build && pnpm preview --port ${hoursRemotePort} --strictPort`,
+      cwd: '../hours-ui',
+      url: hoursRemoteOrigin,
+      reuseExistingServer: !process.env['CI'],
+      timeout: 180_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
+      },
+    },
+    {
       command: `pnpm build && pnpm preview --port ${shellPort} --strictPort`,
       url: shellUrl,
       reuseExistingServer: !process.env['CI'],
@@ -439,6 +473,7 @@ export default defineConfig({
         MEETINGS_REMOTE_URL: `${meetingsRemoteOrigin}/remoteEntry.js`,
         PROJECTS_REMOTE_URL: `${projectsRemoteOrigin}/remoteEntry.js`,
         LETTERHEADS_REMOTE_URL: `${letterheadsRemoteOrigin}/remoteEntry.js`,
+        HOURS_REMOTE_URL: `${hoursRemoteOrigin}/remoteEntry.js`,
         VITE_AUTH_URL: authUrl,
         VITE_API_URL: apiUrl,
         VITE_NOTIFY_API_URL: notifyApiUrl,
@@ -449,6 +484,7 @@ export default defineConfig({
         VITE_PROJECTS_API_URL: projectsApiUrl,
         VITE_ACTIVITIES_API_URL: activitiesApiUrl,
         VITE_LETTERHEADS_API_URL: letterheadsApiUrl,
+        VITE_HOURS_API_URL: hoursApiUrl,
       },
     },
   ],

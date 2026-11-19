@@ -64,6 +64,10 @@ import { createHash, timingSafeEqual } from "node:crypto";
  *   (crm-api first); the letterhead service verifies it.
  * - `legal-entities:read`: read the group's legal entities through auth's `GET /system/legal-entities[/{entity}]`
  *   (specs/20261117-legal-entities, AC-3.2; auth verifies it itself). Held by crm-api and letterhead-api.
+ * - `meetings.hosts.read`: read which host record (today a CRM deal) each meeting is linked to,
+ *   through meetings-api's `GET /system/meetings/hosts` (specs/20261112-time-tracking, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Only hours-api
+ *   holds it; meetings-api's sub allowlist names `system:hours-api`. It answers `{id, host}` and
+ *   nothing else — no title, participant or duration.
  */
 export const KNOWN_SERVICE_SCOPES = [
   "notifications.push",
@@ -80,6 +84,7 @@ export const KNOWN_SERVICE_SCOPES = [
   "projects.purchase-orders.read",
   "letterhead:render",
   "legal-entities:read",
+  "meetings.hosts.read",
 ] as const;
 
 /**
@@ -103,6 +108,9 @@ export const KNOWN_SERVICE_SCOPES = [
  *   service that scope writes to.
  * - `letterhead-api` (specs/20261117-legal-entities, AC-3.2): `legal-entities:read` only — it reads the issuer's
  *   details itself; it verifies `letterhead:render` but does not hold it, and sends no notices.
+ * - `hours-api` (specs/20261112-time-tracking): `meetings.hosts.read` only — it asks meetings-api which deal a
+ *   meeting is linked to (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Everything else it asks of the other services is asked as
+ *   the caller, with the user's JWT, so it holds no other scope and sends no notification.
  */
 export const DOCUMENTED_CLIENT_SCOPES = {
   "meetings-api": "notifications.push host-notices.send",
@@ -111,6 +119,7 @@ export const DOCUMENTED_CLIENT_SCOPES = {
     "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read legal-entities:read letterhead:render",
   "activities-api": "notifications.push emails.send",
   "letterhead-api": "legal-entities:read",
+  "hours-api": "meetings.hosts.read",
 } as const;
 
 /**

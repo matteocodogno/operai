@@ -44,6 +44,7 @@ const REMOTE_DIRS: Record<(typeof REMOTE_VERSION_SOURCES)[number]['id'], string>
   meetings: 'meetings-ui',
   projects: 'projects-ui',
   letterheads: 'letterheads-ui',
+  hours: 'hours-ui',
 }
 
 const remotesDtsSource = readFileSync(path.join(__dirname, 'remotes.d.ts'), 'utf-8')
@@ -221,5 +222,68 @@ describe('vercel.json CSP — letterheads origins', () => {
       readFileSync(path.resolve(__dirname, '../../public/runtime-config.example.json'), 'utf-8'),
     ) as Record<string, string>
     expect(example['letterheads']).toBe('https://letterheads.operai.welld.io/remoteEntry.js')
+  })
+})
+
+// specs/20261112-time-tracking (ADR 20261112-hours-ui-ungated-remote, T23): the shell's CSP lets the page load the Hours remote and reach
+// hours-api. Hostnames follow the suite's `<name>[-api].operai.welld.io` scheme, as assumed for specs/20261103-projects
+// (`infra/provision-tool.sh hours` is what creates them, T33).
+describe('vercel.json CSP — hours origins', () => {
+  const vercel = JSON.parse(readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf-8')) as {
+    headers: { source: string; headers: { key: string; value: string }[] }[]
+  }
+  const csp =
+    vercel.headers.flatMap((h) => h.headers).find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
+  const directive = (name: string): string =>
+    csp
+      .split(';')
+      .map((d) => d.trim())
+      .find((d) => d.startsWith(`${name} `)) ?? ''
+  const sources = (name: string): string[] => directive(name).split(/\s+/).slice(1)
+
+  it('script-src allows the hours remote', () => {
+    expect(sources('script-src')).toContain('https://hours.operai.welld.io')
+  })
+
+  it('connect-src allows the hours remote and hours-api', () => {
+    expect(sources('connect-src')).toContain('https://hours.operai.welld.io')
+    expect(sources('connect-src')).toContain('https://hours-api.operai.welld.io')
+  })
+
+  it('names exactly those two origins: no wildcard and no other hours host (the CSP stays an allowlist)', () => {
+    const hoursSources = [...sources('script-src'), ...sources('connect-src')].filter((s) => /hours/.test(s))
+    expect(new Set(hoursSources)).toEqual(
+      new Set(['https://hours.operai.welld.io', 'https://hours-api.operai.welld.io']),
+    )
+  })
+
+  it("remotes.d.ts declares both of the remote's modules, 'hours/App' and 'hours/version'", () => {
+    expect(remotesDtsSource).toContain("declare module 'hours/App'")
+    expect(remotesDtsSource).toContain("declare module 'hours/version'")
+  })
+
+  it("index.css scans hours-ui's source (@source), so the shell's one Tailwind sheet carries the remote's utilities (ADR 20260709-suite-frontend-module-federation addendum)", () => {
+    const indexCss = readFileSync(path.resolve(__dirname, '../index.css'), 'utf-8')
+    expect(indexCss).toContain('@source "../../hours-ui/src";')
+  })
+
+  it('runtime-config.example.json lists the hours remote entry', () => {
+    const example = JSON.parse(
+      readFileSync(path.resolve(__dirname, '../../public/runtime-config.example.json'), 'utf-8'),
+    ) as Record<string, string>
+    expect(example['hours']).toBe('https://hours.operai.welld.io/remoteEntry.js')
+  })
+
+  it("agrees with hours-ui's own federation config: remote name 'hours', ./App and ./version exposed", () => {
+    const hoursViteConfig = readFileSync(path.resolve(__dirname, '../../../hours-ui/vite.config.ts'), 'utf-8')
+    expect(hoursViteConfig).toMatch(/federation\(\{\s*name:\s*'hours'/s)
+    expect(hoursViteConfig).toMatch(/exposes:\s*\{[^}]*'\.\/App':\s*'\.\/src\/App\.tsx'/s)
+    expect(hoursViteConfig).toMatch(/exposes:\s*\{[^}]*'\.\/version':\s*'\.\/src\/version\.ts'/s)
+  })
+
+  it("the shell's remote for hours points at the dev port hours-ui pins (5184), overridable by HOURS_REMOTE_URL", () => {
+    const hoursViteConfig = readFileSync(path.resolve(__dirname, '../../../hours-ui/vite.config.ts'), 'utf-8')
+    expect(hoursViteConfig).toMatch(/port:\s*5184/)
+    expect(shellViteConfigSource).toContain("process.env['HOURS_REMOTE_URL'] ?? 'http://localhost:5184/remoteEntry.js'")
   })
 })

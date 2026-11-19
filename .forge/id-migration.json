@@ -93,7 +93,10 @@
     "0091-projects-handoff-live-reads-between-crm-and-projects-over-service-credentials": "20261104-projects-handoff-live-reads-between-crm-and-projects-over-service-credentials",
     "0092-estimai-api-first-system-route-estimate-man-days-for-a-service-credential": "20261104-estimai-api-first-system-route-estimate-man-days-for-a-service-credential",
     "0093-terms-and-purchase-order-two-optional-records-of-a-project-contract-retired": "20261105-terms-and-purchase-order-two-optional-records-of-a-project-contract-retired",
-    "0094-handoff-take-and-purchase-order-receive-capabilities-auth-holders-listing-amends-0047": "20261105-handoff-take-and-purchase-order-receive-capabilities-auth-holders-listing-amends-0047"
+    "0094-handoff-take-and-purchase-order-receive-capabilities-auth-holders-listing-amends-0047": "20261105-handoff-take-and-purchase-order-receive-capabilities-auth-holders-listing-amends-0047",
+    "0088-hours-api-time-entries-own-service-hours-catalog": "20261112-hours-api-time-entries-own-service-hours-catalog",
+    "0089-time-bookability-asked-of-owners-meeting-hosts-system-route": "20261112-time-bookability-asked-of-owners-meeting-hosts-system-route",
+    "0090-hours-ui-ungated-remote": "20261112-hours-ui-ungated-remote"
   },
   "features": {
     "001-estimate-persistence": "20260606-estimate-persistence",
@@ -124,7 +127,11 @@
     "026-projects-handoff": "20261103-projects-handoff",
     "027-project-collaboration": "20261103-project-collaboration",
     "028-activities": "20261110-activities",
-    "029-push-notifications": "20261111-push-notifications"
+    "029-push-notifications": "20261111-push-notifications",
+    "029-time-tracking": "20261112-time-tracking",
+    "030-project-hours": "20261112-project-hours",
+    "031-meeting-hours": "20261112-meeting-hours",
+    "032-project-alerts": "20261112-project-alerts"
   },
   "migrated": "2026-11-14",
   "version": 1

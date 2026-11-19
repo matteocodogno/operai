@@ -1792,6 +1792,7 @@ treat its first use as a supervised run.
 | | `VITE_NOTIFY_API_URL` | `<NOTIFY_API_URL>` — feeds `shell/session`'s trusted-origin allowlist and `getNotifyBaseUrl()` (the raise-capability, `useUnreadCount` SSE manager); also the origin `notify-ui` itself calls (mirrors `VITE_API_URL`/`VITE_AUTH_URL`) |
 | | `VITE_REFUND_API_URL` | **NEW (T20, specs/20260716-refund-service).** `<REFUND_API_URL>` — feeds `shell/session`'s trusted-origin allowlist ONLY (`getTrustedOrigins()`, `shell/src/lib/session.ts`); `refund-ui` calls refund-api using its OWN copy of this same var (own build, see the `refund-ui` row below) — both copies MUST carry the identical `<REFUND_API_URL>` value or `apiFetch` will not recognize refund-ui's request origin as trusted and every call 401s. |
 | | `VITE_ACTIVITIES_API_URL` | **NEW (specs/20261110-activities).** `https://activities-api.operai.welld.io` — build-time, feeds `shell/session`'s trusted-origin allowlist AND `getActivitiesApiBaseUrl()`, which `crm-ui` and `projects-ui` use for every activity and task call (no `VITE_*` of their own; there is no `activities-ui`). `provision-tool.sh --no-ui` does not set it: set it by hand and redeploy the shell. |
+| | `HOURS_REMOTE_URL` / `VITE_HOURS_API_URL` | **NEW (specs/20261112-time-tracking).** `https://hours.operai.welld.io/remoteEntry.js` / `https://hours-api.operai.welld.io` — both build-time. The second feeds `shell/session`'s trusted-origin allowlist AND `getHoursApiBaseUrl()`, which `hours-ui` uses, its Settings tab (the time lists) included (no `VITE_*` of its own); unset, the origin is not trusted and every hours call 401s. Unset `HOURS_REMOTE_URL` ships a shell pointing at `localhost:5184`. **Set them only after the DNS record of `hours.operai.welld.io` exists** (§ Time tracking, step 5): `provision-tool.sh hours` does it in that order. |
 | | `VITE_INVENTORY_API_URL` | **NEW (T41/T43, specs/20261006-hardware-inventory).** `<INVENTORY_API_URL>` — build-time, feeds `shell/session`'s trusted-origin allowlist AND `getInventoryApiBaseUrl()`, which `inventory-ui` uses for every inventory-api call (**inventory-ui has no `VITE_INVENTORY_API_URL` of its own** — unlike `refund-ui`, it asks the shell). **Optional by design and unset by default: when unset the inventory origin is NOT trusted, `apiFetch` sends no Bearer JWT there, and every inventory call 401s** — a silent failure, so set it on the shell project and redeploy. Typed in `shell/src/vite-env.d.ts`. |
 | | `ESTIMAI_REMOTE_URL` / `REFUND_REMOTE_URL` / `ADMIN_REMOTE_URL` / `NOTIFY_REMOTE_URL` / `INVENTORY_REMOTE_URL` | `https://<estimai/refund/admin/notify/inventory>.operai.welld.io/remoteEntry.js` (the code defaults are the `localhost:517x` dev origins, so an unset value ships a shell pointing at localhost) |
 | **estimai-ui** | `VITE_API_URL` | `<API_URL>` — **required**: estimai-ui builds `${VITE_API_URL}/estimates` from its *own* value (must match the shell's) |
@@ -2875,6 +2876,335 @@ limits. Three steps, in this order:
   `notify-api`. Turning it off entirely: `PUSH_ENABLED=false`; existing rows stay and are used again when
   it is re-enabled.
 - Logs carry the device id and the push status only, never an endpoint, key, title or body.
+
+## Time tracking (specs/20261112-time-tracking, ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, 20261112-hours-ui-ungated-remote)
+
+The hours people spend on company work are recorded in a new backend, `hours-api`, and read through a
+new remote, `hours-ui`. Everyone who can sign in records and reads their own hours: there is **no
+access grant** (AC-5.1, ADR 20261112-hours-ui-ungated-remote), so the shell's "My hours" menu entry is shown to every signed-in
+user. Two new `auth` permissions, both held by `admin` only, sit on top: `time-entry:read-all` (see
+everyone's hours) and `time-list:manage` (edit the categories and work types).
+
+| Piece | Where | What this release changes |
+|---|---|---|
+| `hours-api` | Railway, **new** service: port **8089**, DB `hours`, `hours-api.operai.welld.io` | entries, lists, totals, the oversight reads. No object storage, no notification |
+| `hours-ui` | Vercel, **new** project `hours`: `hours.operai.welld.io` | the federated remote the shell mounts at `/hours/$`; not a `TOOLS` entry |
+| `auth` | Railway | catalog `hours` (seeded at deploy), scope `meetings.hosts.read`, service client `hours-api` |
+| `activities-api` | Railway | `GET /activities?ids=` (code only) |
+| `crm-api` | Railway | the activity-host resolve answers `entityType: "deal"` (code only) |
+| `meetings-api` | Railway | `GET /meetings?ids=` and `GET /system/meetings/hosts` (code), plus the new variable `SERVICE_AUDIENCE` |
+| `shell` | Vercel | the "My hours" entry, the `/hours/$` route and two build-time variables. The time lists are hours-ui's Settings tab (`/hours/settings`, D51); `admin-ui` does not change in this release |
+
+No existing database changes: the one migration is hours-api's own first one, which creates and
+seeds `hours` (four categories, eight work types). `projects-api` and `notify-api` do not change:
+projects-api's host resolve already answers a project's manager and team, and hours-api sends no
+notification. The two hostnames are the assumed ones: `provision-tool.sh` derives them from the tool
+name and `shell/vercel.json`'s CSP and `infra/check.sh` already carry them (override `HOURS_API_URL` /
+`HOURS_URL` for `check.sh` if the real domains differ).
+
+### `hours-api` service (Railway) — NEW (specs/20261112-time-tracking)
+
+Authoritative list: `hours-api/src/lib/env.ts` (validated at startup, exits 1 on any miss: **every**
+variable below is required). Committed contract: `tools/env-doctor/templates/production/hours-api.env`.
+
+| Variable | Value | Secret |
+|---|---|---|
+| `DATABASE_URL` | `…/hours` — **its own logical DB** (the service's `.railway/railway.ts` block runs `bun run db:deploy` as `preDeploy`) | yes |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` — the shell's origin, where hours-ui (its Settings tab included) runs; a `*` fails startup | no |
+| `AUTH_ISSUER` | `https://auth.operai.welld.io` — public claim, equal to auth's `BETTER_AUTH_URL` | no |
+| `AUTH_JWKS_URL` / `AUTH_BASE_URL` | internal, `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` / the same without the path — base for `GET /authz/resolve` (the two live permissions), `POST /authz/users/identities` (names, fail soft) and `POST /system/service-token` | no |
+| `AUTH_AUDIENCE` | `${{shared.AUTH_AUDIENCE}}` | no |
+| `PROJECTS_API_URL` / `CRM_API_URL` / `ACTIVITIES_API_URL` / `MEETINGS_API_URL` | internal, `http://${{<service>.RAILWAY_PRIVATE_DOMAIN}}:${{<service>.PORT}}` — the owners it asks "may this person book here" as the caller (forwarded JWT, 2 s, a write fails closed, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Unset, the service exits 1 | no |
+| `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | `hours-api` / `${{shared.HOURS_SERVICE_CLIENT_SECRET}}` — at least 32 chars, byte-identical to its `SERVICE_CLIENTS` entry, whose scope is **exactly** `meetings.hosts.read` | secret: yes |
+| `SERVICE_AUDIENCE` | `${{shared.SERVICE_AUDIENCE}}` — the `aud` of the service JWT it shows meetings-api; must differ from `AUTH_AUDIENCE` (both refuse an equal pair at startup) | no |
+| `PORT` / `NODE_ENV` | `8089` / `production` | no |
+
+It has no `NOTIFY_INTERNAL_URL`, no storage and no AI variable, so none is required. **Deploy notes.**
+Its block in `.railway/railway.ts` declares one replica in `europe-west4-drams3a`, like every service, and
+nothing needs that pin: hours-api keeps no limiter or store that depends on one instance (its one in-process
+memo remembers a refusal of `time-list:manage` for 30 s). hours-api has no `railway.json`: since ADR
+20261113-railway-infrastructure-as-code the service, its build, start, health check, pre-deploy, replicas and
+domain are declared only in `.railway/railway.ts`. It logs method, path without the query string, status and
+duration, never a body or a note, and there is no third-party processor.
+
+### Variables set outside `hours-api`
+
+| Where | Variable | Value | Step |
+|---|---|---|---|
+| Railway, project Shared Variable | `HOURS_SERVICE_CLIENT_SECRET` | **new**: at least 32 random characters, no 1Password item, never written to a template, a command line or a PR | 2 |
+| `auth` | `SERVICE_CLIENTS` | gains `"hours-api":{"secret":"${{shared.HOURS_SERVICE_CLIENT_SECRET}}","scope":"meetings.hosts.read"}` (already in the `auth.env` template; production gets it only at step 2) | 2 |
+| `meetings-api` | `SERVICE_AUDIENCE` | **new**: `${{shared.SERVICE_AUDIENCE}}`, byte-identical to auth's and hours-api's, different from `AUTH_AUDIENCE`. Optional in its own `env.ts` (unset, `GET /system/meetings/hosts` is a 401 for everyone and the service still starts), required here | 3 |
+| Vercel `hours` | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | 5 |
+| Vercel `shell` | `HOURS_REMOTE_URL`, `VITE_HOURS_API_URL` | § Frontend build-time vars | 5 |
+
+`crm-api`, `activities-api` and `projects-api` get no variable (hours-api asks them, not the other way
+round). hours-ui reads the hours-api origin from the shell's `shell/session`.
+
+### Order of the release (plan R7)
+
+"The release" is the merge to `main` that carries specs/20261112-time-tracking. The merge needs no preparation beyond
+step 0, because nothing in it needs a variable to *start*: hours-api is not connected to GitHub until
+step 4, and meetings-api starts without `SERVICE_AUDIENCE`. What must be ordered are the manual
+steps below, and a push to `main` redeploys every connected Railway service in no fixed order
+(ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired), so each step starts only when the gate of the one before it passed **and** the
+deployments it names are the live ones: `railway deployment list --service <svc>` shows the newest
+row `SUCCESS` with the release's commit. The order is **auth, then its client entry, then the
+owners, then hours-api, then the frontends**; a client entry added to production `auth` before the
+`auth` that knows its scope is live stops `auth` (an unknown scope refuses to start, ADR 20261108-crm-pushes-deal-links-to-estimai).
+
+**Step 0 - before the merge: preconditions (names only).**
+
+```bash
+mise run env:doctor -- --env production    # the committed contract: hours-api.env, auth.env's hours-api entry, meetings-api.env's SERVICE_AUDIENCE
+railway variables --service auth --json | jq -r 'keys[]' | grep -qx SERVICE_AUDIENCE && echo present || echo MISSING
+```
+
+- `SERVICE_AUDIENCE` must be `present` (auth's value is the reference `${{shared.SERVICE_AUDIENCE}}`, so the
+  Shared Variable meetings-api and hours-api will reference exists). `MISSING`: stop, it is a service-token
+  prerequisite (§ Notify credential rollout).
+- `projects-api`, `crm-api`, `activities-api` and `meetings-api` are live (specs/20261104-meetings, specs/20261103-projects, specs/20261110-activities). You hold
+  logins for the `railway`, `vercel` and `cf` CLIs, plus `jq`, `dig` and `psql` (or a running Postgres
+  container to borrow it from: the script creates the `hours` database with it).
+- **Management / HR have answered open point O3** (spec § Open questions: informing employees about the
+  hours recorded and who reads them; IT art. 4 L. 300/1970, CH art. 26 OLL 3). It is a go-live sign-off
+  owned by them: this runbook cannot check or enforce it, and there is no grant to withhold (AC-5.1). The
+  "My hours" entry is visible to every signed-in user from the moment the shell the merge builds is
+  live (it opens an error panel until step 5, then works). So get the answer **before the merge**. The
+  owner accepted O3 as open when approving the spec, which is not a sign-off for go-live; if it is still
+  open, the owner decides between holding the merge and merging with an entry that does not open. Either
+  way, **do not run step 5 until O3 is answered**: steps 1-4 give no user a working screen.
+- **Do not run `./infra/check.sh` before step 5** (steps 1-4 use the single probes shown; `--prereqs`,
+  which only checks local tooling, is fine): the full run also curls `hours-api.operai.welld.io` and
+  `hours.operai.welld.io`, and a lookup made before their DNS records exist is cached as "no such host" for
+  30 minutes (§ Provisioning a new tool).
+
+**Step 1 - auth: the catalog.**
+Merge, then wait for `auth`'s deployment of the release. Its `preDeployCommand` (`db:release`) seeds the
+`hours` catalog and grants both permissions to `admin`, unconditioned, creating only what is absent.
+Gate:
+
+```bash
+railway deployment list --service auth                                         # newest row SUCCESS, commit = the release's
+curl -s -o /dev/null -w '%{http_code}\n' https://auth.operai.welld.io/health   # 200
+```
+
+and an admin's `/authz/me` lists `time-entry:read-all` and `time-list:manage`: sign in as an admin, open the
+browser's Network panel, reload, open the response of `auth.operai.welld.io/authz/me` and read `permissions`
+(expect `{"resource":"time-entry","action":"read-all","conditions":null}` and the `time-list` / `manage`
+twin; do not copy the request as cURL, it carries the session). The same fact, read only, without a browser:
+
+```sql
+-- on the auth database, read only
+SELECT r.name AS role, p.resource, p.action, p.conditions
+FROM permission_rule p JOIN role r ON r.id = p."roleId"
+WHERE p.resource IN ('time-entry', 'time-list')
+ORDER BY p.resource, r.name;
+-- exactly two rows, both role admin, conditions empty: time-entry/read-all and time-list/manage
+```
+
+**Step 2 - the `hours-api` client entry, only now.**
+1. Create the Shared Variable `HOURS_SERVICE_CLIENT_SECRET`, at least 32 random characters (e.g.
+   `openssl rand -hex 32 | tr -d '\n' | pbcopy`, pasted straight into Railway: never echoed, never into the
+   repo, a PR, a chat or a shell history).
+2. On `auth`, add to `SERVICE_CLIENTS` (one line in the Variables tab, every other entry untouched; the shape
+   is in `tools/env-doctor/templates/production/auth.env`):
+
+   ```json
+   "hours-api": { "secret": "${{shared.HOURS_SERVICE_CLIENT_SECRET}}", "scope": "meetings.hosts.read" }
+   ```
+
+   Exactly that scope: no `notifications.push` (hours-api sends nothing) and none of another owner's (it
+   asks those as the caller, with the user's JWT). Applying the change redeploys `auth`.
+3. Open the variable and confirm `${{shared.HOURS_SERVICE_CLIENT_SECRET}}` resolved inside the JSON.
+
+Gate: `railway deployment list --service auth` shows the newest row `SUCCESS`, its deploy log has no
+`Invalid environment variables` line, and `/health` answers 200 (same `curl` as step 1). If `auth` does not
+start (a secret under 32 characters or a scope the running code does not know; the log names the entry and
+the rule, never a value), restore the previous `SERVICE_CLIENTS` value and redeploy. This step is not
+provable end to end yet (the client has no service to use it); the credential is proven by step 4's
+`--live` and step 5's deal-filter check.
+
+**Step 3 - the owners: activities-api, crm-api, meetings-api.**
+They carry code only (no migration). Wait for the three deployments of the release, then on `meetings-api`
+set `SERVICE_AUDIENCE=${{shared.SERVICE_AUDIENCE}}`. That redeploys meetings-api, a single replica, so
+choose a quiet moment. Gate:
+
+```bash
+for s in activities-api crm-api meetings-api; do
+  printf '%s: ' "$s"; curl -s -o /dev/null -w '%{http_code}\n' "https://$s.operai.welld.io/health"   # 200 each
+done
+railway variables --service meetings-api --json | jq -r 'keys[]' | grep -qx SERVICE_AUDIENCE && echo present || echo MISSING
+curl -s -o /dev/null -w '%{http_code}\n' https://meetings-api.operai.welld.io/system/meetings/hosts   # 401: no credential
+```
+
+The last line is the probe `infra/check.sh` makes. A **404** means meetings-api is not on the release;
+anything but 401 means the service-credential gate is not live. **A 401 does not prove the variable is set**
+(unset, every call is the same 401): the name check does, and step 5's deal-filter check proves it works.
+Also read, once, before go-live (plan R2; ids only):
+
+```sql
+-- on the meetings database, read only: the most meetings linked to one deal
+SELECT "hostEntityId" AS deal, count(*) AS meetings FROM meeting
+WHERE "hostApp" = 'crm' AND "hostEntityType" = 'deal'
+GROUP BY 1 ORDER BY 2 DESC LIMIT 1;
+```
+
+Above about 1000, stop and take it to the owner: the deal filter asks meetings-api for every meeting linked
+to the deal in one unpaged answer (R2).
+
+**Step 4 - hours-api: provision, variables, first deploy.**
+A person runs it, the plan first (`.claude/skills/provision-tool/SKILL.md`; it needs the `railway`, `vercel`
+and `cf` CLIs and sets no secret). `--no-ui` keeps the Vercel half for step 5. The Railway service and its
+domain are Railway IaC (ADR 20261113-railway-infrastructure-as-code): the plan prints the block to add, a
+person adds it to `.railway/railway.ts` **without** its `source`, adds `hoursApi` to `project(...).resources`,
+commits and pushes it, then applies. The block is the projects-api one with the name, root directory and port
+changed:
+
+```ts
+const hoursApi = service("hours-api", {
+  // source: github("matteocodogno/operai", { branch: "main", checkSuites: false, rootDirectory: "/hours-api" }),
+  build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
+  start: "bun run src/index.ts",
+  healthcheck: "/health",
+  healthcheckTimeout: 30,
+  preDeploy: "bun run db:deploy",
+  replicas: { "europe-west4-drams3a": 1 },
+  deploy: { restartPolicyMaxRetries: 3 },
+  domains: [{ domain: "hours-api.operai.welld.io", port: 8089 }],
+});
+```
+
+```bash
+./infra/provision-tool.sh hours --port 8089 --no-ui           # plan, read only: the IaC block to add; read it, resolve every ✗ first
+# add the block above (source commented out) and `hoursApi` to resources, commit, push
+./infra/provision-tool.sh hours --port 8089 --no-ui --apply   # database `hours`, `railway config apply` (service, domain), DNS, the template's variables
+```
+
+The plan lists the database, the declaration in `.railway/railway.ts` and its `railway config plan` diff
+(it must create `hours-api` and delete nothing: a plan that deletes anything is a stop), the 15 variables of
+the table above, the domain `hours-api.operai.welld.io` to port 8089 with its CNAME and TXT records, and the
+unconnected source.
+The script sets `SERVICE_CLIENT_SECRET` only as the reference to the Shared Variable of step 2. Then, before
+any build:
+
+```bash
+names="$(railway variables --service hours-api --json | jq -r 'keys[]')"
+for v in DATABASE_URL ALLOWED_ORIGINS AUTH_ISSUER AUTH_JWKS_URL AUTH_BASE_URL AUTH_AUDIENCE \
+         PROJECTS_API_URL CRM_API_URL ACTIVITIES_API_URL MEETINGS_API_URL \
+         SERVICE_CLIENT_ID SERVICE_CLIENT_SECRET SERVICE_AUDIENCE PORT NODE_ENV; do
+  printf '%s\n' "$names" | grep -qx "$v" || echo "MISSING $v"          # prints nothing when all are set
+done
+mise run env:doctor -- --env production --live
+```
+
+`--live` reads what Railway actually holds, in memory, and checks that `SERVICE_AUDIENCE` is the same on
+auth, notify-api, crm-api, estimai-api, projects-api, activities-api, meetings-api and hours-api and differs
+from `AUTH_AUDIENCE`, that the four owner URLs point at each owner's private address and port, and that
+`hours-api` is a key of auth's `SERVICE_CLIENTS` with exactly `meetings.hosts.read` and the same secret.
+Open `SERVICE_CLIENT_SECRET` in the Variables tab and confirm the reference resolved (a leftover `${{` is a
+miss). The offline equivalent is `mise run env:doctor -- --env production --dir ./resolved` on one
+pre-resolved `<service>.env` per service; keep that directory out of the repo. The doctor must report no
+failure before the first build:
+
+Then uncomment the block's `source: github(...)` line, commit and push, and:
+
+```bash
+./infra/provision-tool.sh hours --port 8089 --no-ui --connect --apply   # connects the repo: the first build
+```
+
+Do not open or `curl` `hours-api.operai.welld.io` before the script says it resolves; the certificate follows
+the first successful deploy by a few minutes, so a first `curl` can fail for that reason alone. Gate:
+
+```bash
+railway deployment list --service hours-api                              # SUCCESS; the deploy log shows the init migration applied
+curl -s -o /dev/null -w '%{http_code}\n' https://hours-api.operai.welld.io/health        # 200: the database is reachable
+curl -s -o /dev/null -w '%{http_code}\n' https://hours-api.operai.welld.io/time-entries  # 401: the JWT gate, no credential
+```
+
+A service that exits at startup names each missing or invalid variable (never a value) in its deploy log.
+
+**Step 5 - the frontends: hours-ui and shell.**
+Vercel already rebuilt `shell` with the merge (it carries the `@operai/ui` additions hours-ui consumes as the
+shell's singleton, so it is live before hours-ui's first deployment); what the merge cannot do is create the `hours`
+project or give the shell its two variables. Confirm O3 (step 0), then:
+
+```bash
+./infra/provision-tool.sh hours --port 8089                             # plan: the Vercel project, domain, DNS, first deployment, three variables; the Railway half reports nothing missing
+./infra/provision-tool.sh hours --port 8089 --redeploy-shell --apply    # creates them in that order, then redeploys the shell
+```
+
+The script creates the project (root `hours-ui`), attaches the domain and writes its DNS record **before**
+anything resolves it, starts the first production deployment, sets `SHELL_REMOTE_URL` on `hours` and
+`HOURS_REMOTE_URL` / `VITE_HOURS_API_URL` on `shell` (both build-time, never overwritten), and redeploys the
+shell so it reads them. It checks that `shell/vite.config.ts` reads `HOURS_REMOTE_URL` and that the CSP names
+both hostnames. Wait for both deployments, and until it says both hostnames resolve. Gate:
+
+```bash
+./infra/check.sh      # exit 0: includes hours-api /health and the 401 on /time-entries, hours-ui's remoteEntry.js + CORS,
+                      # the three hours CSP pins and meetings-api's /system/meetings/hosts 401
+```
+
+Then, with real accounts, deleting everything you record (a note such as "release check" helps):
+
+1. **An employee with no admin role** opens the user menu, My hours (no access redirect), records 30 minutes
+   under Other work in the category Training, sees the day total, then deletes it. That proves the JWT
+   (`iss`, `aud`, JWKS), CORS from the shell's origin, the CSP and the database.
+2. **An admin** opens My hours, the Settings tab: three cards, with the four seeded categories (Training, Talk
+   preparation, Administration, Other) and the project and deal work types, and no error. Change nothing.
+3. **An admin** on My hours, Filters, Deal: pick any deal. The list loads (or says nothing matches). The banner
+   "Hours on this deal can't be shown right now" means meetings-api refused hours-api's credential: check
+   `SERVICE_AUDIENCE` on meetings-api, then the step 2 entry. This is the only proof that the service token
+   works end to end, and it writes nothing.
+4. **Each owner, once**, on something you already have: record on a project where you are the manager or on the
+   team (projects-api); on a deal you own (crm-api, `entityType: "deal"`); on a meeting you created (meetings-api,
+   `ids`); and pick an activity of that project or deal in the same dialog (activities-api, `ids`). A refusal
+   "Operai could not check that you may record hours on this …" is a 503 `host_unavailable`: that owner is not
+   on the release (R7). If nobody holds one of the four, say so in the release notes: the local e2e
+   (`shell/e2e/hours-owners.spec.ts`) is the only proof of it.
+
+The release is done when `./infra/check.sh` exits 0, `mise run env:doctor -- --env production --live` reports
+no failure and the four checks above passed.
+
+### What a wrong order does (R7)
+
+A wrong order degrades and never breaks: hours-api reads **any unexpected 4xx** from an owner (an old crm-api
+answers 422 to `entityType: "deal"`, an old activities-api 422 to `ids`, an old meetings-api ignores `ids`) as
+"unavailable", drops ids it did not ask for, and refuses a write instead of guessing. Nothing wrong is
+recorded or shown. Concretely, while the named step is still missing:
+
+| Missing | What happens |
+|---|---|
+| step 1 (catalog) | an admin has no Everyone's hours and no Settings tab; the API answers that admin 403 |
+| step 2 (client entry), or `SERVICE_AUDIENCE` on meetings-api | hours-api cannot read a meeting's deal: a read with a deal filter is 503 `host_unavailable` ("Hours on this deal can't be shown right now"), and Hours by deal counts meeting hours under "Meetings whose deal is unknown right now". Totals stay right |
+| crm-api / activities-api / meetings-api code (step 3) | a booking on a deal, a meeting, or with an activity is refused with 503 `host_unavailable` and nothing is saved; Other work and projects still work |
+| the frontends (step 5) | the shell the merge built already shows "My hours" to every signed-in user, built with no `HOURS_REMOTE_URL` (it points at `localhost:5184`, which the CSP blocks) and no `VITE_HOURS_API_URL`: the entry opens "Hours couldn't load. Check your connection and try again." and nothing else is affected. |
+
+That is why the two shell variables are set only in step 5, after the DNS record exists: the shell would
+otherwise send users to `hours.operai.welld.io` before it resolves, and each of their resolvers would cache
+"no such host" for 30 minutes. Do steps 1-5 in one sitting after the merge: nothing breaks if a step
+waits, but until step 5 the entry is visible and does not open.
+
+### Rollback by step
+
+hours-api holds people's time records from the first entry. **Never delete the service or the `hours`
+database to roll back**: take it out of reach and fix forward.
+
+- **Step 5 failed, or O3 turns out to be open:** redeploy the previous production deployment of `shell` in
+  Vercel. The entry goes, and with it the Settings tab; hours-api stays up and unreachable from the
+  browser. The `hours` project can stay. The next push to `main` rebuilds the shell with the entry again.
+- **Step 4:** before any entry exists, remove the service's active deployment in the Railway dashboard (the
+  database and the variables stay), fix the cause and redeploy it. After entries exist, roll back step 5
+  instead and fix forward.
+- **Step 3:** redeploy the previous deployment of `crm-api`, `activities-api` or `meetings-api`; hours-api
+  degrades as in the table above. Removing `SERVICE_AUDIENCE` from meetings-api closes `/system/meetings/hosts`
+  again (every call 401).
+- **Step 2:** remove the `hours-api` entry from `SERVICE_CLIENTS` and redeploy `auth`. It cuts hours-api off at
+  once (tokens already minted expire within 5 minutes); the Shared Variable is inert and can stay. To rotate the
+  secret instead, see § Rollback & operations.
+- **Step 1:** the seed only adds catalog rows and two admin grants (`auth` has no migration in this release);
+  nothing removes them and they are harmless. **Remove the step 2 entry first, then roll `auth` back:** the
+  `auth` built before this release does not know `meetings.hosts.read`, so it refuses to start while
+  `SERVICE_CLIENTS` still names it.
 
 ## Rollback & operations
 

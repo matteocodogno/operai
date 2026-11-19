@@ -32,6 +32,8 @@ export { Drawer } from './components/Drawer'
 export type { DrawerProps } from './components/Drawer'
 export { ErrorSummary } from './components/ErrorSummary'
 export type { ErrorSummaryItem, ErrorSummaryProps } from './components/ErrorSummary'
+export { ExportButton } from './components/ExportButton'
+export type { ExportButtonProps } from './components/ExportButton'
 export { FactList } from './components/FactList'
 export type { Fact, FactListProps } from './components/FactList'
 export { CheckboxGroupField, Field, RadioGroupField, focusFirstInvalid } from './components/Field'
@@ -70,6 +72,8 @@ export { TaskRow } from './components/TaskRow'
 export type { TaskRowProps, TaskRowState } from './components/TaskRow'
 export { PersonPicker } from './components/PersonPicker'
 export type { Person, PersonChoice, PersonLoadFailure, PersonPickerProps } from './components/PersonPicker'
+export { SearchPicker } from './components/SearchPicker'
+export type { SearchPickerProps, SearchResult } from './components/SearchPicker'
 export { SectionsEditor } from './components/SectionsEditor'
 export type { Section, SectionRowErrors, SectionsEditorProps } from './components/SectionsEditor'
 export { Skeleton, SkeletonRows } from './components/Skeleton'
@@ -110,6 +114,7 @@ export {
   formatDateTime,
   formatDuration,
   formatMoney,
+  formatMonth,
   formatNumber,
   formatRelative,
 } from './lib/format'

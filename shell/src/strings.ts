@@ -29,6 +29,10 @@ const en = {
     notifications: 'Notifications',
     myDevices: 'My devices',
     myMeetings: 'My meetings',
+    // specs/20261112-time-tracking: the Hours remote's name (the loading/error boundary, the About
+    // dialog) and its menu row. Not a sidebar tool: every signed-in user records their own hours.
+    hours: 'Hours',
+    myHours: 'My hours',
   },
   app: {
     description:
@@ -88,6 +92,7 @@ const en = {
     myProfile: 'My profile',
     myDevices: 'My devices',
     myMeetings: 'My meetings',
+    myHours: 'My hours',
     signOut: 'Sign out',
   },
   about: {
@@ -214,6 +219,8 @@ const it: typeof en = {
     notifications: 'Notifiche',
     myDevices: 'I miei dispositivi',
     myMeetings: 'Le mie riunioni',
+    hours: 'Ore',
+    myHours: 'Le mie ore',
   },
   app: {
     description:
@@ -269,6 +276,7 @@ const it: typeof en = {
     myProfile: 'Il mio profilo',
     myDevices: 'I miei dispositivi',
     myMeetings: 'Le mie riunioni',
+    myHours: 'Le mie ore',
     signOut: 'Esci',
   },
   about: {
