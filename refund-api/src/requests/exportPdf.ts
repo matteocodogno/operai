@@ -436,6 +436,9 @@ export async function renderRequestExportPdf(
         showsApprovedAmounts && line.rejection ? `Rejected: ${line.rejection.reason}` : null;
       const detailLines = [
         ...wrapText(detailTop, fonts.value, TYPE.small, COL.detail - 8),
+        // specs/20261118-refund-accounting-export (T16, AC-4.9): the number this line was given at approval, one per
+        // line, spelled out in full (only the batch PDF compresses runs). A rejected or not yet numbered line has none.
+        ...(line.receiptNumber ? [`Receipt no. ${line.receiptNumber}`] : []),
         ...(detailRate ? wrapText(detailRate, fonts.value, TYPE.small, COL.detail - 8) : []),
         ...(detailRejection ? wrapText(detailRejection, fonts.value, TYPE.small, COL.detail - 8) : []),
       ];

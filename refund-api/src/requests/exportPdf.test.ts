@@ -652,3 +652,35 @@ describe("renderRequestExportPdf — greyscale floor", () => {
     expect(text).toContain("Total");
   });
 });
+
+// ─── Receipt numbers (T16, specs/20261118-refund-accounting-export, AC-4.9) ───
+
+describe("renderRequestExportPdf — receipt numbers", () => {
+  const numbered = (n: string | null, id: string, date = "2026-08-11") =>
+    ({ ...mileageLine, id, date, receiptNumber: n }) as unknown as RequestExportInput["lines"][number];
+
+  it("prints one number per line, in full, on the line it belongs to", async () => {
+    const text = await textOf(
+      baseInput({ lines: [numbered("MC26/014", "l1"), numbered("MC26/015", "l2"), numbered("MC26/016", "l3")] }),
+    );
+    // consecutive numbers are NOT compressed here: only the batch PDF does that
+    for (const n of ["MC26/014", "MC26/015", "MC26/016"]) expect(text).toContain(`Receipt no. ${n}`);
+    expect(text).not.toContain("MC26/014–016");
+  });
+
+  it("a line with no number (rejected, or not yet numbered) shows none", async () => {
+    const text = await textOf(baseInput({ lines: [numbered("MC26/014", "l1"), numbered(null, "l2")] }));
+    expect(text.match(/Receipt no\./g)).toHaveLength(1);
+  });
+
+  it("a request with no numbers at all has no 'Receipt no.' text", async () => {
+    expect(await textOf(baseInput({ lines: [numbered(null, "l1")] }))).not.toContain("Receipt no.");
+  });
+
+  it("is still deterministic with numbers on the lines", async () => {
+    const input = baseInput({ lines: [numbered("MC26/014", "l1"), numbered("MC25/002", "l2", "2025-12-30")] });
+    const a = await renderRequestExportPdf(input);
+    const b = await renderRequestExportPdf(input);
+    expect(Buffer.compare(a, b)).toBe(0);
+  });
+});

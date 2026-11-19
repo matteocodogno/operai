@@ -308,7 +308,7 @@ Reading the list:
       (AC-3.10);
     - batch requests carry `receiptNumbers` next to the employee.
 
-- [ ] T16: refund-api — receipt numbers in the batch PDF (compressed runs) and in the per-request archive PDF — refs: AC-4.9 — deps: T15
+- [x] T16: refund-api — receipt numbers in the batch PDF (compressed runs) and in the per-request archive PDF — refs: AC-4.9 — deps: T15
   - touch: `refund-api/src/batches/pdf.ts`, `refund-api/src/batches/pdf.test.ts`, `refund-api/src/batches/batches.service.ts`, `refund-api/src/requests/exportPdf.ts`, `refund-api/src/requests/exportPdf.test.ts`
   - agent: backend-dev · backend
   - Details:

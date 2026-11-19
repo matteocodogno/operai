@@ -54,6 +54,14 @@
  * No total ever adds two currencies. $0-approved lines are included on the
  * same terms as any other (AC-1.9). This module never reads or references
  * `Attachment` rows — receipt files are never embedded (AC-1.7).
+ *
+ * RECEIPT NUMBERS (specs/20261118-refund-accounting-export, T16, AC-4.9): each
+ * request row carries a "Receipt numbers" cell, the numbers its lines were given
+ * at approval, with consecutive runs of three or more compressed
+ * (`MC26/014–016`). Still a pure function: the numbers arrive in the input and
+ * are sorted here, so the bytes do not depend on the order the caller listed
+ * them in. A request with no number (rejected lines, approved before the
+ * feature, WellD Italia before the release) shows "—".
  */
 
 import type { PDFDocument, PDFPage } from "pdf-lib";
@@ -111,6 +119,65 @@ export interface BatchPdfRequest {
   /** When the request was approved — the fact the cutoff was tested against. Optional only for older callers/fixtures. */
   readonly decidedAt?: Date | null;
   readonly lines: readonly LineRow[];
+  /**
+   * The request's receipt numbers (T16, AC-4.9). Optional only for older callers/fixtures: when absent they are read
+   * from the lines' own `receiptNumber`. Any order: the renderer sorts.
+   */
+  readonly receiptNumbers?: readonly string[];
+}
+
+// ─── Receipt numbers: order and compression ──────────────────────────────────
+
+const RECEIPT_RE = /^(.*)\/(\d+)$/;
+
+function parseReceiptNumber(value: string): { prefix: string; seq: number; digits: string } | null {
+  const match = RECEIPT_RE.exec(value);
+  return match ? { prefix: match[1]!, seq: Number(match[2]), digits: match[2]! } : null;
+}
+
+/**
+ * Orders receipt numbers by prefix (initials and year), then by the NUMBER of the sequence, so `MC26/999` comes
+ * before `MC26/1000`. A string that is not a receipt number sorts as a plain string, after the numbered ones.
+ */
+export function compareReceiptNumbers(a: string, b: string): number {
+  const pa = parseReceiptNumber(a);
+  const pb = parseReceiptNumber(b);
+  if (pa && pb) return pa.prefix < pb.prefix ? -1 : pa.prefix > pb.prefix ? 1 : pa.seq - pb.seq;
+  if (pa) return -1;
+  if (pb) return 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * `["MC26/016", "MC26/014", "MC26/015", "MC26/020"]` → `MC26/014–016, MC26/020`.
+ *
+ * Sorted, without duplicates, a run of THREE or more consecutive numbers of one prefix is written as
+ * `first–lastSequence`; one or two numbers are listed in full, because `014–015` saves nothing and a reader
+ * checking a number against the books wants to find it spelled out. The empty list is the empty string.
+ */
+export function compressReceiptNumbers(numbers: readonly string[]): string {
+  const sorted = [...new Set(numbers)].sort(compareReceiptNumbers);
+  const parts: string[] = [];
+  let i = 0;
+  while (i < sorted.length) {
+    const head = parseReceiptNumber(sorted[i]!);
+    let j = i;
+    if (head) {
+      while (j + 1 < sorted.length) {
+        const next = parseReceiptNumber(sorted[j + 1]!);
+        const current = parseReceiptNumber(sorted[j]!)!;
+        if (!next || next.prefix !== head.prefix || next.seq !== current.seq + 1) break;
+        j += 1;
+      }
+    }
+    if (head && j - i + 1 >= 3) {
+      parts.push(`${sorted[i]!}\u2013${parseReceiptNumber(sorted[j]!)!.digits}`);
+    } else {
+      for (let k = i; k <= j; k += 1) parts.push(sorted[k]!);
+    }
+    i = j + 1;
+  }
+  return parts.join(", ");
 }
 
 export interface BatchPdfEmployee {
@@ -197,13 +264,16 @@ const SUMMARY = table([
   { key: "approved", label: "Approved", width: 86, align: "right" },
 ]);
 
+// Widths in points, measured with the embedded font: a request id is 128 wide, "APPROVED ON" 58, "RECEIPT NUMBERS" 74 and
+// the longest sensible amount ("12345,00 CHF") 61. The period and the receipt numbers wrap, so they take what is left.
 const DETAIL = table([
-  { key: "index", label: "#", width: 18, align: "left" },
-  { key: "request", label: "Request", width: 150, align: "left" },
-  { key: "period", label: "Period", width: CONTENT_WIDTH - 18 - 150 - 62 - 2 * 76, align: "left" },
+  { key: "index", label: "#", width: 16, align: "left" },
+  { key: "request", label: "Request", width: 134, align: "left" },
+  { key: "period", label: "Period", width: 62, align: "left" },
   { key: "decided", label: "Approved on", width: 62, align: "left" },
-  { key: "requested", label: "Requested", width: 76, align: "right" },
-  { key: "approved", label: "Approved", width: 76, align: "right" },
+  { key: "receipts", label: "Receipt numbers", width: 80, align: "left" },
+  { key: "requested", label: "Requested", width: 62, align: "right" },
+  { key: "approved", label: "Approved", width: CONTENT_WIDTH - 16 - 134 - 62 - 62 - 80 - 62, align: "right" },
 ]);
 
 const colRight = (t: Table, key: string): number =>
@@ -403,12 +473,20 @@ export async function renderBatchPdf(input: BatchPdfInput): Promise<Buffer> {
       row += 1;
       const period = formatPeriod(request.lines.map((l) => isoDay(l.date))) ?? "—";
       const decided = request.decidedAt ? formatDay(request.decidedAt) : "—";
+      const receipts = compressReceiptNumbers(
+        request.receiptNumbers ?? request.lines.flatMap((l) => (l.receiptNumber ? [l.receiptNumber] : [])),
+      );
       // A request in two currencies is two figures, stacked in its one row.
       const cells: Cell[] = [
         { key: "index", lines: [String(row)], muted: true },
         { key: "request", lines: [request.id] },
         { key: "period", lines: wrapText(period, fonts.value, TYPE.value, DETAIL.columns[2]!.width - 8) },
         { key: "decided", lines: [decided] },
+        {
+          key: "receipts",
+          lines: receipts === "" ? ["—"] : wrapText(receipts, fonts.value, TYPE.value, DETAIL.columns[4]!.width - 6),
+          ...(receipts === "" ? { muted: true } : {}),
+        },
         {
           key: "requested",
           lines: subtotals.length ? subtotals.map((s) => formatMoney(s.requestedCents, s.currency)) : ["—"],

@@ -18,7 +18,7 @@
 import { requestInScope, type EntityScope } from "../authz/conditions";
 import { computeSubtotals, type LineRow } from "../requests/requests.service";
 import type { Subtotal } from "../requests/requests.schemas";
-import type { BatchPdfEmployee } from "./pdf";
+import { compareReceiptNumbers, type BatchPdfEmployee } from "./pdf";
 import type { BatchSummaryRow, CandidateRow, BatchWithRequests } from "./batches.repo";
 import type {
   BatchDetail,
@@ -116,7 +116,7 @@ export function toBatchPdfEmployees(
       email: reqs[0]!.ownerEmail,
       name: reqs[0]!.ownerName,
     },
-    requests: reqs.map((r) => ({ id: r.id, decidedAt: r.decidedAt, lines: r.lines })),
+    requests: reqs.map((r) => ({ id: r.id, decidedAt: r.decidedAt, lines: r.lines, receiptNumbers: receiptNumbersOf(r.lines) })),
   }));
 }
 
@@ -131,17 +131,7 @@ export interface BatchPdfLinkInput {
  * A rejected or not yet numbered line has none and contributes nothing.
  */
 export function receiptNumbersOf(lines: readonly { readonly receiptNumber?: string | null }[]): string[] {
-  const parse = (value: string) => {
-    const match = /^(.*)\/(\d+)$/.exec(value);
-    return match ? { prefix: match[1]!, seq: Number(match[2]) } : { prefix: value, seq: 0 };
-  };
-  return lines
-    .flatMap((l) => (l.receiptNumber ? [l.receiptNumber] : []))
-    .sort((a, b) => {
-      const pa = parse(a);
-      const pb = parse(b);
-      return pa.prefix < pb.prefix ? -1 : pa.prefix > pb.prefix ? 1 : pa.seq - pb.seq;
-    });
+  return lines.flatMap((l) => (l.receiptNumber ? [l.receiptNumber] : [])).sort(compareReceiptNumbers);
 }
 
 /**

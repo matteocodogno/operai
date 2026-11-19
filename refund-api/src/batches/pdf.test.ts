@@ -53,8 +53,15 @@
 
 import { describe, it, expect } from "bun:test";
 import { PDFDocument } from "pdf-lib";
-import { renderBatchPdf, batchPdfObjectKey, type BatchPdfEmployee } from "./pdf";
+import {
+  renderBatchPdf,
+  batchPdfObjectKey,
+  compareReceiptNumbers,
+  compressReceiptNumbers,
+  type BatchPdfEmployee,
+} from "./pdf";
 import { extractPdfText } from "../test-support/pdfText";
+import { toBatchPdfEmployees } from "./batches.service";
 import type { LineRow } from "../requests/requests.service";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -346,5 +353,142 @@ describe("renderBatchPdf", () => {
     });
 
     expect(buffer.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+  });
+});
+
+// ─── Receipt numbers (T16, specs/20261118-refund-accounting-export, AC-4.9) ───
+
+describe("compressReceiptNumbers", () => {
+  it("writes a run of three or more consecutive numbers as first–last sequence", () => {
+    expect(compressReceiptNumbers(["MC26/014", "MC26/015", "MC26/016"])).toBe("MC26/014–016");
+    expect(compressReceiptNumbers(["MC26/001", "MC26/002", "MC26/003", "MC26/004", "MC26/005"])).toBe("MC26/001–005");
+  });
+
+  it("lists one or two numbers in full: a pair saves nothing", () => {
+    expect(compressReceiptNumbers(["MC26/014"])).toBe("MC26/014");
+    expect(compressReceiptNumbers(["MC26/014", "MC26/015"])).toBe("MC26/014, MC26/015");
+  });
+
+  it("breaks the run at a gap, and keeps each run on its own", () => {
+    expect(compressReceiptNumbers(["MC26/014", "MC26/015", "MC26/016", "MC26/018", "MC26/020", "MC26/021", "MC26/022", "MC26/023"])).toBe(
+      "MC26/014–016, MC26/018, MC26/020–023",
+    );
+  });
+
+  it("is independent of the order the numbers come in, and drops a duplicate", () => {
+    expect(compressReceiptNumbers(["MC26/016", "MC26/014", "MC26/015", "MC26/014"])).toBe("MC26/014–016");
+  });
+
+  it("never joins two prefixes: another year or other initials start a new run", () => {
+    expect(compressReceiptNumbers(["MC25/001", "MC25/002", "MC25/003", "MC26/004", "MC26/005", "MC26/006"])).toBe(
+      "MC25/001–003, MC26/004–006",
+    );
+    expect(compressReceiptNumbers(["MC26/001", "MC26/002", "AB26/003"])).toBe("AB26/003, MC26/001, MC26/002");
+  });
+
+  it("orders by the NUMBER of the sequence, so a run crosses 999 to 1000", () => {
+    expect(compressReceiptNumbers(["MC26/1000", "MC26/998", "MC26/999", "MC26/1001"])).toBe("MC26/998–1001");
+    expect(compareReceiptNumbers("MC26/999", "MC26/1000")).toBeLessThan(0);
+  });
+
+  it("is the empty string for no numbers, and keeps a string that is no receipt number as it is", () => {
+    expect(compressReceiptNumbers([])).toBe("");
+    expect(compressReceiptNumbers(["MC26/001", "legacy-17"])).toBe("MC26/001, legacy-17");
+  });
+});
+
+describe("renderBatchPdf — receipt numbers", () => {
+  const numbersEmployee = (receiptNumbers: readonly string[] | undefined): BatchPdfEmployee => ({
+    owner: { userId: "u-mc", email: "matteo.codogno@welld.ch", name: "Matteo Codogno" },
+    requests: [
+      {
+        id: "req-mc-1",
+        decidedAt: new Date("2026-07-10T08:00:00Z"),
+        lines: [line({ id: "n1", entity: "welld_ch", currency: "CHF", requestedAmountCents: 1000, approvedTotalCents: 1000 })],
+        ...(receiptNumbers ? { receiptNumbers } : {}),
+      },
+    ],
+  });
+  const render = (employees: BatchPdfEmployee[]) =>
+    renderBatchPdf({ batchId: BATCH_ID, cutoff: CUTOFF, generatedAt: GENERATED_AT, generatedByEmail: GENERATED_BY_EMAIL, employees });
+
+  it("shows a 'Receipt numbers' column with the request's numbers, a consecutive run compressed", async () => {
+    const text = await extractPdfText(await render([numbersEmployee(["MC26/014", "MC26/015", "MC26/016", "MC26/020"])]));
+    expect(text).toContain("RECEIPT NUMBERS");
+    expect(text).toContain("MC26/014–016");
+    expect(text).toContain("MC26/020");
+    expect(text).not.toContain("MC26/015"); // inside the run, not spelled out
+  });
+
+  it("a request with no numbers shows a dash, and the other columns are all still there", async () => {
+    const text = await extractPdfText(await render([numbersEmployee([])]));
+    expect(text).toContain("RECEIPT NUMBERS");
+    expect(text).toContain("req-mc-1");
+    expect(text).toContain("10,00 CHF");
+    expect(text).not.toContain("MC26/");
+  });
+
+  it("falls back to the lines' own receiptNumber when the request carries no list", async () => {
+    const employee: BatchPdfEmployee = {
+      owner: { userId: "u-mc", email: "mc@welld.ch", name: null },
+      requests: [
+        {
+          id: "req-fallback",
+          lines: [
+            line({ id: "f1", entity: "welld_ch", currency: "CHF", receiptNumber: "MC26/031" }),
+            line({ id: "f2", entity: "welld_ch", currency: "CHF", receiptNumber: "MC26/032" }),
+            line({ id: "f3", entity: "welld_ch", currency: "CHF", receiptNumber: "MC26/033" }),
+            line({ id: "f4", entity: "welld_ch", currency: "CHF", receiptNumber: null }),
+          ],
+        },
+      ],
+    };
+    expect(await extractPdfText(await render([employee]))).toContain("MC26/031–033");
+  });
+
+  it("the same input renders identical bytes twice, whatever order the numbers were listed in", async () => {
+    const forward = await render([numbersEmployee(["MC26/014", "MC26/015", "MC26/016", "MC26/020"])]);
+    const again = await render([numbersEmployee(["MC26/014", "MC26/015", "MC26/016", "MC26/020"])]);
+    const shuffled = await render([numbersEmployee(["MC26/020", "MC26/016", "MC26/014", "MC26/015"])]);
+    expect(forward.equals(again)).toBe(true);
+    expect(forward.equals(shuffled)).toBe(true);
+  });
+
+  it("many separate numbers wrap inside their cell and the document still renders, with every number present", async () => {
+    const many = Array.from({ length: 40 }, (_, i) => `MC26/${String(i * 2 + 1).padStart(3, "0")}`); // 001, 003, 005 …: no run
+    const text = await extractPdfText(await render([numbersEmployee(many)]));
+    for (const n of [many[0]!, many[17]!, many[39]!]) expect(text).toContain(n);
+  });
+
+  it("an old request (numbered before, unnumbered after) renders the same document as one with no numbers at all", async () => {
+    const a = await render([numbersEmployee(undefined)]);
+    const b = await render([numbersEmployee([])]);
+    expect(a.equals(b)).toBe(true);
+  });
+});
+
+describe("toBatchPdfEmployees — what the compile and the regeneration hand the renderer", () => {
+  it("carries each request's receipt numbers, ordered, skipping lines with none", async () => {
+    const employees = toBatchPdfEmployees([
+      {
+        id: "req-1",
+        ownerUserId: "u-mc",
+        ownerEmail: "mc@welld.ch",
+        ownerName: "Matteo Codogno",
+        status: "approved",
+        decidedAt: new Date("2026-07-10T08:00:00Z"),
+        lines: [
+          line({ id: "a", entity: "welld_ch", currency: "CHF", receiptNumber: "MC26/016" }),
+          line({ id: "b", entity: "welld_ch", currency: "CHF", receiptNumber: "MC26/014" }),
+          line({ id: "c", entity: "welld_ch", currency: "CHF", receiptNumber: "MC26/015" }),
+          line({ id: "d", entity: "welld_ch", currency: "CHF", receiptNumber: null }),
+        ],
+      },
+    ]);
+    expect(employees[0]!.requests[0]!.receiptNumbers).toEqual(["MC26/014", "MC26/015", "MC26/016"]);
+    const text = await extractPdfText(
+      await renderBatchPdf({ batchId: BATCH_ID, cutoff: CUTOFF, generatedAt: GENERATED_AT, generatedByEmail: GENERATED_BY_EMAIL, employees }),
+    );
+    expect(text).toContain("MC26/014–016");
   });
 });
