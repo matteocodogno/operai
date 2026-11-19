@@ -85,6 +85,7 @@ describe("parseServiceClients", () => {
       "projects.purchase-orders.read",
       "letterhead:render",
       "legal-entities:read",
+      "accounting.reference.read",
     ]);
   });
 
@@ -120,6 +121,37 @@ describe("parseServiceClients", () => {
     expect(result.clients.get("letterhead-api")?.scopes).not.toContain("letterhead:render");
     expect(result.clients.get("crm-api")?.scopes).toContain("legal-entities:read");
     expect(result.clients.get("crm-api")?.scopes).toContain("letterhead:render");
+  });
+
+  test("a SERVICE_CLIENTS entry with accounting.reference.read parses, alone or beside refund-api's notice scopes (specs/20261119-accounting AC-3.8)", () => {
+    const ok = parseServiceClients(
+      raw({
+        "refund-api": { secret: SECRET_A, scope: "notifications.push emails.send accounting.reference.read" },
+        "reader-svc": { secret: SECRET_B, scope: "accounting.reference.read" },
+      }),
+    );
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.clients.get("refund-api")?.scopes).toEqual(["notifications.push", "emails.send", "accounting.reference.read"]);
+    expect(ok.clients.get("reader-svc")?.scopes).toEqual(["accounting.reference.read"]);
+    expect(authenticateServiceClient(ok.clients, "refund-api", SECRET_A)?.scopes).toContain("accounting.reference.read");
+  });
+
+  test("accounting.reference.read near misses still refuse to start, naming the client (specs/20261119-accounting AC-3.8)", () => {
+    for (const scope of [
+      "accounting.reference.write",
+      "accounting.reference",
+      "accounting.read",
+      "accounting:reference.read",
+      "accounting.reference:read",
+      "accounting.references.read",
+      "ACCOUNTING.REFERENCE.READ",
+      "accounting.reference.read accounting.reference.manage",
+    ]) {
+      const bad = parseServiceClients(raw({ "refund-api": { secret: SECRET_A, scope } }));
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) expect(bad.errors.join("\n")).toContain("refund-api");
+    }
   });
 
   test("a client holding letterhead:render parses and authenticates with it, alone or beside other scopes (specs/20261116-letterhead-service AC-3.1, AC-9.3)", () => {

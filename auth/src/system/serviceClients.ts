@@ -64,6 +64,11 @@ import { createHash, timingSafeEqual } from "node:crypto";
  *   (crm-api first); the letterhead service verifies it.
  * - `legal-entities:read`: read the group's legal entities through auth's `GET /system/legal-entities[/{entity}]`
  *   (specs/20261117-legal-entities, AC-3.2; auth verifies it itself). Held by crm-api and letterhead-api.
+ * - `accounting.reference.read`: read an entity's ledger accounts, VAT codes (with their active state) and the
+ *   monthly exchange rates in effect through accounting-api's `GET /system/v1/*`
+ *   (specs/20261119-accounting, AC-3.8; ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…).
+ *   accounting-api verifies it, and also checks the `sub` against its own allowlist `SYSTEM_READERS`. Only
+ *   `refund-api` holds it. It never allows a write: a consumer that must write to Accounting is a new scope.
  */
 export const KNOWN_SERVICE_SCOPES = [
   "notifications.push",
@@ -80,6 +85,7 @@ export const KNOWN_SERVICE_SCOPES = [
   "projects.purchase-orders.read",
   "letterhead:render",
   "legal-entities:read",
+  "accounting.reference.read",
 ] as const;
 
 /**
