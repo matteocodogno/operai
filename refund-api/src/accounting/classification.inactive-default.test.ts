@@ -120,7 +120,7 @@ async function callExport(path: string) {
   return { status: res.status, body: (res.headers.get("content-type") ?? "").includes("json") && text ? (JSON.parse(text) as Record<string, any>) : null };
 }
 const exportSummary = (batchId: string) => callExport(`/batches/${batchId}/accounting-export`);
-const exportCsv = (batchId: string) => callExport(`/batches/${batchId}/accounting-export/csv`);
+const exportFile = (batchId: string) => callExport(`/batches/${batchId}/accounting-export/file`);
 
 /** A legacy approved request in a compiled batch: lines with no number and no classification (what the release backfills). */
 async function legacyBatch(types: ("travel_train" | "office_material")[]) {
@@ -383,7 +383,7 @@ describe("the release and the export agree (AC-7.2, AC-7.4)", () => {
         missing: ["account"],
       },
     ]);
-    expect((await exportCsv(batch.batchId)).status).toBe(409);
+    expect((await exportFile(batch.batchId)).status).toBe(409);
 
     // Reactivating the default does NOT classify an approved line: only accounting can (AC-3.6).
     fake.setAccountActive("5901", true);
@@ -393,7 +393,7 @@ describe("the release and the export agree (AC-7.2, AC-7.4)", () => {
     // Accounting classifies it (`request:reclassify`): the export opens, with the stored account.
     expect((await put(batch.requestId, batch.lineIds[0]!, { accountNumber: "5901" })).status).toBe(200);
     expect((await exportSummary(batch.batchId)).body).toMatchObject({ exportable: true, rowCount: 2 });
-    expect((await exportCsv(batch.batchId)).status).toBe(200);
+    expect((await exportFile(batch.batchId)).status).toBe(200);
   });
 
   it("an approved line keeps a classification whose entries were deactivated afterwards, and the export includes it (AC-5.3)", async () => {

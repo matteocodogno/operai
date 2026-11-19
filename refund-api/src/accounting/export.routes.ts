@@ -8,7 +8,9 @@
  * accounting-api-...).
  *
  *   GET /batches/{id}/accounting-export        the summary: rows, what is left out, blockers
- *   GET /batches/{id}/accounting-export/csv    the file, or 409 `accounting_export_blocked`
+ *   GET /batches/{id}/accounting-export/file   the XLSX workbook, or 409 `accounting_export_blocked`
+ *
+ * Since 2026-11-19 (T62, SO-12) the file route replaces `…/csv`, which answers 404: it is named for what it gives, not its format.
  *
  * Who may call: `request:review` AND a review scope that covers `welld_ch`
  * (global, or entity `welld_ch`). Batch reads stay unscoped (D1 of
@@ -18,11 +20,10 @@
  * batch is looked up, so it reveals nothing about which batches exist.
  *
  * Answers
- * - 200 summary / 200 `text/csv` (UTF-8 with BOM, `Content-Disposition`,
- *   `X-Export-Row-Count`, `X-Export-Excluded-Line-Count`; CORS exposes all three,
- *   `src/index.ts`, G9).
+ * - 200 summary / 200 the workbook (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition`
+ *   with an `.xlsx` filename, `X-Export-Row-Count`, `X-Export-Excluded-Line-Count`; CORS exposes all three, `src/index.ts`, G9).
  * - 409 `batch_discarded` on both routes (AC-6.9).
- * - 409 `accounting_export_blocked` on the CSV route only: its body IS the
+ * - 409 `accounting_export_blocked` on the file route only: its body IS the
  *   summary (G10), so the page can show the blockers from the refusal alone. It is
  *   also the answer when Accounting cannot be read while a line waits for its
  *   rate (`blockers.accountingUnavailable`, AC-6.6, D14): not a 503, and never a
@@ -47,7 +48,7 @@ import { GLOBAL_ENTITY_SCOPE } from "../authz/conditions";
 import { canOpenAccountingRates } from "../authz/accountingViewer";
 import { scopeForReviewAction } from "../review/review.service";
 import { accountingPort, type AccountingPort } from "./accountingClient";
-import { exportBatchCsv, prepareExport } from "./export.repo";
+import { exportBatchFile, prepareExport } from "./export.repo";
 import {
   ExportBatchParamSchema,
   ExportBlockedSchema,
@@ -106,13 +107,14 @@ const summaryRoute = createRoute({
   },
 });
 
-const csvRoute = createRoute({
+const fileRoute = createRoute({
   method: "get",
-  path: "/batches/{id}/accounting-export/csv",
+  path: "/batches/{id}/accounting-export/file",
   tags: ["Accounting"],
-  summary: "Download the accounting export of a batch as CSV",
+  summary: "Download the accounting export of a batch as an Excel workbook",
   description:
-    "One row per approved, not rejected WellD CH line, 16 columns (AC-6.2), UTF-8 with a byte-order mark. The same " +
+    "An XLSX workbook, one sheet `Sheet 1`: a header `Date | Description | Debit | Credit | Amount | Currency | Tax | Note` " +
+    "and one row per approved, not rejected WellD CH line (AC-6.1, AC-6.2). The same " +
     "batch exported twice with no change in between gives identical bytes (AC-6.8). 409 `accounting_export_blocked` " +
     "(its body is the summary) when anything blocks: there is never a partial file. The download is logged " +
     "(actor, batch, rows, SHA-256, format version) BEFORE the file is sent; if the log cannot be written the answer " +
@@ -123,9 +125,9 @@ const csvRoute = createRoute({
   request: { params: ExportBatchParamSchema },
   responses: {
     200: {
-      content: { "text/csv": { schema: z.string() } },
+      content: { [CONTENT_TYPE]: { schema: z.string().openapi({ format: "binary" }) } },
       description:
-        "The file. Headers: `Content-Disposition` (attachment, `refund-accounting-<cutoff>-<batchId>.csv`), " +
+        "The file. Headers: `Content-Disposition` (attachment, `refund-accounting-<cutoff>-<batchId>.xlsx`), " +
         "`X-Export-Row-Count`, `X-Export-Excluded-Line-Count`.",
     },
     403: problemResponse("No `request:review`, or `accounting_export_out_of_scope`"),
@@ -167,7 +169,7 @@ export function createExportRouter(deps: ExportRouterDeps = {}) {
     },
   });
 
-  for (const path of ["/batches/:id/accounting-export", "/batches/:id/accounting-export/csv"]) {
+  for (const path of ["/batches/:id/accounting-export", "/batches/:id/accounting-export/file"]) {
     router.use(path, jwtMiddleware);
     router.use(path, authzMiddleware);
   }
@@ -213,14 +215,14 @@ export function createExportRouter(deps: ExportRouterDeps = {}) {
     return c.json({ ...result.summary, viewer: viewerOf(c) }, 200);
   });
 
-  router.openapi(csvRoute, async (c) => {
+  router.openapi(fileRoute, async (c) => {
     const { id } = c.req.valid("param");
     const denied = refusal(c.get("authz"), c.req.path);
     if (denied) return c.json(denied, 403);
 
-    let result: Awaited<ReturnType<typeof exportBatchCsv>>;
+    let result: Awaited<ReturnType<typeof exportBatchFile>>;
     try {
-      result = await exportBatchCsv(id, { userId: c.get("userId"), email: c.get("email") }, accounting());
+      result = await exportBatchFile(id, { userId: c.get("userId"), email: c.get("email") }, accounting());
     } catch (error) {
       // The transaction failed (the log row, a rate copy, the commit): nothing was copied, logged or sent. Only the error
       // NAME is logged: no body, no line data, no database message.
@@ -248,11 +250,11 @@ export function createExportRouter(deps: ExportRouterDeps = {}) {
       return c.json(blocked, 409);
     }
 
-    const { csv, summary } = result;
-    return c.body(csv.bytes as unknown as string, 200, {
+    const { file, summary } = result;
+    return c.body(file.bytes as unknown as string, 200, {
       "Content-Type": CONTENT_TYPE,
       "Content-Disposition": `attachment; filename="${exportFilename(result.batch.cutoff, summary.batchId)}"`,
-      "X-Export-Row-Count": String(csv.rowCount),
+      "X-Export-Row-Count": String(file.rowCount),
       "X-Export-Excluded-Line-Count": String(summary.excludedLineCount),
       // Personal and financial data: never kept by a cache or a proxy.
       "Cache-Control": "private, no-store",

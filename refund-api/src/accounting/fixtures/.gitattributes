@@ -1,2 +1,2 @@
-# The golden CSV is compared byte for byte (BOM, CRLF): never let git normalise its line endings.
-*.csv -text
+# The golden workbook is binary and compared byte for byte: never let git normalise it.
+*.xlsx binary

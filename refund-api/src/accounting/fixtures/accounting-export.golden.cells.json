@@ -1,0 +1,28 @@
+{
+  "_comment": "Every cell the golden workbook (accounting-export.golden.xlsx) must hold, written by hand from the plan and the spec (SO-8, SO-9, SO-11; AC-6.2, AC-6.13 to AC-6.17), serials computed with Python's datetime, NOT by the code under test. A text cell is a string, a number cell is {\"n\": \"<exact text>\"}, an empty cell is null. date is the shown value of the Date cell (format yyyy\\-mm\\-dd;@). The sheet's rows are the header and then these rows, in this order.",
+  "sheetName": "Sheet 1",
+  "header": [
+    "Date",
+    "Description",
+    "Debit",
+    "Credit",
+    "Amount",
+    "Currency",
+    "Tax",
+    "Note"
+  ],
+  "dateFormat": "yyyy\\-mm\\-dd;@",
+  "rows": [
+    {"date": "2027-01-05", "cells": [{"n": "46392"}, "Toner [MC27/001] Matteo Codogno", {"n": "6101"}, {"n": "5832"}, {"n": "10.00"}, "CHF", null, null]},
+    {"date": "2026-03-09", "cells": [{"n": "46090"}, "-Rimborso parcheggio [BV26/001] bruno.verdi@welld.ch", {"n": "5907"}, {"n": "5832"}, {"n": "19.99"}, "CHF", null, null]},
+    {"date": "2026-03-06", "cells": [{"n": "46087"}, "=SUM(A1) second line [MC26/005] [GBP 12.34 = CHF 13.12] Matteo Codogno", {"n": "6701"}, {"n": "5832"}, {"n": "13.12"}, "CHF", null, null]},
+    {"date": "2026-03-05", "cells": [{"n": "46086"}, "Roaming [MC26/004] [USD 50.00 = CHF 39.04] Matteo Codogno", {"n": "6102"}, {"n": "5832"}, {"n": "39.04"}, "CHF", null, null]},
+    {"date": "2026-03-04", "cells": [{"n": "46085"}, "Francobolli [MC26/003] Matteo Codogno", {"n": "6104"}, {"n": "5832"}, {"n": "0.00"}, "CHF", null, null]},
+    {"date": "2026-03-03", "cells": [{"n": "46084"}, "Taxi aeroporto [AR26/003] Anna Rossi", {"n": "2620.1"}, {"n": "5832"}, {"n": "15.00"}, "CHF", null, null]},
+    {"date": "2026-03-03", "cells": [{"n": "46084"}, "Spesa con tab e doppi spazi [AR26/004] Anna Rossi", "2620.10", {"n": "5832"}, {"n": "7.50"}, "CHF", null, null]},
+    {"date": "2026-03-03", "cells": [{"n": "46084"}, "Quaderni [MC26/002] Matteo Codogno", {"n": "6101"}, {"n": "5832"}, {"n": "20.80"}, "CHF", null, null]},
+    {"date": "2026-03-02", "cells": [{"n": "46083"}, "Cancelleria [MC26/001] [EUR 10.40 = CHF 9.62] Matteo Codogno", {"n": "6101"}, {"n": "5832"}, {"n": "9.62"}, "CHF", null, null]},
+    {"date": "2026-02-11", "cells": [{"n": "46064"}, "Visita cliente \"ACME\" & <Lugano>; 'Zurigo' [AR26/002] Anna Rossi", {"n": "5905"}, {"n": "5832"}, {"n": "84.00"}, "CHF", null, null]},
+    {"date": "2026-02-10", "cells": [{"n": "46063"}, "Treno Lugano-Zurigo [AR26/001] Anna Rossi", {"n": "5901"}, {"n": "5832"}, {"n": "45.60"}, "CHF", null, null]}
+  ]
+}

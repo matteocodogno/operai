@@ -7,6 +7,9 @@
  * answer 404 to everyone, a `settings:manage` holder included, and they are not in the OpenAPI document. What stayed in Refund
  * (the defaults, the options, the review view, the export) is still there, which tells "removed" from "refused" in this test.
  *
+ * T62 (20261118 SO-12): the accounting export's file moved from `…/accounting-export/csv` to `…/accounting-export/file` (an XLSX
+ * workbook); the old path answers 404, to everyone, with no token too.
+ *
  * The REAL app (`src/index.ts`) is under test, so it runs in a SUBPROCESS: importing it here would load every router of the
  * service into THIS process's module cache bound to this file's auth, and break the test files that import those routers after it
  * (testAuth.ts, "no shared router specifier"). The subprocess verifies real RS256 tokens against a JWKS served from here and
@@ -49,6 +52,8 @@ const VAT = "/accounting/vat-codes";
 const RATES = "/exchange-rates";
 /** The designation of the foreign-currency VAT code (20261118 AC-2.5 to AC-2.7), retired 2026-11-19: no VAT code is ever pre-set. */
 const DESIGNATION = "/accounting/foreign-currency-vat-code";
+/** The CSV of the accounting export, replaced by `…/file` (an XLSX) on 2026-11-19. */
+const CSV_EXPORT = "/batches/b-1/accounting-export/csv";
 
 /** Every route of 20261118's catalog and exchange-rate surface, and plausible sub-paths of each, in every method. */
 const REMOVED: Probe[] = [
@@ -72,6 +77,7 @@ const REMOVED: Probe[] = [
     { method, path: DESIGNATION },
     { method, path: `${DESIGNATION}/history` },
   ]),
+  ...["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => ({ method, path: CSV_EXPORT })),
   { method: "GET", path: `${LEDGER}?includeInactive=true` },
   { method: "GET", path: `${RATES}?month=2026-03` },
 ];
@@ -81,6 +87,8 @@ const KEPT: Probe[] = [
   { method: "GET", path: "/accounting/expense-type-defaults" },
   { method: "GET", path: "/accounting/options" },
   { method: "PUT", path: "/accounting/expense-type-defaults/postal" },
+  // The export's file route exists and is protected (the settings admin lacks `request:review`: 403, not 404).
+  { method: "GET", path: "/batches/b-1/accounting-export/file" },
 ];
 
 let dir = "";
@@ -206,5 +214,16 @@ describe("the catalog and exchange-rate routes of 20261118 are gone (AC-3.7, AC-
     expect(answers.paths).toContain("/accounting/expense-type-defaults/{type}");
     expect(answers.paths).toContain("/accounting/options");
     expect(answers.paths).toContain("/batches/{id}/accounting-export");
+  });
+
+  it("(T62, SO-12) the export's CSV route is gone and its file route is there, in the routes and in the OpenAPI document", () => {
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
+      const key = keyOf({ method, path: CSV_EXPORT });
+      expect([key, answers.removed[key]?.status, answers.unauthenticated[key]?.status]).toEqual([key, 404, 404]);
+    }
+    expect(answers.paths).toContain("/batches/{id}/accounting-export/file");
+    expect(answers.paths).not.toContain("/batches/{id}/accounting-export/csv");
+    // The file route answers a settings admin with a refusal (no review capability), not with "no such route".
+    expect(answers.kept["GET /batches/b-1/accounting-export/file"]?.status).toBe(403);
   });
 });

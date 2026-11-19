@@ -28,6 +28,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from "bu
 import type { ResolveResponse } from "../authz/resolveClient";
 import { truncateRefundTables } from "../test-support/dbCleanup";
 import { setupTestAuth } from "../test-support/testAuth";
+import { readWorkbook } from "../test-support/xlsxReader";
 
 process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] = "http://localhost:3001/auth/jwks";
@@ -199,6 +200,8 @@ interface Out {
   status: number;
   body: any;
   headers: Headers;
+  /** The raw body: the export file is a workbook, not text. */
+  bytes?: Uint8Array;
   error?: unknown;
 }
 
@@ -213,14 +216,15 @@ async function call(router: Router, method: string, path: string, body?: unknown
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
-  const text = await res.text();
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const text = new TextDecoder().decode(bytes);
   let parsed: any = text;
   try {
     parsed = text ? JSON.parse(text) : {};
   } catch {
-    /* a CSV */
+    /* a workbook, or no body */
   }
-  return { status: res.status, body: parsed, headers: res.headers };
+  return { status: res.status, body: parsed, headers: res.headers, bytes };
 }
 
 const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
@@ -553,14 +557,15 @@ const rows: Row[] = [
     },
   },
   {
-    label: "export CSV, a line waiting for its rate (AC-6.6, AC-5.6)",
+    label: "export file, a line waiting for its rate (AC-6.6, AC-5.6)",
     operation: "export",
     readsRates: true,
     arrange: () => seedExportBatch(),
-    act: (b) => call(exportRouter, "GET", `/batches/${b.id}/accounting-export/csv`),
+    act: (b) => call(exportRouter, "GET", `/batches/${b.id}/accounting-export/file`),
     async healthy(b, out) {
       expect(out.status).toBe(200);
-      expect(out.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+      expect(out.headers.get("content-type")).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      expect(readWorkbook(out.bytes!).rows).toHaveLength(3); // the header and the two lines of the batch
       expect(await db.refundBatchExport.count()).toBe(1);
       expect((await lineOf(b.pendingLineId)).fxRateMicros).toBe(924_600);
       expect(await db.refundAuditEntry.count({ where: { action: "line_rate_copied" } })).toBe(1);
@@ -806,26 +811,26 @@ describe("Accounting down outranks a missing default (AC-6.3, AC-6.1)", () => {
 describe("what is built from copies, or is not accounting at all, does not depend on Accounting (AC-5.4, AC-6.6)", () => {
   it("an export whose lines all hold their copies is the same file under every failure kind, with no call", async () => {
     const b = await seedExportBatch({ pendingLine: false });
-    const files: string[] = [];
+    const files: Uint8Array[] = [];
     for (const kind of ACCOUNTING_FAILURE_KINDS) {
       peer.mode = kind;
       const summary = await call(exportRouter, "GET", `/batches/${b.id}/accounting-export`);
       expect(summary.status).toBe(200);
       expect(summary.body.exportable).toBe(true);
       expect(summary.body.blockers.accountingUnavailable).toBe(false);
-      const csv = await call(exportRouter, "GET", `/batches/${b.id}/accounting-export/csv`);
+      const csv = await call(exportRouter, "GET", `/batches/${b.id}/accounting-export/file`);
       expect(csv.status).toBe(200);
-      files.push(csv.body as string);
+      files.push(csv.bytes!);
     }
     expect(peer.calls).toEqual([]);
-    expect(new Set(files).size).toBe(1); // byte for byte: AC-5.4 "two exports of the same batch are identical"
+    expect(new Set(files.map((f) => Buffer.from(f).toString("base64"))).size).toBe(1); // byte for byte: AC-5.4 "two exports of the same batch are identical"
     expect(await db.refundBatchExport.count()).toBe(ACCOUNTING_FAILURE_KINDS.length);
   });
 
   it("an export that waits for a rate is refused for the cause, and paying and discarding that batch are not affected", async () => {
     peer.mode = "http_status";
     const b = await seedExportBatch();
-    const csv = await call(exportRouter, "GET", `/batches/${b.id}/accounting-export/csv`);
+    const csv = await call(exportRouter, "GET", `/batches/${b.id}/accounting-export/file`);
     expect(csv.status).toBe(409);
     expect(csv.body.blockers.accountingUnavailable).toBe(true);
     expect(csv.body.blockers.missingRates).toEqual([]);
@@ -935,7 +940,7 @@ describe("AC-6.10: every refusal of the story names the cause and carries no add
 
     // 409: the blocked export, with a rate that is not published (April has none in the peer)
     const b = await seedExportBatch({ month: "2026-04" });
-    const blocked = await call(exportRouter, "GET", `/batches/${b.id}/accounting-export/csv`);
+    const blocked = await call(exportRouter, "GET", `/batches/${b.id}/accounting-export/file`);
     expect(blocked.status).toBe(409);
     expect(blocked.body.blockers.missingRates).toHaveLength(1);
     refusals.push(blocked);

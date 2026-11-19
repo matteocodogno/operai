@@ -177,6 +177,8 @@ interface Out {
   status: number;
   body: any;
   headers: Headers;
+  /** The raw body: the export file is a workbook, not text. */
+  bytes: Uint8Array;
 }
 async function call(router: Router, method: string, path: string, body?: unknown): Promise<Out> {
   __resetAuthzCacheForTests();
@@ -187,14 +189,15 @@ async function call(router: Router, method: string, path: string, body?: unknown
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
-  const text = await res.text();
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const text = new TextDecoder().decode(bytes);
   let parsed: any = text;
   try {
     parsed = text ? JSON.parse(text) : {};
   } catch {
-    /* a CSV */
+    /* a workbook, or no body */
   }
-  return { status: res.status, body: parsed, headers: res.headers };
+  return { status: res.status, body: parsed, headers: res.headers, bytes };
 }
 
 const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
@@ -450,21 +453,21 @@ describe("each listed operation reads Accounting afresh (AC-4.8, D2)", () => {
     const blocked = await measured(() => call(exportRouter, "GET", summaryPath));
     expect(blocked.value.body.blockers.missingRates).toEqual([{ currency: "EUR", month: "2026-04", reason: "not_published" }]);
     expect([blocked.reference, blocked.rates]).toEqual([0, 1]); // the export asks for rates only, and only for what waits for one
-    expect((await measured(() => call(exportRouter, "GET", `${summaryPath}/csv`))).value.status).toBe(409);
+    expect((await measured(() => call(exportRouter, "GET", `${summaryPath}/file`))).value.status).toBe(409);
     expect((await lineOf(line.id)).fxRateMicros).toBeNull();
 
     accounting.rates.set("EUR:2026-04", { rateMicros: 910_000, origin: "fetched" }); // published at T
-    const first = await measured(() => call(exportRouter, "GET", `${summaryPath}/csv`));
+    const first = await measured(() => call(exportRouter, "GET", `${summaryPath}/file`));
     expect(first.value.status).toBe(200);
     expect([first.reference, first.rates]).toEqual([0, 1]);
     expect((await lineOf(line.id)).fxRateMicros).toBe(910_000);
 
     // From now on the line holds its copy: corrected in Accounting at T', the file does not change, and nothing is read.
     accounting.rates.set("EUR:2026-04", { rateMicros: 950_000, origin: "corrected" });
-    const second = await measured(() => call(exportRouter, "GET", `${summaryPath}/csv`));
+    const second = await measured(() => call(exportRouter, "GET", `${summaryPath}/file`));
     expect(second.value.status).toBe(200);
     expect([second.reference, second.rates]).toEqual([0, 0]);
-    expect(second.value.body).toBe(first.value.body);
+    expect(Buffer.from(second.value.bytes).equals(Buffer.from(first.value.bytes))).toBe(true);
     expect((await measured(() => call(exportRouter, "GET", summaryPath))).rates).toBe(0);
   });
 

@@ -6,8 +6,8 @@
  * accounting-api-...).
  *
  * `prepareExport` is the ONE computation behind both routes: the summary (`GET …/accounting-export`) and the file
- * (`GET …/accounting-export/csv`) call it, so what the page is told and what the file contains cannot disagree. It writes
- * nothing; only `exportBatchCsv` does, and only the CSV route calls it.
+ * (`GET …/accounting-export/file`, an XLSX since 2026-11-19) call it, so what the page is told and what the file contains
+ * cannot disagree. It writes nothing; only `exportBatchFile` does, and only the file route calls it.
  *
  * Where the rows come from
  * - The batch's `RefundBatchItem`s (the append-only membership), never the live `RefundRequest.batchId`, so a batch is read the
@@ -33,7 +33,7 @@
  * Accounting, once, for the rates in effect of the distinct (currency, expense month) pairs of those rows; with none pending it
  * asks nothing. The answer, per pair, is the rate in effect, or why there is none (G7, `reason`); `fetchAttempted` is true when
  * Accounting says it asked its official source for any of them (G10). The file is produced only when every pending row has a
- * rate; the CSV route then copies them inside its transaction (`rateCopy.repo.ts`).
+ * rate; the file route then copies them inside its transaction (`rateCopy.repo.ts`).
  *
  * Blockers (all-or-nothing, ADR decision 4): Accounting cannot be read while a row waits for its rate (`accountingUnavailable`,
  * AC-6.6: NOT a missing rate, `missingRates` is then empty); a (currency, month) with no rate in effect, with its reason
@@ -52,9 +52,9 @@ import {
 } from "./accountingClient";
 import type { RatePairWire, WireRateCurrency } from "./accountingWire";
 import { classifiableInput, monthOf, resolveClassification } from "./classification";
-import { compareCodePoints, employeeCell, buildAccountingCsv, type AccountingCsv, type AccountingExportLine } from "./export";
+import { buildAccountingFile, employeeCell, type AccountingExportLine, type AccountingFile } from "./export";
 import type { ExportBlockers, ExportSummary } from "./export.schemas";
-import { FORMAT_VERSION } from "./exportFormat";
+import { compareCodePoints, FORMAT_VERSION } from "./exportFormat";
 import { copyPendingRates, type PendingRateCopy } from "./rateCopy.repo";
 import { UNVERIFIED_SNAPSHOT } from "./referenceSnapshot";
 
@@ -307,18 +307,12 @@ export function evaluateExport(source: ExportSource, rates: ExportRates, options
         receiptYear: line.receiptYear,
         receiptSeq: line.receiptSeq,
         date,
-        type: line.type,
         motivo: line.motivo,
-        km: line.km,
         currency: line.currency,
         // The same figure the accounting view shows (`amountCents`); an approved line always has its approved total.
         approvedCents: line.approvedTotalCents ?? line.requestedAmountCents,
         rateMicros,
         accountNumber: classification.bookable.account.number,
-        accountName: classification.bookable.account.name,
-        vatCode: classification.bookable.vatCode?.code ?? null,
-        vatRateBasisPoints: classification.bookable.vatCode?.rateBasisPoints ?? null,
-        batchId: source.batch.id,
       });
     }
   }
@@ -408,7 +402,7 @@ export type ExportOutcome =
   | { readonly kind: "blocked"; readonly summary: ExportEvaluation }
   | {
       readonly kind: "exported";
-      readonly csv: AccountingCsv;
+      readonly file: AccountingFile;
       readonly sha256: string;
       readonly summary: ExportEvaluation;
       readonly batch: { readonly id: string; readonly cutoff: Date };
@@ -431,13 +425,13 @@ class ExportRefused extends Error {
  *    (`copyPendingRates`);
  * 2. re-read the batch and evaluate it again against the same answers: the file is built from what the lines hold NOW, so a
  *    concurrent export's copy is the one both files carry, and a batch discarded or changed in between is refused here;
- * 3. build the CSV, write the export-log row;
+ * 3. build the workbook, write the export-log row;
  * 4. commit. The caller sends the bytes only after this returns.
  *
  * A refusal at step 2, a failed log write or a failed commit leaves the lines exactly as they were: a refused export copies
  * nothing to any line (AC-5.6), and no file leaves without its log row (AC-6.10).
  */
-export async function exportBatchCsv(
+export async function exportBatchFile(
   batchId: string,
   actor: ExportActor,
   accounting: AccountingPort = accountingPort(),
@@ -456,14 +450,14 @@ export async function exportBatchCsv(
       const again = evaluateExport(source, first.rates, { copiesOnly: true });
       if (!again.summary.exportable) throw new ExportRefused({ kind: "blocked", summary: again.summary });
 
-      const csv = buildAccountingCsv(again.lines);
-      const sha256 = sha256Hex(csv.bytes);
+      const file = buildAccountingFile(again.lines);
+      const sha256 = sha256Hex(file.bytes);
       await recordExport(
         {
           batchId,
           actorUserId: actor.userId,
           actorEmail: actor.email,
-          rowCount: csv.rowCount,
+          rowCount: file.rowCount,
           excludedLineCount: again.summary.excludedLineCount,
           contentSha256: sha256,
         },
@@ -471,7 +465,7 @@ export async function exportBatchCsv(
       );
       return {
         kind: "exported",
-        csv,
+        file,
         sha256,
         summary: again.summary,
         batch: { id: source.batch.id, cutoff: source.batch.cutoff },

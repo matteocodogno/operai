@@ -1,37 +1,33 @@
 /**
- * Unit tests of the pure accounting CSV (T17, specs/20261118-refund-accounting-
- * export; AC-6.2, AC-6.3, AC-6.4, AC-6.8, AC-6.12, ADR 20261118-the-accounting-
- * export-is-generated-on-request-...).
+ * Unit tests of the pure accounting workbook (T62, specs/20261119-accounting; 20261118: AC-6.1, AC-6.2, AC-6.3, AC-6.7, AC-6.8,
+ * AC-6.12 to AC-6.17, SO-6 to SO-11; ADR 20261118-the-accounting-export-is-generated-on-request-...).
  *
- * The golden file `fixtures/accounting-export.golden.csv` was written by hand
- * from the figures of `fixtures/accounting-export.input.json` (not by the code
- * under test) and is compared BYTE FOR BYTE: BOM, CRLF, `;`, `.`, quoting, the
- * formula guard and the order. A dialect change (plan D3, spec open question 3)
- * is therefore one deliberate diff of that file plus a `FORMAT_VERSION` bump.
+ * `fixtures/accounting-export.golden.xlsx` is compared BYTE FOR BYTE. Its expected CELLS are listed, by hand, in
+ * `fixtures/accounting-export.golden.cells.json` (readable in review; the serials were computed with Python's `datetime`, not by
+ * the code under test), and the file is read back with `test-support/xlsxReader.ts`, which shares no code with the writer. A
+ * dialect change (the Description pattern, a style, the order) is one deliberate diff of both fixtures plus a `FORMAT_VERSION` bump.
+ * The data is synthetic: no real person, no real amount.
  */
 
 import { describe, expect, it } from "bun:test";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { chfCents, vatCents } from "./amounts";
+import { cellValues, readWorkbook, readZip, type ReadWorkbook } from "../test-support/xlsxReader";
+import { chfCents } from "./amounts";
 import vectors from "./amounts-vectors.json";
-import {
-  buildAccountingCsv,
-  compareCodePoints,
-  formatBasisPoints,
-  formatCents,
-  formatRateMicros,
-  guardFormula,
-  quoteField,
-  type AccountingExportLine,
-} from "./export";
-import { COLUMNS, CONTENT_TYPE, exportFilename, FORMAT_VERSION } from "./exportFormat";
+import { buildAccountingFile, compareExportLines, employeeCell, type AccountingExportLine } from "./export";
+import { formatCents, HEADERS } from "./exportFormat";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
-const golden = new Uint8Array(readFileSync(join(FIXTURES, "accounting-export.golden.csv")));
-const input = JSON.parse(readFileSync(join(FIXTURES, "accounting-export.input.json"), "utf8")) as {
-  lines: AccountingExportLine[];
+const golden = new Uint8Array(readFileSync(join(FIXTURES, "accounting-export.golden.xlsx")));
+const goldenCells = JSON.parse(readFileSync(join(FIXTURES, "accounting-export.golden.cells.json"), "utf8")) as {
+  sheetName: string;
+  header: string[];
+  dateFormat: string;
+  rows: { date: string; cells: (string | { n: string } | null)[] }[];
 };
+const input = JSON.parse(readFileSync(join(FIXTURES, "accounting-export.input.json"), "utf8")) as { lines: AccountingExportLine[] };
 
 const BASE: AccountingExportLine = {
   lineId: "line-1",
@@ -42,188 +38,170 @@ const BASE: AccountingExportLine = {
   receiptYear: 2026,
   receiptSeq: 1,
   date: "2026-03-02",
-  type: "office_material",
   motivo: "Cancelleria",
-  km: null,
   currency: "CHF",
   approvedCents: 2080,
   rateMicros: null,
   accountNumber: "6101",
-  accountName: "Spese materiale ufficio",
-  vatCode: "IMP81",
-  vatRateBasisPoints: 810,
-  batchId: "batch-1",
 };
 const line = (patch: Partial<AccountingExportLine> = {}): AccountingExportLine => ({ ...BASE, ...patch });
 
-/** A minimal RFC 4180 reader for `;`-separated text (BOM and trailing CRLF handled), independent of the code under test. */
-function parseCsv(text: string): string[][] {
-  const body = text.startsWith("﻿") ? text.slice(1) : text;
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let quoted = false;
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i]!;
-    if (quoted) {
-      if (ch === '"') {
-        if (body[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else quoted = false;
-      } else field += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === ";") {
-      row.push(field);
-      field = "";
-    } else if (ch === "\r" && body[i + 1] === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-      i++;
-    } else field += ch;
-  }
-  if (field !== "" || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows;
-}
-
-const col = (key: (typeof COLUMNS)[number]["key"]): number => COLUMNS.findIndex((c) => c.key === key);
-const cell = (row: string[], key: (typeof COLUMNS)[number]["key"]): string => row[col(key)]!;
-const rowOf = (rows: string[][], receipt: string): string[] => {
-  const found = rows.find((r) => r[col("receiptNumber")] === receipt);
-  if (!found) throw new Error(`no row for ${receipt}`);
-  return found;
-};
 const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
+const read = (lines: readonly AccountingExportLine[]): ReadWorkbook => readWorkbook(buildAccountingFile(lines).bytes);
+/** The data rows (header excluded) as the cells.json lists them. */
+const dataRows = (book: ReadWorkbook) => book.rows.slice(1).map(cellValues);
+const descriptions = (lines: readonly AccountingExportLine[]): string[] => dataRows(read(lines)).map((row) => row[1] as string);
 
-describe("the golden file (AC-6.2)", () => {
-  it("is byte-identical to the file written by hand: BOM, CRLF, ';', '.', quoting, guard and order", () => {
-    const csv = buildAccountingCsv(input.lines);
-    if (!bytesEqual(csv.bytes, golden)) {
-      // Show the difference as text rather than as two arrays of numbers.
-      expect(csv.text).toBe(new TextDecoder("utf-8", { ignoreBOM: true }).decode(golden));
-    }
-    expect(bytesEqual(csv.bytes, golden)).toBe(true);
-    expect(csv.rowCount).toBe(input.lines.length);
+describe("the golden workbook (AC-6.2)", () => {
+  it("is byte-identical to the file kept in the repository", () => {
+    const file = buildAccountingFile(input.lines);
+    expect(file.rowCount).toBe(input.lines.length);
+    expect(file.bytes.length).toBe(golden.length);
+    expect(bytesEqual(file.bytes, golden)).toBe(true);
   });
 
-  it("starts with the UTF-8 byte-order mark and ends every record, the last one included, with CRLF", () => {
-    expect([...golden.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
-    expect([...buildAccountingCsv(input.lines).bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
-    const text = buildAccountingCsv(input.lines).text;
-    expect(text.endsWith("\r\n")).toBe(true);
-    // Outside a quoted cell every line break is CRLF: scan with the quote state (a doubled quote toggles twice).
-    let quoted = false;
-    let bare = 0;
-    for (let i = 0; i < text.length; i++) {
-      if (text[i] === '"') quoted = !quoted;
-      else if (!quoted && text[i] === "\n" && text[i - 1] !== "\r") bare++;
-      else if (!quoted && text[i] === "\r" && text[i + 1] !== "\n") bare++;
+  it("lists exactly the cells of golden.cells.json, in order (the golden file and the builder both)", () => {
+    for (const bytes of [golden, buildAccountingFile(input.lines).bytes]) {
+      const book = readWorkbook(bytes);
+      expect(book.sheetNames).toEqual([goldenCells.sheetName]);
+      expect(cellValues(book.rows[0]!)).toEqual(goldenCells.header);
+      expect(dataRows(book)).toEqual(goldenCells.rows.map((r) => r.cells));
+      expect(book.dimension).toBe(`A1:H${goldenCells.rows.length + 1}`);
     }
-    expect(bare).toBe(0);
   });
 
-  it("has the 16 columns of AC-6.2 in order, with English headers", () => {
-    const [header] = parseCsv(buildAccountingCsv(input.lines).text);
-    expect(header).toEqual([
-      "Employee",
-      "Receipt number",
-      "Expense date",
-      "Expense type",
-      "Reason",
-      "Km",
-      "Currency",
-      "Approved total",
-      "Exchange rate",
-      "CHF amount",
-      "Account number",
-      "Account name",
-      "VAT code",
-      "VAT rate (%)",
-      "VAT amount (CHF)",
-      "Batch",
+  it("is a ZIP of STORED entries dated 1980-01-01 in a fixed order, with no docProps (no author, no timestamp)", () => {
+    const entries = readZip(golden);
+    expect(entries.map((e) => e.name)).toEqual([
+      "[Content_Types].xml",
+      "_rels/.rels",
+      "xl/workbook.xml",
+      "xl/_rels/workbook.xml.rels",
+      "xl/worksheets/sheet1.xml",
+      "xl/styles.xml",
+      "xl/sharedStrings.xml",
     ]);
-    for (const row of parseCsv(buildAccountingCsv(input.lines).text)) expect(row).toHaveLength(16);
+    for (const entry of entries) expect([entry.method, entry.dosTime, entry.dosDate, entry.flags]).toEqual([0, 0, 0x21, 0x800]);
+    expect(entries.some((e) => e.name.startsWith("docProps"))).toBe(false);
+    // Nothing in any part names a person, a program or a moment.
+    for (const text of Object.values(readWorkbook(golden).parts)) {
+      expect(text).not.toMatch(/creator|lastModifiedBy|dcterms|<Application|Microsoft|20\d\d-\d\d-\d\dT/i);
+    }
   });
 
-  it("sorts the golden lines: employee by code point, then receipt year and sequence", () => {
-    const rows = parseCsv(buildAccountingCsv(input.lines).text).slice(1);
-    expect(rows.map((r) => r[col("receiptNumber")])).toEqual([
-      "AR26/001",
-      "AR26/002",
-      "MC26/001",
-      "MC26/002",
-      "MC26/003",
-      "MC26/004",
-      "MC26/005",
+  it("has the shape of the accountant's template: sheet `Sheet 1`, the 8 headers, a real date, numbers, text, two empty columns", () => {
+    const book = readWorkbook(golden);
+    expect(book.sheetNames).toEqual(["Sheet 1"]);
+    expect(cellValues(book.rows[0]!)).toEqual([...HEADERS]);
+    expect([...HEADERS]).toEqual(["Date", "Description", "Debit", "Credit", "Amount", "Currency", "Tax", "Note"]);
+    for (const row of book.rows.slice(1)) {
+      expect(row).toHaveLength(8);
+      const [date, description, debit, credit, amount, currency, tax, note] = row;
+      expect(date!.type).toBe("number");
+      expect(date!.style.formatCode).toBe("yyyy\\-mm\\-dd;@"); // shown as yyyy-mm-dd
+      expect(description!.type).toBe("string");
+      expect(description!.style.numFmtId).toBe(49);
+      expect(["number", "string"]).toContain(debit!.type); // number for a plain account, text for 2620.10
+      expect([credit!.type, credit!.style.numFmtId]).toEqual(["number", 0]);
+      expect([amount!.type, amount!.style.formatCode]).toEqual(["number", "0.00"]);
+      expect([currency!.type, currency!.style.numFmtId]).toEqual(["string", 49]);
+      expect([tax!.type, note!.type]).toEqual(["empty", "empty"]);
+    }
+  });
+
+  it("every text cell's style carries quotePrefix, a number's and a date's never does (AC-6.15)", () => {
+    for (const row of readWorkbook(golden).rows) {
+      for (const cell of row) {
+        if (cell.type === "string") expect(cell.style.quotePrefix).toBe(true);
+        if (cell.type === "number") expect(cell.style.quotePrefix).toBe(false);
+      }
+    }
+  });
+
+  it("no part holds a formula, an inline string or `<f` where cells and text live (AC-6.15)", () => {
+    const parts = readWorkbook(golden).parts;
+    for (const [name, text] of Object.entries(parts)) {
+      expect(text).not.toMatch(/<f[\s>/]/);
+      expect(text).not.toContain("inlineStr");
+      if (/sheet1|sharedStrings/.test(name)) expect(text).not.toContain("<f");
+    }
+  });
+
+  it("orders the golden lines by Date, the latest first, then employee, then receipt (AC-6.16)", () => {
+    expect(dataRows(readWorkbook(golden)).map((row) => (row[1] as string).match(/\[([A-Z]{2}\d{2}\/\d{3})\]/)![1])).toEqual([
       "MC27/001",
       "BV26/001",
+      "MC26/005",
+      "MC26/004",
+      "MC26/003",
+      "AR26/003", // 2026-03-03: Anna Rossi's two lines, by receipt sequence ...
+      "AR26/004",
+      "MC26/002", // ... then Matteo Codogno
+      "MC26/001",
+      "AR26/002",
+      "AR26/001",
     ]);
   });
 });
 
-describe("the figures named by the spec (AC-6.3, AC-6.4, AC-6.12)", () => {
-  const rows = parseCsv(buildAccountingCsv(input.lines).text);
+describe("the figures named by the spec (AC-6.3, AC-6.12, AC-6.13, AC-6.17)", () => {
+  const rows = dataRows(readWorkbook(golden));
+  const byReceipt = (receipt: string) => rows.find((row) => (row[1] as string).includes(`[${receipt}]`))!;
 
-  it("AC-6.3: 10.40 EUR dated 2026-03-02 at 0.9246 is 9.62 CHF", () => {
-    const row = rowOf(rows, "MC26/001");
-    expect(cell(row, "expenseDate")).toBe("2026-03-02");
-    expect(cell(row, "currency")).toBe("EUR");
-    expect([cell(row, "approvedTotal"), cell(row, "exchangeRate"), cell(row, "chfAmount")]).toEqual(["10.40", "0.9246", "9.62"]);
-    // And in the raw bytes, as the plan writes it.
-    expect(buildAccountingCsv(input.lines).text).toContain(";EUR;10.40;0.9246;9.62;");
+  it("AC-6.3: 10.40 EUR dated 2026-03-02 at 0.9246 is an Amount of 9.62, in CHF, with the original in the Description", () => {
+    expect(byReceipt("MC26/001")).toEqual([{ n: "46083" }, "Cancelleria [MC26/001] [EUR 10.40 = CHF 9.62] Matteo Codogno", { n: "6101" }, { n: "5832" }, { n: "9.62" }, "CHF", null, null]);
   });
 
-  it("AC-6.4: 20.80 CHF at 8.1 % carries a VAT of 1.56", () => {
-    const row = rowOf(rows, "MC26/002");
-    expect([cell(row, "approvedTotal"), cell(row, "exchangeRate"), cell(row, "chfAmount")]).toEqual(["20.80", "", "20.80"]);
-    expect([cell(row, "vatRate"), cell(row, "vatAmount")]).toEqual(["8.10", "1.56"]);
-    expect(buildAccountingCsv(input.lines).text).toContain(";IMP81;8.10;1.56;");
+  it("AC-6.12: a line approved at 0 is present, with an Amount of 0.00 (not 0, not empty)", () => {
+    expect(byReceipt("MC26/003")![4]).toEqual({ n: "0.00" });
   });
 
-  it("AC-6.12: a line approved at 0 is present, with 0.00 CHF and 0.00 VAT", () => {
-    const row = rowOf(rows, "MC26/003");
-    expect([cell(row, "approvedTotal"), cell(row, "chfAmount"), cell(row, "vatAmount")]).toEqual(["0.00", "0.00", "0.00"]);
+  it("AC-6.13: a CHF line has no currency and no second amount; the email stands in for a missing name", () => {
+    expect(byReceipt("AR26/001")![1]).toBe("Treno Lugano-Zurigo [AR26/001] Anna Rossi");
+    expect(byReceipt("BV26/001")![1]).toBe("-Rimborso parcheggio [BV26/001] bruno.verdi@welld.ch");
+    expect(descriptions([line({ ownerName: "" }), line({ ownerName: "   ", lineId: "b" })])).toEqual([
+      "Cancelleria [MC26/001] matteo.codogno@welld.ch",
+      "Cancelleria [MC26/001] matteo.codogno@welld.ch",
+    ]);
+    expect(employeeCell(line({ ownerName: null }))).toBe("matteo.codogno@welld.ch");
   });
 
-  it("the VAT is taken from the rounded CHF amount (ADR decision 2), as on the screen", () => {
-    // 1004 EUR cents at 0.1 is 100.4 -> 100 CHF cents; the VAT of 100 at 8.1 % is 7, of the unrounded 100.4 it would be 8.
-    const parsed = parseCsv(buildAccountingCsv([line({ currency: "EUR", approvedCents: 1004, rateMicros: 100_000 })]).text)[1]!;
-    expect([cell(parsed, "chfAmount"), cell(parsed, "vatAmount")]).toEqual(["1.00", "0.07"]);
+  it("AC-6.2: Credit is 5832 and Currency is CHF on every row, including a foreign-currency line; Tax and Note are empty", () => {
+    for (const row of rows) expect([row[3], row[5], row[6], row[7]]).toEqual([{ n: "5832" }, "CHF", null, null]);
+    expect(dataRows(read([line({ currency: "USD", approvedCents: 5000, rateMicros: 780_800 })]))[0]!.slice(3)).toEqual([{ n: "5832" }, { n: "39.04" }, "CHF", null, null]);
+  });
+
+  it("AC-6.17: 5905 and 2620.1 are numbers; 2620.10 and 1.2.3 are text, unchanged", () => {
+    const debit = (accountNumber: string) => dataRows(read([line({ accountNumber })]))[0]![2];
+    expect(debit("5905")).toEqual({ n: "5905" });
+    expect(debit("2620.1")).toEqual({ n: "2620.1" });
+    expect(debit("2620.10")).toBe("2620.10");
+    expect(debit("1.2.3")).toBe("1.2.3");
+    expect(debit("0123")).toBe("0123");
+    // The text Debit is a shared string with the text style, so Accrio imports it as text.
+    const cell = read([line({ accountNumber: "2620.10" })]).rows[1]![2]!;
+    expect([cell.type, cell.style.numFmtId, cell.style.quotePrefix]).toEqual(["string", 49, true]);
+    const number = read([line({ accountNumber: "2620.1" })]).rows[1]![2]!;
+    expect([number.type, number.style.numFmtId]).toEqual(["number", 0]);
   });
 });
 
-describe("the amounts agree with the golden vectors of amounts.ts (screen and file cannot disagree)", () => {
+describe("the Amount agrees with the golden vectors of amounts.ts (screen and file cannot disagree)", () => {
   for (const v of vectors.chf) {
     if (v.expectedCents === null) continue;
-    it(`CHF column: ${v.description}`, () => {
-      const parsed = parseCsv(
-        buildAccountingCsv([line({ currency: v.currency, approvedCents: v.amountCents, rateMicros: v.rateMicros, vatRateBasisPoints: 0 })]).text,
-      )[1]!;
-      expect(cell(parsed, "chfAmount")).toBe(formatCents(v.expectedCents));
+    it(`Amount: ${v.description}`, () => {
+      const row = dataRows(read([line({ currency: v.currency, approvedCents: v.amountCents, rateMicros: v.rateMicros })]))[0]!;
+      expect(row[4]).toEqual({ n: formatCents(v.expectedCents) });
       expect(chfCents(v.amountCents, v.currency, v.rateMicros)).toBe(v.expectedCents);
-    });
-  }
-  for (const v of vectors.vat) {
-    if (v.expectedCents === null || v.chfCents === null || v.rateBasisPoints === null) continue;
-    it(`VAT column: ${v.description}`, () => {
-      const parsed = parseCsv(buildAccountingCsv([line({ approvedCents: v.chfCents, vatRateBasisPoints: v.rateBasisPoints })]).text)[1]!;
-      expect(cell(parsed, "vatAmount")).toBe(formatCents(v.expectedCents));
-      expect(vatCents(v.chfCents, v.rateBasisPoints)).toBe(v.expectedCents);
     });
   }
 });
 
 describe("determinism (AC-6.8)", () => {
-  it("the same lines in any input order give the same bytes", () => {
-    const expected = buildAccountingCsv(input.lines).bytes;
-    const reversed = [...input.lines].reverse();
-    expect(bytesEqual(buildAccountingCsv(reversed).bytes, expected)).toBe(true);
-    // A few fixed-seed shuffles (a small LCG keeps the test itself deterministic).
+  it("the same lines in any input order give the same bytes, and the same SHA-256", () => {
+    const expected = buildAccountingFile(input.lines).bytes;
+    expect(bytesEqual(buildAccountingFile([...input.lines].reverse()).bytes, expected)).toBe(true);
     let seed = 12345;
     const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648);
     for (let round = 0; round < 25; round++) {
@@ -232,222 +210,164 @@ describe("determinism (AC-6.8)", () => {
         const j = next() % (i + 1);
         [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
       }
-      expect(bytesEqual(buildAccountingCsv(shuffled).bytes, expected)).toBe(true);
+      const again = buildAccountingFile(shuffled).bytes;
+      expect(bytesEqual(again, expected)).toBe(true);
+      expect(sha256(again)).toBe(sha256(expected));
     }
   });
 
   it("two builds of the same input are identical, and the input is not mutated or reordered", () => {
     const copy = structuredClone(input.lines);
-    const a = buildAccountingCsv(input.lines);
-    const b = buildAccountingCsv(input.lines);
+    const a = buildAccountingFile(input.lines);
+    const b = buildAccountingFile(input.lines);
     expect(bytesEqual(a.bytes, b.bytes)).toBe(true);
     expect(input.lines).toEqual(copy);
   });
 
-  it("orders by employee in code point order, not by UTF-16 code unit and not by locale", () => {
-    // U+FF5E (BMP) is before U+1F600 (astral) by code point; by UTF-16 unit the astral char (D83D...) sorts first.
-    expect(compareCodePoints("～", "\u{1F600}")).toBeLessThan(0);
-    expect("～" < "\u{1F600}").toBe(false);
-    // Uppercase before lowercase (a locale collation would interleave them).
-    expect(compareCodePoints("Zoe", "anna")).toBeLessThan(0);
-    expect(compareCodePoints("a", "ab")).toBeLessThan(0);
-    expect(compareCodePoints("ab", "a")).toBeGreaterThan(0);
-    expect(compareCodePoints("same", "same")).toBe(0);
-
-    const rows = parseCsv(
-      buildAccountingCsv([
-        line({ lineId: "a", ownerUserId: "u-a", ownerName: "\u{1F600} emoji", receiptNumber: "E26/001" }),
-        line({ lineId: "b", ownerUserId: "u-b", ownerName: "～ tilde", receiptNumber: "T26/001" }),
-        line({ lineId: "c", ownerUserId: "u-c", ownerName: "anna", receiptNumber: "AA26/001" }),
-        line({ lineId: "d", ownerUserId: "u-d", ownerName: "Zoe", receiptNumber: "ZZ26/001" }),
-      ]).text,
-    ).slice(1);
-    expect(rows.map((r) => cell(r, "receiptNumber"))).toEqual(["ZZ26/001", "AA26/001", "T26/001", "E26/001"]);
-  });
-
-  it("breaks a tie on the employee by ownerUserId, then year, then sequence, then line id", () => {
-    const rows = parseCsv(
-      buildAccountingCsv([
-        line({ lineId: "z", ownerUserId: "u-2", receiptYear: 2026, receiptSeq: 1, receiptNumber: "MC26/001#u2" }),
-        line({ lineId: "y", ownerUserId: "u-1", receiptYear: 2027, receiptSeq: 1, receiptNumber: "MC27/001" }),
-        line({ lineId: "x", ownerUserId: "u-1", receiptYear: 2026, receiptSeq: 10, receiptNumber: "MC26/010" }),
-        line({ lineId: "w", ownerUserId: "u-1", receiptYear: 2026, receiptSeq: 9, receiptNumber: "MC26/009" }),
-        line({ lineId: "v", ownerUserId: "u-1", receiptYear: 2026, receiptSeq: 9, receiptNumber: "MC26/009-b" }),
-      ]).text,
-    ).slice(1);
-    // 9 before 10 as numbers (not as strings); the same (year, seq) falls back to the line id.
-    expect(rows.map((r) => cell(r, "receiptNumber"))).toEqual(["MC26/009-b", "MC26/009", "MC26/010", "MC27/001", "MC26/001#u2"]);
-  });
-});
-
-describe("text cells: the formula guard and RFC 4180 quoting (ADR decision 6)", () => {
-  it("a motivo with ';', '\"', a newline and a leading '=' is guarded, then quoted, and reads back as data", () => {
-    const motivo = '=HYPERLINK("http://x";"y")\nsecond line';
-    const { text } = buildAccountingCsv([line({ motivo })]);
-    const raw = text.split("\r\n")[1]!;
-    expect(raw).toContain(';"\'=HYPERLINK(""http://x"";""y"")\nsecond line";');
-    const parsed = parseCsv(text);
-    expect(parsed).toHaveLength(2);
-    expect(cell(parsed[1]!, "reason")).toBe(`'${motivo}`);
-    expect(parsed[1]).toHaveLength(16);
-  });
-
-  for (const [name, trigger] of [
-    ["=", "="],
-    ["+", "+"],
-    ["-", "-"],
-    ["@", "@"],
-    ["TAB", "\t"],
-    ["CR", "\r"],
-  ] as const) {
-    it(`a text cell that starts with ${name} is prefixed with an apostrophe in EVERY text column`, () => {
-      const hostile = `${trigger}cmd|' /C calc'!A0`;
-      const parsed = parseCsv(
-        buildAccountingCsv([
-          line({
-            ownerName: hostile,
-            receiptNumber: hostile,
-            motivo: hostile,
-            accountName: hostile,
-            accountNumber: hostile,
-            vatCode: hostile,
-            batchId: hostile,
-          }),
-        ]).text,
-      )[1]!;
-      for (const key of ["employee", "receiptNumber", "reason", "accountName", "accountNumber", "vatCode", "batch"] as const) {
-        expect(cell(parsed, key)).toBe(`'${hostile}`);
+  it("does not depend on the clock or on the time zone", () => {
+    const original = process.env.TZ;
+    try {
+      const hashes = new Set<string>();
+      for (const tz of ["Pacific/Auckland", "America/Los_Angeles", "UTC"]) {
+        process.env.TZ = tz;
+        hashes.add(sha256(buildAccountingFile(input.lines).bytes));
       }
-      // The expense type is a label and the currency a code; neither is free text, and neither starts with a trigger.
-      expect(cell(parsed, "expenseType")).toBe("Office material");
-    });
-  }
-
-  it("guards the employee cell when it falls back to the email, and the type label when a type is unknown", () => {
-    const parsed = parseCsv(buildAccountingCsv([line({ ownerName: null, ownerEmail: "+evil@welld.ch", type: "=new_type" })]).text)[1]!;
-    expect(cell(parsed, "employee")).toBe("'+evil@welld.ch");
-    expect(cell(parsed, "expenseType")).toBe("'=new_type");
-  });
-
-  it("does not touch a text cell that merely contains a trigger inside, and never guards the number columns", () => {
-    expect(guardFormula("a=b")).toBe("a=b");
-    expect(guardFormula("Spese 5-9")).toBe("Spese 5-9");
-    expect(guardFormula("")).toBe("");
-    const parsed = parseCsv(buildAccountingCsv([line({ currency: "EUR", approvedCents: 1040, rateMicros: 924_600, km: null })]).text)[1]!;
-    for (const key of ["km", "approvedTotal", "exchangeRate", "chfAmount", "vatRate", "vatAmount"] as const) {
-      expect(cell(parsed, key).startsWith("'")).toBe(false);
+      expect(hashes.size).toBe(1);
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
     }
   });
 
-  it("quotes a cell with the separator, a quote, CR or LF, or a leading or trailing space, and only those", () => {
-    expect(quoteField("plain")).toBe("plain");
-    expect(quoteField("a,b")).toBe("a,b");
-    expect(quoteField("a;b")).toBe('"a;b"');
-    expect(quoteField('say "hi"')).toBe('"say ""hi"""');
-    expect(quoteField("a\nb")).toBe('"a\nb"');
-    expect(quoteField("a\rb")).toBe('"a\rb"');
-    expect(quoteField(" lead")).toBe('" lead"');
-    expect(quoteField("trail ")).toBe('"trail "');
-    expect(quoteField("inner space")).toBe("inner space");
-  });
-
-  it("round-trips awkward text (quotes, separators, CRLF, accents, emoji) through a reader", () => {
-    const motivo = 'a;"b"\r\nc,d é ü \u{1F600} ';
-    const parsed = parseCsv(buildAccountingCsv([line({ motivo })]).text);
-    expect(parsed).toHaveLength(2);
-    expect(cell(parsed[1]!, "reason")).toBe(motivo);
+  it("a change in any line changes the bytes (and so the logged hash)", () => {
+    const base = sha256(buildAccountingFile(input.lines).bytes);
+    const first = input.lines[0]!;
+    const rest = input.lines.slice(1);
+    const changed = [{ ...first, approvedCents: first.approvedCents + 1 }, ...rest];
+    expect(sha256(buildAccountingFile(changed).bytes)).not.toBe(base);
+    const reworded = [{ ...first, motivo: `${first.motivo}!` }, ...rest];
+    expect(sha256(buildAccountingFile(reworded).bytes)).not.toBe(base);
   });
 });
 
-describe("the cells", () => {
-  it("falls back to the email when the account has no name, or a blank one", () => {
-    expect(cell(parseCsv(buildAccountingCsv([line({ ownerName: null })]).text)[1]!, "employee")).toBe("matteo.codogno@welld.ch");
-    expect(cell(parseCsv(buildAccountingCsv([line({ ownerName: "   " })]).text)[1]!, "employee")).toBe("matteo.codogno@welld.ch");
+describe("the order of the rows (AC-6.16, SO-11)", () => {
+  it("Date descending, then the employee in code point order (not UTF-16, not locale), ownerUserId, year, sequence, line id", () => {
+    const lines = [
+      line({ lineId: "a", ownerUserId: "u-a", ownerName: "\u{1F600} emoji", receiptNumber: "E26/001" }),
+      line({ lineId: "b", ownerUserId: "u-b", ownerName: "～ tilde", receiptNumber: "T26/001" }),
+      line({ lineId: "c", ownerUserId: "u-c", ownerName: "anna", receiptNumber: "AA26/001" }),
+      line({ lineId: "d", ownerUserId: "u-d", ownerName: "Zoe", receiptNumber: "ZZ26/001" }),
+      line({ lineId: "e", ownerUserId: "u-e", ownerName: "Zoe", receiptNumber: "NEW/001", date: "2026-03-03" }),
+    ];
+    // The latest date first; on the same date: uppercase before lowercase, the BMP character before the astral one.
+    expect(descriptions(lines).map((d) => d.match(/\[(.*?)\]/)![1])).toEqual(["NEW/001", "ZZ26/001", "AA26/001", "T26/001", "E26/001"]);
   });
 
-  it("shows the document label of the expense type, never the enum", () => {
-    expect(cell(parseCsv(buildAccountingCsv([line({ type: "travel_train" })]).text)[1]!, "expenseType")).toBe("Travel — train");
+  it("breaks a tie on the employee by ownerUserId, then year, then sequence (9 before 10), then line id", () => {
+    const lines = [
+      line({ lineId: "z", ownerUserId: "u-2", receiptYear: 2026, receiptSeq: 1, receiptNumber: "MC26/001#u2" }),
+      line({ lineId: "y", ownerUserId: "u-1", receiptYear: 2027, receiptSeq: 1, receiptNumber: "MC27/001" }),
+      line({ lineId: "x", ownerUserId: "u-1", receiptYear: 2026, receiptSeq: 10, receiptNumber: "MC26/010" }),
+      line({ lineId: "w", ownerUserId: "u-1", receiptYear: 2026, receiptSeq: 9, receiptNumber: "MC26/009" }),
+      line({ lineId: "v", ownerUserId: "u-1", receiptYear: 2026, receiptSeq: 9, receiptNumber: "MC26/009-b" }),
+    ];
+    expect(descriptions(lines).map((d) => d.match(/\[(.*?)\]/)![1])).toEqual(["MC26/009-b", "MC26/009", "MC26/010", "MC27/001", "MC26/001#u2"]);
+    expect([...lines].sort(compareExportLines).map((l) => l.lineId)).toEqual(["v", "w", "x", "y", "z"]);
   });
 
-  it("km is filled only for a travel_km line", () => {
-    const kmLine = parseCsv(buildAccountingCsv([line({ type: "travel_km", km: 120 })]).text)[1]!;
-    expect(cell(kmLine, "km")).toBe("120");
-    // A stale km on another type, and a travel_km line with none, are both empty.
-    expect(cell(parseCsv(buildAccountingCsv([line({ type: "postal", km: 120 })]).text)[1]!, "km")).toBe("");
-    expect(cell(parseCsv(buildAccountingCsv([line({ type: "travel_km", km: null })]).text)[1]!, "km")).toBe("");
+  it("the employee for the order is the one in the Description: the email when there is no name", () => {
+    const lines = [
+      line({ lineId: "n", ownerUserId: "u-1", ownerName: "Matteo Codogno", receiptNumber: "N26/001" }),
+      line({ lineId: "m", ownerUserId: "u-2", ownerName: null, ownerEmail: "alpha@welld.ch", receiptNumber: "M26/001" }),
+    ];
+    // "Matteo Codogno" sorts before "alpha@welld.ch" (uppercase before lowercase).
+    expect(descriptions(lines).map((d) => d.match(/\[(.*?)\]/)![1])).toEqual(["N26/001", "M26/001"]);
   });
+});
 
-  it("the exchange rate is empty for CHF, even when a rate is passed, and a plain decimal otherwise", () => {
-    expect(cell(parseCsv(buildAccountingCsv([line({ rateMicros: 2_000_000 })]).text)[1]!, "exchangeRate")).toBe("");
-    const chf = parseCsv(buildAccountingCsv([line({ rateMicros: 2_000_000 })]).text)[1]!;
-    expect(cell(chf, "chfAmount")).toBe("20.80");
-    expect(cell(parseCsv(buildAccountingCsv([line({ currency: "EUR", rateMicros: 924_600 })]).text)[1]!, "exchangeRate")).toBe("0.9246");
-  });
+describe("text from a person: exactly as written, in one cell, never a formula (AC-6.13, AC-6.15)", () => {
+  const description = (patch: Partial<AccountingExportLine>) => dataRows(read([line(patch)]))[0]![1] as string;
 
-  it("formats numbers with a dot, two decimals and no thousands separator", () => {
-    expect(formatCents(0)).toBe("0.00");
-    expect(formatCents(5)).toBe("0.05");
-    expect(formatCents(962)).toBe("9.62");
-    expect(formatCents(1040)).toBe("10.40");
-    expect(formatCents(123_456_789)).toBe("1234567.89");
-    expect(formatBasisPoints(810)).toBe("8.10");
-    expect(formatBasisPoints(770)).toBe("7.70");
-    expect(formatBasisPoints(5)).toBe("0.05");
-    expect(formatBasisPoints(0)).toBe("0.00");
-    expect(formatBasisPoints(10_000)).toBe("100.00");
-  });
-
-  it("formats a rate with up to six decimals, trailing zeros trimmed to at least four", () => {
-    expect(formatRateMicros(924_600)).toBe("0.9246");
-    expect(formatRateMicros(1_063_500)).toBe("1.0635");
-    expect(formatRateMicros(1_000_000)).toBe("1.0000");
-    expect(formatRateMicros(924_610)).toBe("0.92461");
-    expect(formatRateMicros(924_601)).toBe("0.924601");
-    expect(formatRateMicros(12_340_000)).toBe("12.3400");
-  });
-
-  it("refuses a negative, fractional or unsafe number instead of printing it", () => {
-    for (const bad of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
-      expect(() => formatCents(bad)).toThrow(RangeError);
-      expect(() => formatRateMicros(bad)).toThrow(RangeError);
-      expect(() => formatBasisPoints(bad)).toThrow(RangeError);
+  it("a reason or a name that starts with = + - or @ is in its cell as text, exactly as written, with no leading apostrophe", () => {
+    for (const motivo of ["=SUM(A1)", "+41 79 000 00 00", "-Rimborso", "@SUM(1)", '=HYPERLINK("http://example.test")', "=1+1"]) {
+      expect(description({ motivo })).toBe(`${motivo} [MC26/001] Matteo Codogno`);
     }
+    expect(description({ ownerName: "=cmd|' /C calc'!A0" })).toBe("Cancelleria [MC26/001] =cmd|' /C calc'!A0");
+    expect(description({ ownerName: null, ownerEmail: "-x@welld.ch" })).toBe("Cancelleria [MC26/001] -x@welld.ch");
+    const cell = read([line({ motivo: "=SUM(A1)" })]).rows[1]![1]!;
+    expect([cell.type, cell.style.numFmtId, cell.style.quotePrefix]).toEqual(["string", 49, true]);
+  });
+
+  it("markup characters and quotes are in the cell as typed, and the XML stays well formed", () => {
+    const motivo = `a & b < c > d "e" 'f' </t></si>]]><f>1</f> &amp; &#60;`;
+    expect(description({ motivo })).toBe(`${motivo} [MC26/001] Matteo Codogno`);
+    const book = read([line({ motivo }), line({ lineId: "n", ownerName: `<b>"Anna" & 'co'</b>` })]); // parses strictly
+    expect(book.rows).toHaveLength(3);
+    expect(book.rows.every((row) => row.length === 8)).toBe(true);
+  });
+
+  it("a line break or any control character is one space: a Description is one line (AC-6.13)", () => {
+    expect(description({ motivo: "uno\ndue\r\ntre\rquattro" })).toBe("uno due tre quattro [MC26/001] Matteo Codogno");
+    expect(description({ motivo: "a\tb\u0000c\u001bd\u007fe\u0085f\u009fg h i" })).toBe("a b c d e f g h i [MC26/001] Matteo Codogno");
+    expect(description({ ownerName: "Anna\nRossi" })).toBe("Cancelleria [MC26/001] Anna Rossi");
+    expect(description({ motivo: "\n\n  a  \n  b  \n\n" })).toBe("a b [MC26/001] Matteo Codogno");
+  });
+
+  it("what XML 1.0 cannot carry becomes U+FFFD, and a valid astral character is kept", () => {
+    expect(description({ motivo: "a\ud800b" })).toBe("a�b [MC26/001] Matteo Codogno");
+    expect(description({ motivo: "a￾￿b" })).toBe("a��b [MC26/001] Matteo Codogno");
+    expect(description({ motivo: "Caffè \u{1F600} 中文" })).toBe("Caffè \u{1F600} 中文 [MC26/001] Matteo Codogno");
+  });
+
+  it("a hostile text adds, merges or splits no row or column: 8 cells in each row, one row per line", () => {
+    const hostile = ["=1\n=2", "a\nb\nc\nd", "\r\n\r\n", "<row r=\"99\"><c/></row>", "</c><c r=\"I2\"><v>1</v></c>", `"; DROP`, "x y"];
+    const book = read(hostile.map((motivo, i) => line({ lineId: `l${i}`, ownerUserId: `u${i}`, motivo })));
+    expect(book.rows).toHaveLength(hostile.length + 1);
+    expect(book.rows.every((row) => row.length === 8)).toBe(true);
+    expect(book.dimension).toBe(`A1:H${hostile.length + 1}`);
+    for (const text of Object.values(book.parts)) expect(text).not.toMatch(/<f[\s>/]/);
+  });
+
+  it("a reason of 2000 characters is whole in its cell (the longest the API accepts)", () => {
+    const motivo = "x".repeat(2000);
+    expect(description({ motivo })).toBe(`${motivo} [MC26/001] Matteo Codogno`);
+  });
+
+  it("the Debit text cell is sanitised like any text and cannot carry markup either", () => {
+    expect(dataRows(read([line({ accountNumber: "6101\n<x>" })]))[0]![2]).toBe("6101 <x>");
   });
 });
 
 describe("what the builder refuses (the caller blocks these first, so a partial file cannot exist)", () => {
   it("a foreign-currency line with no rate", () => {
-    expect(() => buildAccountingCsv([line({ currency: "EUR", rateMicros: null })])).toThrow(RangeError);
+    expect(() => buildAccountingFile([line({ currency: "EUR", rateMicros: null })])).toThrow(RangeError);
   });
-  it("a negative approved amount", () => {
-    expect(() => buildAccountingCsv([line({ approvedCents: -1 })])).toThrow(RangeError);
+  it("a negative, fractional or unsafe approved amount", () => {
+    for (const approvedCents of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => buildAccountingFile([line({ approvedCents })])).toThrow(RangeError);
+    }
   });
-  it("a date that is not YYYY-MM-DD", () => {
-    expect(() => buildAccountingCsv([line({ date: "02.03.2026" })])).toThrow(RangeError);
+  it("a date that is not YYYY-MM-DD, or does not exist", () => {
+    for (const date of ["02.03.2026", "2026-02-30", "2026-13-01", ""]) expect(() => buildAccountingFile([line({ date })])).toThrow(RangeError);
   });
-  it("a VAT rate above 100 %", () => {
-    expect(() => buildAccountingCsv([line({ vatRateBasisPoints: 10_001 })])).toThrow(RangeError);
+  it("a negative receipt year or sequence", () => {
+    expect(() => buildAccountingFile([line({ receiptYear: -1 })])).toThrow(RangeError);
+    expect(() => buildAccountingFile([line({ receiptSeq: 1.5 })])).toThrow(RangeError);
+  });
+  it("a rate of 0 is not a rate", () => {
+    expect(() => buildAccountingFile([line({ currency: "EUR", rateMicros: 0 })])).toThrow(RangeError);
   });
 });
 
 describe("an empty batch (AC-6.7)", () => {
-  it("is the header row only, with the BOM and CRLF", () => {
-    const csv = buildAccountingCsv([]);
-    expect(csv.rowCount).toBe(0);
-    expect(csv.text).toBe(`﻿${COLUMNS.map((c) => c.header).join(";")}\r\n`);
-    expect(csv.bytes.length).toBe(3 + new TextEncoder().encode(csv.text.slice(1)).length);
-  });
-});
-
-describe("the dialect module", () => {
-  it("states its version, media type and filename", () => {
-    expect(FORMAT_VERSION).toBe(1);
-    expect(CONTENT_TYPE).toBe("text/csv; charset=utf-8");
-    expect(exportFilename(new Date("2026-07-19T23:30:00.000Z"), "batch-1")).toBe("refund-accounting-2026-07-19-batch-1.csv");
-  });
-
-  it("keeps a hostile batch id out of the filename", () => {
-    expect(exportFilename(new Date("2026-07-19T00:00:00.000Z"), 'a"b/../c\r\nd')).toBe("refund-accounting-2026-07-19-a_b____c__d.csv");
+  it("is the header row only, a valid workbook", () => {
+    const file = buildAccountingFile([]);
+    expect(file.rowCount).toBe(0);
+    const book = readWorkbook(file.bytes);
+    expect(book.sheetNames).toEqual(["Sheet 1"]);
+    expect(book.rows).toHaveLength(1);
+    expect(cellValues(book.rows[0]!)).toEqual([...HEADERS]);
+    expect(book.dimension).toBe("A1:H1");
   });
 });
 
@@ -516,9 +436,9 @@ describe("evaluateExport: the rows come from the copies (AC-5.3, AC-5.4, AC-5.5)
     const result = evaluateExport(sourceOf(sourceRow(), copiedEur(924_600)), { kind: "none" });
     expect(result.summary).toMatchObject({ exportable: true, rowCount: 2, ratePendingLineCount: 0, fetchAttempted: false });
     expect(result.copies).toEqual([]);
-    expect(result.lines.map((l) => [l.rateMicros, l.accountNumber, l.vatCode, l.vatRateBasisPoints])).toEqual([
-      [null, "6101", "IMP81", 810],
-      [924_600, "6101", "IMP81", 810],
+    expect(result.lines.map((l) => [l.rateMicros, l.accountNumber])).toEqual([
+      [null, "6101"],
+      [924_600, "6101"],
     ]);
     // An answer for the same pair is never looked at when the line holds its own copy.
     const other = evaluateExport(sourceOf(copiedEur(924_600)), answers(true, inEffect("EUR", "2026-03", 930_000, true)));
@@ -533,13 +453,17 @@ describe("evaluateExport: the rows come from the copies (AC-5.3, AC-5.4, AC-5.5)
     expect(result.lines).toEqual([]);
   });
 
-  it("(20261118 AC-3.11) a line with no VAT code is exported like any other: no blocker, and its VAT cells are empty", () => {
+  it("(20261118 AC-3.11) a line with no VAT code is exported like any other: no blocker, and the file carries no VAT at all", () => {
     const result = evaluateExport(sourceOf(sourceRow({ vatCodeCopy: null, vatRateBasisPoints: null })), { kind: "none" });
     expect(result.summary).toMatchObject({ exportable: true, rowCount: 1 });
     expect(result.summary.blockers.unclassifiedLines).toEqual([]);
-    expect(result.lines.map((l) => [l.accountNumber, l.vatCode, l.vatRateBasisPoints])).toEqual([["6101", null, null]]);
-    const row = buildAccountingCsv(result.lines).text.split("\r\n")[1]!.split(";");
-    expect(row.slice(10, 15)).toEqual(["6101", "Spese materiale ufficio", "", "", ""]); // account, name, then no code, rate or amount
+    expect(result.lines.map((l) => l.accountNumber)).toEqual(["6101"]);
+    // The row is the same with or without a VAT code: the journal file has no VAT column (AC-6.2).
+    const withVat = evaluateExport(sourceOf(sourceRow({ id: "same" })), { kind: "none" }).lines;
+    const withoutVat = evaluateExport(sourceOf(sourceRow({ id: "same", vatCodeCopy: null, vatRateBasisPoints: null })), { kind: "none" }).lines;
+    const cellsOf = (lines: typeof withVat) => cellValues(readWorkbook(buildAccountingFile(lines.map((l) => ({ ...l, receiptNumber: "X26/001" }))).bytes).rows[1]!);
+    expect(cellsOf(withoutVat)).toEqual(cellsOf(withVat));
+    expect(cellsOf(withoutVat)).toEqual([{ n: "46083" }, "Cancelleria [X26/001] Matteo Codogno", { n: "6101" }, { n: "5832" }, { n: "10.40" }, "CHF", null, null]);
   });
 
   it("a line with no receipt number is an unnumbered blocker", () => {

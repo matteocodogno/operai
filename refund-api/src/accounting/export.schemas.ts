@@ -5,7 +5,7 @@
  * (G7), `blockers.accountingUnavailable` (AC-6.6), `ratePendingLineCount`, `viewer`
  * (AC-7.3, D17)).
  *
- * G10: the 409 `accounting_export_blocked` answer of the CSV route carries the
+ * G10: the 409 `accounting_export_blocked` answer of the file route carries the
  * SAME summary as the 200 of the summary route, as ONE schema, so the page can
  * switch to its Blocked state from the refusal alone and never needs a second
  * request. {@link ExportBlockedSchema} is {@link ExportSummarySchema} plus the
@@ -66,7 +66,7 @@ export type ExportBlockers = z.infer<typeof ExportBlockersSchema>;
 export const ExportSummarySchema = z.object({
   batchId: z.string(),
   batchStatus: z.enum(["compiled", "paid"]),
-  /** `true` when there is no blocker: the CSV route will produce a file. */
+  /** `true` when there is no blocker: the file route will produce a file. */
   exportable: z.boolean(),
   /** Rows the file has (or will have once nothing blocks it): the approved, not rejected WellD CH lines of the batch (AC-6.1). */
   rowCount: z.number().int(),

@@ -1,5 +1,5 @@
 {
-  "_comment": "Input of the golden CSV test (T17, specs/20261118-refund-accounting-export). The lines are deliberately NOT in export order: the builder sorts. The expected bytes are fixtures/accounting-export.golden.csv, written by hand (scratch script, not by the code under test) and compared byte for byte. Rows named in the plan: AC-6.3 (MC26/001: 10.40 EUR at 0.9246 -> 9.62), AC-6.4 (MC26/002: 20.80 at 8.1 % -> VAT 1.56), AC-6.12 (MC26/003: 0.00 and 0.00).",
+  "_comment": "Input of the golden workbook test (T17 as a CSV, T62 as an XLSX, specs/20261118-refund-accounting-export, specs/20261119-accounting). Synthetic data only: the names are the plan's examples, no real person or amount. The lines are deliberately NOT in export order: the builder sorts. Expected output: fixtures/accounting-export.golden.xlsx (bytes) and accounting-export.golden.cells.json (every expected cell, written by hand from the plan, not by the code under test). Rows named in the plan: AC-6.3 (MC26/001: 10.40 EUR at 0.9246 -> Amount 9.62), AC-6.12 (MC26/003: Amount 0.00), AC-6.15 (a reason that starts with = and holds a line break; one with & < > quotes; control characters), AC-6.16 (three rows dated 2026-03-03: two employees, then two lines of one), AC-6.17 (Debit 2620.1 is a number, 2620.10 is text).",
   "lines": [
     {
       "lineId": "line-bv-1",
@@ -10,17 +10,11 @@
       "receiptYear": 2026,
       "receiptSeq": 1,
       "date": "2026-03-09",
-      "type": "travel_parking",
       "motivo": "-Rimborso parcheggio",
-      "km": null,
       "currency": "CHF",
       "approvedCents": 1999,
       "rateMicros": null,
-      "accountNumber": "5907",
-      "accountName": "Spese parcheggio (viaggi)",
-      "vatCode": "IMP81",
-      "vatRateBasisPoints": 810,
-      "batchId": "batch-golden-1"
+      "accountNumber": "5907"
     },
     {
       "lineId": "line-mc-5",
@@ -31,17 +25,11 @@
       "receiptYear": 2026,
       "receiptSeq": 5,
       "date": "2026-03-06",
-      "type": "representation_meals",
       "motivo": "=SUM(A1)\nsecond line",
-      "km": null,
       "currency": "GBP",
       "approvedCents": 1234,
       "rateMicros": 1063500,
-      "accountNumber": "6701",
-      "accountName": "Spese pranzi e cene con clienti",
-      "vatCode": "IMP77",
-      "vatRateBasisPoints": 770,
-      "batchId": "batch-golden-1"
+      "accountNumber": "6701"
     },
     {
       "lineId": "line-mc-27",
@@ -52,17 +40,11 @@
       "receiptYear": 2027,
       "receiptSeq": 1,
       "date": "2027-01-05",
-      "type": "office_material",
       "motivo": "Toner",
-      "km": null,
       "currency": "CHF",
       "approvedCents": 1000,
       "rateMicros": null,
-      "accountNumber": "6101",
-      "accountName": "Spese materiale ufficio",
-      "vatCode": "IMP81",
-      "vatRateBasisPoints": 810,
-      "batchId": "batch-golden-1"
+      "accountNumber": "6101"
     },
     {
       "lineId": "line-ar-2",
@@ -73,17 +55,11 @@
       "receiptYear": 2026,
       "receiptSeq": 2,
       "date": "2026-02-11",
-      "type": "travel_km",
-      "motivo": "Visita cliente \"ACME\"; Lugano",
-      "km": 120,
+      "motivo": "Visita cliente \"ACME\" & <Lugano>; 'Zurigo'",
       "currency": "CHF",
       "approvedCents": 8400,
       "rateMicros": null,
-      "accountNumber": "5905",
-      "accountName": "Spese rimborsi chilometrici (viaggi)",
-      "vatCode": "NOVAT",
-      "vatRateBasisPoints": 0,
-      "batchId": "batch-golden-1"
+      "accountNumber": "5905"
     },
     {
       "lineId": "line-mc-3",
@@ -94,17 +70,26 @@
       "receiptYear": 2026,
       "receiptSeq": 3,
       "date": "2026-03-04",
-      "type": "postal",
       "motivo": "Francobolli",
-      "km": null,
       "currency": "CHF",
       "approvedCents": 0,
       "rateMicros": null,
-      "accountNumber": "6104",
-      "accountName": "Spese postali",
-      "vatCode": "IMP81",
-      "vatRateBasisPoints": 810,
-      "batchId": "batch-golden-1"
+      "accountNumber": "6104"
+    },
+    {
+      "lineId": "line-ar-4",
+      "ownerUserId": "u-anna",
+      "ownerName": "Anna Rossi",
+      "ownerEmail": "anna.rossi@welld.ch",
+      "receiptNumber": "AR26/004",
+      "receiptYear": 2026,
+      "receiptSeq": 4,
+      "date": "2026-03-03",
+      "motivo": "Spesa\tcon\r\ntab  e doppi spazi",
+      "currency": "CHF",
+      "approvedCents": 750,
+      "rateMicros": null,
+      "accountNumber": "2620.10"
     },
     {
       "lineId": "line-mc-1",
@@ -115,17 +100,11 @@
       "receiptYear": 2026,
       "receiptSeq": 1,
       "date": "2026-03-02",
-      "type": "office_material",
       "motivo": "Cancelleria",
-      "km": null,
       "currency": "EUR",
       "approvedCents": 1040,
       "rateMicros": 924600,
-      "accountNumber": "6101",
-      "accountName": "Spese materiale ufficio",
-      "vatCode": "NOVAT",
-      "vatRateBasisPoints": 0,
-      "batchId": "batch-golden-1"
+      "accountNumber": "6101"
     },
     {
       "lineId": "line-ar-1",
@@ -136,17 +115,11 @@
       "receiptYear": 2026,
       "receiptSeq": 1,
       "date": "2026-02-10",
-      "type": "travel_train",
       "motivo": "Treno Lugano-Zurigo",
-      "km": null,
       "currency": "CHF",
       "approvedCents": 4560,
       "rateMicros": null,
-      "accountNumber": "5901",
-      "accountName": "Spese viaggi in treno",
-      "vatCode": "IMP81",
-      "vatRateBasisPoints": 810,
-      "batchId": "batch-golden-1"
+      "accountNumber": "5901"
     },
     {
       "lineId": "line-mc-4",
@@ -157,17 +130,26 @@
       "receiptYear": 2026,
       "receiptSeq": 4,
       "date": "2026-03-05",
-      "type": "telephone",
       "motivo": "Roaming",
-      "km": null,
       "currency": "USD",
       "approvedCents": 5000,
       "rateMicros": 780800,
-      "accountNumber": "6102",
-      "accountName": "Spese telefoniche, fax, internet",
-      "vatCode": "NOVAT",
-      "vatRateBasisPoints": 0,
-      "batchId": "batch-golden-1"
+      "accountNumber": "6102"
+    },
+    {
+      "lineId": "line-ar-3",
+      "ownerUserId": "u-anna",
+      "ownerName": "Anna Rossi",
+      "ownerEmail": "anna.rossi@welld.ch",
+      "receiptNumber": "AR26/003",
+      "receiptYear": 2026,
+      "receiptSeq": 3,
+      "date": "2026-03-03",
+      "motivo": "Taxi aeroporto",
+      "currency": "CHF",
+      "approvedCents": 1500,
+      "rateMicros": null,
+      "accountNumber": "2620.1"
     },
     {
       "lineId": "line-mc-2",
@@ -178,17 +160,11 @@
       "receiptYear": 2026,
       "receiptSeq": 2,
       "date": "2026-03-03",
-      "type": "stationery",
       "motivo": "Quaderni",
-      "km": null,
       "currency": "CHF",
       "approvedCents": 2080,
       "rateMicros": null,
-      "accountNumber": "6101",
-      "accountName": "Spese materiale ufficio",
-      "vatCode": "IMP81",
-      "vatRateBasisPoints": 810,
-      "batchId": "batch-golden-1"
+      "accountNumber": "6101"
     }
   ]
 }

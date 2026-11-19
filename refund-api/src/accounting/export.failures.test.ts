@@ -6,7 +6,7 @@
  *   1. A failed export-log write, or a failed rate copy, is a 500 Problem with NO file, NO log row and NO copy: record, then
  *      deliver, and a refused export copies nothing (AC-5.6). The failure is a REAL one: a trigger on the table that raises
  *      (created here, always dropped), so the whole path from the route to the database is the production one.
- *   2. CORS exposes `Content-Disposition` and `X-Export-*` (G9), from the real app's CORS layer, and every header the CSV route
+ *   2. CORS exposes `Content-Disposition` and `X-Export-*` (G9), from the real app's CORS layer, and every header the file route
  *      sets for the file is in that list, so a header added later cannot silently stay unreadable.
  *   3. Accounting that does not answer cannot hold the export (AC-6.8, D3): through the REAL client with a short deadline, a
  *      read that never returns ends as the `accountingUnavailable` blocker in about the deadline, never as a 5xx and never as a
@@ -23,6 +23,7 @@ import { join } from "node:path";
 import type { ResolveResponse } from "../authz/resolveClient";
 import { truncateRefundTables } from "../test-support/dbCleanup";
 import { setupTestAuth } from "../test-support/testAuth";
+import { cellValues, readWorkbook } from "../test-support/xlsxReader";
 
 process.env["ALLOWED_ORIGINS"] = "http://localhost:5173,http://localhost:3000";
 process.env["AUTH_JWKS_URL"] = "http://localhost:3001/auth/jwks";
@@ -145,22 +146,22 @@ describe("a failed export-log write or rate copy is a 500 with no file, no row a
     await db.$executeRawUnsafe(`CREATE TRIGGER ${TRIGGER} BEFORE INSERT ON "refund_batch_export" FOR EACH ROW EXECUTE FUNCTION ${TRIGGER}()`);
   }
 
-  it("answers 500 Problem JSON; no text/csv, no BOM, no header row, no filename, no X-Export-*; nothing is logged", async () => {
+  it("answers 500 Problem JSON; no workbook, no ZIP bytes, no filename, no X-Export-*; nothing is logged", async () => {
     const batchId = await seedBatch([{}, {}]);
     await breakTheLog();
 
-    const res = await call(exportRouter, `/batches/${batchId}/accounting-export/csv`);
+    const res = await call(exportRouter, `/batches/${batchId}/accounting-export/file`);
     const bytes = new Uint8Array(await res.arrayBuffer());
     const text = new TextDecoder().decode(bytes);
 
     expect(res.status).toBe(500);
     expect(res.headers.get("content-type")).toContain("application/json");
-    expect(res.headers.get("content-type")).not.toContain("csv");
+    expect(res.headers.get("content-type")).not.toContain("spreadsheetml");
     expect(res.headers.get("content-disposition")).toBeNull();
     expect(res.headers.get("x-export-row-count")).toBeNull();
     expect(res.headers.get("x-export-excluded-line-count")).toBeNull();
-    expect([...bytes.slice(0, 3)]).not.toEqual([0xef, 0xbb, 0xbf]);
-    expect(text).not.toContain("Receipt number");
+    expect([...bytes.slice(0, 2)]).not.toEqual([0x50, 0x4b]); // "PK": not a ZIP, so not a workbook
+    expect(text).not.toContain("Description");
     expect(text).not.toContain("MC26/001");
     expect(text).not.toContain("Matteo");
 
@@ -176,22 +177,23 @@ describe("a failed export-log write or rate copy is a 500 with no file, no row a
     const batchId = await seedBatch([{}]);
     await breakTheLog();
     expect((await call(exportRouter, `/batches/${batchId}/accounting-export`)).status).toBe(200);
-    expect((await call(exportRouter, `/batches/${batchId}/accounting-export/csv`)).status).toBe(500);
+    expect((await call(exportRouter, `/batches/${batchId}/accounting-export/file`)).status).toBe(500);
 
     await dropFailingTrigger();
-    const ok = await call(exportRouter, `/batches/${batchId}/accounting-export/csv`);
+    const ok = await call(exportRouter, `/batches/${batchId}/accounting-export/file`);
     expect(ok.status).toBe(200);
-    expect(ok.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+    expect(ok.headers.get("content-type")).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(readWorkbook(new Uint8Array(await ok.arrayBuffer())).rows).toHaveLength(2); // the header and the one line
     expect(await db.refundBatchExport.count()).toBe(1);
   });
 
   it("every failed attempt leaves no row, and a later success leaves exactly one: the log never counts a file that did not leave", async () => {
     const batchId = await seedBatch([{}]);
     await breakTheLog();
-    for (let i = 0; i < 3; i++) expect((await call(exportRouter, `/batches/${batchId}/accounting-export/csv`)).status).toBe(500);
+    for (let i = 0; i < 3; i++) expect((await call(exportRouter, `/batches/${batchId}/accounting-export/file`)).status).toBe(500);
     expect(await db.refundBatchExport.count()).toBe(0);
     await dropFailingTrigger();
-    expect((await call(exportRouter, `/batches/${batchId}/accounting-export/csv`)).status).toBe(200);
+    expect((await call(exportRouter, `/batches/${batchId}/accounting-export/file`)).status).toBe(200);
     expect(await db.refundBatchExport.count()).toBe(1);
   });
 });
@@ -208,7 +210,7 @@ describe("a failed export copies no rate and writes no audit row (AC-5.6)", () =
     );
     await db.$executeRawUnsafe(`CREATE TRIGGER ${TRIGGER} BEFORE INSERT ON "refund_batch_export" FOR EACH ROW EXECUTE FUNCTION ${TRIGGER}()`);
 
-    const res = await call(exportRouter, `/batches/${batchId}/accounting-export/csv`);
+    const res = await call(exportRouter, `/batches/${batchId}/accounting-export/file`);
     expect(res.status).toBe(500);
     expect(await res.text()).not.toMatch(/simulated|trigger|refund_line|UPDATE|prisma|MC26/i);
     expect(await db.refundLine.count({ where: { fxRateMicros: { not: null } } })).toBe(0);
@@ -216,7 +218,7 @@ describe("a failed export copies no rate and writes no audit row (AC-5.6)", () =
     expect(await db.refundBatchExport.count()).toBe(0);
 
     await dropFailingTrigger();
-    const ok = await call(exportRouter, `/batches/${batchId}/accounting-export/csv`);
+    const ok = await call(exportRouter, `/batches/${batchId}/accounting-export/file`);
     expect(ok.status).toBe(200);
     expect(await db.refundLine.count({ where: { fxRateMicros: 924_600 } })).toBe(2);
     expect(await copiedAudit()).toBe(2);
@@ -238,7 +240,7 @@ describe("a failed export copies no rate and writes no audit row (AC-5.6)", () =
     );
     await db.$executeRawUnsafe(`CREATE TRIGGER ${COPY_TRIGGER} BEFORE UPDATE ON "refund_line" FOR EACH ROW EXECUTE FUNCTION ${COPY_TRIGGER}()`);
 
-    const res = await call(exportRouter, `/batches/${batchId}/accounting-export/csv`);
+    const res = await call(exportRouter, `/batches/${batchId}/accounting-export/file`);
     expect(res.status).toBe(500);
     expect(res.headers.get("content-disposition")).toBeNull();
     expect(await res.text()).not.toMatch(/simulated|trigger|refund_line|prisma/i);
@@ -268,7 +270,7 @@ describe("CORS exposes the download headers (G9)", () => {
         const res = await app.fetch(request);
         return { status: res.status, headers: Object.fromEntries(res.headers.entries()) };
       };
-      const csv = "http://localhost/batches/b-1/accounting-export/csv";
+      const csv = "http://localhost/batches/b-1/accounting-export/file";
       const out = {
         preflight: await grab(new Request(csv, { method: "OPTIONS", headers: { Origin: ${JSON.stringify(ORIGIN)}, "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization" } })),
         get401: await grab(new Request(csv, { headers: { Origin: ${JSON.stringify(ORIGIN)} } })),
@@ -317,10 +319,10 @@ describe("CORS exposes the download headers (G9)", () => {
     expect(seen.foreign.headers["access-control-allow-origin"]).not.toBe("*");
   });
 
-  it("every header the CSV route sets for the file is in the exposed list, so one added later cannot stay unreadable", async () => {
+  it("every header the file route sets for the file is in the exposed list, so one added later cannot stay unreadable", async () => {
     const batchId = await seedBatch([{}]);
     const exportRouter = createExportRouter({ accounting: { begin: (name) => fake.begin(name) } });
-    const res = await call(exportRouter, `/batches/${batchId}/accounting-export/csv`);
+    const res = await call(exportRouter, `/batches/${batchId}/accounting-export/file`);
     expect(res.status).toBe(200);
 
     // CORS-safelisted response headers are readable anyway; every other header of the download must be exposed.
@@ -348,7 +350,7 @@ describe("Accounting that does not answer cannot hold the export (AC-6.8, D3), t
     console.warn = realWarn;
   });
 
-  it("a read that never returns ends at the deadline as the accountingUnavailable blocker: summary 200 and CSV 409 in about the deadline, no log row, no copy", async () => {
+  it("a read that never returns ends at the deadline as the accountingUnavailable blocker: summary 200 and file 409 in about the deadline, no log row, no copy", async () => {
     const client = createAccountingClient({ baseUrl: "http://accounting.test", tokens, fetchImpl: ((_url: string, init?: RequestInit) => never(init)) as unknown as typeof fetch, deadlineMs: 300 });
     const router = createExportRouter({ accounting: client });
     const batchId = await seedBatch([{ currency: "EUR" }, { currency: "USD", date: "2026-02-10" }, {}]);
@@ -363,7 +365,7 @@ describe("Accounting that does not answer cannot hold the export (AC-6.8, D3), t
     expect(body).toMatchObject({ exportable: false, ratePendingLineCount: 2, fetchAttempted: false });
     expect(body["blockers"]).toMatchObject({ accountingUnavailable: true, missingRates: [] });
 
-    const csv = await call(router, `/batches/${batchId}/accounting-export/csv`);
+    const csv = await call(router, `/batches/${batchId}/accounting-export/file`);
     expect(csv.status).toBe(409);
     expect(await db.refundBatchExport.count()).toBe(0);
     expect(await db.refundLine.count({ where: { fxRateMicros: { not: null } } })).toBe(0);
@@ -399,9 +401,11 @@ describe("Accounting that does not answer cannot hold the export (AC-6.8, D3), t
     const okRouter = createExportRouter({
       accounting: createAccountingClient({ baseUrl: "http://accounting.test", tokens, fetchImpl: (async () => answerEur()) as unknown as typeof fetch }),
     });
-    const csv = await call(okRouter, `/batches/${okBatch}/accounting-export/csv`);
+    const csv = await call(okRouter, `/batches/${okBatch}/accounting-export/file`);
     expect(csv.status).toBe(200);
-    expect(await csv.text()).toContain(";EUR;20.80;0.9246;19.23;");
+    const rows = readWorkbook(new Uint8Array(await csv.arrayBuffer())).rows.map(cellValues);
+    expect(rows[1]![1]).toContain("[EUR 20.80 = CHF 19.23]");
+    expect(rows[1]![4]).toEqual({ n: "19.23" });
   });
 
   it("a rates answer that skips a pair, or answers one Refund did not ask, is 'cannot be read', never a missing rate or a guess", async () => {

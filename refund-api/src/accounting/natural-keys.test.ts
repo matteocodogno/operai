@@ -27,6 +27,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from "bu
 import type { ResolveResponse } from "../authz/resolveClient";
 import { truncateRefundTables } from "../test-support/dbCleanup";
 import { setupTestAuth } from "../test-support/testAuth";
+import { cellValues, readWorkbook } from "../test-support/xlsxReader";
 
 process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] = "http://localhost:3001/auth/jwks";
@@ -225,6 +226,8 @@ interface Out {
   status: number;
   body: any;
   headers: Headers;
+  /** The raw body: the export file is a workbook, not text. */
+  bytes: Uint8Array;
 }
 /** Every answer Refund gave in a test, as text: scanned at the end for an id of Accounting. */
 let answers: string[] = [];
@@ -237,15 +240,16 @@ async function call(router: Router, method: string, path: string, body?: unknown
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
-  const text = await res.text();
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const text = new TextDecoder().decode(bytes);
   answers.push(text);
   let parsed: any = text;
   try {
     parsed = text ? JSON.parse(text) : {};
   } catch {
-    /* a CSV */
+    /* a workbook, or no body */
   }
-  return { status: res.status, body: parsed, headers: res.headers };
+  return { status: res.status, body: parsed, headers: res.headers, bytes };
 }
 
 const saveDefault = (type: string, account: string | null) =>
@@ -389,8 +393,8 @@ describe("what was booked does not move when Accounting enters its data again (A
     expect((await approve(r.id)).status).toBe(200);
     const batchId = await batchWith(r.id);
     const viewBefore = await view(r.id);
-    const csvBefore = await call(exportRouter, "GET", `/batches/${batchId}/accounting-export/csv`);
-    expect(csvBefore.status).toBe(200);
+    const fileBefore = await call(exportRouter, "GET", `/batches/${batchId}/accounting-export/file`);
+    expect(fileBefore.status).toBe(200);
     const linesBefore = JSON.stringify(await Promise.all(r.lineIds.map(lineOf)));
 
     // Accounting enters everything again: new ids, other names, a corrected rate, the old entries gone for a while.
@@ -409,11 +413,14 @@ describe("what was booked does not move when Accounting enters its data again (A
     expect(shown(viewAfter)).toEqual(shown(viewBefore));
     expect(shown(viewAfter)[0]![2]).toBe("IMP81");
     expect(shown(viewAfter)[1]![2]).toBeNull();
-    const csvAfter = await call(exportRouter, "GET", `/batches/${batchId}/accounting-export/csv`);
-    expect(csvAfter.status).toBe(200);
-    expect(csvAfter.body).toBe(csvBefore.body); // AC-5.4: the same bytes
-    expect(csvAfter.body).toContain("0.9246"); // the copied rate, not the corrected one (AC-5.5)
-    expect(csvAfter.body).not.toContain("0.9300");
+    const fileAfter = await call(exportRouter, "GET", `/batches/${batchId}/accounting-export/file`);
+    expect(fileAfter.status).toBe(200);
+    expect(Buffer.from(fileAfter.bytes).equals(Buffer.from(fileBefore.bytes))).toBe(true); // AC-5.4: the same bytes
+    // The copied rate, not the corrected one (AC-5.5): 10.40 EUR at 0.9246 is 9.62 CHF (at 0.9300 it would be 9.67).
+    const rows = readWorkbook(fileAfter.bytes).rows.map(cellValues);
+    expect(rows.slice(1).map((row) => row[4])).toEqual([{ n: "9.62" }, { n: "10.40" }]); // the EUR line (2026-03-03), then the CHF one
+    expect(rows.some((row) => String(row[1]).includes("[EUR 10.40 = CHF 9.62]"))).toBe(true);
+    expect(rows.some((row) => String(row[1]).includes("9.67"))).toBe(false);
 
     // AC-4.7: the history reads the same whatever happened in Accounting.
     const history = typeRow(await getDefaults(), "travel_train").history;
@@ -577,7 +584,7 @@ describe("no id of Accounting is in Refund (D1)", () => {
     await approve(r.id);
     const batchId = await batchWith(r.id);
     await call(exportRouter, "GET", `/batches/${batchId}/accounting-export`);
-    await call(exportRouter, "GET", `/batches/${batchId}/accounting-export/csv`);
+    await call(exportRouter, "GET", `/batches/${batchId}/accounting-export/file`);
     await getDefaults();
     await view(r.id);
 
