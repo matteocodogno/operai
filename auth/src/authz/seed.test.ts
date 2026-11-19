@@ -249,8 +249,9 @@ describe("seedRefundCatalog (T2, specs/20260716-refund-service — AC-1.1, AC-5.
     // unchanged (AC-4.3).
     expect(byKey.get("approve")).toEqual(["entity", "self-approval"]);
     expect(byKey.get("reject")).toEqual(["entity"]);
-    // specs/20261118-refund-accounting-export, T2 (AC-3.6, D5): entity only, never `self-approval`.
-    expect(byKey.get("reclassify")).toEqual(["entity"]);
+    // specs/20261118-refund-accounting-export, T2 (AC-3.6, D5) as amended by SR-2 (security review S-02):
+    // `reclassify` declares what `approve` declares, so a restriction on one can be set on the other.
+    expect(byKey.get("reclassify")).toEqual(["entity", "self-approval"]);
   });
 
   test("GET /admin/catalog's backing read (getFullCatalog) includes refund's request resource", async () => {
@@ -623,6 +624,73 @@ describe("`request:reclassify` grants (T2, specs/20261118-refund-accounting-expo
   test("`employee` never holds it", async () => {
     await seed();
     expect(await requestRuleFor(EMPLOYEE_ROLE_NAME, "reclassify")).toBeNull();
+  });
+
+  // SR-2 (security review S-02): "seeded like each role's approve", with whatever conditions that role's approve has.
+  const SELF_DENY_ENTITY = {
+    attributes: [
+      { key: "entity", match: "user" },
+      { key: "self-approval", match: "deny" },
+    ],
+  };
+  const SELF_DENY_ONLY = { attributes: [{ key: "self-approval", match: "deny" }] };
+
+  // The database is shared across this file: leave approve/reclassify of the two roles as the seed makes them.
+  afterEach(async () => {
+    await db.permissionRule.deleteMany({
+      where: { resource: "request", action: { in: ["approve", "reclassify"] }, role: { name: { in: [ACCOUNTING_ROLE_NAME, REFUND_ADMIN_ROLE_NAME] } } },
+    });
+    await seedAccountingRoleGrants();
+    await seedRefundAdminRole();
+  });
+
+  test("a missing `reclassify` is seeded with the SAME conditions as the role's existing `approve`, self-approval included (accounting and refund-admin)", async () => {
+    await seedSystemRoles();
+    await seedAccountingRoleGrants();
+    await seedRefundAdminRole();
+    // The deployment as an admin left it: approve restricted, reclassify not there yet.
+    await db.permissionRule.deleteMany({
+      where: { resource: "request", action: "reclassify", role: { name: { in: [ACCOUNTING_ROLE_NAME, REFUND_ADMIN_ROLE_NAME] } } },
+    });
+    await db.permissionRule.updateMany({
+      where: { resource: "request", action: "approve", role: { name: ACCOUNTING_ROLE_NAME } },
+      data: { conditions: SELF_DENY_ENTITY },
+    });
+    await db.permissionRule.updateMany({
+      where: { resource: "request", action: "approve", role: { name: REFUND_ADMIN_ROLE_NAME } },
+      data: { conditions: SELF_DENY_ONLY },
+    });
+
+    await seedAccountingRoleGrants();
+    await seedRefundAdminRole();
+    await seedAccountingRoleGrants(); // idempotent
+
+    expect((await requestRuleFor(ACCOUNTING_ROLE_NAME, "reclassify"))?.conditions).toEqual(SELF_DENY_ENTITY);
+    expect((await requestRuleFor(REFUND_ADMIN_ROLE_NAME, "reclassify"))?.conditions).toEqual(SELF_DENY_ONLY);
+    for (const roleName of [ACCOUNTING_ROLE_NAME, REFUND_ADMIN_ROLE_NAME]) {
+      const role = await db.role.findUniqueOrThrow({ where: { name: roleName } });
+      expect(await db.permissionRule.count({ where: { roleId: role.id, resource: "request", action: "reclassify" } })).toBe(1);
+    }
+  });
+
+  test("an existing `reclassify` is never rewritten by the seed (an admin's edit stays)", async () => {
+    await seedSystemRoles();
+    await seedAccountingRoleGrants();
+    await db.permissionRule.updateMany({
+      where: { resource: "request", action: "reclassify", role: { name: ACCOUNTING_ROLE_NAME } },
+      data: { conditions: SELF_DENY_ENTITY },
+    });
+    await seedAccountingRoleGrants();
+    expect((await requestRuleFor(ACCOUNTING_ROLE_NAME, "reclassify"))?.conditions).toEqual(SELF_DENY_ENTITY);
+  });
+
+  test("with no self-approval on approve (the seeded default), there is none on reclassify either", async () => {
+    await seed();
+    for (const roleName of [ACCOUNTING_ROLE_NAME, REFUND_ADMIN_ROLE_NAME]) {
+      const rule = await requestRuleFor(roleName, "reclassify");
+      const carries = (rule?.conditions as { attributes?: { key: string }[] } | null)?.attributes?.some((a) => a.key === "self-approval") ?? false;
+      expect(carries).toBe(false);
+    }
   });
 });
 

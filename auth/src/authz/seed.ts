@@ -378,16 +378,37 @@ export async function seedAccountingRoleGrants(): Promise<void> {
       where: { roleId: accountingRole.id, resource: "request", action },
     });
     if (!existing) {
+      // `reclassify` follows the role's `approve` (SR-2): same conditions object, `self-approval` included if an
+      // admin put it there. Every other action, and a role with no `approve` rule, gets the entity condition.
+      const conditions =
+        action === "reclassify"
+          ? await conditionsOfApprove(accountingRole.id, REFUND_ENTITY_CONDITION as Prisma.InputJsonValue)
+          : (REFUND_ENTITY_CONDITION as Prisma.InputJsonValue);
       await db.permissionRule.create({
         data: {
           roleId: accountingRole.id,
           resource: "request",
           action,
-          conditions: REFUND_ENTITY_CONDITION as Prisma.InputJsonValue,
+          ...(conditions === null ? {} : { conditions }),
         },
       });
     }
   }
+}
+
+/**
+ * The conditions of a role's own `request:approve` rule (SR-2: "seeded like each role's approve"): `null` for an
+ * unconditioned rule, the stored object otherwise, `fallback` when the role has no `approve` rule at all. A missing
+ * `reclassify` is created with this, so the segregation-of-duties knob of `approve` carries over; an existing
+ * `reclassify` is never rewritten (an admin's edit stays).
+ */
+async function conditionsOfApprove(
+  roleId: string,
+  fallback: Prisma.InputJsonValue | null,
+): Promise<Prisma.InputJsonValue | null> {
+  const approve = await db.permissionRule.findFirst({ where: { roleId, resource: "request", action: "approve" } });
+  if (!approve) return fallback;
+  return approve.conditions === null ? null : (approve.conditions as Prisma.InputJsonValue);
 }
 
 /** The `request` resource actions the `refund-admin` role is granted — ALL seven, every one UNCONDITIONED (global). */
@@ -473,8 +494,11 @@ export async function seedRefundAdminRole(): Promise<void> {
       // Omit `conditions` → defaults to null (an unconditional grant) for
       // EVERY action, including the four ADR 20260716-entity-scoped-abac-refund-api entity-scoped ones — see
       // this function's doc comment for why that's required, not incidental.
+      // The one exception is `reclassify`, which follows the role's `approve` (SR-2): an unconditioned `approve`
+      // gives the same null as before, and a hand-set `self-approval` on `approve` carries over.
+      const conditions = action === "reclassify" ? await conditionsOfApprove(refundAdminRole.id, null) : null;
       await db.permissionRule.create({
-        data: { roleId: refundAdminRole.id, resource: "request", action },
+        data: { roleId: refundAdminRole.id, resource: "request", action, ...(conditions === null ? {} : { conditions }) },
       });
     }
   }

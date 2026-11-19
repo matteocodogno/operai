@@ -32,7 +32,8 @@
  * `paid` request. Before approval the same change needs `set-approved-total`;
  * after approval it needs this one, so that who may re-book an approved line is a
  * role edit in admin-ui, with no deploy (open question 5 of that spec). Entity
- * condition only, like `approve`; never `self-approval`. DEPLOY ORDER: auth goes
+ * condition like `approve`, and (security review S-02, plan SR-2) `self-approval` too, so that a role barred from
+ * approving its own requests is barred from re-booking them. DEPLOY ORDER: auth goes
  * out BEFORE refund-api (plan R13): until this catalog is registered nobody holds
  * `reclassify`, so refund-api fails closed (403) on a post-approval change.
  *
@@ -62,9 +63,10 @@
  *                                  ADR 20260721-self-approval-condition-and-403-exception — the self-approval SoD condition
  *                                  is declared here ONLY)
  *       - `reject`              — `["entity"]`
- *       - `reclassify`          — `["entity"]` (specs/20261118-refund-accounting-export;
- *                                  granted to the same holders as `approve`, WITHOUT
- *                                  `self-approval`: it is not an approval)
+ *       - `reclassify`          — `["entity", "self-approval"]` (specs/20261118-refund-accounting-export;
+ *                                  granted to the same holders as `approve`, with the same
+ *                                  conditions: segregation of duties, SR-2 of its plan's
+ *                                  "Security review sync")
  *     Submit/withdraw/edit/delete of a draft are authorized by `create` +
  *     ownership of the request (the creator) per plan.md — they are
  *     deliberately NOT separate catalog actions.
@@ -141,9 +143,10 @@ export const REFUND_CATALOG: AppCatalogInput = {
         {
           key: "reclassify",
           label: "Reclassify approved line",
-          // Entity condition only (D5, AC-3.6): the same scope as the other
-          // accounting actions. `self-approval` stays on `approve` ONLY.
-          supportedConditions: ENTITY_SCOPED_CONDITIONS,
+          // Entity scope like the other accounting actions (D5, AC-3.6), AND `self-approval` like `approve`
+          // (plan "Security review sync" SR-2, security review S-02): whoever may not approve their own request
+          // may not re-book it either. The seed gives `reclassify` the same conditions as the role's `approve`.
+          supportedConditions: [...ENTITY_SCOPED_CONDITIONS, "self-approval"],
         },
       ],
     },

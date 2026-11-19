@@ -71,8 +71,13 @@ describe("REFUND_CATALOG `request:reclassify` (T2, specs/20261118-refund-account
     expect(reclassify()?.label).toBe("Reclassify approved line");
   });
 
-  test("supports the `entity` condition and nothing else — in particular never `self-approval`", () => {
-    expect(reclassify()?.supportedConditions).toEqual(["entity"]);
+  test("supports `entity` and `self-approval`, nothing else (plan SR-2, security review S-02: segregation of duties as for `approve`)", () => {
+    expect(reclassify()?.supportedConditions).toEqual(["entity", "self-approval"]);
+  });
+
+  test("declares the same conditions as `approve`, so the two stay one knob", () => {
+    const approve = REFUND_CATALOG.resources.find((r) => r.key === "request")?.actions.find((a) => a.key === "approve");
+    expect(reclassify()?.supportedConditions).toEqual(approve?.supportedConditions);
   });
 
   test("is declared exactly once, on `request` only", () => {
@@ -90,13 +95,13 @@ describe("REFUND_CATALOG self-approval condition (T1, specs/20260721-self-approv
     expect(approve?.supportedConditions).toEqual(["entity", "self-approval"]);
   });
 
-  test("`self-approval` is declared on `approve` ONLY — absent from every other action, on every resource", () => {
+  test("`self-approval` is declared on `approve` and, since the security review (SR-2), on `reclassify` — absent from every other action, on every resource", () => {
     const declaring = REFUND_CATALOG.resources.flatMap((resource) =>
       resource.actions
         .filter((action) => action.supportedConditions.includes("self-approval"))
         .map((action) => `${resource.key}.${action.key}`),
     );
-    expect(declaring).toEqual(["request.approve"]);
+    expect(declaring).toEqual(["request.approve", "request.reclassify"]);
   });
 });
 
