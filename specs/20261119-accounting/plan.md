@@ -1363,7 +1363,11 @@ accepted.
 - security F-13 (info): the release-day runbook should say who holds the `accounting` role, since the
   seed gives that role `manage` (AC-3.3). Granting `manage` by name instead needs a spec change.
 
-## Spec amendments proposed (not applied)
+## Spec amendments proposed (applied in eeb63165 as SA-1 to SA-3, owner to confirm)
+
+Proposed by this plan and applied to spec.md by the product-owner agent on 2026-11-19 (commit
+eeb63165, spec § Amendments, each tagged "owner to confirm"). The text below is the proposal as
+made, kept for the record.
 
 Wording only, no AC id changes, for the owner or the product-owner agent:
 

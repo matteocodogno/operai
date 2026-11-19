@@ -79,7 +79,8 @@ Described above.
 
 ## Evidence
 
-- Planned, not yet run (plan, Test strategy, AC-2.10 and "The consumer budget sits under the consumer deadline"): an int test with a fake source that hangs for 30 s, answered `missing` in under 7 s; the cross-package constants test; 36 pairs over 12 months attempting at most 6 months; a second call within 15 minutes throttled with no outbound call; an attempt row carrying `consumer` and actor `system:refund-api` for a consumer call, and `manager` for a manager's call, whatever the body says.
+- **Executed and green, 2026-11-19** (specs/20261119-accounting/qe-report.md (re-test after fix round 1: accounting-api 655 pass, refund-api 1799 pass, auth 1497 pass, 0 fail, also with `--randomize` and on databases migrated from zero)): `accounting-api/src/rates/rates.service.test.ts` (a source hanging 30 s answered `missing`/`fetch_failed` in under 7 s; the manager's 10 s budget; 36 pairs over 12 months attempt at most 6 months; a second call within 15 minutes is throttled with no outbound call; the attempt carries `consumer` and `system:refund-api`, or `manager`), `accounting-api/src/budgets.cross-package.test.ts` (`CONSUMER_FETCH_BUDGET_MS` + 1 s < refund-api's `ACCOUNTING_DEADLINE_MS`), `accounting-api/src/rates/rates.routes.test.ts` (a body carrying `trigger` → 422 `invalid_request`, nothing attempted) and `contract.refund-client.test.ts` (a consumer-triggered fetch through the real client).
+- As planned before implementation (kept for the record): an int test with a fake source that hangs for 30 s, answered `missing` in under 7 s; the cross-package constants test; 36 pairs over 12 months attempting at most 6 months; a second call within 15 minutes throttled with no outbound call; an attempt row carrying `consumer` and actor `system:refund-api` for a consumer call, and `manager` for a manager's call, whatever the body says.
 
 ## Consequences
 

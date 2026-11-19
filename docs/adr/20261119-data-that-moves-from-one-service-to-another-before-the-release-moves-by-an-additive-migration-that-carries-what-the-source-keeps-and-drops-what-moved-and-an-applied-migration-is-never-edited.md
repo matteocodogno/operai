@@ -76,8 +76,9 @@ Described above.
 
 ## Evidence
 
-- Planned, not yet run (plan, Test strategy, "mig"): the scratch-database test above on `accounting_qe`/`refund_mig` databases that are dropped afterwards; risk R7 (a developer database with hand-made odd rows, or the old guard firing during the backfill) is the case the test and the `NOT VALID`/`VALIDATE` order cover.
-- The shape of the move is in the plan, Data model, "refund-api — one additive migration".
+- **Executed and green, 2026-11-19** (specs/20261119-accounting/qe-report.md (re-test after fix round 1: accounting-api 655 pass, refund-api 1799 pass, auth 1497 pass, 0 fail, also with `--randomize` and on databases migrated from zero)): `refund-api/src/lib/migration.accounting-move.test.ts` brings a scratch database to `20261119090000_accounting_export`, inserts fixture rows (classified, paid numbered, EUR, defaults and designation history), applies `20261119120000_accounting_copies` and `20261119130000_accounting_reference_moved_out`, and asserts the copies, the carried ids and actors, the EUR rate copy, the drops and that the guard names no dropped column; one scratch database per describe, green under `--randomize` with seeds 424242 and 77 (D-5 closed). A fresh database applies every migration of both services with `prisma migrate diff` reporting no difference.
+- As planned before implementation (kept for the record): the scratch-database test above on `accounting_qe`/`refund_mig` databases that are dropped afterwards; risk R7 (a developer database with hand-made odd rows, or the old guard firing during the backfill) is the case the test and the `NOT VALID`/`VALIDATE` order cover.
+- The shape of the move is in the plan, Data model, "refund-api — two additive migrations" (see the Amendment below).
 
 ## Consequences
 

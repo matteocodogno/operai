@@ -21,6 +21,12 @@ the shell shows the tool to a person whose grant covers at least one entity.
   `PUT .../exchange-rates/{month}/{currency}` (a correction).
 - An entry is identified by its number or code **within its entity**; there is no edit and no delete. An
   entity the caller does not cover is a 404; a write without manage is 403.
+- **Catalog cap per entity** (`CATALOG_CAPS`, `src/catalog/limits.ts`): at most **200 ledger accounts** and
+  **50 VAT codes** per entity, **deactivated ones included**. Entries cannot be deleted, so this is a
+  **lifetime** limit for the entity. An addition beyond it answers 409 `catalog_full` with `limit` and writes
+  nothing. The cap keeps the largest reference-data answer well under refund-api's 256 KiB read limit
+  (asserted by `src/catalog.cap.cross-package.test.ts`). The operator seed (`seed:welld-ch`) does not check
+  the cap; its file is far below it.
 
 ## Service read for consumers
 
