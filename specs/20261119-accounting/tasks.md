@@ -1008,6 +1008,10 @@ tasks share an edge or a path, except the declared `lerna.json` line-level touch
   - done when: a CLI test with an unreachable DATABASE_URL carrying fake credentials shows no host, path or credential on stdout or stderr; refund-api suite + tsc green.
   - follow-up, not planned: expense-date validation on line create/update (a line can be dated before 2000; the client floor from T54 makes it harmless to Accounting reads and the release).
 
+- [ ] T82: refund-api — sign-off fix round: D-9 `migration.accounting-signoff.test.ts` order-independent (own scratch DB per writing test, green under `--randomize` seeds 424242, 77 and file-only seeds 1–3); D-10 release report pluralisation ("1 line"); D-11 stale comments (`src/index.ts` "summary + CSV", `requests.schemas.ts` "twelve expense types"); N-01 the 2026 baseline also applies when the employee's email changed before their first numbering (look the baseline up by every email the user id has used, or bind it to the user id once known) — refs: 20261118:AC-4.11, 20261118:AC-6.15, 20261118:AC-7.4 — deps: T77, T78
+  - touch: `refund-api/src/lib/migration.accounting-signoff.test.ts`, `refund-api/scripts/accounting-release*.ts`, `refund-api/src/index.ts`, `refund-api/src/requests/requests.schemas.ts`, `refund-api/src/accounting/numbering.repo*.ts`, `refund-api/src/accounting/receipt.baseline.test.ts`
+  - done when: refund-api suite green in default order and under the randomize seeds; N-01 test (email changed before first numbering → continues from the baseline) green; tsc green.
+
 ## Implementation notes (reconciled 2026-11-19)
 
 Each track ran in its own worktree and was integrated by rebase + fast-forward; checkboxes are
@@ -1206,7 +1210,7 @@ for REF, except T68, which needs the shared `document-labels.json` (T59).
   - Details: on :5445 only. Every gate of T46, plus: the AFC live test once (`ACCOUNTING_LIVE_RATES=1`); the golden XLSX opened in LibreOffice headless (`soffice --convert-to csv`) if available, else listed for T81.
   - done when: both reports have verdict PASS for the round; every added or adjusted AC has a named, executed test.
 
-- [ ] T78: OWASP re-review of the delta (plans § Security of the delta: flagged YES, standard tier) in parallel with QE — refs: all ACs (nominal) — deps: T58, T59, T60, T61, T62, T63, T64, T65, T66, T67, T68, T69, T70, T71, T72, T73, T74, T75, T76
+- [x] T78: OWASP re-review of the delta (plans § Security of the delta: flagged YES, standard tier) in parallel with QE — refs: all ACs (nominal) — deps: T58, T59, T60, T61, T62, T63, T64, T65, T66, T67, T68, T69, T70, T71, T72, T73, T74, T75, T76
   - touch: `specs/20261119-accounting/security-review.md`, `specs/20261118-refund-accounting-export/security-review.md`
   - agent: owasp-reviewer · release
   - Details: surfaces 1–5 of 20261118's delta and the migration and seed of this plan's delta. Escalate to frontier only on the plan's trigger.
