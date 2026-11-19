@@ -77,3 +77,35 @@ The one medium is a design gap between a producer and a consumer limit, not an a
 ## Summary
 
 0 critical · 0 high · 1 medium · 6 low · 6 info
+
+---
+
+## Re-review after fix round 1 (2026-11-19)
+
+Scope: commits 2e81a764..8f81f897 on `feat/accounting-module` (T53 up to 1a1c86bb, T54 up to 224fde9b, T55 up to 8f81f897, T56, T57 88db9ef8). Read-only static re-read of the current code; no test run, no service, no network, nothing committed.
+
+### Verdict: PASS (no open finding of medium or higher; 0 critical, 0 high, 0 medium)
+
+### Per-finding status
+
+| id | status | evidence |
+|---|---|---|
+| F-01 (medium) | **Closed** | `CATALOG_CAPS` 200 accounts and 50 VAT codes per entity, deactivated ones counted (accounting-api/src/catalog/limits.ts). Worst-case answer at the field limits is 538 and 397 bytes per entry, about 127.8 KB, under half of refund-api's 256 KiB cap; `catalog.cap.cross-package.test.ts` pins both numbers against the consumer cap. `createLedgerAccount` and `createVatCode` now run in one transaction that takes `pg_advisory_xact_lock(hashtext('catalog:<kind>:<entity>'))` first, then the duplicate check, then the count, then the insert, so two creations at cap minus one cannot both pass. A duplicate is still reported as a duplicate at the cap (the reactivate path stays open); 409 `catalog_full` carries only the limit. |
+| F-02 (low) | **Closed** | refund-api `accountingClient` answers a pair before 2000-01 locally as `missing / no_source / attempted false` and never sends it (`isAskableMonth`, `unaskablePair`), so one bad line no longer fails the whole read; the release script uses the same operation and so is not blocked by such a line. The line-date validation I also recommended was not added; with the local answer the effect is a "rate pending" line, not an outage, so I accept that as disposition. |
+| F-03 (low) | **Closed** | `describeReleaseFailure` prints the script's own (masked) `ReleaseError` message, otherwise only the error name and a plain-identifier `code`; T57 runs the command on `createQuietDb()` (`log: []`) so Prisma prints nothing before it. The imported test path keeps the shared client. |
+| F-07 (low) | **Closed** | accounting-api: `userRouteHeaders` on `/v1/*` (`no-store`, `nosniff`), registered at index.ts:43, after CORS and the logger and before the body limit, and re-set after `next()` so a 413, a 401, an `onError` 500 and the app 404 carry it; the system routes keep their own `no-store`. refund-api: `noStoreHeaders` is the first middleware on the classification view, options, classification PUT and both defaults paths, before the body limit and the JWT, and sets on `c.res` after the handler as well. Export routes unchanged. |
+| F-12 (info) | **Dispositioned** | The runbook rollback now names the two real migrations and states that the schema does not go back (infra/README.md:3068-3070). The count guards for the dropped tables were not added: an applied migration is never edited (ADR 20261119), and the premise "production holds none" stays an operator check. Accepted. |
+
+F-04, F-05, F-06, F-08, F-09, F-10, F-11, F-13 are outside this round and unchanged (low and info, accepted as in the table above), except that T53 also adds the blank/invisible-character rule and code-point length counting to `checkText`, which closes the practical part of F-08 (format characters Cf are now refused as a blank-only value; bidi controls inside a longer text are still accepted, info).
+
+### New-issue check
+
+- **Advisory lock**: the key is a hashed constant string per (kind, entity), taken inside the transaction, released with it; no lock is held across a network call, no user input in the key. The outer `isUniqueViolation` fallback remains for writers that do not take the lock.
+- **Cap bypass**: reactivation and deactivation add status rows, not entries, so they cannot grow the catalog past the cap. The one path that does not take the lock or the cap is the operator-run `seed:welld-ch` (`createMany`); its input is a committed file of 15 accounts and 3 VAT codes, far under the caps, so this is info only: a seed run against an entity already near the cap could exceed it by the seed's size (still well under the 256 KiB consumer limit because the cap leaves more than half of it free). Do not grow the seed file near the cap without a check.
+- **Header middleware ordering**: set both before and after `next()` where it matters; no response path found that escapes (the preflight OPTIONS answered by CORS needs none). No header carries data. `.dockerignore` now excludes tests, fixtures and test-support recursively while keeping `scripts/data`, which the image needs for the seed.
+- **Local pair answer**: `no_source` for a pre-floor month makes the line "rate pending"/missing, never a guessed rate; it cannot reach accounting-api, so it cannot widen its input surface.
+- **Key validation (T53)**: `isLedgerNumberKey` and `isVatCodeKey` reject malformed URL keys as 404 before any query, so the NUL-byte 500 path is gone and no oracle appears (same body as an unknown entry).
+
+### Updated counts
+
+0 critical · 0 high · 0 medium · 3 low open (F-04, F-05, F-06; accepted or carried) · info items unchanged (F-02, F-03, F-07 closed; F-12 dispositioned).
