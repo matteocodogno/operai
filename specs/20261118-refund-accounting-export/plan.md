@@ -1104,6 +1104,19 @@ changes. The two mediums tighten access within what the spec already asks (AC-3.
 
 Follow-ups not planned (FU-S1 to FU-S6) are listed in the table above.
 
+### Fix round 1: implementation drift (2026-11-19)
+
+The fixes for SR-1 and SR-2 differ from the wording above in five points. All five are accepted;
+the wording above is superseded where it conflicts. Status stays `approved`.
+
+| # | Drift | Decision |
+|---|---|---|
+| FR-1 | After approval, the owner is refused when **either** their `reclassify` grant **or** their `approve` grant is self-restricted. SR-2 named the `reclassify` grant only. | **Accepted.** It is stricter, and it is what makes FR-4 safe. The two grants differ only in a role edited by hand, and then the stricter one wins (fail closed). Remaining edge: an owner who holds `reclassify` without the restriction and **no `approve` grant at all** is not refused, because there is no approve grant to read a restriction from. That role can approve nobody's request, so no approval of their own is at stake; the case needs a deliberate hand edit and is accepted. |
+| FR-2 | A `welld_ch`-scoped caller on a **WellD Italia** line of a mixed request gets **404**, no longer 422 `line_not_welld_ch`. Global callers still get the 422. | **Accepted.** This is SR-1 applied literally: a line outside the caller's scope is not theirs to know about. The 404 reveals less than the 422. Tests assert both answers. |
+| FR-3 | `chf: null` only for out-of-scope lines. An in-scope WellD Italia line keeps the `chf` object with every member null, as before SR-1. | **Accepted.** `null` now means only "not yours" (`inScope: false`). The all-null object keeps the pre-SR-1 contract for Italian lines, which the UI already renders as no panel (UX-13). The view contract above is to be read this way. |
+| FR-4 | The auth seed never rewrites an existing `reclassify` rule. An admin who later restricts `approve` (or a database seeded by T2's first version, which had no `self-approval`) must mirror it on `reclassify` by hand. | **Accepted.** It is consistent with how the seed treats every existing grant (it never overwrites an admin's edit), and refund-api fails closed through FR-1, so no gap opens. Runbook note (T34's `infra/README.md`, next docs touch): "restricting self-approval on `approve` should be mirrored on `reclassify`; refund-api enforces the approve restriction on reclassification anyway". Production never ran the first T2 seed: not released. |
+| FR-5 | **UI gap:** when an approval is refused with 409 `classification_missing` for a line outside the approver's scope, the `ErrorSummary` has no row for it, only that line's out-of-scope note. | **Follow-up FU-S7** (not planned). Give the summary a row "a WellD CH line needs a colleague with WellD CH access to classify it", pointing at that line. The refusal itself is correct and nothing is approved. Only the guidance is thin, and it reaches only an approver scoped to one entity on a mixed request. |
+
 ## Implementation sync (2026-11-19)
 
 T1 (commit 352c6747, `refund-api/prisma/migrations/20261119090000_accounting_export/migration.sql`)
