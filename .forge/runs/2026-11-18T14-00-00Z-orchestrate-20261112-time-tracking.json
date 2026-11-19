@@ -7,7 +7,7 @@
   "rigor": "production",
   "rigor_recorded": null,
   "started": "2026-11-18T14:00:00Z",
-  "finished": "2026-11-19T07:10:00Z",
+  "finished": "2026-11-19T08:28:00Z",
   "agents": [
     { "agent": "quality-engineer", "tasks": ["T35"], "outcome": "FAIL", "commits": ["309845fb", "94ebcedd"], "note": "first full pass: D-1 Medium, D-2 Low, D-3 Low; whole-suite e2e BLOCKED (EF-1..EF-8)" },
     { "agent": "owasp-reviewer", "outcome": "PASS", "note": "delta since c85b0898 (T43-T45, rebase onto main); R2, R3 fixed by the main loop in b374f5c7" },
@@ -16,10 +16,13 @@
     { "agent": "backend-dev", "tasks": ["T46"], "outcome": "completed", "commits": ["8686a68f", "703bf6fa"] },
     { "agent": "owasp-reviewer", "tasks": ["T46"], "outcome": "PASS", "note": "F1 Low, I1, I4 fixed in 2650fa89; I2, I3 accepted" },
     { "agent": "backend-dev", "tasks": ["T46"], "outcome": "completed", "commits": ["2650fa89", "ee762ade"], "note": "T46 review follow-up" },
-    { "agent": "quality-engineer", "tasks": ["T35"], "outcome": "BLOCKED", "commits": ["57814131", "f230ac4d"], "note": "second pass: D-1..D-3 fixed in every placement; whole pnpm e2e 140 passed / 12 failed / 31 not run, 0 in hours" }
+    { "agent": "quality-engineer", "tasks": ["T35"], "outcome": "BLOCKED", "commits": ["57814131", "f230ac4d"], "note": "second pass: D-1..D-3 fixed in every placement; whole pnpm e2e 140 passed / 12 failed / 31 not run, 0 in hours" },
+    { "agent": "quality-engineer", "tasks": ["T35"], "outcome": "PASS", "commits": ["fbb298d1", "82baa5dd"], "note": "third pass on the blocked rows after EF-2/EF-9/EF-10 repaired: hours 12/12, push 6/6, meetings-deal 3/3; first BLOCKED, re-decided PASS under T35's amended done-when (b891e73f) with the failures outside hours (P-2, P-2b, P-3, Q-1, Q-2) accepted by the user 2026-11-19" },
+    { "agent": "evaluator", "outcome": "PASS", "score": 83.5, "commits": ["341c4c4c"], "note": "rubric default-v2, scope limited to the PR's diff at the user's request" }
   ],
   "drift_events": [
-    { "agent": "quality-engineer", "artifact": "plan.md", "summary": "D-1: hours-api resolved names live with no cache and exhausted auth's per-person identities budget (120 per 10 min) under ordinary use; plan amended to a 60 s cache keyed by user id (ADR 20260807 section 3)", "resolved": true }
+    { "agent": "quality-engineer", "artifact": "plan.md", "summary": "D-1: hours-api resolved names live with no cache and exhausted auth's per-person identities budget (120 per 10 min) under ordinary use; plan amended to a 60 s cache keyed by user id (ADR 20260807 section 3)", "resolved": true },
+    { "agent": "quality-engineer", "artifact": "tasks.md", "summary": "T35's done-when (\"the whole pnpm e2e still passes\") could not be met on one stack: crm-offer-wizard-service needs crm-api's letterhead service on, three legacy offer-wizard specs need it off; amended to a legacy-mode run with failures outside hours shown independent of the branch (b891e73f)", "resolved": true }
   ],
   "collision_events": [],
   "env_faults": [
@@ -27,9 +30,9 @@
     { "agent": "main loop", "class": "config", "detail": "mise.toml dev:web still pointed the shell at hours-api on 8088", "resolved_by": "e78b6c95" },
     { "agent": "quality-engineer", "class": "database", "detail": "EF-1, EF-3: dev inventory, crm and meetings databases behind main's migrations; EF-4: auth not re-seeded (letterheads catalog); EF-7: refund-api Prisma client stale; EF-9: notify-api Prisma client stale (PushDevice)", "resolved_by": "migrate deploy, auth db:seed, prisma generate (main loop)" },
     { "agent": "quality-engineer", "class": "secret env", "detail": "EF-5, EF-6: auth SERVICE_CLIENTS missing clients and scopes; activities-api without notify credentials; notify-api push off, and its committed direnv file blanks the VAPID pair", "resolved_by": "temporary script writing only the uncommitted per-service dotenv files, run by the user; notify-api run by the main loop with the VAPID pair from its dotenv; every client verified by minting a token" },
-    { "agent": "quality-engineer", "class": "secret env", "detail": "EF-2: crm-api without ACTIVITIES_API_URL (crm-offer-wizard specs); EF-10: ffmpeg not installed and meetings-api without service-client credentials (meetings-deal)", "resolved_by": "open: script extended, the user installs ffmpeg, applies and restarts" }
+    { "agent": "quality-engineer", "class": "secret env", "detail": "EF-2: crm-api without ACTIVITIES_API_URL (crm-offer-wizard specs); EF-10: ffmpeg not installed and meetings-api without service-client credentials (meetings-deal)", "resolved_by": "script extended and applied by the user, ffmpeg installed, stack restarted; verified by QE pass 3" }
   ],
-  "verdicts": { "security": "PASS" },
+  "verdicts": { "qe": "PASS", "security": "PASS", "eval": "PASS" },
   "fix_rounds": { "used": 1, "cap": 2, "extensions": [] },
   "security": {
     "matched_rules": ["auth/**", "permission", "session"],
@@ -39,8 +42,8 @@
       "T46 re-check 2026-11-18 PASS: F1 low, I1, I4 fixed; I2, I3 accepted"
     ]
   },
-  "result": "partial",
-  "notes": "QE second pass BLOCKED only on the environment: every hours row and gate green, D-1..D-3 fixed. Whole-suite e2e blocked by EF-2 and EF-10 (local environment), P-2 (letterheads.spec.ts:379 races a debug letterhead-api; accepted by the user 2026-11-19 as pre-existing, follow-up bugfix outside this PR) and P-1 (env-doctor push.test.ts, fails on origin/main too). No eval (QE not PASS). The feature stays in-progress; PR #10 marked ready for review at the user's request with the feature not closed.",
+  "result": "completed",
+  "notes": "PR #10 was marked ready for review on 2026-11-19 while QE was BLOCKED (user's request), then the run completed: QE pass 3 PASS under T35's amended done-when, with the failures outside hours accepted by the user as independent of the branch (P-1 env-doctor push.test.ts on origin/main; P-2/P-2b letterheads race fixed on main by a07f57da; P-3 offer-wizard-pages fixture; Q-1, Q-2 intermittent, cause not established, accepted not proven); eval PASS 83.5 scoped to the PR's diff. Before merge: rebase onto origin/main (15 commits ahead) and re-run the gates and the hours e2e.",
   "tokens": null,
   "cost_usd": null,
   "terse": false,
