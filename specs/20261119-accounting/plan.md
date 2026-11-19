@@ -184,7 +184,7 @@ The CHF amount and the VAT amount stay **derived on read**, now from the copies:
 round(amountCents × fxRateMicros / 1e6)`, `vatCents = round(chfCents × bp / (10000 + bp))`, half up,
 once each. This is the rule of ADR
 20261118-chf-and-vat-amounts-are-derived-on-read-from-integer-micros-and-basis-points-rounded-once-half-up-and-never-stored,
-with the input changed from "rate in effect" to "copied rate" (ADR amendment A2).
+with the input changed from "rate in effect" to "copied rate" (ADR amendment A2, § ADRs).
 
 ### Authorization model
 
@@ -293,8 +293,9 @@ with the input changed from "rate in effect" to "copied rate" (ADR amendment A2)
 | 20260716-immutable-financial-audit-trail-refund, 20260722-refund-settings-append-only-self-auditing-store | Self-auditing append-only tables with raising triggers, in both services |
 | 20260720-mileage-rate-model-snapshot-admin-ui-composition | Snapshot at a lifecycle transition, here across a service boundary |
 | 20260720-mileage-rate-money-precision-integer-micros | Micros and basis points, one rounding |
-| The five 20261118 ADRs | Reused, and each amended (§ ADR candidates, A1 to A5) |
+| The five 20261118 ADRs | Reused, and each amended on 2026-11-19 (§ ADRs, A1 to A5) |
 | 20261113-railway-infrastructure-as-code | Service block in `.railway/railway.ts`, applied by a person |
+| 20261119-accounting-reference-data-belongs-to-accounting-api-…, 20261119-data-that-moves-from-one-service-…, 20261119-on-demand-outbound-work-that-a-provider-does-…  | Written from this plan (§ ADRs) |
 
 ### Trade-offs: chosen vs rejected
 
@@ -1085,7 +1086,7 @@ readings used are D10, D17, D18 and D27.
 | R5 | **Contract drift** between accounting-api's answers and refund-api's parser, since both are tested against fakes. | The shared-copy `accountingWire` (CI `shared-copies.yml`); contract tests on both sides; the e2e on the real path. |
 | R6 | **Timeouts compose badly**: Accounting's fetch outlasts Refund's deadline, so a reachable Accounting looks unreachable. | Consumer budget 6 s < 10 s, with a cross-package constant test. |
 | R7 | **The migration fails on a developer database** with hand-made odd rows, or the old guard function fires during the backfill. | The backfill writes only new columns; the function is replaced before the drop; CHECKs are `NOT VALID` then `VALIDATE` with named errors; the mig test runs on fixture data. |
-| R8 | **Natural keys stop being identities** if a later spec allows editing a number or code. | The spec forbids it (AC-1.12); the ADR candidate names it as an escalation trigger; the DB triggers forbid UPDATE. |
+| R8 | **Natural keys stop being identities** if a later spec allows editing a number or code. | The spec forbids it (AC-1.12); ADR 20261119-accounting-reference-data-belongs-to-accounting-api names it as an escalation trigger; the DB triggers forbid UPDATE. |
 | R9 | **Accounting changes between the pre-read and the commit** of an approval. | Allowed by AC-4.8 (the read is live, seconds old); the line records what was read; the audit holds the copied values. |
 | R10 | **A rate-pending line in a paid batch** whose rate never appears blocks that batch's export forever. | A manager can enter a rate for any completed month (AC-2.4 applies to a missing month); the blocker names the currency and month and links to it (AC-7.3). |
 | R11 | **The e2e stack gains a service**, so the global setup can fail for environmental reasons. | The health pre-check with a message naming the command; separate skip flags; AGENTS.md "Running locally" updated. |
@@ -1197,7 +1198,7 @@ Each is the safest option available on 2026-11-19. "Change" says what reversing 
 
 | Open question (spec) | Fallback the plan proceeds on | Where it lives |
 |---|---|---|
-| **A wrong rate found after approval** (re-rate approved lines of an unpaid batch?) | **No re-rating.** A copied rate never changes (fx write-once trigger); the rate is corrected in Accounting before approval, or the line is handled in the books. A yes later needs a spec, a privileged action and a trigger exception. | Trigger (c); ADR candidate 1 escalation trigger |
+| **A wrong rate found after approval** (re-rate approved lines of an unpaid batch?) | **No re-rating.** A copied rate never changes (fx write-once trigger); the rate is corrected in Accounting before approval, or the line is handled in the books. A yes later needs a spec, a privileged action and a trigger exception. | Trigger (c); an escalation trigger of ADR 20261119-accounting-reference-data-belongs-to-accounting-api |
 | **Limits** (20 characters, 2 decimals, 0 < rate < 1000 with 6 decimals, 60 s, 10 s) | As proposed. Each value is a named constant with its own test (D31); freshness is effectively 0 s (D2), within 60 s. | `limits.ts`, `rates.schemas.ts`, `accountingClient.ts` |
 | **Who enters WellD CH's initial accounts and VAT codes** | The operator runs `seed:welld-ch` from the list accounting signs off (the 20261118 seed draft, D1/D13 there) on the release day, before the Refund release; or accounting types them in the app. AC-7.5's outcome applies if neither happens. | Runbook steps 0, 6; amendment SA-1 |
 | **WellD Italia** (source, chart, VAT, managers) | Modelled, empty, no source, no currencies (D19). Per AC-3.3, members of the `accounting` role attributed to welld_it hold Accounting manage for WellD Italia, and admins hold it for both (R19). | `entities.ts` |
@@ -1228,11 +1229,16 @@ Readings the plan takes without asking for an amendment:
 - AC-8.2: "several entities" can only arise from an unconditioned grant, because the suite's entity
   condition covers the holder's own entity (ADR 20261117 point 4).
 
-## ADR candidates
+## ADRs
 
-New decisions that constrain future work (for the `adr-writer` agent):
+Written on 2026-11-19 under the owner's autonomous-run choice (status Accepted, review on the owner's
+return). Three new records and six amendments; each amendment is a dated "Amendment (2026-11-19)"
+section, and history is not rewritten.
 
-1. **Accounting reference data is owned by its own service.** A consumer:
+New ADRs (each file is `docs/adr/<id>.md`):
+
+1. **ADR candidate 1, now `20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it`.**
+   Accounting reference data is owned by its own service. A consumer:
    - reads it live over a read-only, purpose-scoped service credential (a sub allowlist);
    - keeps no copy of the lists across requests;
    - records on its own records, by the entity's natural key, a copy of exactly what it books at the
@@ -1241,29 +1247,38 @@ New decisions that constrain future work (for the `adr-writer` agent):
 
    The producer and the consumer share one wire-schema file. This constrains Inventory, CRM, Projects
    and supplier invoices as future consumers. Escalation triggers: an edit of a number or code, a
-   consumer needing writes, a volume that justifies a cache.
-2. **Moving a feature's data to another service before release is an additive migration** that
-   carries the data the source service keeps and drops what moved. An unreleased, applied migration is
-   still never edited.
-3. **A provider's on-demand outbound work runs on a budget strictly inside its consumer's deadline**
-   (6 s inside 10 s), and fetch triggers are derived server-side, never claimed by the caller. This
-   could instead be folded into amendment A1.
+   consumer needing writes, a volume that justifies a cache, a second consumer, a re-rating request.
+2. **ADR candidate 2, now `20261119-data-that-moves-from-one-service-to-another-before-the-release-moves-by-an-additive-migration-that-carries-what-the-source-keeps-and-drops-what-moved-and-an-applied-migration-is-never-edited`.**
+   Moving a feature's data to another service before release is an additive migration that carries the
+   data the source service keeps and drops what moved. An unreleased, applied migration is still never
+   edited.
+3. **ADR candidate 3, now `20261119-on-demand-outbound-work-that-a-provider-does-for-a-consumer-runs-on-a-budget-strictly-inside-the-deadline-of-the-consumer-and-what-triggered-it-is-derived-by-the-provider-never-claimed-by-the-caller`.**
+   A provider's on-demand outbound work runs on a budget strictly inside its consumer's deadline
+   (6 s inside 10 s), and fetch triggers are derived server-side, never claimed by the caller. **Kept as
+   its own record, not folded into A1.** Reason: the rule is about how deadlines nest between any
+   consumer and any provider and about who may name a trigger, and the rates are its first case only; an
+   amendment to a rates ADR would be found by someone changing rates, not by someone writing the next
+   provider that fetches on demand. Its failure shape (a working provider judged dead; a caller-claimed
+   label) differs from ADR candidate 1's, so folding it there would blur both. A1 records what changed
+   for the rates and points to it.
 
-Amendments to existing ADRs:
+Amendments to existing ADRs (each file is `docs/adr/<id>.md`, section "Amendment (2026-11-19)"):
 
-- **A1** — 20261118-monthly-exchange-rates-are-fetched-on-demand-…: it now lives in accounting-api,
+- **A1** — `20261118-monthly-exchange-rates-are-fetched-on-demand-…`: it now lives in accounting-api,
   per entity; "admin" → accounting manager; the triggers are `manager` and `consumer`, the consumer
   budget is 6 s, and the settings-view trigger is subsumed.
-- **A2** — 20261118-chf-and-vat-amounts-are-derived-on-read-…: the inputs are the line's copied rate
+- **A2** — `20261118-chf-and-vat-amounts-are-derived-on-read-…`: the inputs are the line's copied rate
   and VAT rate, not the rate in effect; a rate-pending line has no amount; Option B's "stale after a
   correction" no longer applies, because the rate is frozen by the spec.
-- **A3** — 20261118-accounting-classification-is-live-until-approval-…: copies by natural key replace
+- **A3** — `20261118-accounting-classification-is-live-until-approval-…`: copies by natural key replace
   the FKs; options come from Accounting; an Accounting outage refuses approval and classification;
   the guard locks copies and makes the rate write-once.
-- **A4** — 20261118-the-accounting-export-is-generated-on-request-…: the first successful export copies
+- **A4** — `20261118-the-accounting-export-is-generated-on-request-…`: the first successful export copies
   pending rates inside the export transaction, before the log row; the `accountingUnavailable` blocker
   is added; exports of fully copied batches never call Accounting.
-- **A5** — 20261118-receipt-numbers-come-from-a-row-locked-…: the release script reads Accounting
+- **A5** — `20261118-receipt-numbers-come-from-a-row-locked-…`: the release script reads Accounting
   first and writes nothing if it cannot.
-- **A6** — 20261117-an-app-is-reachable-through-a-capability-it-administers-…: a second derived entry
+- **A6** — `20261117-an-app-is-reachable-through-a-capability-it-administers-…`: a second derived entry
   (`accounting`), built from a `DERIVED_APPS` table.
+
+References elsewhere in this plan to "the ADR candidate" or "ADR candidate 1" mean the first record above.

@@ -106,6 +106,17 @@ Described above.
 - **Overflow.** Products stay far below 2^53 for realistic amounts, and `BigInt` is used regardless.
 - **A future total or a gross-from-net feature reusing these functions** by name. Mitigation: the hazards above, and the vectors file as the place to add its rule.
 
+## Amendment (2026-11-19) — the inputs are the line's copied rate and copied VAT rate, not the rate in effect
+
+Specs/20261119-accounting (plan amendment A2) changes where the inputs come from, not the arithmetic, the rounding or the rule that the figures are derived and never stored. The formulas, `amounts.ts` and the golden vectors are unchanged. To be read in place of the original wording:
+
+1. **Inputs.** After approval, `chfCents` is computed from the line's approved amount and the **rate copied onto the line** (`fxRateMicros`, with its month), and `vatCents` from the rounded CHF amount and the **VAT rate copied onto the line** (`vatRateBasisPoints`). Points 1, 2 and 4 of the Decision, where they say "the rate in effect" or "the frozen VAT code's rate", read: the copied rate and the copied VAT rate. The copies are written by approval, or for a rate that was not yet in effect, by the first successful export (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it).
+2. **Before approval** nothing is copied, so the review screen shows the rate in effect read live from Accounting, for information (`rateStatus: "in_effect"`), and the figure is not a fact until approval.
+3. **A rate-pending line has no amount.** A line approved while no rate was in effect has `chf.amountCents` and `vatAmountCents` null, `rateStatus: "pending"`, and the export is blocked until the rate is copied. This is point 5 of the Decision (a missing input is `null`, never a default) with the missing input now having two names, `missing` before approval and `pending` after. A third state, `unavailable`, means Accounting could not be read; it is `null` too, and never 0 or 1.
+4. **Option B's objection no longer applies as written.** "Stale after a rate correction" described a figure computed from the rate in effect. The rate is now frozen on the line by the spec (AC-5.3, AC-5.6), so a correction cannot move an approved line. Storing the two figures is still not chosen: the reason that remains is one computation in one module and no second source of truth for a figure the inputs fully determine.
+5. **Point 8 of the Decision, the accepted consequence, is narrowed.** After a rate correction, a later export of the same batch no longer differs on account of the rate, for any line that holds its copy. A later export can still differ because an unpaid line was reclassified (its VAT code or account changed) or because a pending rate was copied by the first export; the export log's hash shows both.
+6. **The escalation trigger "accounting requires the figures to be frozen once exported" is partly met by the inputs.** The rate and the VAT rate are frozen; the figures remain derived from them. If accounting asks for the figures themselves to be frozen, snapshot them at the transition, as for the classification.
+
 ## Escalation triggers
 
 This decision is revisited when any of these happens:

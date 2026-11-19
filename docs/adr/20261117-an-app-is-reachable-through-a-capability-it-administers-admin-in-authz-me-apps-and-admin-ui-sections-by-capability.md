@@ -93,6 +93,17 @@ Where else this shape appears:
 - **The `entity` condition covers the holder's own entity** (D6, R12): a person attributed to welld_ch cannot be given welld_it alone through a condition. Owner to confirm.
 - **`apps` derivation and the coverage function drift** if a second copy is written. Mitigation: one function, `adminAreaReachable`, built on the coverage function the routes use.
 
+## Amendment (2026-11-19) — a second derived entry, `accounting`, built from a table of derived apps
+
+Specs/20261119-accounting (plan amendment A6; decisions D6, D9, D17) adds the second case this ADR's Failure shape names ("another app administered through a narrower capability"). The decision does not change; it becomes a table. To be read in place of the original wording:
+
+1. **`DERIVED_APPS`.** `adminAreaReachable` becomes one row of a small table used by `GET /authz/me` and built on the same coverage function, `entityGrantFor`: `admin` is derived from `legal-entity:manage`; `accounting` is derived from `accounting:read` **or** `accounting:manage`. A row applies when the permission covers at least one entity for the caller. Each appended entry is presentation only, exactly as for `admin`. `/authz/resolve`, `/authz/app-access-check` and the directory's app filter derive neither, for the reason in point 1 of the Decision.
+2. **No `access` action for Accounting.** The accounting catalog declares `read` and `manage` only. A third `accounting:access` permission would be a capability that can drift from the two the spec names (a holder of `read` without `access` could not reach the page that the spec says `read` opens). The derived entry is therefore the only door to the tool, and the shell guard and Sidebar read `apps` as for every tool.
+3. **The server stays the authority,** as in point 3 of the Decision. accounting-api checks coverage on every route (403 with no coverage at all, 404 for an entity outside the coverage, 403 on a write without `manage`). `apps ∋ accounting` is a menu entry and never proof of a capability over a particular entity.
+4. **The browser still evaluates no condition.** The link from a Refund export blocker to Accounting's rates is decided by refund-api from the caller's resolved permissions (`accounting:read` or `manage` covering `welld_ch`), because the question is about WellD CH's month; the derived `apps` entry answers only "may this person open the tool at all". The two answers are different and are kept apart on purpose.
+5. **Two derivations of "covers an entity".** auth (for `/authz/me`) and accounting-api (for its routes) each compute coverage. The difference from this ADR's single function is that the two sit in different services; the rule is one set of shared test vectors run in both, and both fail closed on a condition they do not know (an unconditioned grant covers both entities, `{key: "entity", match: "user"}` covers the holder's own entity, anything else covers nothing).
+6. **Failure shape, extended.** The next tool whose capability is also its entrance gets a row in the table, not a new function. A row whose door is wider than its capability, or whose rooms are guarded only by the menu, is the shape named above.
+
 ## Compliance notes
 
 - GDPR / data-protection impact: none. No new personal data; the derivation reads grants the caller already holds.

@@ -118,6 +118,15 @@ Described above.
 - **Deadlock across two years** (R6). Mitigation: ascending lock order, the unique index as backstop, and the 20-fold concurrency loop.
 - **Triggers drift from `schema.prisma`** (R11). Mitigation: a `db.*.test.ts` for each trigger; migrations only through `migrate deploy`.
 
+## Amendment (2026-11-19) — the release script reads Accounting first and writes nothing if it cannot, and the approval reads it before the counter is locked
+
+Specs/20261119-accounting (plan amendment A5; decision D20 and the release scripts of the plan) changes the release procedure and the order inside the approval, not the numbering. The counter row, the lock order, the stored number, the immutability, the offsets and the gate stay. To be read in place of the original wording:
+
+1. **The release script reads Accounting first.** `accounting:release` (point 7's script) first reads WellD CH's reference data and the rates of the pairs its legacy lines need. If it cannot, it exits 2 with a message that nothing was numbered or classified, and writes nothing: no offset, no number, no classification, no marker. Only then does it run its one transaction: it seeds Refund's defaults and the designation from `accounting-defaults.welld-ch.json` by natural key, only where no row exists and only for entries active in the snapshot (others are skipped and reported); it applies `--offsets` as before; it backfills each legacy line through the same classify-and-number path as an approval (cause `release`: copies from the snapshot, the rate copied if in effect, else pending; numbering in expense-date order unchanged); it writes the marker. The report adds "rate pending: N lines" and "left unclassified". `--dry-run` rolls back and a rerun finds nothing to do.
+2. **The script no longer seeds the catalog.** The accounts and VAT codes are seeded by accounting-api's operator-run `seed:welld-ch` (or typed in the app) **before** the Refund release; the order of the runbook is Accounting seed, then Refund release. The gate of point 7 stands: approvals answer 409 `accounting_release_pending` until the marker is written.
+3. **Approval reads Accounting before its transaction.** Point 1's "issue inside the approval transaction" is unchanged, but the Accounting read that the freeze needs happens before the transaction opens (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it), so the `receipt_counter` lock is never held across an HTTP call. A refused approval (Accounting unreachable, 503, or `classification_missing`, 409) consumes no number, as in point 1.
+4. **The guard function is replaced** by the migration of ADR 20261119-data-that-moves-from-one-service-to-another-before-the-release-moves-by-an-additive-migration-that-carries-what-the-source-keeps-and-drops-what-moved-and-an-applied-migration-is-never-edited; point 5's receipt immutability is kept verbatim in it, and the counter trigger is untouched.
+
 ## Escalation triggers
 
 This decision is revisited when any of these happens:

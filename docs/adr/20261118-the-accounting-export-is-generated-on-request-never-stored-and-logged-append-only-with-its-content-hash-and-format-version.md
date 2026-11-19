@@ -118,6 +118,17 @@ Described above.
 - **Personal data in a downloaded file** that the system no longer controls. Mitigation: scope check, capability, no PII in the filename or logs (the request logger records the path only).
 - **Outbound fetch inside the export request** (R10). Mitigation: bounded; see the FX ADR.
 
+## Amendment (2026-11-19) — the first successful export copies pending rates in its own transaction, before the log row, and Accounting being unreachable is a blocker of its own
+
+Specs/20261119-accounting (plan amendment A4; decisions D12 and D14) changes where the export gets its inputs and adds one step to it. That the file is generated on request, never stored, logged before delivery with its hash and format version, deterministic, all-or-nothing, text-as-data and scoped to WellD CH stays. To be read in place of the original wording:
+
+1. **The file is built from the lines' copies.** Point 1's "always agrees with the current classification and rates" now means: with what each line holds. Rates no longer move under a line that has its copy (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-which-consumers-read-live-with-no-copy-kept-across-requests-copy-by-natural-key-onto-what-they-book-and-refuse-to-act-when-they-cannot-read-it); a line's account or VAT code can still change while unpaid.
+2. **The first successful export copies the pending rates.** A line approved while no rate was in effect is rate pending and blocks the export. When the rate has since appeared, the CSV route, after its blockers are clear, runs one transaction: lock the pending lines `FOR UPDATE`; write each rate copy where `fxRateMicros IS NULL` (a concurrent export may have won: the first writer wins); audit `line_rate_copied` per line with the exporter as actor; re-read the lines; build the CSV from the copies; **write the export-log row**; commit; only then send. A failed commit answers 500, no file and no copy: a refused export copies nothing, and a summary copies nothing either. The log row and the copy commit together, so "recorded before delivered" in point 2 of the Decision holds as before and the log row's hash covers the copied rates.
+3. **Point 8 is replaced.** A missing rate no longer gets an attempt made by refund-api. The export asks Accounting for the rates of its pending pairs; Accounting may fetch within the consumer's budget (ADR 20261119-on-demand-outbound-work-that-a-provider-does-for-a-consumer-runs-on-a-budget-strictly-inside-the-deadline-of-the-consumer-and-what-triggered-it-is-derived-by-the-provider-never-claimed-by-the-caller). A pair still missing is the blocker `missingRates`, never a 5xx.
+4. **A new blocker, `accountingUnavailable`.** When Accounting cannot be read and the batch has pending lines, the answer is the same 409 `accounting_export_blocked` with the same summary schema and `blockers.accountingUnavailable: true`, not a 503 and not a missing rate (AC-6.6): the user must be able to tell "no rate exists" from "we could not find out".
+5. **Batches that hold all their copies never call Accounting,** neither the summary nor the CSV.
+6. **Consequence for the hash.** Two downloads of one batch can differ in content only through an unpaid line's reclassification or through a first-export rate copy; the log's hash still shows it. A correction of a rate in Accounting changes no line that already holds its copy.
+
 ## Escalation triggers
 
 This decision is revisited when any of these happens:
