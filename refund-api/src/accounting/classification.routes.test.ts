@@ -953,6 +953,32 @@ describe("PUT classification: refusals (AC-4.3, AC-1.4, AC-1.8, AC-6.5, AC-6.10)
   });
 });
 
+describe("PUT classification: the line changes between the unlocked read and the lock", () => {
+  it("a value that matched at the first read but not under the lock is validated against a fresh read of Accounting, never written unchecked", async () => {
+    const r = await createRequest([{ stored: { ...OFFICE, ledgerAccountIsDefault: false } }]);
+    // Another writer holds the request row and moves the line to 5901 while our PUT (for 6101, which the line stores at first) waits.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const other = db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "refund_request" WHERE "id" = ${r.id} FOR UPDATE`;
+      await tx.refundLine.update({ where: { id: r.lineIds[0]! }, data: { accountNumber: "5901", accountName: "Treno" } });
+      await held;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    fake.resetCalls();
+    fake.setAccountActive("6101", false); // and by the time we are let in, Accounting no longer offers 6101
+    const waiting = put(r.id, r.lineIds[0]!, { accountNumber: "6101" });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    release();
+    await other;
+    const res = await waiting;
+    expect([res.status, res.body["code"]]).toEqual([422, "ledger_account_inactive"]);
+    expect((await lineRow(r.lineIds[0]!)).accountNumber).toBe("5901"); // the other writer's value stands, nothing of ours
+    expect(await auditOf(r.id)).toHaveLength(0);
+    expect(fake.reads.referenceData).toBeGreaterThanOrEqual(1); // it did read Accounting before deciding, outside the lock
+  });
+});
+
 describe("(AC-6.5, AC-6.2) PUT classification with Accounting unreachable", () => {
   for (const kind of ACCOUNTING_FAILURE_KINDS) {
     it(`${kind}: 503 accounting_unavailable with Retry-After, the line unchanged, no audit row`, async () => {

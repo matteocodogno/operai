@@ -69,6 +69,8 @@ mock.module("../lib/storage", () => ({
 // @ts-expect-error -- the query suffix is a runtime-only cache-buster
 const { classificationRouter } = (await import("./classification.routes?race")) as typeof import("./classification.routes");
 // @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const { decideRouter } = (await import("../review/decide.routes?race")) as typeof import("../review/decide.routes");
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
 const { batchDecideRouter } = (await import("../batches/decide.routes?race")) as typeof import("../batches/decide.routes");
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
@@ -93,6 +95,8 @@ const perms = (...actions: string[]): ResolveResponse => ({
   entity: null,
   jobTitle: null,
 });
+/** Reviews, sets approved totals and approves, but may NOT reclassify once approved. */
+const WITHOUT_RECLASSIFY = perms("review", "set-approved-total", "approve");
 const WITH_RECLASSIFY = perms("review", "set-approved-total", "approve", "reclassify");
 const as = (resolve: ResolveResponse) => {
   __resetAuthzCacheForTests();
@@ -141,6 +145,7 @@ const putAccount = (requestId: string, lineId: string, accountNumber: string) =>
     method: "PUT",
     body: JSON.stringify({ accountNumber }),
   });
+const approve = (requestId: string) => call(decideRouter, `/review/requests/${requestId}/approve`, { method: "POST" });
 const markPaid = (batchId: string) => call(batchDecideRouter, `/batches/${batchId}/mark-paid`, { method: "POST" });
 
 const sleep = (ms: number) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
@@ -220,8 +225,109 @@ const check = (round: number, observed: unknown, assertion: () => void) => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 
-// The two describes of PUT-vs-approve land with T20, which switches the approval to copies: until then the approval
-// still freezes the old foreign keys and the two worlds cannot be raced against each other.
+describe("PUT classification racing approve, a caller without request:reclassify (20 rounds)", () => {
+  it("the PUT lands before the freeze (and the approval freezes it, cause review) or is refused after it; never an override on an approved line", async () => {
+    as(WITHOUT_RECLASSIFY);
+    const seen = { before: 0, after: 0 };
+    for (let i = 0; i < ROUNDS; i++) {
+      const r = await submittedRequest(`owner-a-${i}`);
+      const [putDelay, approveDelay] = stagger(i);
+      const [put, approved] = await Promise.all([
+        sleep(putDelay).then(() => putAccount(r.requestId, r.lineId, "6101")),
+        sleep(approveDelay).then(() => approve(r.requestId)),
+      ]);
+      const observed = { put: [put.status, put.body?.["code"]], approve: approved.status };
+
+      check(i, observed, () => {
+        expect(approved.status).toBe(200);
+        expect([200, 403]).toContain(put.status);
+      });
+      const line = await db.refundLine.findUniqueOrThrow({ where: { id: r.lineId } });
+      const audit = await classifiedAudit(r.lineId);
+      check(i, { observed, audit }, () => {
+        // Never an override written after the freeze: no `post_approval` row exists for a caller who may not reclassify.
+        expect(audit.map((a) => a.cause)).not.toContain("post_approval");
+        expect(line.numberedAt).not.toBeNull();
+        if (put.status === 200) {
+          seen.before++;
+          expect(line).toMatchObject({ accountNumber: "6101", accountName: "Ufficio", ledgerAccountIsDefault: false });
+          expect(audit.map((a) => a.cause).sort()).toEqual(["approval", "review"]);
+          const freeze = audit.find((a) => a.cause === "approval")!;
+          expect(freeze.account.to?.number).toBe("6101");
+          expect(freeze.account.toDefault).toBe(false);
+        } else {
+          seen.after++;
+          expect(line).toMatchObject({ accountNumber: "5901", accountName: "Treno", ledgerAccountIsDefault: true });
+          expect(audit.map((a) => a.cause)).toEqual(["approval"]);
+          expect(audit[0]!.account.to?.number).toBe("5901");
+        }
+      });
+      // Whatever happened, the approved total, the status and the decision are what approve wrote.
+      const request = await db.refundRequest.findUniqueOrThrow({ where: { id: r.requestId } });
+      expect(request.status).toBe("approved");
+      expect(request.decidedByUserId).toBe("acct-1");
+    }
+    expect(seen.before + seen.after).toBe(ROUNDS);
+  });
+
+  it("(sanity of the classification of outcomes) a PUT strictly before is 200 and frozen; strictly after is 403 and not applied", async () => {
+    as(WITHOUT_RECLASSIFY);
+    const before = await submittedRequest("owner-before");
+    expect((await putAccount(before.requestId, before.lineId, "6101")).status).toBe(200);
+    expect((await approve(before.requestId)).status).toBe(200);
+    expect(await db.refundLine.findUniqueOrThrow({ where: { id: before.lineId } })).toMatchObject({ accountNumber: "6101", accountName: "Ufficio", ledgerAccountIsDefault: false });
+
+    const after = await submittedRequest("owner-after");
+    expect((await approve(after.requestId)).status).toBe(200);
+    const refused = await putAccount(after.requestId, after.lineId, "6101");
+    expect(refused.status).toBe(403);
+    expect(await db.refundLine.findUniqueOrThrow({ where: { id: after.lineId } })).toMatchObject({ accountNumber: "5901", accountName: "Treno", ledgerAccountIsDefault: true });
+  });
+});
+
+describe("PUT classification racing approve, a caller with request:reclassify (20 rounds)", () => {
+  it("is 200 on either side and the override always ends up stored; the cause and the approval's freeze row agree on which side it was", async () => {
+    as(WITH_RECLASSIFY);
+    const seen = { review: 0, post_approval: 0 };
+    for (let i = 0; i < ROUNDS; i++) {
+      const r = await submittedRequest(`owner-b-${i}`);
+      const [putDelay, approveDelay] = stagger(i);
+      const [put, approved] = await Promise.all([
+        sleep(putDelay).then(() => putAccount(r.requestId, r.lineId, "6101")),
+        sleep(approveDelay).then(() => approve(r.requestId)),
+      ]);
+      const line = await db.refundLine.findUniqueOrThrow({ where: { id: r.lineId } });
+      const audit = await classifiedAudit(r.lineId);
+      const observed = { put: put.status, approve: approved.status, causes: audit.map((a) => a.cause) };
+      check(i, observed, () => {
+        expect(approved.status).toBe(200);
+        expect(put.status).toBe(200);
+        expect(line).toMatchObject({ accountNumber: "6101", accountName: "Ufficio", ledgerAccountIsDefault: false });
+        expect(audit).toHaveLength(2);
+        const freeze = audit.find((a) => a.cause === "approval")!;
+        const change = audit.find((a) => a.cause !== "approval")!;
+        expect(freeze).toBeDefined();
+        expect(["review", "post_approval"]).toContain(change.cause);
+        if (change.cause === "review") {
+          // The change was in before the freeze, so the approval froze the override.
+          seen.review++;
+          expect(freeze.account.to?.number).toBe("6101");
+          expect(freeze.account.toDefault).toBe(false);
+          expect(change.account.from?.number).toBe("5901");
+        } else {
+          // The approval froze the default; the change then came from `reclassify`, from that frozen default.
+          seen.post_approval++;
+          expect(freeze.account.to?.number).toBe("5901");
+          expect(freeze.account.toDefault).toBe(true);
+          expect(change.account.from?.number).toBe("5901");
+          expect(change.account.fromDefault).toBe(true);
+        }
+        expect(change.account.to?.number).toBe("6101");
+      });
+    }
+    expect(seen.review + seen.post_approval).toBe(ROUNDS);
+  });
+});
 
 describe("PUT classification racing mark-paid (20 rounds)", () => {
   it("is saved before the payment, or 409 classification_locked after it; never a 5xx (that would be the database trigger)", async () => {

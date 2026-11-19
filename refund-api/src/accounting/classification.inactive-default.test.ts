@@ -5,7 +5,8 @@
  *
  * `resolveClassification` is ONE function behind the places that must never disagree: the review view, the approval, the
  * release backfill and the export blockers (T4's header). The unit vectors of `classification.test.ts` prove the function.
- * This file proves the PLACES, on the view and the PUT, with a fake Accounting: a type default that points at a
+ * This file proves the PLACES, on the view, the PUT and the approval, with a fake Accounting. (20261118 also proved the
+ * release and the export here; those two places are rewritten by T22 and T21, whose own suites carry that row.) a type default that points at a
  * deactivated or vanished entry is reported WITH its state and `isDefault: true` (never `null`), cannot be chosen again,
  * and comes back by itself on reactivation, while a copy already STORED on a line is kept and shown with its present
  * state. Real Postgres, jwt/authz mocked, no network.
@@ -30,6 +31,18 @@ process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-c
 const harness = setupTestAuth();
 await harness.init();
 
+// The approval notifies the owner (best effort); answered here, never sent.
+const { notifyTransport } = await import("../lib/notifyPost");
+const realTokens = notifyTransport.tokens;
+notifyTransport.tokens = { async getToken() { return "stub-service-jwt"; }, invalidate() {} };
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (async (url: string, init?: RequestInit) => {
+  if (typeof url === "string" && url.includes("/system/")) return new Response(JSON.stringify({ id: "n1" }), { status: 200 });
+  return originalFetch(url, init);
+}) as unknown as typeof fetch;
+
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const { decideRouter } = (await import("../review/decide.routes?inactive-default")) as typeof import("../review/decide.routes");
 // @ts-expect-error -- the query suffix is a runtime-only cache-buster
 const { classificationRouter } = (await import("./classification.routes?inactive-default")) as typeof import("./classification.routes");
 const { db } = await import("../lib/db");
@@ -74,6 +87,8 @@ beforeEach(async () => {
 afterAll(async () => {
   restoreAccounting();
   await truncateRefundTables();
+  notifyTransport.tokens = realTokens;
+  globalThis.fetch = originalFetch;
 });
 
 async function call(path: string, init: RequestInit = {}) {
@@ -87,6 +102,14 @@ async function call(path: string, init: RequestInit = {}) {
   return { status: res.status, body: (isJson && text ? JSON.parse(text) : null) as Record<string, any> | null };
 }
 const view = (requestId: string) => call(`/review/requests/${requestId}/accounting`);
+const approve = async (requestId: string) => {
+  const token = await harness.signToken({ sub: "acct-1", email: "acct-1@welld.ch" });
+  const res = await decideRouter.request(`/review/requests/${requestId}/approve`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  });
+  return { status: res.status, body: (await res.json()) as Record<string, any> };
+};
 const put = (requestId: string, lineId: string, body: object) =>
   call(`/review/requests/${requestId}/lines/${lineId}/classification`, { method: "PUT", body: JSON.stringify(body) });
 
@@ -207,5 +230,82 @@ describe("the review view and the PUT agree on a default Accounting no longer of
     expect(shown.classification).toMatchObject({ account: { number: "5901", state: "deactivated" }, vatCode: { code: "IMP81", state: "deactivated" } });
     expect(shown.vatAmountCents).toBe(156); // booked at 8.1 %: the copy's rate, not Accounting's present state
     expect(await lineOf(line.id)).toMatchObject({ accountNumber: "5901", vatCodeCopy: "IMP81" });
+  });
+});
+
+describe("the review view and the approval agree (AC-6.3)", () => {
+  it("a deactivated default account: the view shows it deactivated, and approving is refused naming the line, its date and its type", async () => {
+    const r = await submittedRequest([{ type: "travel_train" }, { type: "office_material" }]);
+    fake.setAccountActive("5901", false);
+
+    const shown = (await view(r.id)).body!["lines"] as any[];
+    expect(shown[0].classification.account).toMatchObject({ number: "5901", state: "deactivated" });
+
+    const refused = await approve(r.id);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({
+      code: "classification_missing",
+      lines: [{ lineId: r.lineIds[0], date: "2026-03-02", type: "travel_train", missing: ["account"] }],
+    });
+    expect((refused.body["lines"] as unknown[]).length).toBe(1);
+
+    // Nothing moved: still submitted, no number consumed, no counter row, no copy written.
+    expect((await db.refundRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe("submitted");
+    expect(await db.receiptCounter.count()).toBe(0);
+    for (const id of r.lineIds) {
+      const stored = await lineOf(id);
+      expect([stored.receiptNumber, stored.accountNumber, stored.vatCodeCopy]).toEqual([null, null, null]);
+    }
+  });
+
+  it("accounting names an account on the line: it approves, and the copy is what is booked, not the deactivated default", async () => {
+    const r = await submittedRequest([{ type: "travel_train" }]);
+    fake.setAccountActive("5901", false);
+    expect((await approve(r.id)).status).toBe(409);
+
+    expect((await put(r.id, r.lineIds[0]!, { accountNumber: "6101" })).status).toBe(200);
+    expect((await approve(r.id)).status).toBe(200);
+    expect(await lineOf(r.lineIds[0]!)).toMatchObject({
+      accountNumber: "6101",
+      ledgerAccountIsDefault: false,
+      vatCodeCopy: "IMP81",
+      vatCodeIsDefault: true,
+      receiptNumber: "MC26/001",
+    });
+  });
+
+  it("reactivated, the default is back and the approval books it as a default (AC-1.9)", async () => {
+    const r = await submittedRequest([{ type: "travel_train" }]);
+    fake.setAccountActive("5901", false);
+    expect((await approve(r.id)).status).toBe(409);
+    fake.setAccountActive("5901", true);
+    expect((await approve(r.id)).status).toBe(200);
+    expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", ledgerAccountIsDefault: true });
+  });
+
+  it("the same holds for a deactivated default VAT code, and for a deactivated foreign-currency designation", async () => {
+    const r = await submittedRequest([{ type: "travel_train" }, { type: "office_material", currency: "EUR" }]);
+    fake.setVatCodeActive("IMP81", false); // the type default of the CHF line
+    fake.setVatCodeActive("NOVAT", false); // the designation used by the EUR line
+    const refused = await approve(r.id);
+    expect(refused.status).toBe(409);
+    expect((refused.body["lines"] as any[]).map((l) => [l.lineId, l.missing])).toEqual([
+      [r.lineIds[0], ["vatCode"]],
+      [r.lineIds[1], ["vatCode"]],
+    ]);
+  });
+
+  it("a default deactivated AFTER the approval does not move the booked line (AC-5.3), and the line still shows it, deactivated", async () => {
+    const r = await submittedRequest([{ type: "travel_train" }]);
+    expect((await approve(r.id)).status).toBe(200);
+    fake.setAccountActive("5901", false);
+    fake.setVatCodeActive("IMP81", false);
+
+    const shown = (await view(r.id)).body!["lines"][0];
+    expect(shown.classification).toMatchObject({
+      account: { number: "5901", state: "deactivated" },
+      vatCode: { code: "IMP81", state: "deactivated" },
+    });
+    expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", vatCodeCopy: "IMP81" });
   });
 });

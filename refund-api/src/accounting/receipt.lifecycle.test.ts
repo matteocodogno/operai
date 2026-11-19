@@ -27,6 +27,7 @@ process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["NODE_ENV"] = "test";
 process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
+process.env["ACCOUNTING_INTERNAL_URL"] = "http://localhost:8089";
 process.env["SERVICE_CLIENT_ID"] = "refund-api";
 process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
 process.env["REFUND_S3_ENDPOINT"] = "https://test.s3.railway-eu-amsterdam.example.com";
@@ -94,19 +95,15 @@ const ACCOUNTING: ResolveResponse = {
 const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
 const OWNER = { id: "u-matteo", name: "Matteo Codogno", email: "matteo.codogno@welld.ch" };
 
-let office: { id: string };
-let train: { id: string };
-let imp81: { id: string };
-
 beforeEach(async () => {
   await truncateRefundTables();
   __resetAuthzCacheForTests();
   harness.setResolve(async () => ACCOUNTING);
-  office = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "6101", name: "Ufficio", ...by } });
-  train = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "5901", name: "Treno", ...by } });
-  imp81 = await db.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...by } });
-  await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "office_material", ledgerAccountId: office.id, vatCodeId: imp81.id, ...by } });
-  useFakeAccounting(createStandardFakeAccounting()); // T19: the reclassification below reads Accounting, by natural key
+  // specs/20261119-accounting (T20): approving and reclassifying read Accounting by natural key; Refund records the defaults.
+  useFakeAccounting(createStandardFakeAccounting());
+  await db.expenseTypeAccountingDefault.create({
+    data: { entity: "welld_ch", type: "office_material", accountNumber: "6101", accountName: "Spese materiale ufficio", vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by },
+  });
 });
 afterAll(async () => {
   restoreAccounting();

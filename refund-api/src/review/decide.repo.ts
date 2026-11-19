@@ -14,23 +14,30 @@
  * Every mutation writes an append-only audit row (audit.ts, AC-8.1) inside
  * the SAME transaction as the state change it records.
  *
- * specs/20261118-refund-accounting-export (T12): `approveTransaction` is also
- * where a line's accounting is settled. In the one transaction it (1) refuses
- * the approval until the release marker exists (409 `accounting_release_pending`,
- * plan D6), (2) does the CAS and the existing defaulting, (3) calls
- * `classifyAndNumber(cause: "approval")`, which resolves every non-rejected
- * WellD CH line, freezes it, and numbers every non-rejected line of either
- * entity. A line without an account or VAT code rolls the whole transaction
- * back (409 `classification_missing`), so a refused approval changes nothing
- * and consumes no number (AC-3.4, AC-4.3).
+ * specs/20261118-refund-accounting-export (T12), reworked by T20 of specs/20261119-accounting: approving is also where a
+ * line's accounting is settled, in this order (plan § Interaction flows, 6; D10, D11):
+ *   1. the cheap refusals: capability, self-approval, scope, status, every line rejected, and the release gate (409
+ *      `accounting_release_pending`, 20261118 D6);
+ *   2. when the request has at least ONE non-rejected WellD CH line (D10: literally, even if every one is already classified
+ *      by hand), Accounting is read, OUTSIDE any transaction so no row lock is held across an HTTP call: the reference data
+ *      and the rates in effect of EVERY foreign-currency WellD CH line of the request, rejected or not. That is a superset of
+ *      what the transaction resolves, because the line set is fixed while a request is submitted. Unreachable: 503
+ *      `accounting_unavailable`, nothing written (AC-6.1, AC-6.2). A request with only WellD Italia or rejected lines never
+ *      calls Accounting (AC-6.4);
+ *   3. one transaction: the CAS, the existing defaulting, and `classifyAndNumber(cause: "approval")`, which resolves every
+ *      non-rejected WellD CH line against what was read, COPIES the account, the VAT code and, when Accounting has one in
+ *      effect for the expense month, the exchange rate (otherwise the line is "rate pending", AC-5.6), and numbers every
+ *      non-rejected line of either entity. A line with no usable default and no hand copy rolls the whole transaction back
+ *      (409 `classification_missing`), so a refused approval changes nothing and consumes no number (AC-6.2, AC-6.3).
  */
 
 import { Data, Effect } from "effect";
-import { loadDefaultsSnapshotFk } from "../accounting/legacyFk";
-import { classifyAndNumber } from "../accounting/numbering.repo";
+import { accountingPort, AccountingUnavailableError, ratePairKey } from "../accounting/accountingClient";
+import { classifyAndNumber, type AccountingReads } from "../accounting/numbering.repo";
+import { monthOf, type MissingPart } from "../accounting/classification";
+import { referenceSnapshot } from "../accounting/referenceSnapshot";
 import { isAccountingReleased } from "../accounting/release";
-import type { MissingPartFk } from "../accounting/legacyFk";
-import type { ExpenseType } from "../lib/generated/prisma/enums";
+import type { Currency, ExpenseType } from "../lib/generated/prisma/enums";
 import { db } from "../lib/db";
 import { ownershipOwn, requestInScope, type EntityScope } from "../authz/conditions";
 import {
@@ -50,6 +57,9 @@ const toDbErr = (message: string) => (cause: unknown) =>
 interface ScopeCheckLine {
   readonly id: string;
   readonly entity: string;
+  readonly currency: Currency;
+  /** The expense date: its month picks the exchange rate (`@db.Date`, UTC midnight). */
+  readonly date: Date;
   readonly rejectionReason: string | null;
 }
 interface ScopeCheckRow {
@@ -72,7 +82,7 @@ function fetchScopeCheckRow(
         select: {
           status: true,
           ownerUserId: true,
-          lines: { select: { id: true, entity: true, rejectionReason: true } },
+          lines: { select: { id: true, entity: true, currency: true, date: true, rejectionReason: true } },
         },
       }),
     catch: toDbErr("Failed to look up refund request"),
@@ -205,7 +215,7 @@ export class ClassificationMissingError extends Data.TaggedError("Classification
     readonly lineId: string;
     readonly date: string;
     readonly type: ExpenseType;
-    readonly missing: readonly MissingPartFk[];
+    readonly missing: readonly MissingPart[];
   }[];
 }> {}
 
@@ -220,6 +230,7 @@ function approveTransaction(
   requestId: string,
   actorUserId: string,
   actorEmail: string,
+  reads: AccountingReads | null,
   actorName?: string,
 ): Effect.Effect<void, DatabaseError | ConflictError | ClassificationMissingError> {
   return Effect.tryPromise({
@@ -284,8 +295,15 @@ function approveTransaction(
           requestIds: [requestId],
           cause: "approval",
           actor: { userId: actorUserId, email: actorEmail },
-          snapshot: await loadDefaultsSnapshotFk(tx),
+          reference: reads,
         });
+        if (!numbered.ok && numbered.reason === "reference_missing") {
+          // A WellD CH line (or a pair) that the read of Accounting did not account for appeared between that read and the
+          // lock. Nothing was written; the caller retries and reads again. Never a classification from data not read.
+          throw new ApprovalRefused(
+            new ConflictError({ message: "Refund request status changed concurrently — retry" }),
+          );
+        }
         if (!numbered.ok) {
           throw new ApprovalRefused(
             new ClassificationMissingError({
@@ -317,6 +335,52 @@ function approveTransaction(
 }
 
 /**
+ * Steps 1 (last part) and 2 of the approval: the release gate, then the live read of Accounting, both BEFORE the
+ * transaction. `null` when no non-rejected WellD CH line needs Accounting (AC-6.4): no call at all.
+ */
+function prepareApproval(
+  line: readonly ScopeCheckLine[],
+): Effect.Effect<AccountingReads | null, DatabaseError | ConflictError | AccountingUnavailableError> {
+  return Effect.tryPromise({
+    try: async () => {
+      // D6 of 20261118: nothing is numbered before the release script has numbered the legacy lines (by expense date) and
+      // loaded any offsets. The marker only ever appears; the transaction checks it again, so this is an early refusal only.
+      if (!(await isAccountingReleased(db as unknown as Prisma.TransactionClient))) {
+        throw new ApprovalRefused(
+          new ConflictError({
+            message: "Accounting has not been released yet: approvals are refused until the release script has run",
+            code: "accounting_release_pending",
+          }),
+        );
+      }
+      return readAccountingForApproval(line);
+    },
+    catch: (cause) =>
+      cause instanceof ApprovalRefused
+        ? (cause.refusal as ConflictError)
+        : cause instanceof AccountingUnavailableError
+          ? cause
+          : toDbErr("Failed to read Accounting for the approval")(cause),
+  });
+}
+
+/**
+ * D10, D11: with at least one non-rejected WellD CH line, the reference data and the rates of EVERY foreign-currency WellD CH
+ * line (a superset of the non-rejected ones, because a reviewer may restore a rejected line between this read and the lock).
+ * One operation, one deadline, both reads in parallel. Any failure is `AccountingUnavailableError`.
+ */
+async function readAccountingForApproval(lines: readonly ScopeCheckLine[]): Promise<AccountingReads | null> {
+  const chLines = lines.filter((l) => l.entity === "welld_ch");
+  if (!chLines.some((l) => l.rejectionReason === null)) return null;
+  const operation = accountingPort().begin("approve");
+  const pairs = chLines
+    .filter((l) => l.currency !== "CHF")
+    .map((l) => ({ currency: l.currency as "EUR" | "USD" | "GBP", month: monthOf(l.date) }));
+  const [reference, answers] = await Promise.all([operation.referenceData("welld_ch"), operation.rates(pairs, "welld_ch")]);
+  return { snapshot: referenceSnapshot(reference), rates: new Map(answers.map((a) => [ratePairKey(a), a] as const)) };
+}
+
+/**
  * specs/20260721-self-approval-control, ADR 20260721-self-approval-condition-and-403-exception — approve gains a dedicated
  * ownership check the SHARED `ensureInScopeSubmittedRequest` gate deliberately
  * does NOT carry (US-4: the restriction is approve-only; putting it in the
@@ -337,7 +401,12 @@ export function approveRequest(
   actorName?: string,
 ): Effect.Effect<
   void,
-  DatabaseError | NotFoundError | ConflictError | SelfApprovalDeniedError | ClassificationMissingError
+  | DatabaseError
+  | NotFoundError
+  | ConflictError
+  | SelfApprovalDeniedError
+  | ClassificationMissingError
+  | AccountingUnavailableError
 > {
   return fetchScopeCheckRow(requestId).pipe(
     Effect.flatMap(
@@ -385,7 +454,11 @@ export function approveRequest(
         return Effect.succeed(row);
       },
     ),
-    Effect.flatMap(() => approveTransaction(requestId, actorUserId, actorEmail, actorName)),
+    Effect.flatMap((row) =>
+      prepareApproval(row.lines).pipe(
+        Effect.flatMap((reads) => approveTransaction(requestId, actorUserId, actorEmail, reads, actorName)),
+      ),
+    ),
   );
 }
 

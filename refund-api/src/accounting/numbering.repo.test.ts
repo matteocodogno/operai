@@ -10,35 +10,48 @@ import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { db } from "../lib/db";
 import type { Entity, ExpenseType, Currency } from "../lib/generated/prisma/enums";
 import { truncateRefundTables } from "../test-support/dbCleanup";
-import { classifyAndNumber, type ClassifyAndNumberInput, type DefaultsSnapshot } from "./numbering.repo";
+import { createFakeAccounting } from "../test-support/fakeAccounting";
+import { ratePairKey } from "./accountingClient";
+import { referenceSnapshot } from "./referenceSnapshot";
+import { classifyAndNumber, type AccountingReads, type ClassifyAndNumberInput } from "./numbering.repo";
 
 const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
 const actor = { userId: "acc-1", email: "acc@welld.ch" };
 
-let account: { id: string; number: string; name: string; active: boolean };
-let otherAccount: { id: string; number: string; name: string; active: boolean };
-let vat: { id: string; code: string; label: string; rateBasisPoints: number; active: boolean };
-let zeroVat: typeof vat;
-let snapshot: DefaultsSnapshot;
+/** What the caller read from Accounting before its transaction: the reference data and the rates of the foreign pairs. */
+let reference: AccountingReads;
+const fake = createFakeAccounting();
+
+/** Reads the fake the way the approve route does, so what is numbered is what Accounting says. */
+async function readReference(pairs: { currency: "EUR" | "USD" | "GBP"; month: string }[] = []): Promise<AccountingReads> {
+  const op = fake.begin("approve");
+  const [data, answers] = await Promise.all([op.referenceData(), op.rates(pairs)]);
+  return { snapshot: referenceSnapshot(data), rates: new Map(answers.map((a) => [ratePairKey(a), a] as const)) };
+}
 
 beforeEach(async () => {
   await truncateRefundTables();
-  const a = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "5901", name: "Treno", ...by } });
-  const b = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "6101", name: "Ufficio", ...by } });
-  const v = await db.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...by } });
-  const z = await db.vatCode.create({ data: { entity: "welld_ch", code: "NOVAT", label: "Senza IVA", rateBasisPoints: 0, ...by } });
-  account = { id: a.id, number: a.number, name: a.name, active: true };
-  otherAccount = { id: b.id, number: b.number, name: b.name, active: true };
-  vat = { id: v.id, code: v.code, label: v.label, rateBasisPoints: 810, active: true };
-  zeroVat = { id: z.id, code: z.code, label: z.label, rateBasisPoints: 0, active: true };
-  snapshot = {
-    defaults: {
-      travel_train: { account, vatCode: vat },
-      office_material: { account: otherAccount, vatCode: vat },
-      postal: { account: otherAccount, vatCode: null },
-    },
-    foreignCurrencyVatCode: zeroVat,
-  };
+  for (const a of ["5901", "6101"]) fake.removeAccount(a);
+  for (const v of ["IMP81", "NOVAT"]) fake.removeVatCode(v);
+  for (const c of ["EUR", "USD", "GBP"] as const) for (const m of ["2026-03", "2025-12", "2026-01"]) fake.removeRate(c, m);
+  fake.setAccount("5901", "Treno").setAccount("6101", "Ufficio").setVatCode("IMP81", "IVA 8.1%", 810).setVatCode("NOVAT", "Senza IVA", 0);
+  // Refund's recorded defaults (copies): train, office, postal (an account, no VAT code), NOVAT for foreign currencies.
+  const copy = (type: ExpenseType, accountNumber: string, accountName: string, withVat: boolean) =>
+    db.expenseTypeAccountingDefault.create({
+      data: {
+        entity: "welld_ch",
+        type,
+        accountNumber,
+        accountName,
+        ...(withVat ? { vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810 } : {}),
+        ...by,
+      },
+    });
+  await copy("travel_train", "5901", "Treno", true);
+  await copy("office_material", "6101", "Ufficio", true);
+  await copy("postal", "6101", "Ufficio", false);
+  await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", vatCode: "NOVAT", vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...by } });
+  reference = await readReference([{ currency: "EUR", month: "2026-03" }, { currency: "EUR", month: "2026-01" }, { currency: "EUR", month: "2025-12" }]);
 });
 afterAll(async () => {
   await truncateRefundTables();
@@ -52,9 +65,12 @@ interface LineSpec {
   rejected?: boolean;
   createdAt?: string;
   id?: string;
-  ledgerAccountId?: string;
+  /** A hand copy stored on the line (WellD CH only). */
+  accountNumber?: string;
+  accountName?: string;
   ledgerAccountIsDefault?: boolean;
-  numbered?: boolean;
+  /** A rate copy already on the line. */
+  fxRateMicros?: number;
 }
 
 async function makeRequest(
@@ -85,7 +101,10 @@ async function makeRequest(
         approvedTotalCents: 1000,
         ...(spec.createdAt ? { createdAt: new Date(spec.createdAt) } : {}),
         ...(spec.rejected ? { rejectionReason: "no", rejectedAt: new Date(), rejectedByUserId: "a", rejectedByEmail: "a@x" } : {}),
-        ...(spec.ledgerAccountId ? { ledgerAccountId: spec.ledgerAccountId, ledgerAccountIsDefault: spec.ledgerAccountIsDefault ?? false } : {}),
+        ...(spec.accountNumber
+          ? { accountNumber: spec.accountNumber, accountName: spec.accountName ?? "x", ledgerAccountIsDefault: spec.ledgerAccountIsDefault ?? false }
+          : {}),
+        ...(spec.fxRateMicros ? { fxRateMicros: spec.fxRateMicros, fxRateMonth: new Date(`${spec.date.slice(0, 7)}-01T00:00:00Z`), fxRateCopiedAt: new Date() } : {}),
       },
     });
     ids.push(line.id);
@@ -99,7 +118,7 @@ const run = (
   extra: Partial<ClassifyAndNumberInput> = {},
 ) =>
   db.$transaction((tx) =>
-    classifyAndNumber(tx, { owner, requestIds, cause: "approval", actor, snapshot, ...extra }),
+    classifyAndNumber(tx, { owner, requestIds, cause: "approval", actor, reference, ...extra }),
   );
 
 const numberOf = async (id: string) => (await db.refundLine.findUniqueOrThrow({ where: { id } })).receiptNumber;
@@ -201,7 +220,7 @@ describe("numbering", () => {
     const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1" }]);
     await expect(
       db.$transaction(async (tx) => {
-        const res = await classifyAndNumber(tx, { owner: { userId: "owner-1", name: "Matteo Codogno", email: "m@x.ch" }, requestIds: [r.request.id], cause: "approval", actor, snapshot });
+        const res = await classifyAndNumber(tx, { owner: { userId: "owner-1", name: "Matteo Codogno", email: "m@x.ch" }, requestIds: [r.request.id], cause: "approval", actor, reference });
         expect(res.ok).toBe(true);
         throw new Error("boom");
       }),
@@ -253,45 +272,65 @@ describe("numbering", () => {
   });
 });
 
-describe("classification freeze", () => {
-  it("(AC-3.5) freezes the live defaults with *IsDefault true and audits cause approval, from null to the value", async () => {
+describe("classification copy", () => {
+  it("(AC-5.1) copies the defaults from Accounting's current entries, with *IsDefault true, and audits cause approval, from null to the copies", async () => {
     const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", type: "travel_train" }]);
     const res = await run([r.request.id]);
     expect(res.ok && res.lines[0]!.missing).toEqual([]);
     const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
     expect(line).toMatchObject({
-      ledgerAccountId: account.id, ledgerAccountIsDefault: true, vatCodeId: vat.id, vatCodeIsDefault: true,
+      accountNumber: "5901", accountName: "Treno", ledgerAccountIsDefault: true,
+      vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: true,
+      fxRateMicros: null, fxRateMonth: null, fxRateCopiedAt: null,
     });
+    expect([line.ledgerAccountId, line.vatCodeId]).toEqual([null, null]); // the old foreign keys are never written
     const audit = await db.refundAuditEntry.findMany({ where: { lineId: "l1" }, orderBy: { createdAt: "asc" } });
     const classified = audit.find((a) => a.action === "line_classified")!;
     expect(classified).toMatchObject({ actorUserId: "acc-1", actorEmail: "acc@welld.ch", requestId: r.request.id });
     expect(classified.detail).toEqual({
+      v: 2,
       cause: "approval",
-      account: { from: null, to: { id: account.id, number: "5901" }, fromDefault: true, toDefault: true },
-      vatCode: { from: null, to: { id: vat.id, code: "IMP81", rateBasisPoints: 810 }, fromDefault: true, toDefault: true },
+      account: { from: null, to: { number: "5901", name: "Treno" }, fromDefault: true, toDefault: true },
+      vatCode: { from: null, to: { code: "IMP81", rateBasisPoints: 810 }, fromDefault: true, toDefault: true },
     });
     const assigned = audit.find((a) => a.action === "receipt_number_assigned")!;
     expect(assigned.detail).toEqual({ cause: "approval", receiptNumber: "MC26/001", year: 2026, seq: 1 });
   });
 
-  it("(AC-3.2) a foreign-currency line gets the designated VAT code, not the type's own", async () => {
+  it("(D11) a default takes the entry's name as Accounting holds it NOW, not the name Refund recorded", async () => {
+    fake.setAccount("5901", "Treno e bus");
+    reference = await readReference();
+    const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1" }]);
+    await run([r.request.id]);
+    expect(await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } })).toMatchObject({ accountNumber: "5901", accountName: "Treno e bus" });
+  });
+
+  it("(AC-3.2 of 20261118) a foreign-currency line gets the designated VAT code, not the type's own", async () => {
     const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", currency: "EUR" }]);
     await run([r.request.id]);
     const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
-    expect(line.vatCodeId).toBe(zeroVat.id);
-    expect(line.ledgerAccountId).toBe(account.id);
+    expect([line.vatCodeCopy, line.vatRateBasisPoints]).toEqual(["NOVAT", 0]);
+    expect(line.accountNumber).toBe("5901");
   });
 
-  it("keeps an accounting override and its flag, and audits it from the override", async () => {
-    const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", ledgerAccountId: otherAccount.id, ledgerAccountIsDefault: false }]);
+  it("keeps a hand copy and its flag exactly as stored, and audits it from the copy", async () => {
+    const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", accountNumber: "6101", accountName: "Ufficio (as copied)", ledgerAccountIsDefault: false }]);
     await run([r.request.id]);
     const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
-    expect(line).toMatchObject({ ledgerAccountId: otherAccount.id, ledgerAccountIsDefault: false, vatCodeIsDefault: true });
+    expect(line).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as copied)", ledgerAccountIsDefault: false, vatCodeIsDefault: true });
     const detail = (await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: "l1", action: "line_classified" } })).detail as any;
-    expect(detail.account).toMatchObject({ from: { id: otherAccount.id }, to: { id: otherAccount.id }, fromDefault: false, toDefault: false });
+    expect(detail.account).toMatchObject({ from: { number: "6101" }, to: { number: "6101", name: "Ufficio (as copied)" }, fromDefault: false, toDefault: false });
   });
 
-  it("(AC-3.4) a missing half refuses the approval, naming line, date and type, and writes nothing", async () => {
+  it("(AC-5.3) a hand copy whose entry was deactivated or has vanished is kept, not refused", async () => {
+    fake.setAccountActive("6101", false);
+    reference = await readReference();
+    const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", accountNumber: "6101", accountName: "Ufficio", ledgerAccountIsDefault: false }]);
+    expect((await run([r.request.id])).ok).toBe(true);
+    expect((await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } })).accountNumber).toBe("6101");
+  });
+
+  it("(AC-6.3) a missing half refuses the approval, naming line, date and type, and writes nothing", async () => {
     const r = await makeRequest("owner-1", [
       { date: "2026-03-05", id: "ok", type: "travel_train" },
       { date: "2026-03-02", id: "bad", type: "postal" }, // postal has an account but no VAT code
@@ -309,48 +348,149 @@ describe("classification freeze", () => {
     expect(await db.receiptCounter.count()).toBe(0);
     expect(await db.refundAuditEntry.count()).toBe(0);
     expect(await db.refundLine.count({ where: { receiptNumber: { not: null } } })).toBe(0);
-    expect(await db.refundLine.count({ where: { ledgerAccountId: { not: null } } })).toBe(0);
+    expect(await db.refundLine.count({ where: { accountNumber: { not: null } } })).toBe(0);
   });
 
-  it("(G3) a default pointing at an inactive account counts as missing", async () => {
-    snapshot = { ...snapshot, defaults: { travel_train: { account: { ...account, active: false }, vatCode: vat } } };
+  it("(AC-6.3, AC-4.5) a default whose entry is deactivated, no longer found, or unverifiable counts as missing", async () => {
     const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1" }]);
-    const res = await run([r.request.id]);
-    expect(res.ok === false && res.missing[0]!.missing).toEqual(["account"]);
+    fake.setAccountActive("5901", false);
+    reference = await readReference();
+    let res = await run([r.request.id]);
+    expect(res.ok === false && res.reason === "classification_missing" && res.missing[0]!.missing).toEqual(["account"]);
+    fake.setAccountActive("5901", true);
+    fake.removeVatCode("IMP81");
+    reference = await readReference();
+    res = await run([r.request.id]);
+    expect(res.ok === false && res.reason === "classification_missing" && res.missing[0]!.missing).toEqual(["vatCode"]);
+    expect(await db.refundLine.count({ where: { receiptNumber: { not: null } } })).toBe(0);
   });
 
-  it("(AC-2.7) a foreign-currency line with no usable designation is refused while a CHF line of the same type is not", async () => {
-    snapshot = { ...snapshot, foreignCurrencyVatCode: null };
+  it("(AC-6.3) a foreign-currency line with no usable designation is refused while a CHF line of the same type is not", async () => {
+    await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", ...by, createdAt: new Date(Date.now() + 1000) } }); // cleared
     const chf = await makeRequest("owner-1", [{ date: "2026-03-02", id: "chf" }]);
     const eur = await makeRequest("owner-2", [{ date: "2026-03-02", id: "eur", currency: "EUR" }]);
     expect((await run([chf.request.id])).ok).toBe(true);
     const res = await run([eur.request.id], { userId: "owner-2", name: "A B", email: "a.b@x.ch" });
-    expect(res.ok === false && res.missing[0]!.missing).toEqual(["vatCode"]);
+    expect(res.ok === false && res.reason === "classification_missing" && res.missing[0]!.missing).toEqual(["vatCode"]);
+  });
+
+  it("a WellD CH line with no read of Accounting is refused as reference_missing, never classified from nothing", async () => {
+    const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1" }]);
+    const res = await run([r.request.id], undefined, { reference: null });
+    expect(res).toEqual({ ok: false, reason: "reference_missing" });
+    expect(await db.receiptCounter.count()).toBe(0);
+    expect(await db.refundLine.count({ where: { receiptNumber: { not: null } } })).toBe(0);
+  });
+
+  it("(AC-6.4) a request with only WellD Italia lines needs no read of Accounting at all", async () => {
+    const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "it", entity: "welld_it", currency: "EUR" }]);
+    const res = await run([r.request.id], undefined, { reference: null });
+    expect(res.ok && res.lines[0]).toMatchObject({ lineId: "it", receiptNumber: "MC26/001", missing: null, fxRate: null, ratePending: false });
+    expect(await db.refundLine.findUniqueOrThrow({ where: { id: "it" } })).toMatchObject({ accountNumber: null, fxRateMicros: null });
+  });
+});
+
+describe("the exchange-rate copy (AC-5.1, AC-5.6)", () => {
+  it("a foreign line whose month has a rate in effect: the rate and its month are copied with the number, and the audit carries them", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    reference = await readReference([{ currency: "EUR", month: "2026-03" }]);
+    const r = await makeRequest("owner-1", [{ date: "2026-03-15", id: "l1", currency: "EUR" }]);
+    const res = await run([r.request.id]);
+    expect(res.ok && res.lines[0]).toMatchObject({ fxRate: { rateMicros: 924_600, month: "2026-03" }, ratePending: false });
+    const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
+    expect(line.fxRateMicros).toBe(924_600);
+    expect(line.fxRateMonth?.toISOString().slice(0, 10)).toBe("2026-03-01");
+    expect(line.fxRateCopiedAt).not.toBeNull();
+    const detail = (await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: "l1", action: "line_classified" } })).detail as any;
+    expect(detail.fxRate).toEqual({ rateMicros: 924_600, month: "2026-03" });
+  });
+
+  it("no rate in effect: the line is numbered and classified, left rate pending, and the audit says so", async () => {
+    fake.setRateMissing("EUR", "2026-03", "not_published");
+    reference = await readReference([{ currency: "EUR", month: "2026-03" }]);
+    const r = await makeRequest("owner-1", [{ date: "2026-03-15", id: "l1", currency: "EUR" }]);
+    const res = await run([r.request.id]);
+    expect(res.ok && res.lines[0]).toMatchObject({ receiptNumber: "MC26/001", fxRate: null, ratePending: true });
+    expect(await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } })).toMatchObject({ fxRateMicros: null, fxRateMonth: null, fxRateCopiedAt: null, accountNumber: "5901" });
+    const detail = (await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: "l1", action: "line_classified" } })).detail as any;
+    expect(detail.fxRate).toBe("pending");
+  });
+
+  it("a CHF line has no rate and no fxRate in its audit; each month gets its own rate", async () => {
+    fake.setRate("EUR", "2026-01", 900_000).setRate("EUR", "2026-03", 924_600);
+    reference = await readReference([{ currency: "EUR", month: "2026-01" }, { currency: "EUR", month: "2026-03" }]);
+    const r = await makeRequest("owner-1", [
+      { date: "2026-01-10", id: "jan", currency: "EUR" },
+      { date: "2026-03-10", id: "mar", currency: "EUR" },
+      { date: "2026-03-11", id: "chf", currency: "CHF" },
+    ]);
+    await run([r.request.id]);
+    expect((await db.refundLine.findUniqueOrThrow({ where: { id: "jan" } })).fxRateMicros).toBe(900_000);
+    expect((await db.refundLine.findUniqueOrThrow({ where: { id: "mar" } })).fxRateMicros).toBe(924_600);
+    expect((await db.refundLine.findUniqueOrThrow({ where: { id: "chf" } })).fxRateMicros).toBeNull();
+    const chfDetail = (await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: "chf", action: "line_classified" } })).detail as any;
+    expect(chfDetail).not.toHaveProperty("fxRate");
+  });
+
+  it("a WellD Italia foreign line is numbered but has neither a classification nor a rate, even if Accounting has the rate", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    reference = await readReference([{ currency: "EUR", month: "2026-03" }]);
+    const r = await makeRequest("owner-1", [{ date: "2026-03-15", id: "it", entity: "welld_it", currency: "EUR" }]);
+    await run([r.request.id]);
+    expect(await db.refundLine.findUniqueOrThrow({ where: { id: "it" } })).toMatchObject({ receiptNumber: "MC26/001", fxRateMicros: null, accountNumber: null });
+  });
+
+  it("a rate copy already on the line is never written again (write-once)", async () => {
+    fake.setRate("EUR", "2026-03", 930_000);
+    reference = await readReference([{ currency: "EUR", month: "2026-03" }]);
+    const r = await makeRequest("owner-1", [{ date: "2026-03-15", id: "l1", currency: "EUR", fxRateMicros: 924_600 }]);
+    await run([r.request.id]);
+    expect((await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } })).fxRateMicros).toBe(924_600);
+  });
+
+  it("a pair the caller did not read is reference_missing, not 'pending': Accounting not asked is not Accounting has none", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    // `reference` was read for 2026-03 only: a USD line is not accounted for
+    const r = await makeRequest("owner-1", [{ date: "2026-03-15", id: "usd", currency: "USD" }]);
+    const res = await run([r.request.id]);
+    expect(res).toEqual({ ok: false, reason: "reference_missing" });
+    expect(await db.receiptCounter.count()).toBe(0);
+    expect(await db.refundAuditEntry.count()).toBe(0);
+  });
+
+  it("the rate check stays inside the guard: a copy and the number in one UPDATE, locked afterwards on a paid request", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    reference = await readReference([{ currency: "EUR", month: "2026-03" }]);
+    const r = await makeRequest("owner-1", [{ date: "2026-03-15", id: "l1", currency: "EUR" }], { status: "paid" });
+    const res = await run([r.request.id], undefined, { cause: "release" });
+    expect(res.ok).toBe(true);
+    await expect(Promise.resolve(db.$executeRawUnsafe(`UPDATE "refund_line" SET "fxRateMicros" = 1 WHERE id = 'l1'`))).rejects.toThrow();
   });
 });
 
 describe("release cause", () => {
-  it("(AC-7.2) numbers a line it cannot fully classify, freezes the half that resolved, and reports what is missing", async () => {
+  it("(AC-7.2 of 20261118) numbers a line it cannot fully classify, copies the half that resolved, and reports what is missing", async () => {
     const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", type: "postal" }], { status: "approved" });
     const res = await db.$transaction((tx) =>
-      classifyAndNumber(tx, { owner: { userId: "owner-1", name: "Matteo Codogno", email: "m@x.ch" }, requestIds: [r.request.id], cause: "release", actor: { userId: "system:accounting-release", email: "system-accounting-release@welld.ch" }, snapshot }),
+      classifyAndNumber(tx, { owner: { userId: "owner-1", name: "Matteo Codogno", email: "m@x.ch" }, requestIds: [r.request.id], cause: "release", actor: { userId: "system:accounting-release", email: "system-accounting-release@welld.ch" }, reference }),
     );
     expect(res.ok && res.lines[0]).toMatchObject({ lineId: "l1", receiptNumber: "MC26/001", missing: ["vatCode"] });
     const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
-    expect(line).toMatchObject({ ledgerAccountId: otherAccount.id, ledgerAccountIsDefault: true, vatCodeId: null, vatCodeIsDefault: null });
+    expect(line).toMatchObject({ accountNumber: "6101", accountName: "Ufficio", ledgerAccountIsDefault: true, vatCodeCopy: null, vatRateBasisPoints: null, vatCodeIsDefault: null });
     const audit = await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: "l1", action: "line_classified" } });
     expect(audit.actorUserId).toBe("system:accounting-release");
     expect((audit.detail as any).cause).toBe("release");
+    expect((audit.detail as any).vatCode).toEqual({ from: null, to: null, fromDefault: true, toDefault: false });
   });
 
   it("(IS-1) classifies and numbers a legacy line of a PAID request: one statement, so the database guard allows it", async () => {
     const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1" }], { status: "paid" });
     const res = await db.$transaction((tx) =>
-      classifyAndNumber(tx, { owner: { userId: "owner-1", name: "Matteo Codogno", email: "m@x.ch" }, requestIds: [r.request.id], cause: "release", actor, snapshot }),
+      classifyAndNumber(tx, { owner: { userId: "owner-1", name: "Matteo Codogno", email: "m@x.ch" }, requestIds: [r.request.id], cause: "release", actor, reference }),
     );
     expect(res.ok).toBe(true);
     expect(await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } })).toMatchObject({
-      receiptNumber: "MC26/001", ledgerAccountId: account.id, vatCodeId: vat.id,
+      receiptNumber: "MC26/001", accountNumber: "5901", vatCodeCopy: "IMP81",
     });
     // and from now on it is locked
     // T16 (specs/20261119-accounting): guard v2 watches the COPY columns, no longer the old FK columns.

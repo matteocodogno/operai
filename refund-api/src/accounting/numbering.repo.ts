@@ -1,70 +1,73 @@
 /**
- * `classifyAndNumber`: the one place a line's classification is frozen and its
- * receipt number issued (T8, specs/20261118-refund-accounting-export; AC-3.5,
- * AC-4.3, AC-4.4, AC-4.5, AC-4.7, AC-4.10; ADR
- * 20261118-accounting-classification-is-live-until-approval-then-frozen-...,
- * ADR 20261118-receipt-numbers-come-from-a-row-locked-per-employee-and-year-
- * counter-inside-the-approval-transaction-...).
+ * `classifyAndNumber`: the one place a line's classification is copied and its receipt number issued (T8,
+ * specs/20261118-refund-accounting-export; reworked by T20, specs/20261119-accounting; AC-5.1, AC-5.6, AC-6.3, AC-7.1, AC-7.2,
+ * AC-4.3 to AC-4.5, AC-4.7, AC-4.10 of 20261118; ADR 20261118-accounting-classification-is-live-until-approval-then-frozen-...
+ * and ADR 20261118-receipt-numbers-come-from-a-row-locked-per-employee-and-year-counter-inside-the-approval-transaction-...,
+ * both as amended; ADR 20261119-accounting-reference-data-belongs-to-accounting-api-...).
  *
- * Used by the approve transaction (T12, `cause: "approval"`) and by the release
- * script (T11, `cause: "release"`). It always runs INSIDE the caller's
- * transaction: a rollback of the caller takes the counters, the numbers, the
- * frozen classification and the audit rows with it, so a refused or failed
- * approval consumes no number (AC-4.3).
+ * Used by the approve transaction (`cause: "approval"`) and, from T22, by the release script (`cause: "release"`). It always
+ * runs INSIDE the caller's transaction: a rollback of the caller takes the counters, the numbers, the copies and the audit rows
+ * with it, so a refused or failed approval consumes no number and records no copy (AC-6.2).
+ *
+ * It makes NO call to Accounting. The caller read Accounting BEFORE its transaction (no lock is held across an HTTP call, D11)
+ * and passes what it read: the reference data as a snapshot and the rates in effect of the request's foreign-currency pairs.
+ * The pair set it read is a superset of what is resolved here, because the line set is fixed while a request is submitted.
  *
  * What it does, in this order
- * 1. Locks the candidate lines (`FOR UPDATE`, by id) and re-reads them, so a
- *    line numbered by someone else a moment ago is skipped, never numbered twice.
- * 2. Resolves every WellD CH line through `resolveClassificationFk`, the same
- *    function the review view and the export use. With `cause: "approval"` a
- *    line that lacks an account or a VAT code REFUSES the whole call, before
- *    anything is written (AC-3.4). With `cause: "release"` such a line is
- *    still numbered and gets whatever half did resolve, the missing half stays
- *    empty and shows up as an export blocker (AC-7.2).
- * 3. Takes the per-(employee, year) counters, years ascending (the lock order
- *    that rules out a deadlock between two approvals of the same employee),
- *    each with ONE upsert that adds the number of lines of that year and
- *    returns the new `lastSeq`; the row stays locked until the caller commits
- *    (AC-4.10).
- * 4. Writes each line in ONE `UPDATE`: the classification and the receipt
- *    columns together. The database guard `refund_line_accounting_guard` locks
- *    the classification of a paid request only once the line has a receipt
- *    number, so the classification must never be written after the number in a
- *    separate statement (plan IS-1): on a legacy line of a paid request that
- *    second statement would be refused.
- * 5. Audits: `line_classified` (WellD CH lines) and `receipt_number_assigned`.
+ * 1. Locks the candidate lines (`FOR UPDATE`, by id) and re-reads them, so a line numbered by someone else a moment ago is
+ *    skipped, never numbered twice.
+ * 2. Resolves every WellD CH line through `resolveClassification`, the same function the review view and the export use, on
+ *    the copies stored on the line, Refund's recorded defaults and the snapshot. A stored copy is kept as it is; a half left on
+ *    a default takes the entry's CURRENT values from the snapshot, when the entry is active (D11). With `cause: "approval"`
+ *    a line that has nothing bookable for a half (no default, or a default that is deactivated, not found or unverifiable)
+ *    REFUSES the whole call, before anything is written (AC-6.3). With `cause: "release"` such a line is still numbered and
+ *    gets whatever half did resolve, the missing half stays empty and shows up as an export blocker (AC-7.2 of 20261118).
+ * 3. Takes the per-(employee, year) counters, years ascending (the lock order that rules out a deadlock between two approvals
+ *    of the same employee), each with ONE upsert that adds the number of lines of that year and returns the new `lastSeq`;
+ *    the row stays locked until the caller commits (AC-4.10).
+ * 4. Writes each line in ONE `UPDATE`: the copies, the exchange-rate copy and the receipt columns together. The database
+ *    guard `refund_line_accounting_guard` locks the copies of a paid request only once the line has a receipt number, so the
+ *    copies must never be written after the number in a separate statement (IS-1): on a legacy line of a paid request that
+ *    second statement would be refused. The rate is copied here when Accounting has one in effect for the line's expense
+ *    month; otherwise the line stays "rate pending" and the first export copies it (AC-5.6). A rate copy already on the line
+ *    is never written again (write-once).
+ * 5. Audits: `line_classified` (WellD CH lines, detail v2: the copies from and to, and `fxRate` for a foreign-currency line)
+ *    and `receipt_number_assigned`.
  *
- * Numbering order is the expense date, then the line's `createdAt`, then its id
- * (AC-4.4), across all the lines of one call. Lines of two years are numbered
- * in two independent sequences (AC-4.5). WellD Italia lines are numbered like
- * any other (AC-4.1) but never classified (AC-3.9); a rejected line is neither.
+ * Numbering order is the expense date, then the line's `createdAt`, then its id (AC-4.4 of 20261118), across all the lines
+ * of one call. Lines of two years are numbered in two independent sequences (AC-4.5). WellD Italia lines are numbered like any
+ * other (AC-4.1) but never classified (AC-4.9); a rejected line is neither.
  */
 
 import type { Prisma } from "../lib/generated/prisma/client";
 import type { Entity, ExpenseType } from "../lib/generated/prisma/enums";
-import { writeAuditEntry } from "../requests/audit";
-import { loadActiveFlags } from "./catalog.repo";
+import { writeAuditEntry, type AuditFxRate, type ClassifiedCause, type LineClassifiedDetail } from "../requests/audit";
+import { ratePairKey } from "./accountingClient";
+import type { RatePairWire } from "./accountingWire";
 import {
-  resolveClassificationFk,
-  type AccountRefFk,
-  type ClassificationFk,
-  type MissingPartFk,
-  type TypeDefaultsByTypeFk,
-  type VatCodeRefFk,
-} from "./legacyFk";
+  classifiableInput,
+  monthOf,
+  monthStart,
+  resolveClassification,
+  type Classification,
+  type MissingPart,
+} from "./classification";
+import { loadRecordedDefaults } from "./defaults.repo";
+import type { ReferenceSnapshot } from "./referenceSnapshot";
 import { formatReceiptNumber, initials } from "./receiptNumber";
-
-/** The live defaults a classification is resolved against: the type defaults and the foreign-currency VAT code, each with its current `active`. */
-export interface DefaultsSnapshot {
-  readonly defaults: TypeDefaultsByTypeFk;
-  readonly foreignCurrencyVatCode: VatCodeRefFk | null;
-}
 
 export type NumberingCause = "approval" | "release";
 
 export interface Actor {
   readonly userId: string;
   readonly email: string;
+}
+
+/** What the caller read from Accounting before its transaction (D11). */
+export interface AccountingReads {
+  readonly snapshot: ReferenceSnapshot;
+  /** The rate in effect of each (currency, month) pair of the request's foreign-currency WellD CH lines, by `ratePairKey`. */
+  readonly rates: ReadonlyMap<string, RatePairWire>;
 }
 
 export interface ClassifyAndNumberInput {
@@ -74,8 +77,13 @@ export interface ClassifyAndNumberInput {
   readonly requestIds: readonly string[];
   readonly cause: NumberingCause;
   readonly actor: Actor;
-  readonly snapshot: DefaultsSnapshot;
-  /** Only lines of these entities are handled; the release script passes `["welld_ch"]` (AC-7.3). Default: all. */
+  /**
+   * What was read from Accounting, or `null` when the caller knows that no WellD CH line is to be classified (a request with
+   * only WellD Italia or rejected lines never calls Accounting, AC-6.4). A WellD CH line met with `null` here is a refusal
+   * (`reference_missing`), never a guess.
+   */
+  readonly reference: AccountingReads | null;
+  /** Only lines of these entities are handled; the release script passes `["welld_ch"]` (AC-7.3 of 20261118). Default: all. */
   readonly entities?: readonly Entity[];
 }
 
@@ -85,7 +93,7 @@ export interface MissingLine {
   /** `YYYY-MM-DD` */
   readonly date: string;
   readonly type: ExpenseType;
-  readonly missing: readonly MissingPartFk[];
+  readonly missing: readonly MissingPart[];
 }
 
 export interface NumberedLine {
@@ -96,19 +104,28 @@ export interface NumberedLine {
   readonly year: number;
   readonly seq: number;
   /** `null` for a WellD Italia line. `missing` is empty when the line is fully classified. */
-  readonly missing: readonly MissingPartFk[] | null;
+  readonly missing: readonly MissingPart[] | null;
+  /** The exchange-rate copy this call wrote: `null` for a CHF line, a WellD Italia line, or a line left "rate pending". */
+  readonly fxRate: { readonly rateMicros: number; readonly month: string } | null;
+  /** `true` for a foreign-currency WellD CH line that ends with no rate copy: it is "rate pending" (AC-5.6). */
+  readonly ratePending: boolean;
 }
 
 export type ClassifyAndNumberResult =
   | { readonly ok: true; readonly lines: readonly NumberedLine[] }
   /** `cause: "approval"` only: nothing was written. */
-  | { readonly ok: false; readonly reason: "classification_missing"; readonly missing: readonly MissingLine[] };
+  | { readonly ok: false; readonly reason: "classification_missing"; readonly missing: readonly MissingLine[] }
+  /**
+   * A WellD CH line was found that the caller's read of Accounting did not account for (it appeared between the read and the
+   * lock): nothing was written and the caller retries from the start. Never a classification from data not read.
+   */
+  | { readonly ok: false; readonly reason: "reference_missing" };
 
 const isoDate = (date: Date): string => date.toISOString().slice(0, 10);
 
-const accountSummary = (a: Pick<AccountRefFk, "id" | "number"> | null) => (a ? { id: a.id, number: a.number } : null);
-const vatSummary = (v: Pick<VatCodeRefFk, "id" | "code" | "rateBasisPoints"> | null) =>
-  v ? { id: v.id, code: v.code, rateBasisPoints: v.rateBasisPoints } : null;
+const accountSummary = (a: { number: string; name: string } | null) => (a ? { number: a.number, name: a.name } : null);
+const vatSummary = (v: { code: string; rateBasisPoints: number } | null) =>
+  v ? { code: v.code, rateBasisPoints: v.rateBasisPoints } : null;
 
 export async function classifyAndNumber(
   tx: Prisma.TransactionClient,
@@ -142,12 +159,14 @@ export async function classifyAndNumber(
       entity: true,
       currency: true,
       createdAt: true,
-      ledgerAccountId: true,
+      rejectionReason: true,
+      accountNumber: true,
+      accountName: true,
       ledgerAccountIsDefault: true,
-      vatCodeId: true,
+      vatCodeCopy: true,
+      vatRateBasisPoints: true,
       vatCodeIsDefault: true,
-      ledgerAccount: { select: { id: true, number: true, name: true } },
-      vatCode: { select: { id: true, code: true, label: true, rateBasisPoints: true } },
+      fxRateMicros: true,
     },
   });
   lines.sort(
@@ -159,37 +178,29 @@ export async function classifyAndNumber(
   if (lines.length === 0) return { ok: true, lines: [] };
 
   // ── 2. Resolve ───────────────────────────────────────────────────────────
-  const accountFlags = await loadActiveFlags(
-    tx,
-    "ledger_account",
-    lines.flatMap((l) => (l.ledgerAccountId ? [l.ledgerAccountId] : [])),
-  );
-  const vatFlags = await loadActiveFlags(
-    tx,
-    "vat_code",
-    lines.flatMap((l) => (l.vatCodeId ? [l.vatCodeId] : [])),
-  );
+  const classifiesSomething = lines.some((l) => l.entity === "welld_ch");
+  if (classifiesSomething && input.reference === null) return { ok: false, reason: "reference_missing" };
+  // Refund's own recorded defaults, read inside the transaction (they are Refund's rows); Accounting was read before it.
+  const recorded = classifiesSomething ? await loadRecordedDefaults(tx) : { defaults: {}, foreignCurrencyVatCode: null };
 
-  const resolved = new Map<string, ClassificationFk | null>();
+  const resolved = new Map<string, Classification | null>();
   const missingLines: MissingLine[] = [];
   for (const line of lines) {
-    const classification = resolveClassificationFk(
-      {
-        entity: line.entity,
-        currency: line.currency,
-        type: line.type,
-        rejected: false,
-        ledgerAccount: line.ledgerAccount
-          ? { ...line.ledgerAccount, active: accountFlags.get(line.ledgerAccount.id) ?? true }
-          : null,
-        ledgerAccountIsDefault: line.ledgerAccountIsDefault,
-        vatCode: line.vatCode ? { ...line.vatCode, active: vatFlags.get(line.vatCode.id) ?? true } : null,
-        vatCodeIsDefault: line.vatCodeIsDefault,
-      },
-      input.snapshot.defaults,
-      input.snapshot.foreignCurrencyVatCode,
-    );
+    const classification =
+      input.reference === null
+        ? null
+        : resolveClassification(classifiableInput(line), recorded.defaults, recorded.foreignCurrencyVatCode, input.reference.snapshot);
     resolved.set(line.id, classification);
+    // A foreign-currency line to copy a rate for must have its pair among the answers the caller read: "Accounting was not
+    // asked" is never "Accounting has no rate" (that would leave a line pending that had one).
+    if (
+      classification !== null &&
+      line.currency !== "CHF" &&
+      line.fxRateMicros === null &&
+      !input.reference?.rates.has(ratePairKey({ currency: line.currency, month: monthOf(line.date) }))
+    ) {
+      return { ok: false, reason: "reference_missing" };
+    }
     if (classification !== null && classification.missing.length > 0) {
       missingLines.push({
         lineId: line.id,
@@ -233,6 +244,21 @@ export async function classifyAndNumber(
     const receiptNumber = formatReceiptNumber(initialsOfOwner, year, seq);
     const classification = resolved.get(line.id) ?? null;
 
+    // The rate of a foreign-currency line of WellD CH: copied when Accounting has one in effect for the expense month, else
+    // the line is "rate pending" (AC-5.1, AC-5.6). It is written once: a copy already there is never replaced.
+    let fxCopy: { rateMicros: number; month: string } | null = null;
+    let ratePending = false;
+    if (classification !== null && line.currency !== "CHF") {
+      if (line.fxRateMicros !== null) {
+        // Already copied (cannot happen on an unnumbered line, but the rule is the same): nothing to write.
+      } else {
+        const month = monthOf(line.date);
+        const answer = input.reference?.rates.get(ratePairKey({ currency: line.currency, month }));
+        if (answer?.status === "in_effect") fxCopy = { rateMicros: answer.rateMicros, month };
+        else ratePending = true;
+      }
+    }
+
     await tx.refundLine.update({
       where: { id: line.id },
       data: {
@@ -243,37 +269,47 @@ export async function classifyAndNumber(
         numberedAt,
         ...(classification
           ? {
-              ledgerAccountId: classification.account?.id ?? null,
-              ledgerAccountIsDefault: classification.account ? classification.accountIsDefault : null,
-              vatCodeId: classification.vatCode?.id ?? null,
-              vatCodeIsDefault: classification.vatCode ? classification.vatCodeIsDefault : null,
+              accountNumber: classification.bookable.account?.number ?? null,
+              accountName: classification.bookable.account?.name ?? null,
+              ledgerAccountIsDefault: classification.bookable.account ? classification.accountIsDefault : null,
+              vatCodeCopy: classification.bookable.vatCode?.code ?? null,
+              vatRateBasisPoints: classification.bookable.vatCode?.rateBasisPoints ?? null,
+              vatCodeIsDefault: classification.bookable.vatCode ? classification.vatCodeIsDefault : null,
             }
           : {}),
+        ...(fxCopy ? { fxRateMicros: fxCopy.rateMicros, fxRateMonth: monthStart(fxCopy.month), fxRateCopiedAt: numberedAt } : {}),
       },
     });
 
     if (classification) {
+      const cause: ClassifiedCause = input.cause;
+      const fxRate: AuditFxRate | undefined =
+        line.currency === "CHF" ? undefined : fxCopy ? fxCopy : line.fxRateMicros !== null ? undefined : "pending";
+      const stored = classifiableInput(line);
+      const detail: LineClassifiedDetail = {
+        v: 2,
+        cause,
+        account: {
+          from: accountSummary(stored.account),
+          to: accountSummary(classification.bookable.account),
+          fromDefault: stored.account === null ? true : line.ledgerAccountIsDefault === true,
+          toDefault: classification.bookable.account ? classification.accountIsDefault : false,
+        },
+        vatCode: {
+          from: vatSummary(stored.vatCode),
+          to: vatSummary(classification.bookable.vatCode),
+          fromDefault: stored.vatCode === null ? true : line.vatCodeIsDefault === true,
+          toDefault: classification.bookable.vatCode ? classification.vatCodeIsDefault : false,
+        },
+        ...(fxRate !== undefined ? { fxRate } : {}),
+      };
       await writeAuditEntry(tx, {
         requestId: line.requestId,
         lineId: line.id,
         actorUserId: input.actor.userId,
         actorEmail: input.actor.email,
         action: "line_classified",
-        detail: {
-          cause: input.cause,
-          account: {
-            from: accountSummary(line.ledgerAccount),
-            to: accountSummary(classification.account),
-            fromDefault: line.ledgerAccount === null ? true : line.ledgerAccountIsDefault === true,
-            toDefault: classification.accountIsDefault,
-          },
-          vatCode: {
-            from: vatSummary(line.vatCode),
-            to: vatSummary(classification.vatCode),
-            fromDefault: line.vatCode === null ? true : line.vatCodeIsDefault === true,
-            toDefault: classification.vatCodeIsDefault,
-          },
-        },
+        detail: detail as unknown as Record<string, unknown>,
       });
     }
     await writeAuditEntry(tx, {
@@ -293,6 +329,8 @@ export async function classifyAndNumber(
       year,
       seq,
       missing: classification ? classification.missing : null,
+      fxRate: fxCopy,
+      ratePending,
     });
   }
   return { ok: true, lines: out };

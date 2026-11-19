@@ -65,6 +65,8 @@ export type AccountingFailureKind = (typeof ACCOUNTING_FAILURE_KINDS)[number];
  * nothing about the peer (AC-6.10).
  */
 export class AccountingUnavailableError extends Error {
+  /** The discriminator of the Effect errors of the approval pipeline (`approveRequest` fails with it as a typed error). */
+  readonly _tag = "AccountingUnavailableError" as const;
   readonly kind: AccountingFailureKind;
   constructor(kind: AccountingFailureKind) {
     super("Accounting cannot be read");

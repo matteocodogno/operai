@@ -22,7 +22,7 @@
  * 3. BACKFILL: every non-rejected WellD CH line of an approved or paid request
  *    that has no number is classified with the current defaults and numbered,
  *    per employee, by expense date, then creation time, then id
- *    (`classifyAndNumber`, cause `release`, actor `system:accounting-release`;
+ *    (`classifyAndNumberFk`, cause `release`, actor `system:accounting-release`;
  *    AC-7.1). A line whose account or VAT code cannot be resolved is still
  *    numbered and keeps the half that did resolve; what is missing is listed in
  *    the report and blocks its export until accounting sets it (AC-7.2).
@@ -53,8 +53,7 @@ import { db } from "../src/lib/db";
 import type { Prisma } from "../src/lib/generated/prisma/client";
 import { ExpenseType } from "../src/lib/generated/prisma/enums";
 import { CATALOG_ENTITY, loadActiveFlags, percentToBasisPoints } from "../src/accounting/catalog.repo";
-import { FOREIGN_CURRENCY_VAT_CODE_KEY, loadDefaultsSnapshotFk } from "../src/accounting/legacyFk";
-import { classifyAndNumber } from "../src/accounting/numbering.repo";
+import { classifyAndNumberFk, FOREIGN_CURRENCY_VAT_CODE_KEY, loadDefaultsSnapshotFk } from "../src/accounting/legacyFk";
 import { initials } from "../src/accounting/receiptNumber";
 import { isAccountingReleased, RELEASE_MARKER_KEY } from "../src/accounting/release";
 import {
@@ -469,7 +468,7 @@ async function backfillLegacyLines(tx: Tx): Promise<{
     const latest = [...ownerRequests].sort(
       (a, b) => (b.submittedAt ?? b.createdAt).getTime() - (a.submittedAt ?? a.createdAt).getTime(),
     )[0]!;
-    const result = await classifyAndNumber(tx, {
+    const result = await classifyAndNumberFk(tx, {
       owner: { userId: ownerUserId, name: latest.ownerName, email: latest.ownerEmail },
       requestIds: ownerRequests.map((r) => r.id),
       cause: "release",
@@ -477,7 +476,7 @@ async function backfillLegacyLines(tx: Tx): Promise<{
       snapshot,
       entities: ["welld_ch"],
     });
-    if (!result.ok) throw new Error("classifyAndNumber refused a release call"); // unreachable: only `approval` refuses
+    if (!result.ok) throw new Error("classifyAndNumberFk refused a release call"); // unreachable: only `approval` refuses
 
     const details = await tx.refundLine.findMany({
       where: { id: { in: result.lines.map((l) => l.lineId) } },

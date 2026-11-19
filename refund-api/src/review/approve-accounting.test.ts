@@ -1,24 +1,24 @@
 /**
- * What approving a request does for accounting (T12, specs/20261118-refund-
- * accounting-export): the release gate, the classification check and freeze,
- * the receipt numbers, the two new 409 codes.
+ * What approving a request does for accounting (T12, specs/20261118-refund-accounting-export; reworked by T20,
+ * specs/20261119-accounting): the release gate, the Accounting pre-read, the copies, the exchange-rate copy or "rate
+ * pending", the receipt numbers and the refusals.
  *
- * Real Postgres, jwt/authz mocked (`test-support/testAuth.ts`), the router under
- * test is `decideRouter`. The plan's rows covered here:
- *   AC-2.3  a frozen classification ignores later changes of the defaults
- *   AC-3.4  `classification_missing`: nothing changes, no number is consumed
- *           (incl. an inactive default account, an unset or inactive
- *           foreign-currency VAT code with a CHF line of the same type approving)
- *   AC-3.5  the freeze records cause `approval`; defaults changed afterwards do not move it
- *   AC-3.9  an IT-only request approves with no defaults; IT lines are never classified
- *   AC-4.1  every non-rejected line is numbered, WellD Italia lines too
- *   AC-4.2  initials, year, three digits
- *   AC-4.3  contiguous per employee and year; a refused approval consumes nothing
- *   AC-4.4  numbered by expense date, then createdAt, then id
- *   AC-4.5  two years in one request are two sequences
- *   AC-4.6  two employees with the same initials each start at 001
- *   AC-4.10 parallel approvals of one employee: distinct, contiguous (20 rounds)
- *   D6      `accounting_release_pending` until the marker exists
+ * Real Postgres, jwt/authz mocked (`test-support/testAuth.ts`), a FAKE `AccountingPort` (no network); the router under test
+ * is `decideRouter`. The plan's rows covered here:
+ *   AC-5.1  copies: defaults from the fake, a hand copy unchanged, the rate and its month, nothing on a rejected line;
+ *           `line_classified` cause `approval` carries the copied values and `fxRate`
+ *   AC-5.3  a frozen copy ignores later changes in Accounting and of the defaults
+ *   AC-5.6  a foreign line with no rate in effect approves, "rate pending"
+ *   AC-6.1  Accounting unreachable (each kind) with a non-rejected CH line, even one already classified by hand: 503
+ *           `accounting_unavailable` with `Retry-After`
+ *   AC-6.2  after each refusal: still submitted, no number, no counter row, no copy, no decision, no audit; a later
+ *           approval succeeds
+ *   AC-6.3  `classification_missing` on a type without a default, a deactivated or vanished default, an unusable designation;
+ *           with Accounting also unreachable, AC-6.1 first
+ *   AC-6.4  an IT-only request, and one whose CH lines are all rejected, approve with 0 fake calls
+ *   AC-4.9  WellD Italia lines are numbered but never classified
+ *   AC-6.10 no refusal body carries a URL, a host, an id or a stack
+ *   AC-4.1 to AC-4.10 of 20261118 (numbering) and D6 (the release gate), unchanged
  */
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
@@ -34,6 +34,7 @@ process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["NODE_ENV"] = "test";
 process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
+process.env["ACCOUNTING_INTERNAL_URL"] = "http://localhost:8089";
 process.env["SERVICE_CLIENT_ID"] = "refund-api";
 process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
 
@@ -45,7 +46,8 @@ await harness.init();
 // @ts-expect-error -- the query suffix is a runtime-only cache-buster
 const { decideRouter } = (await import("./decide.routes?approve-accounting")) as typeof import("./decide.routes");
 const { db } = await import("../lib/db");
-const { FOREIGN_CURRENCY_VAT_CODE_KEY } = await import("../accounting/legacyFk");
+const { ACCOUNTING_FAILURE_KINDS } = await import("../accounting/accountingClient");
+const { createFakeAccounting, useFakeAccounting, restoreAccounting } = await import("../test-support/fakeAccounting");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { notifyTransport } = await import("../lib/notifyPost");
 
@@ -76,21 +78,48 @@ const accountingPerms: ResolveResponse = {
 const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
 const ACTOR_SUB = "acct-1";
 
-let accountTrain: { id: string };
-let accountOffice: { id: string };
-let imp81: { id: string };
-let novat: { id: string };
+const fake = createFakeAccounting();
+
+/** AC-6.10: a refusal names the cause and carries no address, identifier or internal text. */
+const NO_INTERNALS = /https?:\/\/(?!httpstatuses\.com)|localhost|railway|\bc[a-z0-9]{24}\b|\bat .*\(/;
+
+/** Refund's recorded default of one type: copies of the entry as it was chosen. */
+const recordDefault = (type: string, account: [string, string] | null, vat: [string, string, number] | null) =>
+  db.expenseTypeAccountingDefault.create({
+    data: {
+      entity: "welld_ch",
+      type: type as never,
+      ...(account ? { accountNumber: account[0], accountName: account[1] } : {}),
+      ...(vat ? { vatCode: vat[0], vatLabel: vat[1], vatRateBasisPoints: vat[2] } : {}),
+      ...by,
+    },
+  });
+const designate = (vat: [string, string, number] | null, offsetMs = 0) =>
+  db.foreignCurrencyVatDesignation.create({
+    data: {
+      entity: "welld_ch",
+      ...(vat ? { vatCode: vat[0], vatLabel: vat[1], vatRateBasisPoints: vat[2] } : {}),
+      ...by,
+      createdAt: new Date(Date.now() + offsetMs),
+    },
+  });
+const TRAIN: [string, string] = ["5901", "Treno"];
+const OFFICE: [string, string] = ["6101", "Ufficio"];
+const IMP81: [string, string, number] = ["IMP81", "IVA 8.1%", 810];
+const NOVAT: [string, string, number] = ["NOVAT", "Senza IVA", 0];
 
 async function seedCatalog() {
-  accountTrain = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "5901", name: "Treno", ...by } });
-  accountOffice = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "6101", name: "Ufficio", ...by } });
-  imp81 = await db.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...by } });
-  novat = await db.vatCode.create({ data: { entity: "welld_ch", code: "NOVAT", label: "Senza IVA", rateBasisPoints: 0, ...by } });
+  fake.failWith(null).failReferenceDataWith(null).failRatesWith(null).setDelayMs(0).onRead(null).resetCalls();
+  for (const a of ["5901", "6101"]) fake.removeAccount(a);
+  for (const v of ["IMP81", "NOVAT"]) fake.removeVatCode(v);
+  for (const c of ["EUR", "USD", "GBP"] as const) for (const m of ["2025-12", "2026-01", "2026-03", "2026-04"]) fake.removeRate(c, m);
+  fake.setAccount(...TRAIN).setAccount(...OFFICE).setVatCode(...IMP81).setVatCode(...NOVAT);
+  useFakeAccounting(fake);
   // `stationery` deliberately has no default.
-  await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "travel_train", ledgerAccountId: accountTrain.id, vatCodeId: imp81.id, ...by } });
-  await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "office_material", ledgerAccountId: accountOffice.id, vatCodeId: imp81.id, ...by } });
-  await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "postal", ledgerAccountId: accountOffice.id, vatCodeId: novat.id, ...by } });
-  await db.refundSetting.create({ data: { key: "accounting.welld_ch.foreign-currency-vat-code", value: novat.id, ...by } });
+  await recordDefault("travel_train", TRAIN, IMP81);
+  await recordDefault("office_material", OFFICE, IMP81);
+  await recordDefault("postal", OFFICE, NOVAT);
+  await designate(NOVAT);
 }
 
 beforeEach(async () => {
@@ -100,6 +129,7 @@ beforeEach(async () => {
   await seedCatalog();
 });
 afterAll(async () => {
+  restoreAccounting();
   await truncateRefundTables();
   notifyTransport.tokens = realTokens;
   globalThis.fetch = originalFetch;
@@ -115,6 +145,9 @@ interface LineSpec {
   id?: string;
   approvedTotalCents?: number | null;
   requestedAmountCents?: number;
+  /** A hand copy of the account stored before the approval (WellD CH only). */
+  accountNumber?: string;
+  accountName?: string;
 }
 
 async function createRequest(owner: { id: string; name?: string | null; email?: string }, lines: LineSpec[]) {
@@ -141,6 +174,7 @@ async function createRequest(owner: { id: string; name?: string | null; email?: 
         requestedAmountCents: spec.requestedAmountCents ?? 1000,
         approvedTotalCents: spec.approvedTotalCents === undefined ? null : spec.approvedTotalCents,
         ...(spec.createdAt ? { createdAt: new Date(spec.createdAt) } : {}),
+        ...(spec.accountNumber ? { accountNumber: spec.accountNumber, accountName: spec.accountName ?? "x", ledgerAccountIsDefault: false } : {}),
         ...(spec.rejected ? { rejectionReason: "no", rejectedAt: new Date(), rejectedByUserId: "a", rejectedByEmail: "a@x", approvedTotalCents: 0 } : {}),
       },
     });
@@ -155,7 +189,7 @@ async function approve(requestId: string) {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
   });
-  return { status: res.status, body: (await res.json()) as Record<string, any> };
+  return { status: res.status, body: (await res.json()) as Record<string, any>, headers: res.headers };
 }
 
 const lineOf = (id: string) => db.refundLine.findUniqueOrThrow({ where: { id } });
@@ -168,10 +202,12 @@ describe("the release gate (D6)", () => {
     await truncateRefundTables({ released: false });
     await seedCatalog();
     const r = await createRequest({ id: "owner-1" }, [{}, { entity: "welld_it" }]);
+    fake.resetCalls();
 
     const res = await approve(r.id);
     expect(res.status).toBe(409);
     expect(res.body["code"]).toBe("accounting_release_pending");
+    expect(fake.reads.total).toBe(0); // the gate comes before Accounting is read
 
     const request = await db.refundRequest.findUniqueOrThrow({ where: { id: r.id } });
     expect(request.status).toBe("submitted");
@@ -207,80 +243,124 @@ describe("the release gate (D6)", () => {
   });
 });
 
-describe("approve: freeze and numbering", () => {
-  it("(AC-3.1/3.5, AC-4.2) freezes the type defaults, numbers the line MC26/001 and audits cause approval", async () => {
+describe("approve: copies and numbering", () => {
+  it("(AC-5.1, AC-4.2) copies the type defaults, numbers the line MC26/001 and audits cause approval", async () => {
     const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }]);
     const res = await approve(r.id);
     expect(res.status).toBe(200);
 
     const line = await lineOf(r.lineIds[0]!);
     expect(line).toMatchObject({
-      ledgerAccountId: accountTrain.id,
+      accountNumber: "5901",
+      accountName: "Treno",
       ledgerAccountIsDefault: true,
-      vatCodeId: imp81.id,
+      vatCodeCopy: "IMP81",
+      vatRateBasisPoints: 810,
       vatCodeIsDefault: true,
       receiptNumber: "MC26/001",
       receiptOwnerUserId: "owner-1",
       receiptYear: 2026,
       receiptSeq: 1,
+      fxRateMicros: null,
     });
+    expect([line.ledgerAccountId, line.vatCodeId]).toEqual([null, null]); // the old foreign keys are never written
     expect(line.numberedAt).not.toBeNull();
 
     const classified = await db.refundAuditEntry.findMany({ where: { requestId: r.id, action: "line_classified" } });
     expect(classified).toHaveLength(1);
     expect(classified[0]!.actorUserId).toBe(ACTOR_SUB);
     expect(classified[0]!.lineId).toBe(r.lineIds[0]!);
+    expect((classified[0]!.detail as any).v).toBe(2);
     expect((classified[0]!.detail as any).cause).toBe("approval");
-    expect((classified[0]!.detail as any).account.to).toEqual({ id: accountTrain.id, number: "5901" });
-    expect((classified[0]!.detail as any).vatCode.to.code).toBe("IMP81");
+    expect((classified[0]!.detail as any).account.to).toEqual({ number: "5901", name: "Treno" });
+    expect((classified[0]!.detail as any).vatCode.to).toEqual({ code: "IMP81", rateBasisPoints: 810 });
+    expect(classified[0]!.detail).not.toHaveProperty("fxRate"); // a CHF line has no rate
     const numbered = await db.refundAuditEntry.findMany({ where: { requestId: r.id, action: "receipt_number_assigned" } });
     expect(numbered).toHaveLength(1);
     expect(numbered[0]!.detail).toEqual({ cause: "approval", receiptNumber: "MC26/001", year: 2026, seq: 1 });
   });
 
-  it("(AC-3.5) a manual override on the line is what gets frozen, as not-default", async () => {
-    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }]);
-    await db.refundLine.update({ where: { id: r.lineIds[0]! }, data: { ledgerAccountId: accountOffice.id, ledgerAccountIsDefault: false } });
+  it("(AC-5.1) a request with a CH CHF line on defaults, a hand copy, an EUR line with a rate and a rejected line: each copy as the plan says", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    const r = await createRequest({ id: "owner-1" }, [
+      { date: "2026-03-01", type: "travel_train" }, // on defaults
+      { date: "2026-03-02", type: "travel_train", accountNumber: "6101", accountName: "Ufficio (as copied)" }, // classified by hand earlier
+      { date: "2026-03-03", type: "office_material", currency: "EUR", requestedAmountCents: 1040 }, // a rate in effect
+      { date: "2026-03-04", type: "stationery", rejected: true },
+    ]);
     expect((await approve(r.id)).status).toBe(200);
-    const line = await lineOf(r.lineIds[0]!);
-    expect(line.ledgerAccountId).toBe(accountOffice.id);
-    expect(line.ledgerAccountIsDefault).toBe(false);
-    expect(line.vatCodeId).toBe(imp81.id);
-    expect(line.vatCodeIsDefault).toBe(true);
+    const [defaults, hand, eur, rejected] = await Promise.all(r.lineIds.map(lineOf));
+    expect(defaults).toMatchObject({ accountNumber: "5901", ledgerAccountIsDefault: true, vatCodeCopy: "IMP81" });
+    expect(hand).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as copied)", ledgerAccountIsDefault: false, vatCodeCopy: "IMP81", vatCodeIsDefault: true });
+    expect(eur).toMatchObject({ accountNumber: "6101", vatCodeCopy: "NOVAT", vatRateBasisPoints: 0, fxRateMicros: 924_600 });
+    expect(eur!.fxRateMonth?.toISOString().slice(0, 10)).toBe("2026-03-01");
+    expect(eur!.fxRateCopiedAt).not.toBeNull();
+    expect([rejected!.accountNumber, rejected!.vatCodeCopy, rejected!.fxRateMicros, rejected!.receiptNumber]).toEqual([null, null, null, null]);
+    const audits = await db.refundAuditEntry.findMany({ where: { requestId: r.id, action: "line_classified" } });
+    const detailOf = (id: string) => audits.find((a) => a.lineId === id)!.detail as any;
+    expect(detailOf(r.lineIds[2]!).fxRate).toEqual({ rateMicros: 924_600, month: "2026-03" });
+    expect(detailOf(r.lineIds[1]!).account).toEqual({ from: { number: "6101", name: "Ufficio (as copied)" }, to: { number: "6101", name: "Ufficio (as copied)" }, fromDefault: false, toDefault: false });
+    expect(audits).toHaveLength(3); // the rejected line has none
   });
 
-  it("(AC-3.2) a non-CHF line freezes the type's account and the foreign-currency VAT code", async () => {
+  it("(AC-5.6) a foreign-currency line whose month has no rate in effect approves, and is rate pending", async () => {
+    fake.setRateMissing("EUR", "2026-03", "not_published");
     const r = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "EUR" }]);
     expect((await approve(r.id)).status).toBe(200);
     const line = await lineOf(r.lineIds[0]!);
-    expect(line.ledgerAccountId).toBe(accountOffice.id);
-    expect(line.vatCodeId).toBe(novat.id);
+    expect(line).toMatchObject({ receiptNumber: "MC26/001", accountNumber: "6101", vatCodeCopy: "NOVAT", fxRateMicros: null, fxRateMonth: null, fxRateCopiedAt: null });
+    const detail = (await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: r.lineIds[0]!, action: "line_classified" } })).detail as any;
+    expect(detail.fxRate).toBe("pending");
+  });
+
+  it("(AC-3.2 of 20261118) a manual copy on the line is what gets copied, as not-default", async () => {
+    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train", accountNumber: "6101", accountName: "Ufficio" }]);
+    expect((await approve(r.id)).status).toBe(200);
+    const line = await lineOf(r.lineIds[0]!);
+    expect(line.accountNumber).toBe("6101");
+    expect(line.ledgerAccountIsDefault).toBe(false);
+    expect(line.vatCodeCopy).toBe("IMP81");
     expect(line.vatCodeIsDefault).toBe(true);
   });
 
-  it("(AC-3.5, AC-2.3) defaults changed after approval do not move the frozen line, and the designation neither", async () => {
+  it("(AC-3.2 of 20261118) a non-CHF line copies the type's account and the foreign-currency VAT code", async () => {
+    const r = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "EUR" }]);
+    expect((await approve(r.id)).status).toBe(200);
+    const line = await lineOf(r.lineIds[0]!);
+    expect(line.accountNumber).toBe("6101");
+    expect(line.vatCodeCopy).toBe("NOVAT");
+    expect(line.vatCodeIsDefault).toBe(true);
+  });
+
+  it("(AC-5.3) Accounting and the defaults changing after approval do not move the booked copy, and the designation neither", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
     const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }, { type: "office_material", currency: "EUR" }]);
     expect((await approve(r.id)).status).toBe(200);
     const before = await Promise.all(r.lineIds.map(lineOf));
 
-    const actor = { userId: "admin", email: "admin@welld.ch" };
-    const by = { createdByUserId: actor.userId, createdByEmail: actor.email };
-    await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "travel_train", ledgerAccountId: accountOffice.id, vatCodeId: novat.id, createdAt: new Date(Date.now() + 1000), ...by } });
-    await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "office_material", ledgerAccountId: accountTrain.id, vatCodeId: imp81.id, createdAt: new Date(Date.now() + 1000), ...by } });
-    await db.refundSetting.create({ data: { key: FOREIGN_CURRENCY_VAT_CODE_KEY, value: imp81.id, createdAt: new Date(Date.now() + 1000), ...by } });
-    await db.refundSetting.create({ data: { key: FOREIGN_CURRENCY_VAT_CODE_KEY, value: null, createdAt: new Date(Date.now() + 2000), ...by } });
+    // Refund's defaults change...
+    await db.expenseTypeAccountingDefault.create({
+      data: { entity: "welld_ch", type: "travel_train", accountNumber: "6101", accountName: "Ufficio", vatCode: "NOVAT", vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...by, createdAt: new Date(Date.now() + 1000) },
+    });
+    await designate(IMP81, 2000);
+    await designate(null, 3000);
+    // ...and Accounting does too.
+    fake.setAccountActive("5901", false);
+    fake.setVatCodeActive("IMP81", false);
+    fake.setAccount("6101", "Another name");
+    fake.setRate("EUR", "2026-03", 950_000, "corrected");
 
     const after = await Promise.all(r.lineIds.map(lineOf));
     for (const [i, line] of after.entries()) {
-      expect(line.ledgerAccountId).toBe(before[i]!.ledgerAccountId);
-      expect(line.vatCodeId).toBe(before[i]!.vatCodeId);
+      expect([line.accountNumber, line.accountName, line.vatCodeCopy, line.vatRateBasisPoints, line.fxRateMicros]).toEqual([
+        before[i]!.accountNumber, before[i]!.accountName, before[i]!.vatCodeCopy, before[i]!.vatRateBasisPoints, before[i]!.fxRateMicros,
+      ]);
       expect(line.ledgerAccountIsDefault).toBe(before[i]!.ledgerAccountIsDefault);
-      expect(line.vatCodeIsDefault).toBe(before[i]!.vatCodeIsDefault);
     }
-    expect(after[1]!.vatCodeId).toBe(novat.id);
+    expect([after[1]!.vatCodeCopy, after[1]!.fxRateMicros]).toEqual(["NOVAT", 924_600]);
   });
 
-  it("(AC-4.1, AC-3.9) a rejected line is not numbered or classified; WellD Italia lines are numbered but never classified", async () => {
+  it("(AC-4.1, AC-4.9) a rejected line is not numbered or classified; WellD Italia lines are numbered but never classified", async () => {
     const r = await createRequest({ id: "owner-1" }, [
       { date: "2026-03-01", type: "travel_train" },
       { date: "2026-03-02", rejected: true, type: "stationery" },
@@ -290,12 +370,11 @@ describe("approve: freeze and numbering", () => {
     expect(await numbersOf(r.lineIds)).toEqual(["MC26/001", null, "MC26/002"]);
 
     const rejected = await lineOf(r.lineIds[1]!);
-    expect(rejected.ledgerAccountId).toBeNull();
-    expect(rejected.vatCodeId).toBeNull();
+    expect(rejected.accountNumber).toBeNull();
+    expect(rejected.vatCodeCopy).toBeNull();
     expect(rejected.receiptOwnerUserId).toBeNull();
     const it = await lineOf(r.lineIds[2]!);
-    expect(it.ledgerAccountId).toBeNull();
-    expect(it.vatCodeId).toBeNull();
+    expect([it.accountNumber, it.accountName, it.vatCodeCopy, it.vatRateBasisPoints, it.fxRateMicros]).toEqual([null, null, null, null, null]);
     expect(it.ledgerAccountIsDefault).toBeNull();
     expect(it.vatCodeIsDefault).toBeNull();
 
@@ -305,17 +384,19 @@ describe("approve: freeze and numbering", () => {
     expect((await counterOf("owner-1", 2026))!.lastSeq).toBe(2);
   });
 
-  it("(AC-3.9) an IT-only request approves with no defaults configured at all", async () => {
+  it("(AC-6.4) an IT-only request approves with no defaults configured at all, and without a single call to Accounting", async () => {
     await truncateRefundTables();
+    fake.resetCalls();
     const r = await createRequest({ id: "owner-1" }, [
       { entity: "welld_it", currency: "EUR", type: "stationery" },
       { entity: "welld_it", currency: "EUR", type: "representation_gifts" },
     ]);
     expect((await approve(r.id)).status).toBe(200);
     expect(await numbersOf(r.lineIds)).toEqual(["MC26/001", "MC26/002"]);
+    expect(fake.reads.total).toBe(0);
   });
 
-  it("(AC-3.4) a rejected WellD CH line with no default does not block the approval", async () => {
+  it("(AC-6.3, AC-4.9) a rejected WellD CH line with no default does not block the approval", async () => {
     const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }, { type: "stationery", rejected: true }]);
     expect((await approve(r.id)).status).toBe(200);
   });
@@ -326,7 +407,7 @@ describe("approve: freeze and numbering", () => {
     const line = await lineOf(r.lineIds[0]!);
     expect(line.approvedTotalCents).toBe(0);
     expect(line.receiptNumber).toBe("MC26/001");
-    expect(line.vatCodeId).toBe(imp81.id);
+    expect(line.vatCodeCopy).toBe("IMP81");
   });
 
   it("AC-7.2 of the old spec still holds: untouched lines default to the requested amount", async () => {
@@ -337,7 +418,141 @@ describe("approve: freeze and numbering", () => {
   });
 });
 
-describe("(AC-3.4) classification_missing", () => {
+describe("the pre-read of Accounting (D10, D11, AC-4.8, AC-6.4)", () => {
+  it("reads Accounting ONCE per approval: the reference data, and the rates of every foreign CH line as one pair set, before the transaction", async () => {
+    fake.setRate("EUR", "2026-03", 924_600).setRate("USD", "2026-03", 780_800);
+    const r = await createRequest({ id: "owner-1" }, [
+      { type: "office_material", currency: "EUR", date: "2026-03-02" },
+      { type: "office_material", currency: "EUR", date: "2026-03-09" },
+      { type: "office_material", currency: "USD", date: "2026-03-10" },
+      { type: "travel_train" },
+    ]);
+    fake.resetCalls();
+    expect((await approve(r.id)).status).toBe(200);
+    expect(fake.reads).toEqual({ referenceData: 1, rates: 1, total: 2 });
+    expect(fake.calls.find((c) => c.read === "rates")!.pairs!.slice().sort()).toEqual(["EUR:2026-03", "USD:2026-03"]);
+    expect(fake.calls.every((c) => c.operation === "approve")).toBe(true);
+  });
+
+  it("asks for the rates of a REJECTED foreign line too (the superset: a restore between the read and the lock stays covered)", async () => {
+    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }, { type: "office_material", currency: "GBP", date: "2026-01-12", rejected: true }]);
+    fake.resetCalls();
+    expect((await approve(r.id)).status).toBe(200);
+    expect(fake.calls.find((c) => c.read === "rates")!.pairs).toEqual(["GBP:2026-01"]);
+  });
+
+  it("a CHF-only request reads the reference data and no rate", async () => {
+    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }]);
+    fake.resetCalls();
+    await approve(r.id);
+    expect(fake.reads).toEqual({ referenceData: 1, rates: 0, total: 1 });
+  });
+
+  it("(D10) a request whose only CH line is already classified by hand STILL reads Accounting: literally AC-6.1", async () => {
+    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train", accountNumber: "6101", accountName: "Ufficio" }]);
+    await db.refundLine.update({ where: { id: r.lineIds[0]! }, data: { vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: false } });
+    fake.resetCalls();
+    expect((await approve(r.id)).status).toBe(200);
+    expect(fake.reads.referenceData).toBe(1);
+  });
+
+  it("(AC-4.8) nothing is cached across approvals: the second sees a change made after the first", async () => {
+    const a = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }]);
+    const b = await createRequest({ id: "owner-2", name: "Marta Conti" }, [{ type: "travel_train" }]);
+    expect((await approve(a.id)).status).toBe(200);
+    fake.setAccountActive("5901", false);
+    const refused = await approve(b.id);
+    expect([refused.status, refused.body["code"]]).toEqual([409, "classification_missing"]);
+    expect(fake.reads.referenceData).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("(AC-6.1, AC-6.2, AC-6.8) Accounting unreachable", () => {
+  async function expectNothingWritten(requestId: string, lineIds: string[]) {
+    const request = await db.refundRequest.findUniqueOrThrow({ where: { id: requestId } });
+    expect(request.status).toBe("submitted");
+    expect(request.decidedAt).toBeNull();
+    expect(request.decidedByUserId).toBeNull();
+    expect(await db.refundAuditEntry.count()).toBe(0);
+    expect(await db.receiptCounter.count()).toBe(0);
+    for (const id of lineIds) {
+      const line = await lineOf(id);
+      expect(line.approvedTotalCents).toBeNull();
+      expect(line.receiptNumber).toBeNull();
+      expect([line.fxRateMicros, line.fxRateMonth]).toEqual([null, null]);
+    }
+  }
+
+  for (const kind of ACCOUNTING_FAILURE_KINDS) {
+    it(`${kind}: 503 accounting_unavailable with Retry-After, nothing written, and a later approval succeeds`, async () => {
+      const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }, { type: "office_material", currency: "EUR" }]);
+      fake.failWith(kind);
+      const res = await approve(r.id);
+      expect([res.status, res.body["code"], res.headers.get("Retry-After")]).toEqual([503, "accounting_unavailable", "30"]);
+      expect(JSON.stringify(res.body)).not.toMatch(NO_INTERNALS);
+      await expectNothingWritten(r.id, r.lineIds);
+      for (const id of r.lineIds) expect((await lineOf(id)).accountNumber).toBeNull(); // no copy
+
+      fake.failWith(null);
+      expect((await approve(r.id)).status).toBe(200);
+      expect(await numbersOf(r.lineIds)).toEqual(["MC26/001", "MC26/002"]);
+    });
+  }
+
+  it("(D10) a CH line already classified by hand does not help: unreachable is still 503", async () => {
+    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train", accountNumber: "6101", accountName: "Ufficio" }]);
+    await db.refundLine.update({ where: { id: r.lineIds[0]! }, data: { vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: false } });
+    fake.failWith("timeout");
+    expect((await approve(r.id)).status).toBe(503);
+    await expectNothingWritten(r.id, r.lineIds);
+  });
+
+  it("only the rates failing is also a 503: the pair set is part of the pre-read", async () => {
+    const r = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "EUR" }]);
+    fake.failRatesWith("http_status");
+    expect((await approve(r.id)).status).toBe(503);
+    await expectNothingWritten(r.id, r.lineIds);
+  });
+
+  it("(AC-6.3) Accounting unreachable AND a missing default: the 503 comes first (AC-6.1)", async () => {
+    const r = await createRequest({ id: "owner-1" }, [{ type: "stationery" }]);
+    fake.failWith("network");
+    expect((await approve(r.id)).status).toBe(503);
+  });
+
+  it("(AC-6.4) an IT-only request, and one whose CH lines are all rejected, approve while Accounting is unreachable, with 0 calls", async () => {
+    fake.failWith("timeout");
+    const it = await createRequest({ id: "owner-1" }, [{ entity: "welld_it", currency: "EUR" }]);
+    const rejected = await createRequest({ id: "owner-2", name: "Marta Conti" }, [
+      { type: "stationery", rejected: true },
+      { entity: "welld_it", currency: "EUR" },
+    ]);
+    fake.resetCalls();
+    expect((await approve(it.id)).status).toBe(200);
+    expect((await approve(rejected.id)).status).toBe(200);
+    expect(fake.reads.total).toBe(0);
+    expect(await numbersOf(rejected.lineIds)).toEqual([null, "MC26/001"]);
+  });
+
+  it("the refusals that need no Accounting win over the 503: a stranger's request, the release gate, a decided request", async () => {
+    fake.failWith("timeout");
+    // not found
+    expect((await approve("nope")).status).toBe(404);
+    // already decided
+    const done = await createRequest({ id: "owner-1" }, [{}]);
+    await db.refundRequest.update({ where: { id: done.id }, data: { status: "approved" } });
+    expect((await approve(done.id)).status).toBe(409);
+    // the release gate
+    await truncateRefundTables({ released: false });
+    const gated = await createRequest({ id: "owner-1" }, [{}]);
+    fake.resetCalls();
+    const res = await approve(gated.id);
+    expect([res.status, res.body["code"]]).toEqual([409, "accounting_release_pending"]);
+    expect(fake.reads.total).toBe(0);
+  });
+});
+
+describe("(AC-6.3) classification_missing", () => {
   async function expectNothingChanged(requestId: string, lineIds: string[]) {
     const request = await db.refundRequest.findUniqueOrThrow({ where: { id: requestId } });
     expect(request.status).toBe("submitted");
@@ -349,8 +564,8 @@ describe("(AC-3.4) classification_missing", () => {
       const line = await lineOf(id);
       expect(line.approvedTotalCents).toBeNull(); // the defaulting of untouched lines rolled back too
       expect(line.receiptNumber).toBeNull();
-      expect(line.ledgerAccountId).toBeNull();
-      expect(line.vatCodeId).toBeNull();
+      expect(line.accountNumber).toBeNull();
+      expect(line.vatCodeCopy).toBeNull();
     }
   }
 
@@ -376,8 +591,8 @@ describe("(AC-3.4) classification_missing", () => {
       { date: "2026-03-02", type: "representation_gifts", currency: "EUR" },
     ]);
     // a half default: account only
-    await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "representation_gifts", ledgerAccountId: accountOffice.id, vatCodeId: null, ...by } });
-    await db.refundSetting.create({ data: { key: "accounting.welld_ch.foreign-currency-vat-code", value: null, ...by } });
+    await recordDefault("representation_gifts", OFFICE, null);
+    await designate(null, 1000);
     const res = await approve(r.id);
     expect(res.status).toBe(409);
     expect(res.body["lines"]).toEqual([
@@ -387,21 +602,30 @@ describe("(AC-3.4) classification_missing", () => {
     await expectNothingChanged(r.id, r.lineIds);
   });
 
-  it("a type whose default ACCOUNT was deactivated counts as missing (G3)", async () => {
-    await db.accountingCatalogStatus.create({ data: { ledgerAccountId: accountTrain.id, active: false, ...by } });
+  it("a type whose default ACCOUNT was deactivated in Accounting counts as missing (G3, AC-4.5)", async () => {
+    fake.setAccountActive("5901", false);
     const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }]);
     const res = await approve(r.id);
     expect(res.status).toBe(409);
     expect(res.body["lines"]).toEqual([{ lineId: r.lineIds[0]!, date: "2026-03-02", type: "travel_train", missing: ["account"] }]);
+    expect(String(res.body["detail"])).not.toMatch(NO_INTERNALS); // the lines are named by id, as the contract says; the message is generic
     await expectNothingChanged(r.id, r.lineIds);
 
     // reactivation brings the default back (AC-1.9): the same request then approves
-    await db.accountingCatalogStatus.create({ data: { ledgerAccountId: accountTrain.id, active: true, ...by } });
+    fake.setAccountActive("5901", true);
     expect((await approve(r.id)).status).toBe(200);
   });
 
+  it("a default that is no longer found in Accounting counts as missing too (SA-3)", async () => {
+    fake.removeVatCode("IMP81");
+    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }]);
+    const res = await approve(r.id);
+    expect([res.status, res.body["lines"]]).toEqual([409, [{ lineId: r.lineIds[0]!, date: "2026-03-02", type: "travel_train", missing: ["vatCode"] }]]);
+    await expectNothingChanged(r.id, r.lineIds);
+  });
+
   it("an unset foreign-currency VAT code refuses a non-CHF line, while a CHF line of the same type approves", async () => {
-    await db.refundSetting.create({ data: { key: "accounting.welld_ch.foreign-currency-vat-code", value: null, ...by } });
+    await designate(null, 1000);
     const eur = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "EUR" }]);
     const res = await approve(eur.id);
     expect(res.status).toBe(409);
@@ -412,14 +636,21 @@ describe("(AC-3.4) classification_missing", () => {
     expect((await approve(chf.id)).status).toBe(200);
   });
 
-  it("an INACTIVE foreign-currency VAT code refuses a non-CHF line (AC-2.7), and reactivating it lets it through", async () => {
-    await db.accountingCatalogStatus.create({ data: { vatCodeId: novat.id, active: false, ...by } });
+  it("a DEACTIVATED foreign-currency VAT code refuses a non-CHF line, and reactivating it lets it through", async () => {
+    fake.setVatCodeActive("NOVAT", false);
     const r = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "USD" }]);
     const res = await approve(r.id);
     expect(res.status).toBe(409);
     expect((res.body["lines"] as any[])[0].missing).toEqual(["vatCode"]);
-    await db.accountingCatalogStatus.create({ data: { vatCodeId: novat.id, active: true, ...by } });
+    fake.setVatCodeActive("NOVAT", true);
     expect((await approve(r.id)).status).toBe(200);
+  });
+
+  it("a hand copy rescues a line with no usable default, even when its entry is deactivated since (the copy is what it books)", async () => {
+    fake.setAccountActive("5901", false);
+    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train", accountNumber: "5901", accountName: "Treno" }]);
+    expect((await approve(r.id)).status).toBe(200);
+    expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", accountName: "Treno", ledgerAccountIsDefault: false });
   });
 
   it("a refusal consumes no number (AC-4.3): the next approval of the same employee still starts at 001", async () => {

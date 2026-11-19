@@ -13,6 +13,8 @@
  */
 
 import type { Currency, Entity, ExpenseType } from "../lib/generated/prisma/enums";
+import { writeAuditEntry } from "../requests/audit";
+import { formatReceiptNumber, initials } from "./receiptNumber";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { db } from "../lib/db";
 import { basisPointsToPercent, CATALOG_ENTITY, loadActiveFlags } from "./catalog.repo";
@@ -255,4 +257,244 @@ export async function loadForeignCurrencyVatCodeStateFk(client: Client = db) {
       byEmail: row.createdByEmail,
     })),
   };
+}
+
+// ─── The old numbering (classifyAndNumber on the foreign keys), kept for the release script until T22 ──────────
+
+export type NumberingCauseFk = "approval" | "release";
+
+export interface ActorFk {
+  readonly userId: string;
+  readonly email: string;
+}
+
+export interface ClassifyAndNumberInputFk {
+  /** Every request must belong to this employee: the counters are per employee. */
+  readonly owner: { readonly userId: string; readonly name: string | null; readonly email: string };
+  /** The requests whose unnumbered, non-rejected lines are to be handled (one for an approval, several for a release). */
+  readonly requestIds: readonly string[];
+  readonly cause: NumberingCauseFk;
+  readonly actor: ActorFk;
+  readonly snapshot: DefaultsSnapshotFk;
+  /** Only lines of these entities are handled; the release script passes `["welld_ch"]` (AC-7.3). Default: all. */
+  readonly entities?: readonly Entity[];
+}
+
+export interface MissingLineFk {
+  readonly lineId: string;
+  readonly requestId: string;
+  /** `YYYY-MM-DD` */
+  readonly date: string;
+  readonly type: ExpenseType;
+  readonly missing: readonly MissingPartFk[];
+}
+
+export interface NumberedLineFk {
+  readonly lineId: string;
+  readonly requestId: string;
+  readonly entity: Entity;
+  readonly receiptNumber: string;
+  readonly year: number;
+  readonly seq: number;
+  /** `null` for a WellD Italia line. `missing` is empty when the line is fully classified. */
+  readonly missing: readonly MissingPartFk[] | null;
+}
+
+export type ClassifyAndNumberResultFk =
+  | { readonly ok: true; readonly lines: readonly NumberedLineFk[] }
+  /** `cause: "approval"` only: nothing was written. */
+  | { readonly ok: false; readonly reason: "classification_missing"; readonly missing: readonly MissingLineFk[] };
+
+const isoDate = (date: Date): string => date.toISOString().slice(0, 10);
+
+const accountSummary = (a: Pick<AccountRefFk, "id" | "number"> | null) => (a ? { id: a.id, number: a.number } : null);
+const vatSummary = (v: Pick<VatCodeRefFk, "id" | "code" | "rateBasisPoints"> | null) =>
+  v ? { id: v.id, code: v.code, rateBasisPoints: v.rateBasisPoints } : null;
+
+export async function classifyAndNumberFk(
+  tx: Prisma.TransactionClient,
+  input: ClassifyAndNumberInputFk,
+): Promise<ClassifyAndNumberResultFk> {
+  if (input.requestIds.length === 0) return { ok: true, lines: [] };
+
+  // ── 1. Candidates, locked ────────────────────────────────────────────────
+  const candidates = await tx.refundLine.findMany({
+    where: {
+      requestId: { in: [...input.requestIds] },
+      rejectionReason: null,
+      receiptNumber: null,
+      ...(input.entities ? { entity: { in: [...input.entities] } } : {}),
+    },
+    select: { id: true },
+  });
+  if (candidates.length === 0) return { ok: true, lines: [] };
+  const lockedIds = (
+    await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "refund_line" WHERE "id" = ANY(${candidates.map((l) => l.id)}::text[]) ORDER BY "id" FOR UPDATE`
+  ).map((row) => row.id);
+
+  const lines = await tx.refundLine.findMany({
+    where: { id: { in: lockedIds }, rejectionReason: null, receiptNumber: null },
+    select: {
+      id: true,
+      requestId: true,
+      date: true,
+      type: true,
+      entity: true,
+      currency: true,
+      createdAt: true,
+      ledgerAccountId: true,
+      ledgerAccountIsDefault: true,
+      vatCodeId: true,
+      vatCodeIsDefault: true,
+      ledgerAccount: { select: { id: true, number: true, name: true } },
+      vatCode: { select: { id: true, code: true, label: true, rateBasisPoints: true } },
+    },
+  });
+  lines.sort(
+    (a, b) =>
+      a.date.getTime() - b.date.getTime() ||
+      a.createdAt.getTime() - b.createdAt.getTime() ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+  if (lines.length === 0) return { ok: true, lines: [] };
+
+  // ── 2. Resolve ───────────────────────────────────────────────────────────
+  const accountFlags = await loadActiveFlags(
+    tx,
+    "ledger_account",
+    lines.flatMap((l) => (l.ledgerAccountId ? [l.ledgerAccountId] : [])),
+  );
+  const vatFlags = await loadActiveFlags(
+    tx,
+    "vat_code",
+    lines.flatMap((l) => (l.vatCodeId ? [l.vatCodeId] : [])),
+  );
+
+  const resolved = new Map<string, ClassificationFk | null>();
+  const missingLines: MissingLineFk[] = [];
+  for (const line of lines) {
+    const classification = resolveClassificationFk(
+      {
+        entity: line.entity,
+        currency: line.currency,
+        type: line.type,
+        rejected: false,
+        ledgerAccount: line.ledgerAccount
+          ? { ...line.ledgerAccount, active: accountFlags.get(line.ledgerAccount.id) ?? true }
+          : null,
+        ledgerAccountIsDefault: line.ledgerAccountIsDefault,
+        vatCode: line.vatCode ? { ...line.vatCode, active: vatFlags.get(line.vatCode.id) ?? true } : null,
+        vatCodeIsDefault: line.vatCodeIsDefault,
+      },
+      input.snapshot.defaults,
+      input.snapshot.foreignCurrencyVatCode,
+    );
+    resolved.set(line.id, classification);
+    if (classification !== null && classification.missing.length > 0) {
+      missingLines.push({
+        lineId: line.id,
+        requestId: line.requestId,
+        date: isoDate(line.date),
+        type: line.type,
+        missing: classification.missing,
+      });
+    }
+  }
+  if (input.cause === "approval" && missingLines.length > 0) {
+    return { ok: false, reason: "classification_missing", missing: missingLines };
+  }
+
+  // ── 3. Counters, years ascending, one upsert each ────────────────────────
+  const yearOf = (line: { date: Date }) => line.date.getUTCFullYear();
+  const perYear = new Map<number, number>();
+  for (const line of lines) perYear.set(yearOf(line), (perYear.get(yearOf(line)) ?? 0) + 1);
+  const nextSeq = new Map<number, number>();
+  for (const year of [...perYear.keys()].sort((a, b) => a - b)) {
+    const count = perYear.get(year)!;
+    const rows = await tx.$queryRaw<{ lastSeq: number }[]>`
+      INSERT INTO "receipt_counter" ("ownerUserId", "year", "lastSeq", "startAfter", "updatedAt")
+      VALUES (${input.owner.userId}, ${year}::int, ${count}::int, 0, now())
+      ON CONFLICT ("ownerUserId", "year") DO UPDATE
+        SET "lastSeq" = "receipt_counter"."lastSeq" + ${count}::int, "updatedAt" = now()
+      RETURNING "lastSeq"`;
+    const last = rows[0]?.lastSeq;
+    if (typeof last !== "number") throw new Error("receipt_counter upsert returned no row");
+    nextSeq.set(year, last - count + 1);
+  }
+
+  // ── 4 + 5. One UPDATE per line, then the audit rows ──────────────────────
+  const initialsOfOwner = initials(input.owner.name, input.owner.email);
+  const numberedAt = new Date();
+  const out: NumberedLineFk[] = [];
+  for (const line of lines) {
+    const year = yearOf(line);
+    const seq = nextSeq.get(year)!;
+    nextSeq.set(year, seq + 1);
+    const receiptNumber = formatReceiptNumber(initialsOfOwner, year, seq);
+    const classification = resolved.get(line.id) ?? null;
+
+    await tx.refundLine.update({
+      where: { id: line.id },
+      data: {
+        receiptNumber,
+        receiptOwnerUserId: input.owner.userId,
+        receiptYear: year,
+        receiptSeq: seq,
+        numberedAt,
+        ...(classification
+          ? {
+              ledgerAccountId: classification.account?.id ?? null,
+              ledgerAccountIsDefault: classification.account ? classification.accountIsDefault : null,
+              vatCodeId: classification.vatCode?.id ?? null,
+              vatCodeIsDefault: classification.vatCode ? classification.vatCodeIsDefault : null,
+            }
+          : {}),
+      },
+    });
+
+    if (classification) {
+      await writeAuditEntry(tx, {
+        requestId: line.requestId,
+        lineId: line.id,
+        actorUserId: input.actor.userId,
+        actorEmail: input.actor.email,
+        action: "line_classified",
+        detail: {
+          cause: input.cause,
+          account: {
+            from: accountSummary(line.ledgerAccount),
+            to: accountSummary(classification.account),
+            fromDefault: line.ledgerAccount === null ? true : line.ledgerAccountIsDefault === true,
+            toDefault: classification.accountIsDefault,
+          },
+          vatCode: {
+            from: vatSummary(line.vatCode),
+            to: vatSummary(classification.vatCode),
+            fromDefault: line.vatCode === null ? true : line.vatCodeIsDefault === true,
+            toDefault: classification.vatCodeIsDefault,
+          },
+        },
+      });
+    }
+    await writeAuditEntry(tx, {
+      requestId: line.requestId,
+      lineId: line.id,
+      actorUserId: input.actor.userId,
+      actorEmail: input.actor.email,
+      action: "receipt_number_assigned",
+      detail: { cause: input.cause, receiptNumber, year, seq },
+    });
+
+    out.push({
+      lineId: line.id,
+      requestId: line.requestId,
+      entity: line.entity,
+      receiptNumber,
+      year,
+      seq,
+      missing: classification ? classification.missing : null,
+    });
+  }
+  return { ok: true, lines: out };
 }
