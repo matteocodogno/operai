@@ -527,7 +527,7 @@ Reading the list:
 
 ## End-to-end
 
-- [x] T31: shell/e2e — settings journey: admin adds an account and a VAT code, sets a default and the foreign-currency VAT code, corrects a rate — refs: AC-1.1, AC-1.9, AC-2.1, AC-2.5, AC-5.2, AC-5.3 — deps: T2, T6, T7, T10, T11, T24, T25, T26
+- [ ] T31: shell/e2e — settings journey: admin adds an account and a VAT code, sets a default and the foreign-currency VAT code, corrects a rate — refs: AC-1.1, AC-1.9, AC-2.1, AC-2.5, AC-5.2, AC-5.3 — deps: T2, T6, T7, T10, T11, T24, T25, T26
   - touch: `shell/e2e/refund-accounting-settings.spec.ts`, `shell/e2e/helpers/refundFixtures.ts`
   - agent: qe · e2e
   - Details:
@@ -543,7 +543,7 @@ Reading the list:
     Added to `helpers/refundFixtures.ts` (in `touch:`): `freshToken`, catalog/default/rate API
     helpers, `snapshotAccountingDefaults` (puts defaults back), `parseAccountingCsv` (also T32).
 
-- [x] T32: shell/e2e — accounting journey: submit CHF + EUR CH lines → review shows defaults → change a VAT code → approve → employee sees numbers → compile → export CSV parsed — refs: AC-3.1, AC-3.3, AC-3.4, AC-4.9, AC-6.1, AC-6.2, AC-6.3, AC-6.4 — deps: T12, T14, T15, T18, T27, T28, T29, T30, T31
+- [ ] T32: shell/e2e — accounting journey: submit CHF + EUR CH lines → review shows defaults → change a VAT code → approve → employee sees numbers → compile → export CSV parsed — refs: AC-3.1, AC-3.3, AC-3.4, AC-4.9, AC-6.1, AC-6.2, AC-6.3, AC-6.4 — deps: T12, T14, T15, T18, T27, T28, T29, T30, T31
   - touch: `shell/e2e/refund-accounting.spec.ts`, `shell/e2e/helpers/refundFixtures.ts`
   - agent: qe · e2e
   - Details: plan § Test strategy "e2e journey", plus one refused approval (a type without a
