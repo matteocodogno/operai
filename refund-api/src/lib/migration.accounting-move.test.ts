@@ -651,7 +651,8 @@ describe("20261119130000_accounting_reference_moved_out, from a 20261118 databas
 
   it("is the migration that follows 20261119120000, back to back", () => {
     expect(migrationNames.indexOf(NEXT)).toBe(migrationNames.indexOf(THIS) + 1);
-    expect(migrationNames[migrationNames.length - 1]).toBe(NEXT);
+    // T58 appends the three sign-off migrations after it (20261119200000, …200100, …200200); nothing sits in between
+    expect(migrationNames[migrationNames.indexOf(NEXT) + 1]).toBe("20261119200000_expense_types_flight_taxi");
     expect(counts["refund_line"]).toBe(18);
     expect(counts["expense_type_accounting_default"]).toBe(5);
   });

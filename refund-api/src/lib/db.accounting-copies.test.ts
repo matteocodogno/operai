@@ -219,7 +219,7 @@ describe("refund_line CHECKs refuse their bad row (plan step 5)", () => {
   it("every CHECK of the migration exists and is VALIDATED", async () => {
     const rows = await db.$queryRawUnsafe<{ conname: string; convalidated: boolean }[]>(
       `SELECT conname, convalidated FROM pg_constraint
-       WHERE contype = 'c' AND conrelid IN ('refund_line'::regclass, 'expense_type_accounting_default'::regclass, 'foreign_currency_vat_designation'::regclass)`,
+       WHERE contype = 'c' AND conrelid IN ('refund_line'::regclass, 'expense_type_accounting_default'::regclass)`,
     );
     const byName = new Map(rows.map((r) => [r.conname, r.convalidated]));
     const expected = [
@@ -234,17 +234,22 @@ describe("refund_line CHECKs refuse their bad row (plan step 5)", () => {
       "refund_line_receipt_all_or_none",
       "expense_type_accounting_default_ch_only",
       "expense_type_accounting_default_account_pair",
+    ];
+    for (const name of expected) expect([name, byName.get(name)]).toEqual([name, true]);
+    // T58 (20261119200200_vat_defaults_retired): the VAT CHECKs of the defaults and the designation table's are gone
+    for (const gone of [
       "expense_type_accounting_default_vat_all_or_none",
       "expense_type_accounting_default_vat_rate_range",
       "foreign_currency_vat_designation_ch_only",
       "foreign_currency_vat_designation_vat_all_or_none",
       "foreign_currency_vat_designation_vat_rate_range",
-    ];
-    for (const name of expected) expect([name, byName.get(name)]).toEqual([name, true]);
+    ]) {
+      expect([gone, byName.has(gone)]).toEqual([gone, false]);
+    }
   });
 });
 
-describe("expense_type_accounting_default and foreign_currency_vat_designation", () => {
+describe("expense_type_accounting_default (the VAT half and the designation table were retired by T58)", () => {
   beforeEach(async () => {
     await truncateRefundTables();
   });
@@ -259,39 +264,21 @@ describe("expense_type_accounting_default and foreign_currency_vat_designation",
         type: "travel_km",
         accountNumber: "5905",
         accountName: "Spese rimborsi chilometrici",
-        vatCode: "IMP81",
-        vatLabel: "IVA 8.1%",
-        vatRateBasisPoints: 810,
         ...actor,
         ...overrides,
       },
     });
-  const newDesignation = (overrides: Record<string, unknown> = {}) =>
-    db.foreignCurrencyVatDesignation.create({
-      data: { entity: "welld_ch", vatCode: "NOVAT", vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...actor, ...overrides },
-    });
 
-  it("accepts a full copy, a half default (account only, VAT only) and 'no default' (all null)", async () => {
+  it("accepts a default account and 'no default' (both halves null)", async () => {
     await expect(asPromise(newDefault())).resolves.toBeTruthy();
-    await expect(asPromise(newDefault({ vatCode: null, vatLabel: null, vatRateBasisPoints: null }))).resolves.toBeTruthy();
     await expect(asPromise(newDefault({ accountNumber: null, accountName: null }))).resolves.toBeTruthy();
-    await expect(
-      asPromise(newDefault({ accountNumber: null, accountName: null, vatCode: null, vatLabel: null, vatRateBasisPoints: null })),
-    ).resolves.toBeTruthy();
-    await expect(asPromise(newDesignation())).resolves.toBeTruthy();
-    await expect(asPromise(newDesignation({ vatCode: null, vatLabel: null, vatRateBasisPoints: null }))).resolves.toBeTruthy();
-    expect(await db.expenseTypeAccountingDefault.count()).toBe(4);
-    expect(await db.foreignCurrencyVatDesignation.count()).toBe(2);
+    expect(await db.expenseTypeAccountingDefault.count()).toBe(2);
   });
 
   const badDefaults: [string, string, Record<string, unknown>][] = [
     ["expense_type_accounting_default_ch_only", "an entity other than welld_ch", { entity: "welld_it" }],
     ["expense_type_accounting_default_account_pair", "a number without its name", { accountName: null }],
     ["expense_type_accounting_default_account_pair", "a name without its number", { accountNumber: null }],
-    ["expense_type_accounting_default_vat_all_or_none", "a code without its label and rate", { vatLabel: null, vatRateBasisPoints: null }],
-    ["expense_type_accounting_default_vat_all_or_none", "a rate alone", { vatCode: null, vatLabel: null }],
-    ["expense_type_accounting_default_vat_rate_range", "a rate over 100 %", { vatRateBasisPoints: 10001 }],
-    ["expense_type_accounting_default_vat_rate_range", "a negative rate", { vatRateBasisPoints: -1 }],
   ];
   for (const [constraint, label, overrides] of badDefaults) {
     it(`${constraint}: ${label}`, async () => {
@@ -300,22 +287,7 @@ describe("expense_type_accounting_default and foreign_currency_vat_designation",
     });
   }
 
-  const badDesignations: [string, string, Record<string, unknown>][] = [
-    ["foreign_currency_vat_designation_ch_only", "an entity other than welld_ch", { entity: "welld_it" }],
-    ["foreign_currency_vat_designation_vat_all_or_none", "a code without its label and rate", { vatLabel: null, vatRateBasisPoints: null }],
-    ["foreign_currency_vat_designation_vat_rate_range", "a rate over 100 %", { vatRateBasisPoints: 10001 }],
-  ];
-  for (const [constraint, label, overrides] of badDesignations) {
-    it(`${constraint}: ${label}`, async () => {
-      await expect(asPromise(newDesignation(overrides))).rejects.toThrow(new RegExp(constraint));
-      expect(await db.foreignCurrencyVatDesignation.count()).toBe(0);
-    });
-  }
-
-  const tables = [
-    ["expense_type_accounting_default", () => newDefault(), "accountNumber"],
-    ["foreign_currency_vat_designation", () => newDesignation(), "vatCode"],
-  ] as const;
+  const tables = [["expense_type_accounting_default", () => newDefault(), "accountNumber"]] as const;
   for (const [table, make, column] of tables) {
     it(`${table} is append-only: UPDATE and DELETE raise and the row is untouched, TRUNCATE still resets it`, async () => {
       const row = await asPromise(make());
@@ -324,22 +296,12 @@ describe("expense_type_accounting_default and foreign_currency_vat_designation",
       ).rejects.toThrow(/append-only/);
       await expect(asPromise(db.$executeRawUnsafe(`DELETE FROM "${table}" WHERE id = $1`, row.id))).rejects.toThrow(/append-only/);
       await expect(
-        asPromise(
-          table === "expense_type_accounting_default"
-            ? db.expenseTypeAccountingDefault.update({ where: { id: row.id }, data: { accountNumber: "1" } })
-            : db.foreignCurrencyVatDesignation.update({ where: { id: row.id }, data: { vatCode: "1" } }),
-        ),
+        asPromise(db.expenseTypeAccountingDefault.update({ where: { id: row.id }, data: { accountNumber: "1" } })),
       ).rejects.toThrow();
-      await expect(
-        asPromise(
-          table === "expense_type_accounting_default"
-            ? db.expenseTypeAccountingDefault.delete({ where: { id: row.id } })
-            : db.foreignCurrencyVatDesignation.delete({ where: { id: row.id } }),
-        ),
-      ).rejects.toThrow();
+      await expect(asPromise(db.expenseTypeAccountingDefault.delete({ where: { id: row.id } }))).rejects.toThrow();
       const rows = await db.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT * FROM "${table}" WHERE id = $1`, row.id);
       expect(rows).toHaveLength(1);
-      expect(rows[0]![column]).toBe(column === "accountNumber" ? "5905" : "NOVAT");
+      expect(rows[0]![column]).toBe("5905");
 
       await truncateRefundTables();
       expect(await db.$queryRawUnsafe<unknown[]>(`SELECT 1 FROM "${table}"`)).toHaveLength(0);

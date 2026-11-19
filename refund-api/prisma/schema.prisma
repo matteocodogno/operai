@@ -78,6 +78,8 @@ enum ExpenseType {
   travel_parking
   travel_train
   travel_other_public_transport
+  travel_flight
+  travel_taxi
   company_manuals
   stationery
   representation_meals
@@ -456,52 +458,47 @@ model RefundSetting {
 // Every model below except ReceiptCounter is APPEND-ONLY, enforced by a
 // raising BEFORE UPDATE/DELETE trigger in the same migration (the pattern of
 // `mileage_rate` / `refund_setting`, ADR 20260716-immutable-financial-audit-trail-refund).
-// The defaults history, the designation history and the export log are their
+// The defaults history, the numbering baseline and the export log are their
 // own audit trail. Never add an update/delete route for them. The catalog, its
 // status history and the exchange rates moved to accounting-api (T24 dropped
 // them here).
 
-// specs/20261119-accounting (T16): the default classification per (entity,
-// expense type) holds COPIES by natural key of what Accounting listed when the
-// default was saved, no foreign key into Accounting (ADR
-// 20261119-accounting-reference-data-belongs-to-accounting-api-...). Append-only
-// (accounting_history_immutable() trigger); the current value is the latest row.
-// Replaced ExpenseTypeDefault (dropped by T24). CHECKs: entity = welld_ch,
-// number and name both or neither (null = "no default"), VAT code, label and
-// rate all or none.
+// specs/20261119-accounting (T16, T58): the default LEDGER ACCOUNT per expense type, as an append-only history of copies,
+// no foreign key into Accounting (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-...). Append-only
+// (accounting_history_immutable() trigger); the current value is the latest row. Replaced ExpenseTypeDefault (dropped by
+// T24). CHECKs: entity = welld_ch, number and name both or neither (null = "no default"). The VAT half (code, label,
+// rate) and the foreign-currency VAT designation table were retired by 20261119200200_vat_defaults_retired (T58,
+// 20261119 SO-18): no VAT code is ever pre-set.
 model ExpenseTypeAccountingDefault {
-  id                 String      @id @default(cuid())
-  entity             Entity
-  type               ExpenseType
-  accountNumber      String?
-  accountName        String?
-  vatCode            String?
-  vatLabel           String?
-  vatRateBasisPoints Int?
-  createdByUserId    String
-  createdByEmail     String
-  createdAt          DateTime    @default(now())
+  id              String      @id @default(cuid())
+  entity          Entity
+  type            ExpenseType
+  accountNumber   String?
+  accountName     String?
+  createdByUserId String
+  createdByEmail  String
+  createdAt       DateTime    @default(now())
 
   @@index([entity, type, createdAt])
   @@map("expense_type_accounting_default")
 }
 
-// specs/20261119-accounting (T16): the designated VAT code of foreign-currency
-// lines, as an append-only history of copies (replaces the refund_setting key
-// `accounting.welld_ch.foreign-currency-vat-code`, whose immutable rows stay
-// unread). The current value is the latest row; all-null = cleared.
-model ForeignCurrencyVatDesignation {
-  id                 String   @id @default(cuid())
-  entity             Entity
-  vatCode            String?
-  vatLabel           String?
-  vatRateBasisPoints Int?
-  createdByUserId    String
-  createdByEmail     String
-  createdAt          DateTime @default(now())
+// specs/20261118-refund-accounting-export (T58, SO-13): the 2026 numbering baseline, the last receipt sequence issued by
+// hand before Refund took over, per employee EMAIL (not user id: it also serves an employee with no Refund request yet).
+// Append-only (accounting_history_immutable() triggers); the current value is the latest row per (emailKey, year).
+// CHECKs: emailKey lower-case and containing "@", year = 2026 (AC-4.12: no other year is continued), lastIssuedSeq 1..99999.
+// Read when classifyAndNumber creates the employee's 2026 counter (T63); `receipt_counter.startAfterSetBy` is then "baseline".
+model ReceiptNumberBaseline {
+  id              String   @id @default(cuid())
+  emailKey        String // lower(btrim(email))
+  year            Int
+  lastIssuedSeq   Int
+  createdByUserId String // system:accounting-release
+  createdByEmail  String
+  createdAt       DateTime @default(now())
 
-  @@index([entity, createdAt])
-  @@map("foreign_currency_vat_designation")
+  @@index([emailKey, year, createdAt])
+  @@map("receipt_number_baseline")
 }
 
 // Per (employee, year of the expense date) receipt counter, row-locked by the
@@ -513,7 +510,7 @@ model ReceiptCounter {
   year            Int
   lastSeq         Int // highest number issued (= startAfter before the first)
   startAfter      Int      @default(0) // one-time offset; 0 = start at 001
-  startAfterSetBy String? // "system:accounting-release" when an offset was loaded
+  startAfterSetBy String? // "baseline" when the counter started from receipt_number_baseline (T58/T63); older rows: "system:accounting-release"
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

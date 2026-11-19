@@ -4,10 +4,11 @@
  * T24, specs/20261119-accounting; ADR 20260716-immutable-financial-audit-trail-refund).
  *
  * Strategy: real Postgres, no mocking. These tests exercise the raw SQL of the
- * `20261119090000_accounting_export` and `20261119120000_accounting_copies`
- * migrations, not application code. A raw UPDATE/DELETE must raise on each of
- * the three history tables that remain (the export log and the two tables of
- * copies: the defaults and the foreign-currency VAT designation), and the row
+ * `20261119090000_accounting_export`, `20261119120000_accounting_copies` and
+ * `20261119200100_receipt_number_baseline` migrations, not application code. A raw UPDATE/DELETE must raise on each of
+ * the three history tables that remain (the export log, the table of default
+ * accounts and, since T58, the 2026 numbering baseline; the foreign-currency VAT
+ * designation was dropped by `20261119200200_vat_defaults_retired`), and the row
  * must be provably untouched afterwards. Cleanup uses TRUNCATE (via
  * `truncateRefundTables`), which does not fire row triggers.
  *
@@ -46,15 +47,12 @@ const factories: Record<string, () => Promise<{ id: string }>> = {
         type: "travel_km",
         accountNumber: "5901",
         accountName: "Spese rimborsi chilometrici",
-        vatCode: "IMP81",
-        vatLabel: "IVA 8.1%",
-        vatRateBasisPoints: 810,
         ...actor,
       },
     }),
-  foreign_currency_vat_designation: () =>
-    db.foreignCurrencyVatDesignation.create({
-      data: { entity: "welld_ch", vatCode: "NOVAT", vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...actor },
+  receipt_number_baseline: () =>
+    db.receiptNumberBaseline.create({
+      data: { emailKey: "matteo.codogno@welld.ch", year: 2026, lastIssuedSeq: 81, ...actor },
     }),
   refund_batch_export: async () => {
     const batch = await makeBatch();
@@ -75,12 +73,12 @@ const factories: Record<string, () => Promise<{ id: string }>> = {
 // A column that exists on every table, to give the UPDATE something to change.
 const touchedColumn: Record<string, string> = {
   expense_type_accounting_default: '"createdByEmail"',
-  foreign_currency_vat_designation: '"createdByEmail"',
+  receipt_number_baseline: '"createdByEmail"',
   refund_batch_export: '"rowCount"',
 };
 const touchedValue: Record<string, unknown> = {
   expense_type_accounting_default: "changed@welld.ch",
-  foreign_currency_vat_designation: "changed@welld.ch",
+  receipt_number_baseline: "changed@welld.ch",
   refund_batch_export: 99,
 };
 
@@ -171,9 +169,11 @@ describe("what stays, and what the move dropped (T24)", () => {
     ]) {
       expect(tables).not.toContain(gone);
     }
-    for (const kept of ["refund_batch_export", "receipt_counter", "expense_type_accounting_default", "foreign_currency_vat_designation"]) {
+    for (const kept of ["refund_batch_export", "receipt_counter", "expense_type_accounting_default", "receipt_number_baseline"]) {
       expect(tables).toContain(kept);
     }
+    // T58 (20261119200200_vat_defaults_retired): the designation table is gone as well
+    expect(tables).not.toContain("foreign_currency_vat_designation");
     const columns = (
       await db.$queryRawUnsafe<{ column_name: string }[]>(
         `SELECT column_name::text AS column_name FROM information_schema.columns WHERE table_name = 'refund_line'`,
@@ -186,7 +186,7 @@ describe("what stays, and what the move dropped (T24)", () => {
     expect(enumCount).toBe(0);
     const indexCount = (await db.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM pg_indexes WHERE indexname = 'exchange_rate_fetched_once'`))[0]!.n;
     expect(indexCount).toBe(0);
-    // the raising function is still there: the three tables above use it
+    // the raising function is still there: the append-only tables above use it
     const fnCount = (await db.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM pg_proc WHERE proname = 'accounting_history_immutable'`))[0]!.n;
     expect(fnCount).toBe(1);
   });

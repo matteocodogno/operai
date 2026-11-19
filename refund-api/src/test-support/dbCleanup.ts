@@ -19,6 +19,10 @@
  * defaults, the exchange rates and the fetch attempts moved to accounting-api
  * and their tables were dropped by T24, so they are no longer listed.
  *
+ * specs/20261119-accounting (T58): `foreign_currency_vat_designation` was dropped by
+ * `20261119200200_vat_defaults_retired` and is no longer listed; the append-only
+ * `receipt_number_baseline` (20261119200100) is, for the same reason as the others.
+ *
  * specs/20261118-refund-accounting-export (T12): the cleanup puts the accounting
  * release marker back (see `accountingRelease.ts`), because approving is refused
  * without it; `truncateRefundTables({ released: false })` leaves it out.
@@ -49,7 +53,7 @@ export interface TruncateOptions {
 
 export async function truncateRefundTables(options: TruncateOptions = {}): Promise<void> {
   await db.$executeRawUnsafe(
-    'TRUNCATE TABLE "refund_audit_entry", "attachment", "refund_line", "refund_batch_item", "refund_request", "refund_batch", "mileage_rate", "refund_setting", "receipt_counter", "refund_batch_export", "expense_type_accounting_default", "foreign_currency_vat_designation" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "refund_audit_entry", "attachment", "refund_line", "refund_batch_item", "refund_request", "refund_batch", "mileage_rate", "refund_setting", "receipt_counter", "refund_batch_export", "expense_type_accounting_default", "receipt_number_baseline" RESTART IDENTITY CASCADE',
   );
   if (options.released !== false) await markAccountingReleased();
 }
