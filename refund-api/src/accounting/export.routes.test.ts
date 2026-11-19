@@ -1,21 +1,22 @@
 /**
- * The accounting export routes (T18, specs/20261118-refund-accounting-export,
- * plan § Test strategy rows AC-6.1 to AC-6.12, AC-7.2, AC-4.6; G9 to G11).
+ * The accounting export routes (T18, specs/20261118-refund-accounting-export, plan § Test strategy rows AC-6.1 to AC-6.12,
+ * AC-7.2, AC-4.6; G9 to G11; reworked by T21, specs/20261119-accounting: the file is built from COPIES, the pending rate is
+ * copied inside the export transaction, Accounting is a fake `AccountingPort`; plan rows AC-5.3 to AC-5.6, AC-6.6, AC-6.7,
+ * AC-7.2, AC-7.3).
  *
- * Real Postgres, jwt/authz mocked (`test-support/testAuth.ts`), the exchange-rate
- * source FAKE (`createFxService` with an injected fetcher): no test touches the
- * network. `export.routes` and the batch routers are imported with a query suffix
- * (a module instance of their own): the same files are imported by other test
- * files bound to THEIR mocked jwt/authz (testAuth.ts, "no shared router specifier").
+ * Real Postgres, jwt/authz mocked (`test-support/testAuth.ts`), Accounting FAKE (`test-support/fakeAccounting.ts`): no test
+ * touches the network. `export.routes` and the batch routers are imported with a query suffix (a module instance of their
+ * own): the same files are imported by other test files bound to THEIR mocked jwt/authz (testAuth.ts, "no shared router
+ * specifier").
  *
  *   AC-6.1   compiled and paid batches: a header and one row per approved, not rejected WellD CH line
- *   AC-6.2   the 16 columns (the golden file is `export.test.ts`; here, through the route)
+ *   AC-6.2   the 16 columns (the golden file is `export.test.ts`; here, through the route, from rows of the database)
  *   AC-6.3   10.40 EUR dated 2026-03-02 at 0.9246 is 9.62, in the file
  *   AC-6.4   20.80 CHF at 8.1 % carries a VAT of 1.56, in the file
  *   AC-6.5   a missing rate: summary and CSV 409 list {currency, month}; compile, mark-paid and discard still 2xx
  *   AC-6.6   WellD Italia lines are left out and counted
  *   AC-6.7   no WellD CH line: a file with the header row only
- *   AC-6.8   exported twice, identical bytes and hashes; a rate correction changes the hash
+ *   AC-6.8   exported twice, identical bytes and hashes
  *   AC-6.9   a discarded batch has no export (409 `batch_discarded`, both routes)
  *   AC-6.10  a download writes one log row, a summary writes none
  *   AC-6.11  no `request:review`: 403; a review scope without welld_ch: 403 `accounting_export_out_of_scope`
@@ -24,9 +25,22 @@
  *   AC-4.6   two employees with the same initials: the name goes with the number
  *   G10      the 409 `accounting_export_blocked` body IS the summary
  *   BINDING  an approved or paid line is read STORED-ONLY (no live defaults), as the review view reads it
+ *
+ *   20261119:
+ *   AC-5.3   the file does not move when Accounting deactivates, renames or re-rates after the copy
+ *   AC-5.4   all copies held: 0 fake calls, also while Accounting is unreachable; two exports are identical
+ *   AC-5.5   copied at 0.9246, Accounting now at 0.9300: `10.40;0.9246;9.62`
+ *   AC-5.6   a pending rate is copied inside the export (audited with the exporter); a refused export copies nothing;
+ *            concurrent exports copy once
+ *   AC-6.6   a pending line and Accounting unreachable: `accountingUnavailable`, no missing rate, no log row
+ *   AC-6.7   a missing rate lists {currency, month, reason}; `fetchAttempted` as Accounting reports it
+ *   AC-7.2   the golden file, byte for byte, from rows of the database
+ *   AC-7.3   `viewer.canOpenAccountingRates`
  */
 
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ResolveResponse } from "../authz/resolveClient";
 import { truncateRefundTables } from "../test-support/dbCleanup";
 import { setupTestAuth } from "../test-support/testAuth";
@@ -38,6 +52,7 @@ process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["NODE_ENV"] = "test";
 process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
+process.env["ACCOUNTING_INTERNAL_URL"] = "http://localhost:8089";
 process.env["SERVICE_CLIENT_ID"] = "refund-api";
 process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
 process.env["REFUND_S3_ENDPOINT"] = "https://test.s3.railway-eu-amsterdam.example.com";
@@ -76,7 +91,7 @@ const { batchDecideRouter } = (await import("../batches/decide.routes?export-t18
 const { classificationRouter } = (await import("./classification.routes?export-t18")) as typeof import("./classification.routes");
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
-const { createFxService } = await import("../fx/fx.service");
+const { createStandardFakeAccounting } = await import("../test-support/fakeAccounting");
 const { notifyTransport } = await import("../lib/notifyPost");
 const { sha256Hex } = await import("./export.repo");
 const { ExportBlockedSchema, ExportSummarySchema } = await import("./export.schemas");
@@ -92,28 +107,13 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
   return originalFetch(url, init);
 }) as unknown as typeof fetch;
 
-// ─── Exchange-rate source: fake ──────────────────────────────────────────────
+// ─── Accounting: fake ────────────────────────────────────────────────────────
 
-const NOW = new Date("2026-11-19T10:00:00.000Z"); // March 2026 is fetchable; November 2026 is not
-const xmlFor = (month: string, eur = "0.9246", usd = "0.7808", gbp = "1.0635") =>
-  `<?xml version="1.0"?><monatsmittelkurs><monat>${month}</monat>
-    <devise code="eur"><waehrung>1 EUR</waehrung><kurs>${eur}</kurs></devise>
-    <devise code="usd"><waehrung>1 USD</waehrung><kurs>${usd}</kurs></devise>
-    <devise code="gbp"><waehrung>1 GBP</waehrung><kurs>${gbp}</kurs></devise></monatsmittelkurs>`;
-
-type Fetcher = NonNullable<Parameters<typeof createFxService>[0]["fetcher"]>;
-function fakeSource(answer: (month: string) => Response | Promise<Response> = (m) => new Response(xmlFor(m))) {
-  const urls: string[] = [];
-  const fetcher: Fetcher = async (url) => {
-    urls.push(url);
-    return answer(`${/j=(\d{4})/.exec(url)![1]}-${/m=(\d{2})/.exec(url)![1]}`);
-  };
-  return { fetcher, urls };
-}
-const routerWith = (fetcher?: Fetcher) =>
-  createExportRouter({ fx: createFxService({ mode: fetcher ? "bazg" : "off", ...(fetcher ? { fetcher } : {}), now: () => NOW }) });
-/** No source at all (`REFUND_FX_SOURCE=off`): a missing rate stays missing. */
-const exportRouter = routerWith();
+type Fake = ReturnType<typeof createStandardFakeAccounting>;
+let fake: Fake = createStandardFakeAccounting();
+/** A port that always reads the CURRENT fake, so the one router below serves every test. */
+const livePort = { begin: (name: Parameters<Fake["begin"]>[0]) => fake.begin(name) };
+const exportRouter = createExportRouter({ accounting: livePort });
 
 // ─── Permissions ─────────────────────────────────────────────────────────────
 
@@ -145,24 +145,23 @@ function as(resolve: ResolveResponse): void {
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
-const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
 type Owner = { id: string; name: string | null; email: string; initials: string };
 const MATTEO: Owner = { id: "u-matteo", name: "Matteo Codogno", email: "matteo.codogno@welld.ch", initials: "MC" };
 const MARCO: Owner = { id: "u-marco", name: "Marco Cattaneo", email: "marco.cattaneo@welld.ch", initials: "MC" };
 const ANNA: Owner = { id: "u-anna", name: "Anna Rossi", email: "anna.rossi@welld.ch", initials: "AR" };
 
-let office: { id: string };
-let km: { id: string };
-let imp81: { id: string };
-let novat: { id: string };
+/** What a line holds when it is booked: the copies, by natural key. */
+type AccountCopy = { number: string; name: string };
+type VatCopy = { code: string; rateBasisPoints: number };
+const OFFICE: AccountCopy = { number: "6101", name: "Spese materiale ufficio" };
+const KM: AccountCopy = { number: "5905", name: "Spese rimborsi chilometrici (viaggi)" };
+const IMP81: VatCopy = { code: "IMP81", rateBasisPoints: 810 };
+const NOVAT: VatCopy = { code: "NOVAT", rateBasisPoints: 0 };
 
 beforeEach(async () => {
   await truncateRefundTables();
   as(GLOBAL_REVIEWER);
-  office = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "6101", name: "Spese materiale ufficio", ...by } });
-  km = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "5905", name: "Spese rimborsi chilometrici (viaggi)", ...by } });
-  imp81 = await db.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...by } });
-  novat = await db.vatCode.create({ data: { entity: "welld_ch", code: "NOVAT", label: "Senza IVA", rateBasisPoints: 0, ...by } });
+  fake = createStandardFakeAccounting().setAccount(KM.number, KM.name);
 });
 afterAll(async () => {
   await truncateRefundTables();
@@ -184,9 +183,11 @@ interface LineSpec {
   rejected?: boolean;
   /** `false`: the line has no receipt number. Default: numbered with the next sequence of its owner and year. */
   numbered?: boolean;
-  /** What is stored on the line; default the office account and IMP81. `null` = nothing stored for that half. */
-  account?: { id: string } | null;
-  vat?: { id: string } | null;
+  /** The copies stored on the line; default the office account and IMP81. `null` = nothing stored for that half. */
+  account?: AccountCopy | null;
+  vat?: VatCopy | null;
+  /** The exchange-rate copy of a foreign-currency line, in micros. Default `null`: the rate is pending (AC-5.6). */
+  fx?: number | null;
 }
 
 let seqs = new Map<string, number>();
@@ -207,8 +208,8 @@ async function addLine(requestId: string, owner: Owner, spec: LineSpec) {
   const numbered = spec.numbered !== false && !spec.rejected;
   const seq = numbered ? nextSeq(owner.id, year) : null;
   const classified = (spec.entity ?? "welld_ch") === "welld_ch" && !spec.rejected;
-  const account = spec.account === undefined ? office : spec.account;
-  const vat = spec.vat === undefined ? imp81 : spec.vat;
+  const account = spec.account === undefined ? OFFICE : spec.account;
+  const vat = spec.vat === undefined ? IMP81 : spec.vat;
   const line = await db.refundLine.create({
     data: {
       requestId,
@@ -222,8 +223,11 @@ async function addLine(requestId: string, owner: Owner, spec: LineSpec) {
       ...(spec.km !== undefined ? { km: spec.km } : {}),
       createdAt: new Date(Date.UTC(2026, 2, 5, 10, 0, ++lineCreatedAt % 60, Math.floor(lineCreatedAt / 60))),
       ...(spec.rejected ? { rejectionReason: "no", rejectedAt: new Date(), rejectedByUserId: "a", rejectedByEmail: "a@x" } : {}),
-      ...(classified && account ? { ledgerAccountId: account.id, ledgerAccountIsDefault: true } : {}),
-      ...(classified && vat ? { vatCodeId: vat.id, vatCodeIsDefault: true } : {}),
+      ...(classified && account ? { accountNumber: account.number, accountName: account.name, ledgerAccountIsDefault: true } : {}),
+      ...(classified && vat ? { vatCodeCopy: vat.code, vatRateBasisPoints: vat.rateBasisPoints, vatCodeIsDefault: true } : {}),
+      ...(classified && (spec.currency ?? "CHF") !== "CHF" && spec.fx != null
+        ? { fxRateMicros: spec.fx, fxRateMonth: new Date(`${date.slice(0, 7)}-01T00:00:00.000Z`), fxRateCopiedAt: new Date("2026-03-20T10:00:00.000Z") }
+        : {}),
       ...(numbered && seq !== null
         ? {
             receiptNumber: `${owner.initials}${String(year).slice(2)}/${String(seq).padStart(3, "0")}`,
@@ -295,20 +299,6 @@ async function createUnbatchedRequest(lines: LineSpec[], owner: Owner = MATTEO) 
   for (const line of lines) lineIds.push(await addLine(request.id, owner, { owner, ...line }));
   return { requestId: request.id, lineIds };
 }
-
-const addRate = (currency: "EUR" | "USD" | "GBP", month: string, rateMicros: number, origin: "fetched" | "corrected" = "fetched", at?: string) =>
-  db.exchangeRateEntry.create({
-    data: {
-      currency,
-      month: new Date(`${month}-01T00:00:00.000Z`),
-      rateMicros,
-      origin,
-      createdByUserId: origin === "fetched" ? "system:fx-fetch" : "admin",
-      createdByEmail: "x@welld.ch",
-      ...(origin === "fetched" ? { sourceUrl: "https://example.test", sourceMonth: month, fetchedAt: new Date() } : {}),
-      ...(at ? { createdAt: new Date(at) } : {}),
-    },
-  });
 
 // ─── Calls ───────────────────────────────────────────────────────────────────
 
@@ -407,7 +397,7 @@ describe("the file (AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-6.12, AC-4.6)", () => {
       {
         lines: [
           { type: "office_material", approved: 2080, motivo: "Cancelleria" },
-          { type: "travel_km", approved: 8400, km: 120, motivo: "Visita cliente", account: km, vat: novat },
+          { type: "travel_km", approved: 8400, km: 120, motivo: "Visita cliente", account: KM, vat: NOVAT },
           { entity: "welld_it", currency: "EUR", approved: 5000 }, // left out
           { rejected: true, requested: 999 }, // never a row
         ],
@@ -441,26 +431,25 @@ describe("the file (AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-6.12, AC-4.6)", () => {
     expect((await summaryOf(batchId)).body).toMatchObject({ batchStatus: "paid", exportable: true, rowCount: 2 });
   });
 
-  it("(AC-6.3) 10.40 EUR dated 2026-03-02 at the March rate 0.9246 is 9.62 CHF", async () => {
-    await addRate("EUR", "2026-03", 924_600);
-    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", approved: 1040, date: "2026-03-02", vat: novat }] }]);
+  it("(AC-6.3, AC-5.5) 10.40 EUR dated 2026-03-02, copied at 0.9246, is 9.62 CHF, whatever Accounting says now (0.9300)", async () => {
+    fake.setRate("EUR", "2026-03", 930_000, "corrected");
+    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", approved: 1040, date: "2026-03-02", vat: NOVAT, fx: 924_600 }] }]);
     const out = await csvOf(batchId);
     expect(out.status).toBe(200);
     expect(out.text).toContain(";EUR;10.40;0.9246;9.62;");
     const row = dataRows(out.text)[0]!;
     expect([row[col("approvedTotal")], row[col("exchangeRate")], row[col("chfAmount")]]).toEqual(["10.40", "0.9246", "9.62"]);
+    // The copy is held: Accounting was not asked at all.
+    expect(fake.reads.total).toBe(0);
   });
 
-  it("(AC-6.3) the rate is the one of the month of the EXPENSE date, per currency", async () => {
-    await addRate("EUR", "2026-02", 900_000);
-    await addRate("EUR", "2026-03", 924_600);
-    await addRate("USD", "2026-03", 780_800);
+  it("(AC-6.3) each line carries ITS OWN copy: the rate of the month of the expense date, per currency", async () => {
     const { batchId } = await createBatch([
       {
         lines: [
-          { currency: "EUR", approved: 1000, date: "2026-02-28", vat: novat },
-          { currency: "EUR", approved: 1000, date: "2026-03-01", vat: novat },
-          { currency: "USD", approved: 1000, date: "2026-03-31", vat: novat },
+          { currency: "EUR", approved: 1000, date: "2026-02-28", vat: NOVAT, fx: 900_000 },
+          { currency: "EUR", approved: 1000, date: "2026-03-01", vat: NOVAT, fx: 924_600 },
+          { currency: "USD", approved: 1000, date: "2026-03-31", vat: NOVAT, fx: 780_800 },
         ],
       },
     ]);
@@ -470,14 +459,6 @@ describe("the file (AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-6.12, AC-4.6)", () => {
       ["2026-03-01", "0.9246", "9.25"],
       ["2026-03-31", "0.7808", "7.81"],
     ]);
-  });
-
-  it("(AC-6.3) a corrected rate is the one in effect", async () => {
-    await addRate("EUR", "2026-03", 924_600, "fetched", "2026-04-01T08:00:00.000Z");
-    await addRate("EUR", "2026-03", 950_000, "corrected", "2026-04-02T08:00:00.000Z");
-    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", approved: 1040, vat: novat }] }]);
-    const row = dataRows((await csvOf(batchId)).text)[0]!;
-    expect([row[col("exchangeRate")], row[col("chfAmount")]]).toEqual(["0.9500", "9.88"]);
   });
 
   it("(AC-6.4) a CHF line of 20.80 classified at 8.1 % carries a VAT of 1.56", async () => {
@@ -575,33 +556,51 @@ describe("what is left out (AC-6.6, AC-6.7)", () => {
 });
 
 describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
-  it("(AC-6.5) a foreign-currency line whose month has no rate blocks: the summary lists each missing currency and month", async () => {
+  it("(AC-6.5, AC-6.7) a pending foreign-currency line whose month has no rate in effect blocks: the summary lists each missing currency, month and reason", async () => {
     const { batchId } = await createBatch([
       {
         lines: [
-          { currency: "EUR", date: "2026-03-02", vat: novat },
-          { currency: "EUR", date: "2026-03-20", vat: novat }, // same pair: listed once
-          { currency: "USD", date: "2026-03-05", vat: novat },
-          { currency: "GBP", date: "2026-02-10", vat: novat },
-          { currency: "EUR", date: "2026-02-10", vat: novat }, // February EUR has its rate
+          { currency: "EUR", date: "2026-03-02", vat: NOVAT },
+          { currency: "EUR", date: "2026-03-20", vat: NOVAT }, // same pair: listed once
+          { currency: "USD", date: "2026-03-05", vat: NOVAT },
+          { currency: "GBP", date: "2026-02-10", vat: NOVAT },
+          { currency: "EUR", date: "2026-02-10", vat: NOVAT }, // February EUR has its rate in Accounting
+          { currency: "EUR", date: "2026-01-10", vat: NOVAT, fx: 910_000 }, // already copied: not asked
         ],
       },
     ]);
-    await addRate("EUR", "2026-02", 900_000);
+    fake.setRate("EUR", "2026-02", 900_000);
+    fake.setRateMissing("EUR", "2026-03", "not_published").setRateMissing("USD", "2026-03", "fetch_failed").setRateMissing("GBP", "2026-02", "no_source");
     const { status, body } = await summaryOf(batchId);
     expect(status).toBe(200);
     expect(body["exportable"]).toBe(false);
     expect(body["blockers"]["missingRates"]).toEqual([
-      { currency: "GBP", month: "2026-02" },
-      { currency: "EUR", month: "2026-03" },
-      { currency: "USD", month: "2026-03" },
+      { currency: "GBP", month: "2026-02", reason: "no_source" },
+      { currency: "EUR", month: "2026-03", reason: "not_published" },
+      { currency: "USD", month: "2026-03", reason: "fetch_failed" },
     ]);
+    expect(body["blockers"]["accountingUnavailable"]).toBe(false);
     expect(body["blockers"]["unclassifiedLines"]).toEqual([]);
-    expect(body["rowCount"]).toBe(5);
+    expect(body["rowCount"]).toBe(6);
+    expect(body["ratePendingLineCount"]).toBe(5);
+    // ONE read of the rates, for the distinct pending pairs only, in a stable order; the reference data is never read.
+    expect(fake.reads).toEqual({ referenceData: 0, rates: 1, total: 1 });
+    expect(fake.calls[0]!.pairs).toEqual(["EUR:2026-02", "GBP:2026-02", "EUR:2026-03", "USD:2026-03"]);
+    expect(fake.calls[0]!.operation).toBe("export");
+  });
+
+  it("(G10) fetchAttempted is true when Accounting reports having tried its source for any pending pair, false otherwise", async () => {
+    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", date: "2026-03-02", vat: NOVAT }, { currency: "USD", date: "2026-03-02", vat: NOVAT }] }]);
+    fake.setRate("EUR", "2026-03", 924_600).setRate("USD", "2026-03", 780_800);
+    expect((await summaryOf(batchId)).body).toMatchObject({ exportable: true, fetchAttempted: false });
+    fake.setAttempted("USD", "2026-03", true);
+    expect((await summaryOf(batchId)).body).toMatchObject({ exportable: true, fetchAttempted: true });
+    fake.setRateMissing("USD", "2026-03", "fetch_failed");
+    expect((await summaryOf(batchId)).body).toMatchObject({ exportable: false, fetchAttempted: true });
   });
 
   it("(AC-6.5, G10) the CSV is refused with 409 accounting_export_blocked, whose body IS the summary, and no file leaves", async () => {
-    const { batchId } = await createBatch([{ lines: [{}, { currency: "EUR", date: "2026-03-02", vat: novat }] }]);
+    const { batchId } = await createBatch([{ lines: [{}, { currency: "EUR", date: "2026-03-02", vat: NOVAT }] }]);
     const summary = await summaryOf(batchId);
     const csv = await csvOf(batchId);
     expect(csv.status).toBe(409);
@@ -615,7 +614,7 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
     const { type, title, status, detail, instance, code, ...summaryPart } = body;
     expect([type, title, status, detail, instance, code].every((v) => v !== undefined)).toBe(true);
     expect(summaryPart).toEqual(summary.body);
-    expect(summaryPart["blockers"]["missingRates"]).toEqual([{ currency: "EUR", month: "2026-03" }]);
+    expect(summaryPart["blockers"]["missingRates"]).toEqual([{ currency: "EUR", month: "2026-03", reason: "not_published" }]);
     expect(await exportLog()).toHaveLength(0);
   });
 
@@ -626,7 +625,7 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
     expect(readySummary.headers.get("cache-control")).toBe("private, no-store");
     expect(readySummary.headers.get("x-content-type-options")).toBe("nosniff");
 
-    const blocked = await createBatch([{ lines: [{ currency: "EUR", date: "2026-03-02", vat: novat }] }]);
+    const blocked = await createBatch([{ lines: [{ currency: "EUR", date: "2026-03-02", vat: NOVAT }] }]);
     const blockedSummary = await call(exportRouter, `/batches/${blocked.batchId}/accounting-export`);
     expect(blockedSummary.status).toBe(200);
     expect(blockedSummary.headers.get("cache-control")).toBe("private, no-store");
@@ -639,13 +638,13 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
 
   it("(AC-6.5) compile, mark-paid and discard of the blocked batch are not affected: all 2xx", async () => {
     // Two approved requests with a EUR line and no rate: the export of any batch holding them is blocked.
-    await createUnbatchedRequest([{ currency: "EUR", date: "2026-03-02", vat: novat }]);
+    await createUnbatchedRequest([{ currency: "EUR", date: "2026-03-02", vat: NOVAT }]);
     as(GLOBAL_REVIEWER);
 
     const compiled = await call(batchesRouter, "/batches", { method: "POST", body: JSON.stringify({}) });
     expect(compiled.status).toBe(201);
     const batchId = ((await compiled.json()) as { id: string }).id;
-    expect((await summaryOf(batchId)).body["blockers"]["missingRates"]).toEqual([{ currency: "EUR", month: "2026-03" }]);
+    expect((await summaryOf(batchId)).body["blockers"]["missingRates"]).toEqual([{ currency: "EUR", month: "2026-03", reason: "not_published" }]);
     expect((await csvOf(batchId)).status).toBe(409);
 
     const paid = await call(batchDecideRouter, `/batches/${batchId}/mark-paid`, { method: "POST" });
@@ -655,7 +654,7 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
     expect(((await db.refundBatch.findUnique({ where: { id: batchId } }))!).status).toBe("paid");
 
     // A second blocked batch: discard it.
-    await createUnbatchedRequest([{ currency: "GBP", date: "2026-03-09", vat: novat }]);
+    await createUnbatchedRequest([{ currency: "GBP", date: "2026-03-09", vat: NOVAT }]);
     const compiled2 = await call(batchesRouter, "/batches", { method: "POST", body: JSON.stringify({}) });
     expect(compiled2.status).toBe(201);
     const batch2 = ((await compiled2.json()) as { id: string }).id;
@@ -668,8 +667,8 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
     const { batchId, lineIds, requestIds } = await createBatch([
       {
         lines: [
-          { type: "office_material", date: "2026-03-10", account: null, vat: imp81 },
-          { type: "travel_train", date: "2026-03-03", account: office, vat: null },
+          { type: "office_material", date: "2026-03-10", account: null, vat: IMP81 },
+          { type: "travel_train", date: "2026-03-03", account: OFFICE, vat: null },
           { type: "postal", date: "2026-03-04", account: null, vat: null },
           { type: "office_material", date: "2026-03-05" }, // fully classified: not listed
         ],
@@ -685,15 +684,15 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
     const csv = await csvOf(batchId);
     expect(csv.status).toBe(409);
     expect(json(csv.text)["blockers"]["unclassifiedLines"]).toHaveLength(3);
+    // Nothing was classified, copied or read from Accounting to say so.
+    expect(fake.reads.total).toBe(0);
 
-    // Accounting classifies them: the export opens. (T19, specs/20261119-accounting: the PUT now writes COPIES by natural
-    // key, which the export reads only from T21 on; until then this test classifies the legacy lines the way the export still
-    // reads them, on the foreign-key columns.)
-    await db.refundLine.update({ where: { id: lineIds[0]! }, data: { ledgerAccountId: office.id, ledgerAccountIsDefault: false } });
-    await db.refundLine.update({ where: { id: lineIds[1]! }, data: { vatCodeId: imp81.id, vatCodeIsDefault: false } });
+    // Accounting classifies them (the PUT writes copies by natural key): the export opens.
+    await db.refundLine.update({ where: { id: lineIds[0]! }, data: { accountNumber: OFFICE.number, accountName: OFFICE.name, ledgerAccountIsDefault: false } });
+    await db.refundLine.update({ where: { id: lineIds[1]! }, data: { vatCodeCopy: IMP81.code, vatRateBasisPoints: IMP81.rateBasisPoints, vatCodeIsDefault: false } });
     await db.refundLine.update({
       where: { id: lineIds[2]! },
-      data: { ledgerAccountId: office.id, ledgerAccountIsDefault: false, vatCodeId: novat.id, vatCodeIsDefault: false },
+      data: { accountNumber: OFFICE.number, accountName: OFFICE.name, ledgerAccountIsDefault: false, vatCodeCopy: NOVAT.code, vatRateBasisPoints: 0, vatCodeIsDefault: false },
     });
     as(GLOBAL_REVIEWER);
     expect((await summaryOf(batchId)).body).toMatchObject({ exportable: true, rowCount: 4 });
@@ -701,13 +700,16 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
   });
 
   it("BINDING: an approved line is read STORED-ONLY, exactly as the review view reads it: a live default never fills a half left empty", async () => {
-    // Defaults exist for the type and for foreign currencies, and the designation points at an active code...
-    await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "office_material", ledgerAccountId: office.id, vatCodeId: imp81.id, ...by } });
-    await db.refundSetting.create({ data: { key: "accounting.welld_ch.foreign-currency-vat-code", value: novat.id, ...by } });
-    await addRate("EUR", "2026-03", 924_600);
+    // Refund records defaults for the type and for foreign currencies, Accounting lists every entry as active...
+    const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
+    await db.expenseTypeAccountingDefault.create({
+      data: { entity: "welld_ch", type: "office_material", accountNumber: OFFICE.number, accountName: OFFICE.name, vatCode: IMP81.code, vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by },
+    });
+    await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", vatCode: NOVAT.code, vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...by } });
+    fake.setRate("EUR", "2026-03", 924_600);
     // ...but the approved lines have nothing stored for one half: they stay blocked, they are not classified by the defaults.
     const { batchId, lineIds } = await createBatch([
-      { lines: [{ type: "office_material", account: null, vat: null }, { type: "office_material", currency: "EUR", account: office, vat: null }] },
+      { lines: [{ type: "office_material", account: null, vat: null }, { type: "office_material", currency: "EUR", account: OFFICE, vat: null }] },
     ]);
     const { body } = await summaryOf(batchId);
     expect(body["exportable"]).toBe(false);
@@ -716,15 +718,21 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
       [lineIds[1], ["vatCode"]],
     ]);
     expect((await csvOf(batchId)).status).toBe(409);
+    // The rate of the EUR line was asked (it is pending), the reference data and the defaults never were consulted.
+    expect(fake.reads.referenceData).toBe(0);
+    // ...and the refused export copied nothing.
+    expect((await db.refundLine.findUniqueOrThrow({ where: { id: lineIds[1]! } })).fxRateMicros).toBeNull();
   });
 
-  it("a stored account or VAT code that was deactivated since is kept: the line still exports (AC-1.3, AC-1.6)", async () => {
+  it("(AC-5.3) a stored account or VAT code that was deactivated since, or renamed, or gone, is kept: the line still exports as copied", async () => {
     const { batchId } = await createBatch([{ lines: [{}] }]);
-    await db.accountingCatalogStatus.create({ data: { ledgerAccountId: office.id, active: false, ...by } });
-    await db.accountingCatalogStatus.create({ data: { vatCodeId: imp81.id, active: false, ...by } });
+    fake.setAccountActive("6101", false).setVatCodeActive("IMP81", false);
     const out = await csvOf(batchId);
     expect(out.status).toBe(200);
     expect(out.text).toContain(";6101;Spese materiale ufficio;IMP81;8.10;1.56;");
+    fake.setAccount("6101", "Another name").removeVatCode("IMP81");
+    expect((await csvOf(batchId)).text).toContain(";6101;Spese materiale ufficio;IMP81;8.10;1.56;");
+    expect(fake.reads.total).toBe(0);
   });
 
   it("a line with no receipt number blocks (it cannot happen after the release): unnumberedLines", async () => {
@@ -738,105 +746,382 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
 
   it("all blockers at once are reported together, in a stable order", async () => {
     const { batchId } = await createBatch([
-      { owner: ANNA, lines: [{ currency: "USD", vat: novat, account: null }] },
+      { owner: ANNA, lines: [{ currency: "USD", vat: NOVAT, account: null }] },
       { owner: MATTEO, lines: [{ numbered: false }] },
     ]);
     const { body } = await summaryOf(batchId);
-    expect(body["blockers"]["missingRates"]).toEqual([{ currency: "USD", month: "2026-03" }]);
+    expect(body["blockers"]["missingRates"]).toEqual([{ currency: "USD", month: "2026-03", reason: "not_published" }]);
     expect(body["blockers"]["unclassifiedLines"].map((l: any) => l.employee)).toEqual(["Anna Rossi"]);
     expect(body["blockers"]["unnumberedLines"].map((l: any) => l.employee)).toEqual(["Matteo Codogno"]);
     expect(body["rowCount"]).toBe(2);
   });
 });
 
-describe("a missing rate is asked of the source on demand (plan G6, R10)", () => {
-  it("the missing rate is fetched BEFORE the blockers are computed: the export opens, fetchAttempted says so", async () => {
-    const { fetcher, urls } = fakeSource();
-    const router = routerWith(fetcher);
-    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", approved: 1040, date: "2026-03-02", vat: novat }] }]);
+describe("the file is built from copies; Accounting is asked only for a pending rate (AC-5.3, AC-5.4)", () => {
+  const EUR_LINE: LineSpec = { currency: "EUR", approved: 1040, date: "2026-03-02", vat: NOVAT, fx: 924_600 };
 
-    const first = await summaryOf(batchId, router);
-    expect(first.body).toMatchObject({ exportable: true, fetchAttempted: true });
-    expect(first.body["blockers"]["missingRates"]).toEqual([]);
-    expect(urls).toEqual(["https://www.backend-rates.bazg.admin.ch/api/xmlavgmonth?j=2026&m=03"]);
+  it("(AC-5.4) every line holds its copies and Accounting is unreachable: the summary is exportable, the file is produced, 0 fake calls", async () => {
+    const { batchId } = await createBatch([{ lines: [{}, EUR_LINE, { type: "travel_km", km: 10, account: KM, vat: NOVAT }] }]);
+    fake.failWith("timeout");
+    const summary = await summaryOf(batchId);
+    expect(summary.body).toMatchObject({ exportable: true, rowCount: 3, ratePendingLineCount: 0, fetchAttempted: false });
+    expect(summary.body["blockers"]).toEqual({ missingRates: [], unclassifiedLines: [], unnumberedLines: [], accountingUnavailable: false });
+    const out = await csvOf(batchId);
+    expect(out.status).toBe(200);
+    expect(dataRows(out.text)).toHaveLength(3);
+    expect(fake.calls).toHaveLength(0);
+  });
 
-    const rates = await db.exchangeRateEntry.findMany();
-    expect(rates.map((r) => [r.currency, r.rateMicros, r.origin, r.createdByUserId]).sort()).toEqual([
-      ["EUR", 924_600, "fetched", "system:fx-fetch"],
-      ["GBP", 1_063_500, "fetched", "system:fx-fetch"],
-      ["USD", 780_800, "fetched", "system:fx-fetch"],
+  it("(AC-5.4) a batch with CHF lines only, or only IT and rejected foreign lines, never asks Accounting", async () => {
+    const { batchId } = await createBatch([
+      { lines: [{}, { entity: "welld_it", currency: "EUR" }, { rejected: true, currency: "EUR" }, { currency: "USD", rejected: true, numbered: false }] },
     ]);
-    const attempts = await db.exchangeRateFetchAttempt.findMany();
-    expect(attempts).toHaveLength(1);
-    expect(attempts[0]).toMatchObject({ trigger: "export", outcome: "ok", actorUserId: "acct-1" });
-
-    // The rate is now in effect: the file converts at it, and nothing is fetched again.
-    const csv = await csvOf(batchId, router);
-    expect(csv.status).toBe(200);
-    expect(csv.text).toContain(";EUR;10.40;0.9246;9.62;");
-    expect(urls).toHaveLength(1);
-    expect((await summaryOf(batchId, router)).body["fetchAttempted"]).toBe(false);
+    expect((await summaryOf(batchId)).body).toMatchObject({ exportable: true, rowCount: 1, ratePendingLineCount: 0 });
+    expect((await csvOf(batchId)).status).toBe(200);
+    expect(fake.calls).toHaveLength(0);
   });
 
-  it("the CSV route fetches too (it recomputes the same as the summary)", async () => {
-    const { fetcher, urls } = fakeSource();
-    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", approved: 1040, date: "2026-03-02", vat: novat }] }]);
-    const csv = await csvOf(batchId, routerWith(fetcher));
-    expect(csv.status).toBe(200);
-    expect(urls).toHaveLength(1);
-    expect(csv.text).toContain(";EUR;10.40;0.9246;9.62;");
+  it("(AC-5.3, AC-5.4) Accounting deactivates the account and the VAT code, renames them, corrects the rate and re-enters entries between two exports: the bytes and the hash are identical", async () => {
+    const { batchId } = await createBatch([{ owner: MATTEO, lines: [{ approved: 2080 }, EUR_LINE] }, { owner: ANNA, lines: [{ approved: 450 }] }]);
+    const a = await csvOf(batchId);
+    fake.setAccountActive("6101", false).setAccount("6101", "A new name").removeVatCode("IMP81").setRate("EUR", "2026-03", 930_000, "corrected");
+    const b = await csvOf(batchId);
+    fake.failWith("network");
+    const c = await csvOf(batchId);
+    expect([a.status, b.status, c.status]).toEqual([200, 200, 200]);
+    expect(Buffer.from(a.bytes).equals(Buffer.from(b.bytes))).toBe(true);
+    expect(Buffer.from(a.bytes).equals(Buffer.from(c.bytes))).toBe(true);
+    const log = await exportLog();
+    expect(log.map((row) => row.contentSha256)).toEqual([sha256Hex(a.bytes), sha256Hex(a.bytes), sha256Hex(a.bytes)]);
+    expect(fake.calls).toHaveLength(0);
   });
 
-  it("a source that is down is a blocker, never a 5xx: 200 summary, 409 CSV, rates unchanged, the attempt logged", async () => {
-    const { fetcher } = fakeSource(() => new Response("boom", { status: 503 }));
-    const router = routerWith(fetcher);
-    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", date: "2026-03-02", vat: novat }] }]);
-    const summary = await summaryOf(batchId, router);
-    expect(summary.status).toBe(200);
-    expect(summary.body).toMatchObject({ exportable: false, fetchAttempted: true });
-    expect(summary.body["blockers"]["missingRates"]).toEqual([{ currency: "EUR", month: "2026-03" }]);
-    expect(await db.exchangeRateEntry.count()).toBe(0);
-    expect((await db.exchangeRateFetchAttempt.findMany())[0]).toMatchObject({ outcome: "failed", errorCode: "http_503" });
-    expect((await csvOf(batchId, router)).status).toBe(409);
+  it("(AC-5.5) copied at 0.9246 with Accounting now at 0.9300, the row reads 10.40;0.9246;9.62 and the VAT follows the copied code", async () => {
+    const { batchId } = await createBatch([{ lines: [{ ...EUR_LINE, vat: IMP81 }] }]);
+    fake.setRate("EUR", "2026-03", 930_000, "corrected");
+    const out = await csvOf(batchId);
+    expect(out.status).toBe(200);
+    const row = dataRows(out.text)[0]!;
+    expect([row[col("approvedTotal")], row[col("exchangeRate")], row[col("chfAmount")], row[col("vatAmount")]]).toEqual(["10.40", "0.9246", "9.62", "0.72"]);
+    expect(out.text).toContain(";EUR;10.40;0.9246;9.62;");
   });
 
-  it("a fetcher that throws is a blocker too", async () => {
-    const router = createExportRouter({
-      fx: {
-        ensureRates: async () => {
-          throw new Error("source exploded");
-        },
-        ratesInEffect: async (pairs) => new Map(pairs.map((p) => [`${p.currency}:${p.month}`, null])),
+  it("the file does not follow the copied rate's origin: a line copied at one rate and one copied at another each keep theirs", async () => {
+    const { batchId } = await createBatch([
+      { lines: [{ ...EUR_LINE, date: "2026-03-02" }, { ...EUR_LINE, date: "2026-03-09", fx: 950_000 }] },
+    ]);
+    const rows = dataRows((await csvOf(batchId)).text);
+    expect(rows.map((r) => [r[col("exchangeRate")], r[col("chfAmount")]])).toEqual([
+      ["0.9246", "9.62"],
+      ["0.9500", "9.88"],
+    ]);
+  });
+});
+
+describe("a pending rate is copied by the first export that succeeds (AC-5.6, D12)", () => {
+  const PENDING: LineSpec = { currency: "EUR", approved: 1040, date: "2026-03-02", vat: NOVAT };
+  const lineRow = (id: string) => db.refundLine.findUniqueOrThrow({ where: { id } });
+  const copiedAudit = () => db.refundAuditEntry.findMany({ where: { action: "line_rate_copied" }, orderBy: { createdAt: "asc" } });
+
+  it("the summary asks Accounting once and writes nothing: the line stays pending, nothing is audited or logged", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    const { batchId, lineIds } = await createBatch([{ lines: [PENDING, {}] }]);
+    const summary = await summaryOf(batchId);
+    expect(summary.body).toMatchObject({ exportable: true, rowCount: 2, ratePendingLineCount: 1, fetchAttempted: false });
+    expect(fake.reads).toEqual({ referenceData: 0, rates: 1, total: 1 });
+    const line = await lineRow(lineIds[0]!);
+    expect([line.fxRateMicros, line.fxRateMonth, line.fxRateCopiedAt]).toEqual([null, null, null]);
+    expect(await copiedAudit()).toHaveLength(0);
+    expect(await exportLog()).toHaveLength(0);
+  });
+
+  it("the CSV copies the rate in effect onto the line, audits the exporter, builds the file from the copy and logs it, all in one go", async () => {
+    fake.setRate("EUR", "2026-03", 924_600, "fetched");
+    const { batchId, lineIds, requestIds } = await createBatch([{ lines: [PENDING] }]);
+    const before = Date.now();
+    const out = await csvOf(batchId, exportRouter, "acct-7");
+    expect(out.status).toBe(200);
+    expect(out.text).toContain(";EUR;10.40;0.9246;9.62;");
+
+    const line = await lineRow(lineIds[0]!);
+    expect(line.fxRateMicros).toBe(924_600);
+    expect(line.fxRateMonth?.toISOString()).toBe("2026-03-01T00:00:00.000Z");
+    expect(line.fxRateCopiedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+
+    const audit = await copiedAudit();
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ requestId: requestIds[0], lineId: lineIds[0], actorUserId: "acct-7", actorEmail: "acct-7@welld.ch" });
+    expect(audit[0]!.detail).toEqual({ v: 2, cause: "export", batchId, rateMicros: 924_600, month: "2026-03", currency: "EUR" });
+    expect(await exportLog()).toHaveLength(1);
+    expect(fake.reads).toEqual({ referenceData: 0, rates: 1, total: 1 });
+  });
+
+  it("(AC-5.3) afterwards the line is as any other: Accounting changes the rate, and a second export makes no call, copies nothing and gives the same bytes", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    const { batchId, lineIds } = await createBatch([{ lines: [PENDING, {}] }]);
+    const first = await csvOf(batchId);
+    fake.setRate("EUR", "2026-03", 930_000, "corrected");
+    fake.resetCalls();
+    const second = await csvOf(batchId);
+    expect(second.status).toBe(200);
+    expect(Buffer.from(second.bytes).equals(Buffer.from(first.bytes))).toBe(true);
+    expect(fake.calls).toHaveLength(0);
+    expect((await lineRow(lineIds[0]!)).fxRateMicros).toBe(924_600);
+    expect(await copiedAudit()).toHaveLength(1);
+    expect((await summaryOf(batchId)).body).toMatchObject({ ratePendingLineCount: 0 });
+  });
+
+  it("two pending lines of the same pair share the one rate; two currencies and two months each get their own", async () => {
+    fake.setRate("EUR", "2026-03", 924_600).setRate("USD", "2026-03", 780_800).setRate("EUR", "2026-02", 900_000);
+    const { batchId, lineIds } = await createBatch([
+      {
+        lines: [
+          { ...PENDING, date: "2026-03-02" },
+          { ...PENDING, date: "2026-03-20" },
+          { ...PENDING, currency: "USD", date: "2026-03-05" },
+          { ...PENDING, date: "2026-02-10" },
+        ],
       },
+    ]);
+    expect((await csvOf(batchId)).status).toBe(200);
+    expect((await Promise.all(lineIds.map(lineRow))).map((l) => [l.fxRateMicros, l.fxRateMonth?.toISOString().slice(0, 7)])).toEqual([
+      [924_600, "2026-03"],
+      [924_600, "2026-03"],
+      [780_800, "2026-03"],
+      [900_000, "2026-02"],
+    ]);
+    expect(await copiedAudit()).toHaveLength(4);
+    expect(fake.reads.rates).toBe(1);
+  });
+
+  it("a pending line of a PAID batch is copied at its first export too (the copy is null to set, never a change)", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    const { batchId, lineIds } = await createBatch([{ lines: [PENDING] }], "paid");
+    const out = await csvOf(batchId);
+    expect(out.status).toBe(200);
+    expect((await lineRow(lineIds[0]!)).fxRateMicros).toBe(924_600);
+  });
+
+  it("a refused export copies nothing to any line: another pair is missing, or a line is unclassified, or Accounting is down", async () => {
+    fake.setRate("EUR", "2026-03", 924_600); // USD has none
+    const missing = await createBatch([{ lines: [PENDING, { ...PENDING, currency: "USD" }] }]);
+    expect((await csvOf(missing.batchId)).status).toBe(409);
+
+    fake.setRate("USD", "2026-03", 780_800);
+    const unclassified = await createBatch([{ lines: [PENDING, { account: null }] }]);
+    expect((await csvOf(unclassified.batchId)).status).toBe(409);
+
+    const unnumbered = await createBatch([{ lines: [PENDING, { numbered: false }] }]);
+    expect((await csvOf(unnumbered.batchId)).status).toBe(409);
+
+    fake.failWith("timeout");
+    const down = await createBatch([{ lines: [PENDING] }]);
+    expect((await csvOf(down.batchId)).status).toBe(409);
+
+    for (const id of [...missing.lineIds, ...unclassified.lineIds, ...unnumbered.lineIds, ...down.lineIds]) {
+      const line = await lineRow(id);
+      expect([line.fxRateMicros, line.fxRateMonth, line.fxRateCopiedAt]).toEqual([null, null, null]);
+    }
+    expect(await copiedAudit()).toHaveLength(0);
+    expect(await exportLog()).toHaveLength(0);
+  });
+
+  it("two exports at once copy once: one audit row, both files equal, both logged (20 batches)", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    for (let i = 0; i < 20; i++) {
+      const { batchId, lineIds } = await createBatch([{ lines: [PENDING, { ...PENDING, date: "2026-03-09" }, {}] }]);
+      const before = (await copiedAudit()).length;
+      const [a, b] = await Promise.all([csvOf(batchId), csvOf(batchId, exportRouter, "acct-2")]);
+      expect([a.status, b.status]).toEqual([200, 200]);
+      expect(Buffer.from(a.bytes).equals(Buffer.from(b.bytes))).toBe(true);
+      expect((await copiedAudit()).length - before).toBe(2); // two pending lines, each copied exactly once
+      expect((await Promise.all(lineIds.slice(0, 2).map(lineRow))).map((l) => l.fxRateMicros)).toEqual([924_600, 924_600]);
+      expect((await db.refundBatchExport.findMany({ where: { batchId } })).length).toBe(2);
+    }
+  });
+
+  it("a concurrent export that copied first wins: this export writes no copy and no audit, and builds its file from the winner's rate", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    const { batchId, lineIds } = await createBatch([{ lines: [PENDING] }]);
+    // While Accounting is being read, another export commits its copy (a different rate in effect at that moment).
+    fake.onRead(async (call) => {
+      if (call.read !== "rates") return;
+      fake.onRead(null);
+      await db.refundLine.update({
+        where: { id: lineIds[0]! },
+        data: { fxRateMicros: 910_000, fxRateMonth: new Date("2026-03-01T00:00:00.000Z"), fxRateCopiedAt: new Date() },
+      });
     });
-    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", date: "2026-03-02", vat: novat }] }]);
-    const summary = await summaryOf(batchId, router);
-    expect(summary.status).toBe(200);
-    expect(summary.body).toMatchObject({ exportable: false, fetchAttempted: true });
+    const out = await csvOf(batchId);
+    expect(out.status).toBe(200);
+    expect(out.text).toContain(";EUR;10.40;0.9100;9.46;");
+    expect((await lineRow(lineIds[0]!)).fxRateMicros).toBe(910_000);
+    expect(await copiedAudit()).toHaveLength(0);
   });
 
-  it("a month that is not yet fetchable (the current one) is never asked of the source", async () => {
-    const { fetcher, urls } = fakeSource();
-    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", date: "2026-11-10", vat: novat }] }]);
-    const summary = await summaryOf(batchId, routerWith(fetcher));
-    expect(urls).toHaveLength(0);
-    expect(summary.body).toMatchObject({ exportable: false, fetchAttempted: false });
-    expect(summary.body["blockers"]["missingRates"]).toEqual([{ currency: "EUR", month: "2026-11" }]);
+  it("a batch discarded while Accounting is being read is refused 409 batch_discarded, and nothing is copied or logged", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    const { batchId, lineIds } = await createBatch([{ lines: [PENDING] }]);
+    fake.onRead(async () => {
+      fake.onRead(null);
+      await db.refundBatch.update({ where: { id: batchId }, data: { status: "discarded" } });
+    });
+    const out = await csvOf(batchId);
+    expect(out.status).toBe(409);
+    expect(json(out.text)).toMatchObject({ code: "batch_discarded" });
+    expect((await lineRow(lineIds[0]!)).fxRateMicros).toBeNull();
+    expect(await copiedAudit()).toHaveLength(0);
+    expect(await exportLog()).toHaveLength(0);
   });
 
-  it("a batch with only CHF lines never calls the source", async () => {
-    const { fetcher, urls } = fakeSource();
+  it("a line that stops being exportable while Accounting is being read refuses the export from the summary it re-evaluated, with nothing copied", async () => {
+    fake.setRate("EUR", "2026-03", 924_600);
+    const { batchId, lineIds } = await createBatch([{ lines: [PENDING, {}] }]);
+    fake.onRead(async () => {
+      fake.onRead(null);
+      await db.refundLine.update({ where: { id: lineIds[1]! }, data: { accountNumber: null, accountName: null } });
+    });
+    const out = await csvOf(batchId);
+    expect(out.status).toBe(409);
+    expect(json(out.text)).toMatchObject({ code: "accounting_export_blocked", exportable: false });
+    expect(json(out.text)["blockers"]["unclassifiedLines"].map((l: any) => l.lineId)).toEqual([lineIds[1]]);
+    expect((await lineRow(lineIds[0]!)).fxRateMicros).toBeNull();
+    expect(await copiedAudit()).toHaveLength(0);
+    expect(await exportLog()).toHaveLength(0);
+  });
+});
+
+describe("Accounting cannot be read while a line waits for its rate (AC-6.6, AC-6.8, D14)", () => {
+  const PENDING: LineSpec = { currency: "EUR", approved: 1040, date: "2026-03-02", vat: NOVAT };
+
+  it("is a blocker of its own, never a missing rate: summary 200 and CSV 409 say accountingUnavailable, with no log row and no copy", async () => {
+    const { batchId, lineIds } = await createBatch([{ lines: [PENDING, { currency: "USD", date: "2026-03-05", vat: NOVAT }, {}] }]);
+    for (const kind of ["timeout", "network", "http_status", "unauthorized", "redirect", "not_json", "too_large", "schema", "entity_mismatch", "pair_mismatch", "token"] as const) {
+      fake.failWith(kind);
+      const summary = await summaryOf(batchId);
+      expect(summary.status).toBe(200);
+      expect(summary.body).toMatchObject({ exportable: false, rowCount: 3, ratePendingLineCount: 2, fetchAttempted: false });
+      expect(summary.body["blockers"]).toEqual({ missingRates: [], unclassifiedLines: [], unnumberedLines: [], accountingUnavailable: true });
+      const csv = await csvOf(batchId);
+      expect(csv.status).toBe(409);
+      const body = json(csv.text);
+      expect(body).toMatchObject({ code: "accounting_export_blocked", exportable: false });
+      expect(body["blockers"]["accountingUnavailable"]).toBe(true);
+      expect(body["blockers"]["missingRates"]).toEqual([]);
+      expect(ExportBlockedSchema.safeParse(body).success).toBe(true);
+    }
+    expect(await exportLog()).toHaveLength(0);
+    expect((await db.refundLine.findUniqueOrThrow({ where: { id: lineIds[0]! } })).fxRateMicros).toBeNull();
+    expect(await db.refundAuditEntry.count({ where: { action: "line_rate_copied" } })).toBe(0);
+  });
+
+  it("only the rates read failing is the same; the reference data is not even asked", async () => {
+    const { batchId } = await createBatch([{ lines: [PENDING] }]);
+    fake.failRatesWith("schema");
+    expect((await summaryOf(batchId)).body["blockers"]["accountingUnavailable"]).toBe(true);
+    fake.failRatesWith(null).failReferenceDataWith("schema").setRate("EUR", "2026-03", 924_600);
+    expect((await summaryOf(batchId)).body).toMatchObject({ exportable: true });
+    expect(fake.reads.referenceData).toBe(0);
+  });
+
+  it("is reported next to the other blockers, which Refund knows without Accounting", async () => {
+    const { batchId } = await createBatch([{ lines: [PENDING, { account: null }, { numbered: false }] }]);
+    fake.failWith("timeout");
+    const { body } = await summaryOf(batchId);
+    expect(body["exportable"]).toBe(false);
+    expect(body["blockers"]["accountingUnavailable"]).toBe(true);
+    expect(body["blockers"]["unclassifiedLines"]).toHaveLength(1);
+    expect(body["blockers"]["unnumberedLines"]).toHaveLength(1);
+  });
+
+  it("compiling, paying and discarding the batch are not affected; once Accounting is back the export opens and copies", async () => {
+    await createUnbatchedRequest([PENDING]);
+    as(GLOBAL_REVIEWER);
+    fake.failWith("timeout");
+    const compiled = await call(batchesRouter, "/batches", { method: "POST", body: JSON.stringify({}) });
+    expect(compiled.status).toBe(201);
+    const batchId = ((await compiled.json()) as { id: string }).id;
+    expect((await csvOf(batchId)).status).toBe(409);
+    expect((await call(batchDecideRouter, `/batches/${batchId}/mark-paid`, { method: "POST" })).status).toBe(200);
+    expect((await csvOf(batchId)).status).toBe(409);
+    expect(await exportLog()).toHaveLength(0);
+
+    fake.failWith(null).setRate("EUR", "2026-03", 924_600);
+    const out = await csvOf(batchId);
+    expect(out.status).toBe(200);
+    expect(out.text).toContain(";EUR;10.40;0.9246;9.62;");
+    expect(await exportLog()).toHaveLength(1);
+  });
+
+  it("a second batch can be discarded while Accounting is down", async () => {
+    await createUnbatchedRequest([PENDING]);
+    as(GLOBAL_REVIEWER);
+    fake.failWith("network");
+    const compiled = await call(batchesRouter, "/batches", { method: "POST", body: JSON.stringify({}) });
+    const batchId = ((await compiled.json()) as { id: string }).id;
+    expect((await csvOf(batchId)).status).toBe(409);
+    expect((await call(batchDecideRouter, `/batches/${batchId}/discard`, { method: "POST" })).status).toBe(200);
+  });
+
+  it("the refusal bodies carry no address, host, id or internal text (AC-6.10)", async () => {
+    const { batchId } = await createBatch([{ lines: [PENDING] }]);
+    fake.failWith("timeout");
+    const summary = (await summaryOf(batchId)).body;
+    const csv = json((await csvOf(batchId)).text);
+    for (const body of [summary, csv]) {
+      // `type` is the RFC 7807 pointer to the status page, the one URL a Problem body has.
+      const { type: _type, ...rest } = body;
+      expect(JSON.stringify(rest)).not.toMatch(/https?:|localhost|8089|accounting-api|\.internal|stack|at \//i);
+    }
+  });
+});
+
+describe("who may open Accounting's rates (AC-7.3, D17)", () => {
+  const withAccounting = (...grants: [string, string, boolean?][]): ResolveResponse => ({
+    ...perms(["request", "review"], ...grants),
+    entity: "welld_ch",
+  });
+
+  it("is true for accounting:read or accounting:manage covering WellD CH, on the summary and on the blocked 409", async () => {
+    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", date: "2026-03-02", vat: NOVAT }] }]);
+    for (const resolve of [
+      withAccounting(["accounting", "read"]),
+      withAccounting(["accounting", "manage"]),
+      withAccounting(["accounting", "read", true]),
+      withAccounting(["accounting", "manage", true]),
+    ]) {
+      as(resolve);
+      expect((await summaryOf(batchId)).body["viewer"]).toEqual({ canOpenAccountingRates: true });
+      expect(json((await csvOf(batchId)).text)["viewer"]).toEqual({ canOpenAccountingRates: true });
+    }
+  });
+
+  it("is false with no Accounting grant, or a grant that covers WellD Italia only, or an unrecognised condition", async () => {
     const { batchId } = await createBatch([{ lines: [{}] }]);
-    expect((await summaryOf(batchId, routerWith(fetcher))).body["fetchAttempted"]).toBe(false);
-    expect(urls).toHaveLength(0);
+    for (const resolve of [
+      withAccounting(),
+      { ...withAccounting(["accounting", "read", true]), entity: "welld_it" },
+      { ...withAccounting(["accounting", "manage", true]), entity: null },
+      {
+        ...withAccounting(),
+        permissions: [
+          ...withAccounting().permissions,
+          { resource: "accounting", action: "read", conditions: { ownership: "own" } },
+        ],
+      } as unknown as ResolveResponse,
+    ]) {
+      as(resolve);
+      const summary = await summaryOf(batchId);
+      expect(summary.status).toBe(200);
+      expect(summary.body["viewer"]).toEqual({ canOpenAccountingRates: false });
+    }
   });
 });
 
 describe("the same batch twice (AC-6.8)", () => {
-  it("is byte-identical, with the same hash in both log rows; a rate correction changes the hash", async () => {
-    await addRate("EUR", "2026-03", 924_600, "fetched", "2026-04-01T08:00:00.000Z");
+  it("is byte-identical, with the same hash in both log rows; a rate correction in Accounting changes nothing (AC-5.3)", async () => {
     const { batchId } = await createBatch([
-      { owner: MATTEO, lines: [{ approved: 2080 }, { currency: "EUR", approved: 1040, vat: novat }] },
+      { owner: MATTEO, lines: [{ approved: 2080 }, { currency: "EUR", approved: 1040, vat: NOVAT, fx: 924_600 }] },
       { owner: ANNA, lines: [{ approved: 450 }] },
     ]);
     const a = await csvOf(batchId);
@@ -848,20 +1133,18 @@ describe("the same batch twice (AC-6.8)", () => {
     expect(log[0]!.contentSha256).toBe(log[1]!.contentSha256);
     expect(log[0]!.contentSha256).toBe(sha256Hex(a.bytes));
 
-    await addRate("EUR", "2026-03", 930_000, "corrected", "2026-04-05T08:00:00.000Z");
+    fake.setRate("EUR", "2026-03", 930_000, "corrected");
     const c = await csvOf(batchId);
     expect(c.status).toBe(200);
-    expect(Buffer.from(c.bytes).equals(Buffer.from(a.bytes))).toBe(false);
-    const log3 = await exportLog();
-    expect(log3).toHaveLength(3);
-    expect(log3[2]!.contentSha256).not.toBe(log3[0]!.contentSha256);
-    expect(c.text).toContain(";EUR;10.40;0.9300;9.67;");
+    expect(Buffer.from(c.bytes).equals(Buffer.from(a.bytes))).toBe(true);
+    expect((await exportLog()).map((row) => row.contentSha256)).toEqual([sha256Hex(a.bytes), sha256Hex(a.bytes), sha256Hex(a.bytes)]);
+    expect(c.text).toContain(";EUR;10.40;0.9246;9.62;");
   });
 
   it("a change of a line's classification changes the file", async () => {
     const { batchId, lineIds } = await createBatch([{ lines: [{}] }]);
     const a = await csvOf(batchId);
-    await db.refundLine.update({ where: { id: lineIds[0]! }, data: { ledgerAccountId: km.id, ledgerAccountIsDefault: false } });
+    await db.refundLine.update({ where: { id: lineIds[0]! }, data: { accountNumber: KM.number, accountName: KM.name, ledgerAccountIsDefault: false } });
     const b = await csvOf(batchId);
     expect(Buffer.from(a.bytes).equals(Buffer.from(b.bytes))).toBe(false);
     expect(b.text).toContain(";5905;Spese rimborsi chilometrici (viaggi);");
@@ -876,8 +1159,6 @@ describe("the same batch twice (AC-6.8)", () => {
     const one = await createBatch([{ owner: MATTEO, lines: specs }, { owner: ANNA, lines: [{ approved: 50 }] }]);
     const forward = await csvOf(one.batchId);
     await truncateRefundTables();
-    office = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "6101", name: "Spese materiale ufficio", ...by } });
-    imp81 = await db.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...by } });
     seqs = new Map();
     // The same lines, the requests in the opposite order. Receipt numbers follow the creation order, so create the
     // lines in the same per-owner order; only the REQUESTS' order (and so the batch item order) is reversed.
@@ -886,6 +1167,93 @@ describe("the same batch twice (AC-6.8)", () => {
     // The batch id is a column, so compare everything but that.
     const strip = (text: string, id: string) => text.split(id).join("<batch>");
     expect(strip(forward.text, one.batchId)).toBe(strip(reversed.text, two.batchId));
+  });
+});
+
+describe("the golden file, through the route and the database (AC-7.2, AC-6.2)", () => {
+  interface GoldenLine {
+    lineId: string;
+    ownerUserId: string;
+    ownerName: string | null;
+    ownerEmail: string;
+    receiptNumber: string;
+    receiptYear: number;
+    receiptSeq: number;
+    date: string;
+    type: string;
+    motivo: string;
+    km: number | null;
+    currency: "CHF" | "EUR" | "USD" | "GBP";
+    approvedCents: number;
+    rateMicros: number | null;
+    accountNumber: string;
+    accountName: string;
+    vatCode: string;
+    vatRateBasisPoints: number;
+  }
+  const FIXTURES = join(import.meta.dir, "fixtures");
+  const golden = readFileSync(join(FIXTURES, "accounting-export.golden.csv"));
+  const input = JSON.parse(readFileSync(join(FIXTURES, "accounting-export.input.json"), "utf8")) as { lines: GoldenLine[] };
+
+  it("the lines of the 20261118 input, held as copies, give the 20261118 golden bytes, header, column order and values unchanged", async () => {
+    const batch = await db.refundBatch.create({
+      data: { cutoff: new Date("2026-03-31T21:59:59.000Z"), status: "compiled", createdByUserId: "a", createdByEmail: "a@welld.ch", pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf` },
+    });
+    const requestOf = new Map<string, string>();
+    for (const line of input.lines) {
+      let requestId = requestOf.get(line.ownerUserId);
+      if (!requestId) {
+        const request = await db.refundRequest.create({
+          data: {
+            ownerUserId: line.ownerUserId,
+            ownerEmail: line.ownerEmail,
+            ownerName: line.ownerName,
+            status: "approved",
+            decidedAt: new Date("2026-03-20T10:00:00.000Z"),
+            decidedByUserId: "a",
+            decidedByEmail: "a@welld.ch",
+            batchId: batch.id,
+          },
+        });
+        requestId = request.id;
+        requestOf.set(line.ownerUserId, requestId);
+        await db.refundBatchItem.create({ data: { batchId: batch.id, requestId } });
+      }
+      await db.refundLine.create({
+        data: {
+          requestId,
+          date: new Date(line.date),
+          type: line.type as "office_material",
+          motivo: line.motivo,
+          entity: "welld_ch",
+          currency: line.currency,
+          requestedAmountCents: line.approvedCents,
+          approvedTotalCents: line.approvedCents,
+          ...(line.km !== null ? { km: line.km } : {}),
+          accountNumber: line.accountNumber,
+          accountName: line.accountName,
+          ledgerAccountIsDefault: false,
+          vatCodeCopy: line.vatCode,
+          vatRateBasisPoints: line.vatRateBasisPoints,
+          vatCodeIsDefault: false,
+          ...(line.rateMicros !== null
+            ? { fxRateMicros: line.rateMicros, fxRateMonth: new Date(`${line.date.slice(0, 7)}-01T00:00:00.000Z`), fxRateCopiedAt: new Date() }
+            : {}),
+          receiptNumber: line.receiptNumber,
+          receiptOwnerUserId: line.ownerUserId,
+          receiptYear: line.receiptYear,
+          receiptSeq: line.receiptSeq,
+          numberedAt: new Date(),
+        },
+      });
+    }
+
+    const out = await csvOf(batch.id);
+    expect(out.status).toBe(200);
+    // The batch id is a column of the file: the fixture's is `batch-golden-1`.
+    const replaced = new TextEncoder().encode(out.text.split(batch.id).join("batch-golden-1"));
+    expect(Buffer.from(replaced).equals(golden)).toBe(true);
+    expect(fake.calls).toHaveLength(0);
   });
 });
 
@@ -937,7 +1305,7 @@ describe("the export log (AC-6.10)", () => {
   });
 
   it("a blocked download writes no row either: nothing left the system", async () => {
-    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", vat: novat }] }]);
+    const { batchId } = await createBatch([{ lines: [{ currency: "EUR", vat: NOVAT }] }]);
     expect((await csvOf(batchId)).status).toBe(409);
     expect(await exportLog()).toHaveLength(0);
   });

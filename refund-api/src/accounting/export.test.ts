@@ -450,3 +450,170 @@ describe("the dialect module", () => {
     expect(exportFilename(new Date("2026-07-19T00:00:00.000Z"), 'a"b/../c\r\nd')).toBe("refund-accounting-2026-07-19-a_b____c__d.csv");
   });
 });
+
+// ─── The evaluation behind both routes (T21, specs/20261119-accounting) ───────────────────────────────────────────────
+// Pure: `evaluateExport` and `pendingPairs` take what was read and decide; no database and no Accounting is touched here
+// (the module imports the shared client object, which connects only when a query is made).
+
+const { evaluateExport, pendingPairs } = await import("./export.repo");
+type ExportSource = Parameters<typeof evaluateExport>[0];
+type ExportRates = Parameters<typeof evaluateExport>[1];
+
+let rowSeq = 0;
+function sourceRow(patch: Record<string, unknown> = {}): ExportSource["rows"][number] {
+  const n = ++rowSeq;
+  return {
+    requestId: `r-${n}`,
+    ownerUserId: "u-1",
+    ownerName: "Matteo Codogno",
+    ownerEmail: "matteo.codogno@welld.ch",
+    line: {
+      id: `l-${n}`,
+      date: new Date("2026-03-02T00:00:00.000Z"),
+      type: "office_material",
+      entity: "welld_ch",
+      currency: "CHF",
+      motivo: "Cancelleria",
+      km: null,
+      requestedAmountCents: 1040,
+      approvedTotalCents: 1040,
+      rejectionReason: null,
+      receiptNumber: `MC26/${String(n).padStart(3, "0")}`,
+      receiptYear: 2026,
+      receiptSeq: n,
+      createdAt: new Date("2026-03-05T10:00:00.000Z"),
+      accountNumber: "6101",
+      accountName: "Spese materiale ufficio",
+      ledgerAccountIsDefault: true,
+      vatCodeCopy: "IMP81",
+      vatRateBasisPoints: 810,
+      vatCodeIsDefault: true,
+      fxRateMicros: null,
+      fxRateMonth: null,
+      ...patch,
+    },
+  } as unknown as ExportSource["rows"][number];
+}
+const sourceOf = (...rows: ExportSource["rows"][number][]): ExportSource => ({
+  batch: { id: "b-1", status: "compiled", cutoff: new Date("2026-03-31T21:59:59.000Z") },
+  rows,
+  excludedLineCount: 0,
+});
+const pendingEur = (patch: Record<string, unknown> = {}) => sourceRow({ currency: "EUR", ...patch });
+const copiedEur = (rate = 924_600) => sourceRow({ currency: "EUR", fxRateMicros: rate, fxRateMonth: new Date("2026-03-01T00:00:00.000Z") });
+const inEffect = (currency: "EUR" | "USD" | "GBP", month: string, rateMicros: number, attempted = false) =>
+  ({ currency, month, status: "in_effect", rateMicros, origin: "fetched", attempted }) as const;
+const missing = (currency: "EUR" | "USD" | "GBP", month: string, reason: "not_published" | "fetch_failed" | "no_source", attempted = false) =>
+  ({ currency, month, status: "missing", attempted, reason }) as const;
+const answers = (attempted: boolean, ...list: ReturnType<typeof inEffect | typeof missing>[]): ExportRates => ({
+  kind: "answers",
+  byPair: new Map(list.map((a) => [`${a.currency}:${a.month}`, a])),
+  attempted,
+});
+
+describe("evaluateExport: the rows come from the copies (AC-5.3, AC-5.4, AC-5.5)", () => {
+  it("every line holds its copies: exportable with no rate to copy, and the file's rate is the copy, not an answer", () => {
+    const result = evaluateExport(sourceOf(sourceRow(), copiedEur(924_600)), { kind: "none" });
+    expect(result.summary).toMatchObject({ exportable: true, rowCount: 2, ratePendingLineCount: 0, fetchAttempted: false });
+    expect(result.copies).toEqual([]);
+    expect(result.lines.map((l) => [l.rateMicros, l.accountNumber, l.vatCode, l.vatRateBasisPoints])).toEqual([
+      [null, "6101", "IMP81", 810],
+      [924_600, "6101", "IMP81", 810],
+    ]);
+    // An answer for the same pair is never looked at when the line holds its own copy.
+    const other = evaluateExport(sourceOf(copiedEur(924_600)), answers(true, inEffect("EUR", "2026-03", 930_000, true)));
+    expect(other.lines[0]!.rateMicros).toBe(924_600);
+    expect(other.summary.fetchAttempted).toBe(true);
+  });
+
+  it("a stored half is bookable whatever it is called now; a missing half is missing, with no default to fill it", () => {
+    const result = evaluateExport(sourceOf(sourceRow({ accountNumber: null, accountName: null }), sourceRow({ vatCodeCopy: null, vatRateBasisPoints: null })), { kind: "none" });
+    expect(result.summary.exportable).toBe(false);
+    expect(result.summary.blockers.unclassifiedLines.map((l) => l.missing)).toEqual([["account"], ["vatCode"]]);
+    expect(result.lines).toEqual([]);
+  });
+
+  it("a line with no receipt number is an unnumbered blocker", () => {
+    const result = evaluateExport(sourceOf(sourceRow({ receiptNumber: null, receiptYear: null, receiptSeq: null })), { kind: "none" });
+    expect(result.summary.blockers.unnumberedLines).toHaveLength(1);
+    expect(result.summary.exportable).toBe(false);
+  });
+});
+
+describe("evaluateExport: a pending rate (AC-5.6, AC-6.6, AC-6.7)", () => {
+  it("is taken from the answer in effect and listed to be copied, once per line, with its month", () => {
+    const a = pendingEur();
+    const b = pendingEur({ date: new Date("2026-03-20T00:00:00.000Z") });
+    const result = evaluateExport(sourceOf(a, b, copiedEur()), answers(false, inEffect("EUR", "2026-03", 930_000)));
+    expect(result.summary).toMatchObject({ exportable: true, ratePendingLineCount: 2, fetchAttempted: false });
+    expect(result.copies).toEqual([
+      { lineId: a.line.id, requestId: a.requestId, currency: "EUR", month: "2026-03", rateMicros: 930_000 },
+      { lineId: b.line.id, requestId: b.requestId, currency: "EUR", month: "2026-03", rateMicros: 930_000 },
+    ]);
+    expect(result.lines.map((l) => l.rateMicros)).toEqual([930_000, 930_000, 924_600]);
+  });
+
+  it("a pair with no rate in effect is a missing rate with Accounting's reason, listed once, in month then currency order", () => {
+    const result = evaluateExport(
+      sourceOf(pendingEur(), pendingEur(), sourceRow({ currency: "USD" }), sourceRow({ currency: "GBP", date: new Date("2026-02-10T00:00:00.000Z") })),
+      answers(true, missing("EUR", "2026-03", "not_published"), missing("USD", "2026-03", "fetch_failed", true), missing("GBP", "2026-02", "no_source")),
+    );
+    expect(result.summary.exportable).toBe(false);
+    expect(result.summary.fetchAttempted).toBe(true);
+    expect(result.summary.blockers.missingRates).toEqual([
+      { currency: "GBP", month: "2026-02", reason: "no_source" },
+      { currency: "EUR", month: "2026-03", reason: "not_published" },
+      { currency: "USD", month: "2026-03", reason: "fetch_failed" },
+    ]);
+    expect(result.summary.blockers.accountingUnavailable).toBe(false);
+  });
+
+  it("when anything blocks, nothing is to be copied and no line is offered: a refused export copies nothing", () => {
+    const result = evaluateExport(
+      sourceOf(pendingEur(), sourceRow({ currency: "USD" })),
+      answers(false, inEffect("EUR", "2026-03", 924_600), missing("USD", "2026-03", "not_published")),
+    );
+    expect(result.copies).toEqual([]);
+    expect(result.lines).toEqual([]);
+  });
+
+  it("Accounting unreadable is its own blocker, never a missing rate", () => {
+    const result = evaluateExport(sourceOf(pendingEur(), sourceRow()), { kind: "unavailable" });
+    expect(result.summary).toMatchObject({ exportable: false, ratePendingLineCount: 1, fetchAttempted: false });
+    expect(result.summary.blockers).toMatchObject({ accountingUnavailable: true, missingRates: [] });
+  });
+
+  it("Accounting unreadable does not hide what Refund knows without it", () => {
+    const result = evaluateExport(sourceOf(pendingEur(), sourceRow({ accountNumber: null, accountName: null })), { kind: "unavailable" });
+    expect(result.summary.blockers.accountingUnavailable).toBe(true);
+    expect(result.summary.blockers.unclassifiedLines).toHaveLength(1);
+  });
+
+  it("inside the export transaction (copies only) a line still waiting for its rate is an error, never a rate taken from an answer", () => {
+    expect(() => evaluateExport(sourceOf(pendingEur()), answers(false, inEffect("EUR", "2026-03", 924_600)), { copiesOnly: true })).toThrow();
+    expect(evaluateExport(sourceOf(copiedEur()), { kind: "none" }, { copiesOnly: true }).summary.exportable).toBe(true);
+  });
+
+  it("an answer that does not answer a pair is 'could not read', reported as a failed fetch and never as a rate", () => {
+    const result = evaluateExport(sourceOf(pendingEur()), answers(false));
+    expect(result.summary.blockers.missingRates).toEqual([{ currency: "EUR", month: "2026-03", reason: "fetch_failed" }]);
+  });
+});
+
+describe("pendingPairs", () => {
+  it("lists the distinct pairs of the lines that wait for a rate: not CHF, not copied; sorted by month then currency", () => {
+    const source = sourceOf(
+      sourceRow(),
+      copiedEur(),
+      pendingEur(),
+      pendingEur({ date: new Date("2026-03-30T00:00:00.000Z") }),
+      sourceRow({ currency: "USD" }),
+      sourceRow({ currency: "GBP", date: new Date("2026-01-31T00:00:00.000Z") }),
+    );
+    expect(pendingPairs(source)).toEqual([
+      { currency: "GBP", month: "2026-01" },
+      { currency: "EUR", month: "2026-03" },
+      { currency: "USD", month: "2026-03" },
+    ]);
+  });
+});
