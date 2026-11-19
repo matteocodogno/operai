@@ -23,6 +23,7 @@ import { catalogRouter } from "./accounting/catalog.routes";
 import { defaultsRouter } from "./accounting/defaults.routes";
 import { fxRouter } from "./fx/fx.routes";
 import { classificationRouter } from "./accounting/classification.routes";
+import { exportRouter } from "./accounting/export.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -36,6 +37,9 @@ app.use(
     origin: env.ALLOWED_ORIGINS,
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    // The accounting export's download headers (specs/20261118-refund-accounting-export, G9): a browser on the UI's
+    // origin can only read these when the server exposes them. The UI builds its own filename and does not depend on them.
+    exposeHeaders: ["Content-Disposition", "X-Export-Row-Count", "X-Export-Excluded-Line-Count"],
     credentials: true,
   }),
 );
@@ -109,6 +113,10 @@ app.route("/", fxRouter);
 // classificationRouter: a request's accounting view and the active classification options, gated by
 // request:review + entity scope — specs/20261118-refund-accounting-export (T13; T14 adds the PUT).
 app.route("/", classificationRouter);
+// exportRouter: the accounting export of a batch, summary + CSV, gated by request:review + a review scope covering
+// welld_ch — specs/20261118-refund-accounting-export (T18). Its paths (/batches/{id}/accounting-export…) collide with
+// no batch route, so the registration order does not matter.
+app.route("/", exportRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 

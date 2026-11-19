@@ -336,7 +336,7 @@ Reading the list:
     - a motivo with `;`, `"`, a newline and a leading `=` is quoted and guarded;
     - shuffled input → identical bytes.
 
-- [ ] T18: refund-api — export routes: summary, CSV, blockers (shared schema), on-demand FX, WellD CH scope, export log, CORS exposed headers — refs: AC-4.6, AC-6.1, AC-6.5, AC-6.6, AC-6.7, AC-6.8, AC-6.9, AC-6.10, AC-6.11, AC-6.12, AC-7.2 — deps: T9, T13, T15, T17
+- [x] T18: refund-api — export routes: summary, CSV, blockers (shared schema), on-demand FX, WellD CH scope, export log, CORS exposed headers — refs: AC-4.6, AC-6.1, AC-6.5, AC-6.6, AC-6.7, AC-6.8, AC-6.9, AC-6.10, AC-6.11, AC-6.12, AC-7.2 — deps: T9, T13, T15, T17
   - touch: `refund-api/src/accounting/export.repo.ts`, `refund-api/src/accounting/export.routes.ts`, `refund-api/src/accounting/export.schemas.ts`, `refund-api/src/accounting/export.routes.test.ts`, `refund-api/src/index.ts`
   - agent: backend-dev · backend
   - Details:
