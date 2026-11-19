@@ -22,6 +22,14 @@ UX-1..UX-14 are folded in below. The full record is the section "Post-approval s
 (2026-11-18)" near the end. Where it changes earlier wording, the earlier wording has been edited in
 place.
 
+**Synced 2026-11-19 with the spec's "Amendment 2026-11-19 (accounting sign-off)"** (E1 to E7): see
+§ "Accounting sign-off delta (2026-11-19)" at the end (decisions SO-1 to SO-17). There is no VAT default
+of any kind any more, the VAT code of a line is optional, the export is an XLSX journal workbook, two
+expense types are added and the 2026 numbering continues the register. Text below that contradicts it
+is corrected in place or marked "superseded 2026-11-19". The reference data itself moved to
+specs/20261119-accounting earlier the same day (its plan supersedes this one for the catalog, the rates
+and the copies).
+
 ## Architecture
 
 ### Shape in one paragraph
@@ -49,14 +57,14 @@ computed on read from the frozen classification and the rate in effect. refund-u
 | File | Role |
 |---|---|
 | `catalog.repo.ts` / `catalog.routes.ts` / `catalog.schemas.ts` | Ledger accounts and VAT codes. Each is an insert-only row whose identity and rate never change, with an append-only status history (deactivate/reactivate). Management routes are gated by `settings:read`/`settings:manage`. |
-| `defaults.repo.ts` / `defaults.routes.ts` | The default account and VAT code per expense type for WellD CH: an append-only history, with the current value derived as the latest row (refund_setting lineage, ADR 20260722-refund-settings-append-only-self-auditing-store). Also the designated **foreign-currency VAT code** (domain term added by amendment A2; see "Foreign-currency VAT code rules" below and D4). |
-| `classification.ts` (pure) | `resolveClassification(line, overrides, defaults, foreignVatCodeId)` → `{ account, accountIsDefault, vatCode, vatCodeIsDefault }`. It is the one function shared by the review view, the approve freeze, the release backfill and the export blockers, so these four places cannot disagree (the lesson of ADR 20260714-invitation-lifecycle-derived-expiry-state's "one shared helper" risk). |
+| `defaults.repo.ts` / `defaults.routes.ts` | The default account and VAT code per expense type for WellD CH: an append-only history, with the current value derived as the latest row (refund_setting lineage, ADR 20260722-refund-settings-append-only-self-auditing-store). Also the designated **foreign-currency VAT code** (domain term added by amendment A2; see "Foreign-currency VAT code rules" below and D4). *Since 2026-11-19: the default account only; no default VAT code and no designation (SO-2, SO-16).* |
+| `classification.ts` (pure) | `resolveClassification(line, overrides, defaults, foreignVatCodeId)` (since 2026-11-19 without the designation, and the VAT half is the stored copy or none, SO-2) → `{ account, accountIsDefault, vatCode, vatCodeIsDefault }`. It is the one function shared by the review view, the approve freeze, the release backfill and the export blockers, so these four places cannot disagree (the lesson of ADR 20260714-invitation-lifecycle-derived-expiry-state's "one shared helper" risk). |
 | `classification.repo.ts` / `classification.routes.ts` | Accounting's line view (`GET /review/requests/{id}/accounting`), line classification change (`PUT …/lines/{lineId}/classification`) and the active-options read (`GET /accounting/options`). |
 | `receiptNumber.ts` (pure) | Initials from the name or email (AC-4.2/4.8) and the number format. |
 | `numbering.repo.ts` | `assignReceiptNumbers(tx, request)`: locks a per-(employee, year) counter row and numbers the lines inside the caller's transaction. |
 | `amounts.ts` (pure) + `amounts-vectors.json` | `chfCents(amountCents, currency, rateMicros)` and `vatCents(chfCents, rateBasisPoints)`. Integer arithmetic (BigInt), rounded once, half-up. Golden vectors include AC-6.3 and AC-6.4. |
-| `exportFormat.ts` | **Every CSV format choice in one module**: separator, decimal mark, encoding/BOM, line ending, date format, header labels, `FORMAT_VERSION`. This is the single place to change once accounting answers open question 3 (D3). |
-| `export.ts` (pure) | Rows → CSV bytes: deterministic ordering, RFC 4180 quoting, formula-injection guard. |
+| `exportFormat.ts` | **Every export format choice in one module** (a CSV until 2026-11-19, an XLSX workbook since: SO-6 to SO-12, `FORMAT_VERSION = 2`): separator, decimal mark, encoding/BOM, line ending, date format, header labels, `FORMAT_VERSION`. This is the single place to change once accounting answers open question 3 (D3). |
+| `export.ts` (pure) | Rows → CSV bytes: deterministic ordering, RFC 4180 quoting, formula-injection guard. *Since 2026-11-19: lines → cells, written by the pure `xlsx.ts` workbook writer (SO-7 to SO-11).* |
 | `export.repo.ts` / `export.routes.ts` | The export summary and the CSV download for a batch, plus the append-only export log (AC-6.10). |
 | `release.ts` | The release gate: approvals are refused until the one-time release script has run (D6). |
 
@@ -76,7 +84,7 @@ computed on read from the frozen classification and the rate in effect. refund-u
   2. lock the request row (already the case through the `updateMany` CAS);
   3. resolve the classification of every non-rejected WellD CH line; if any lacks an account or a
      VAT code, throw `classification_missing` (409, the whole transaction rolls back, so no number
-     is consumed);
+     is consumed); *since 2026-11-19 only a missing account refuses, the VAT code being optional (SO-4)*;
   4. write the frozen classification (`*IsDefault` kept);
   5. number every non-rejected line, both entities (AC-4.1);
   6. write audit rows `line_classified` (cause `approval`) and `receipt_number_assigned`.
@@ -118,10 +126,12 @@ specs/20260722-refund-settings), and has `--dry-run`. It runs in one transaction
    is never overridden.
 2. Optionally apply per-employee starting offsets from `--offsets <csv>`
    (`email,year,lastIssuedSeq`), only for (employee, year) pairs with no number issued yet (D2). The
-   file is passed at run time and never committed, because it names employees.
+   file is passed at run time and never committed, because it names employees. *Since 2026-11-19 the
+   list is **required** (AC-7.4, exit 3 without it), year 2026 only, and it loads a baseline applied
+   when each employee's 2026 counter is created, including employees not yet in Refund (SO-13).*
 3. Classify (current defaults, through the same `resolveClassification` as approval: the type's
    default account, plus the type's default VAT code for a CHF line or the foreign-currency VAT
-   code for any other currency) and number (by expense date, then line `createdAt`, then `id`)
+   code for any other currency; *since 2026-11-19 the default account only, no VAT code, SO-2*) and number (by expense date, then line `createdAt`, then `id`)
    every non-rejected WellD CH line of `approved`/`paid` requests that has no number yet. The audit
    actor is `system:accounting-release` (AC-7.1). A line left without an account or a usable VAT
    code stays unclassified, which is AC-7.2. WellD Italia lines are not touched: no number, no
@@ -156,7 +166,7 @@ with no deploy.
     `history`).
   - `ExpenseTypeDefaultsCard`: 12 rows with the default or **None**, who/when, **Change** (one
     `FormDialog` per type, two selects offering only active entries and "None", UX-2) and
-    **History** (one shared history `Drawer`). The foreign-currency VAT code sits at the top of the
+    **History** (one shared history `Drawer`). *(Since 2026-11-19: the account only, 14 types, and no designation block, SO-16.)* The foreign-currency VAT code sits at the top of the
     card, with the same Change/History pair and the inactive warning (AC-2.7).
   - `ExchangeRatesCard`: months × EUR/USD/GBP, origin badge (fetched/corrected/missing), correction
     dialog, **Fetch now**, persistent last-fetch-failed banner (AC-5.6). When the GET says
@@ -200,7 +210,7 @@ with no deploy.
   - the blockers as a **warning**, not an error, with "you can still pay or discard this batch"
     (UX-6). A missing rate links to Settings at that month for holders of `settings:read`, and
     otherwise says "Ask an administrator to enter or fetch it" (G5);
-  - **Download CSV** as a `secondary` button, `aria-disabled` with the reason while blocked
+  - **Download CSV** (since 2026-11-19 "Download Excel file", an `.xlsx`, SO-12) as a `secondary` button, `aria-disabled` with the reason while blocked
     (UX-7). The download uses `apiFetch` → `response.blob()` (never `.text()`, which drops the BOM)
     with a client-built filename `refund-accounting-<cutoff>-<batchId>.csv` (UX-12). A 409
     `accounting_export_blocked` switches the card to Blocked from the response body alone (G10);
@@ -214,6 +224,11 @@ with no deploy.
 **shell/e2e**: `refund-accounting.spec.ts`, one end-to-end journey (see Test strategy).
 
 ### Foreign-currency VAT code rules (amendment A2: AC-2.5 to AC-2.8, AC-3.2, AC-3.4, AC-7.1, AC-7.2)
+
+> **Retired 2026-11-19** (spec E2): there is no foreign-currency VAT code and no default VAT code; a
+> line's VAT code is optional and entered by hand. AC-2.5, AC-2.6, AC-2.7 and AC-3.2 are retired. The
+> rules below are kept for the record only, except G3's "a deactivated default **account** counts as no
+> default", which still holds. See SO-2 and SO-16.
 
 - **Storage:** the `refund_setting` key `accounting.welld_ch.foreign-currency-vat-code`, whose value
   is a VAT code id or `null` (cleared). Append-only: every designation is a row with actor and
@@ -246,9 +261,8 @@ with no deploy.
 
 1. **Review (submitted).** Accounting opens a request. refund-ui calls `GET /requests/{id}` (same as
    today) and `GET /review/requests/{id}/accounting`. For a WellD CH line with no override, the
-   server resolves the live default: the type's default account, plus the type's default VAT code
-   for a CHF line or the foreign-currency VAT code for any other currency. These come back with
-   `isDefault: true`. A change goes through `PUT …/classification`, which stores an override
+   server resolves the live default: the type's default account, with `isDefault: true`. *Since
+   2026-11-19 no VAT code is pre-set, in any currency (SO-2); accounting may enter one by hand.* A change goes through `PUT …/classification`, which stores an override
    (`isDefault: false`) and audits it.
 2. **Approve.** The existing CAS `submitted → approved` locks the request row. In the same
    transaction: classification check and freeze, numbering, audit. A missing classification rolls
@@ -260,7 +274,7 @@ with no deploy.
 4. **Export.** `GET /batches/{id}/accounting-export` (summary) collects the batch's approved,
    non-rejected WellD CH lines through `RefundBatchItem`. For any (currency, month) without a rate in
    effect, it first tries an on-demand fetch (bounded, throttled, see FX), then computes the
-   blockers. `GET …/accounting-export/csv` recomputes the same, refuses with 409 if anything blocks,
+   blockers. `GET …/accounting-export/csv` (since 2026-11-19 `…/file`, the XLSX, SO-12) recomputes the same, refuses with 409 if anything blocks,
    and otherwise writes the export-log row (actor, batch, row count, SHA-256, format version) and
    returns the file.
 5. **FX.** There is no scheduler. A month is fetched when someone needs it: the admin's "Fetch now",
@@ -564,6 +578,10 @@ path:
 - The seed file `scripts/data/accounting-seed.welld-ch.json` holds the draft read off the register
   (D1):
 
+> **Superseded 2026-11-19:** the defaults are accounts only, for 14 types (SO-17), and the VAT codes in
+> use are `IPM81`, `IPM77`, `IP00`, `BZM81`, `IPM26` and `IPM38`, kept in Accounting (specs/20261119-accounting
+> plan, SO-20). There is no `IMP81` and no `NOVAT`. The draft below is kept for the record.
+
 | Expense type | Default account | Default VAT code |
 |---|---|---|
 | `travel_km` | 5905 Spese rimborsi chilometrici (viaggi) | `NOVAT` |
@@ -627,6 +645,10 @@ POST /accounting/vat-codes/{id}/deactivate | /reactivate   (as accounts; AC-1.10
 ```
 
 ### Defaults (`settings:read` / `settings:manage`)
+
+> Superseded: specs/20261119-accounting moved these to natural keys, and since 2026-11-19 they carry the
+> default account only, for 14 types; the designation route is removed (SO-16 and § API contracts of the
+> delta).
 
 ```
 GET /accounting/expense-type-defaults
@@ -747,7 +769,7 @@ GET /batches/{id}/accounting-export
   403 { code:"accounting_export_out_of_scope" }
   404 unknown batch
   409 { code:"batch_discarded" }                                         // AC-6.9
-GET /batches/{id}/accounting-export/csv
+GET /batches/{id}/accounting-export/csv          // superseded 2026-11-19: …/file, XLSX (SO-12); /csv → 404
   200 text/csv; charset=utf-8
       Content-Disposition: attachment; filename="refund-accounting-<cutoff YYYY-MM-DD>-<batchId>.csv"
       X-Export-Row-Count, X-Export-Excluded-Line-Count
@@ -758,7 +780,9 @@ GET /batches/{id}/accounting-export/csv
   // The export-log row is written before the body is returned; if that write fails → 500, no file.
 ```
 
-**CSV contract** (`exportFormat.ts`, `FORMAT_VERSION = 1`, D3)
+**CSV contract** (`exportFormat.ts`, `FORMAT_VERSION = 1`, D3). **Superseded 2026-11-19 by SO-6 to
+SO-12: the export is an XLSX workbook in the accountant's template (`FORMAT_VERSION = 2`, route
+`…/accounting-export/file`). Kept for the record.**
 
 - UTF-8 with BOM, CRLF line endings, separator `;`, decimal mark `.`, no thousands separator.
 - RFC 4180 quoting: a field is quoted when it contains `;`, `"`, CR or LF, or starts/ends with a
@@ -794,7 +818,8 @@ GET /batches/{id}/accounting-export/csv
 - `chfCents = round(amountCents × rateMicros / 1_000_000)`. For CHF it is `amountCents` itself.
   Example: 1040 × 924600 / 1e6 = 961.584 → **962** (AC-6.3).
 - `vatCents = round(chfCents × bp / (10_000 + bp))`. This equals `amount − amount/(1+rate)` before
-  rounding. Example: 2080 × 810 / 10810 = 155.86 → **156** (AC-6.4).
+  rounding. Example: 2080 × 810 / 10810 = 155.86 → **156** (AC-6.4, retired; the same figure is
+  AC-3.8's on screen). Since 2026-11-19 computed only when the line has a VAT code (SO-5).
 - The rate used for a line is the rate in effect for (line currency, month of `line.date`).
 
 **Receipt number rules** (`receiptNumber.ts`)
@@ -851,38 +876,41 @@ backs the parser unit test.
 
 | AC | Level | What proves it |
 |---|---|---|
-| AC-1.1 | int, ui, e2e | POST account → appears in `GET /accounting/ledger-accounts` and `/accounting/options`; usable in PUT default and PUT classification. UI: the add dialog adds a row. |
-| AC-1.2 | int | Second POST with the same number → 409 `ledger_account_duplicate`, detail contains the number; same when the existing account is deactivated. Two concurrent POSTs → one 201, one 409 (P2002 mapped). |
-| AC-1.3 | int, db | Deactivate → absent from options; PUT default/classification with it → 422; a line classified with it before keeps `ledgerAccountId` (read back, and still exported). |
-| AC-1.4 | int | POST `IMP81` `"8.1"` → `rateBasisPoints` 810. `"-1"`, `"100.01"`, `"8.123"` → 422. `"100"` and `"0"` accepted. Duplicate code → 409, also when the existing code is deactivated. |
-| AC-1.5 | int, db, ui | PUT/PATCH `/accounting/vat-codes/{id}` → 404. Raw `UPDATE vat_code SET "rateBasisPoints"` raises. The VAT card renders no edit control. |
-| AC-1.6 | int | Deactivated code absent from options; PUT classification with it → 422; lines carrying it unchanged. |
-| AC-1.7 | int, ui | No `settings:read` → GET 403 on accounts/VAT/defaults. No `settings:manage` → POST, deactivate, **reactivate** and PUT 403. UI: write controls hidden without manage. |
-| AC-1.8 | int, db | Add/deactivate/**reactivate** rows carry actor and time; `history` shows before→after for each. Raw UPDATE/DELETE on `ledger_account`, `vat_code`, `accounting_catalog_status` raise. |
-| AC-1.9 | int, ui | Deactivate an account used by a classified line, then reactivate → listed active with the same number and name, back in `/accounting/options`, accepted again by PUT default and PUT classification; the line's `ledgerAccountId` unchanged throughout. UI: the reactivate button on an inactive row. |
-| AC-1.10 | int, ui | Same for a VAT code: same code, label and `rateBasisPoints`; usable again as type default, as foreign-currency VAT code (a designation pointing at it becomes `usable: true` again) and on a line; existing lines unchanged. |
-| AC-1.11 | int | Reactivate an active account and an active VAT code → 409 `already_active` with the message; the count of `accounting_catalog_status` rows is unchanged. |
-| AC-2.1 | int, db | PUT default twice → `history` holds both with `byEmail`/`at`; immutability of `expense_type_default`. |
-| AC-2.2 | int, ui | GET returns exactly 12 types, with `null` for unset; the card shows "none". |
-| AC-2.3 | int | Approve, then change the type default → the line's frozen ids unchanged. Approve a non-CHF line, then change or clear the foreign-currency VAT code → its frozen `vatCodeId` unchanged. |
-| AC-2.4 | int, ui | PUT default with an inactive id → 422; the selects list only active entries. |
-| AC-2.5 | int, script, ui | PUT designation twice → `foreignCurrencyVatCodeHistory` holds both with `byEmail`/`at`, the current one shown. After `accounting-release`, the history's first entry is the seed designation with actor `system:accounting-seed`; a raw UPDATE of that `refund_setting` row raises. A second release run, after an admin designated another code, leaves the admin's designation in effect. The card shows the designated code or "none". |
-| AC-2.6 | int, ui | PUT with an inactive or unknown code → 422 `vat_code_inactive` / `unknown_vat_code`, no new row; the select lists only active codes. |
-| AC-2.7 | unit, int | `resolveClassification` vectors: designation unset, cleared, or pointing at a deactivated code → VAT `null` for non-CHF lines, CHF lines unaffected. Int: deactivate the designated code → the accounting view of a submitted EUR line shows the default account and `vatCode: null`; approve → 409 (AC-3.4); reactivate → the default comes back. |
-| AC-2.8 | int, ui | No `settings:read` → GET defaults 403; no `settings:manage` → PUT designation 403; the select is hidden without manage. |
-| AC-3.1 | int, ui | Submitted CH CHF line → accounting view shows the type defaults, `*IsDefault: true`; the panel shows the "default" marker. |
-| AC-3.2 | int | Submitted CH EUR line (and USD, GBP) → type default account and the designated foreign-currency VAT code, both `*IsDefault: true`; the type's own default VAT code is not used. |
-| AC-3.3 | int | PUT another active account → `accountIsDefault: false`; a `line_classified` row with actor, from→to and cause `review`. |
-| AC-3.4 | int, ui | Type without a default and no override → approve 409 `classification_missing` listing that line with `lineId`, `date` and `type`; request still `submitted`, no number assigned, no counter row. Same for a type whose default **account** was deactivated (G3), and for a non-CHF line when the foreign-currency VAT code is unset or inactive (`missing: ["vatCode"]`), while a CHF line of the same type approves. UI: the dialog closes, a page-level `ErrorSummary` lists the missing values, focus lands on the first missing select; `accounting_release_pending` stays in the dialog; an unrelated 409 still shows the "already decided" guardrail (branching on `error.code`, G2). |
-| AC-3.5 | int | Approve → change defaults → line keeps the ids it had at approval; the `line_classified` row has cause `approval`. |
+| AC-1.1 *(moved: mapped in specs/20261119-accounting)* | int, ui, e2e | POST account → appears in `GET /accounting/ledger-accounts` and `/accounting/options`; usable in PUT default and PUT classification. UI: the add dialog adds a row. |
+| AC-1.2 *(moved: mapped in specs/20261119-accounting)* | int | Second POST with the same number → 409 `ledger_account_duplicate`, detail contains the number; same when the existing account is deactivated. Two concurrent POSTs → one 201, one 409 (P2002 mapped). |
+| AC-1.3 *(moved: mapped in specs/20261119-accounting)* | int, db | Deactivate → absent from options; PUT default/classification with it → 422; a line classified with it before keeps `ledgerAccountId` (read back, and still exported). |
+| AC-1.4 *(moved: mapped in specs/20261119-accounting)* | int | POST `IMP81` `"8.1"` → `rateBasisPoints` 810. `"-1"`, `"100.01"`, `"8.123"` → 422. `"100"` and `"0"` accepted. Duplicate code → 409, also when the existing code is deactivated. |
+| AC-1.5 *(moved: mapped in specs/20261119-accounting)* | int, db, ui | PUT/PATCH `/accounting/vat-codes/{id}` → 404. Raw `UPDATE vat_code SET "rateBasisPoints"` raises. The VAT card renders no edit control. |
+| AC-1.6 *(moved: mapped in specs/20261119-accounting)* | int | Deactivated code absent from options; PUT classification with it → 422; lines carrying it unchanged. |
+| AC-1.7 *(moved: mapped in specs/20261119-accounting)* | int, ui | No `settings:read` → GET 403 on accounts/VAT/defaults. No `settings:manage` → POST, deactivate, **reactivate** and PUT 403. UI: write controls hidden without manage. |
+| AC-1.8 *(moved: mapped in specs/20261119-accounting)* | int, db | Add/deactivate/**reactivate** rows carry actor and time; `history` shows before→after for each. Raw UPDATE/DELETE on `ledger_account`, `vat_code`, `accounting_catalog_status` raise. |
+| AC-1.9 *(moved: mapped in specs/20261119-accounting)* | int, ui | Deactivate an account used by a classified line, then reactivate → listed active with the same number and name, back in `/accounting/options`, accepted again by PUT default and PUT classification; the line's `ledgerAccountId` unchanged throughout. UI: the reactivate button on an inactive row. |
+| AC-1.10 *(moved: mapped in specs/20261119-accounting)* | int, ui | Same for a VAT code: same code, label and `rateBasisPoints`; usable again as type default, as foreign-currency VAT code (a designation pointing at it becomes `usable: true` again) and on a line; existing lines unchanged. |
+| AC-1.11 *(moved: mapped in specs/20261119-accounting)* | int | Reactivate an active account and an active VAT code → 409 `already_active` with the message; the count of `accounting_catalog_status` rows is unchanged. |
+| AC-2.1 | int, db | PUT the default account twice → `history` holds both (account only) with `byEmail`/`at`; immutability of `expense_type_accounting_default`; a body carrying `vatCode` → 422 `invalid_request` (SO-16). |
+| AC-2.2 | int, ui | GET returns exactly **14** types in enum order (`travel_flight`, `travel_taxi` after other public transport), each with its account or `null`; the card shows "None". |
+| AC-2.3 | int | Approve, then change the type's default account → the line's account copy is unchanged. |
+| AC-2.4 | int, ui | PUT a default with a deactivated or unknown account → 422, no row; the select lists only active accounts. |
+| AC-2.5 | — | *(retired 2026-11-19)* Regression only: `PUT /accounting/foreign-currency-vat-code` → 404, and GET defaults has no designation member. |
+| AC-2.6 | — | *(retired 2026-11-19)* No test; covered by AC-2.5's regression. |
+| AC-2.7 | — | *(retired 2026-11-19)* No test; non-CHF lines are AC-3.13's. |
+| AC-2.8 | int, ui | No `settings:read` → GET defaults 403; no `settings:manage` → PUT default 403; **Change** hidden without manage. |
+| AC-3.1 | int, ui | Submitted CH lines in CHF, EUR, USD and GBP → the type's default account with `accountIsDefault: true` and `vatCode: null` (no `vatCodeIsDefault` member); the panel shows the "Default" marker on the account and "None" for VAT. |
+| AC-3.2 | — | *(retired 2026-11-19)* Replaced by AC-3.13's test. |
+| AC-3.3 | int | PUT another active account → `accountIsDefault: false`; PUT `vatCode` set, changed, then `null` → each saved; one `line_classified` row each (cause `review`) with actor and from→to, `null` for "none". |
+| AC-3.4 | int, ui | Type without a default account and no copy → approve 409 `classification_missing` listing the line with `lineId`, `date`, `type` and `missing: ["account"]`; request still `submitted`, no number, no counter row. Same for a default account deactivated in Accounting (G3). A line without a VAT code is never listed. UI: the dialog closes, a page-level `ErrorSummary` lists the missing accounts, focus on the first missing account select; `accounting_release_pending` stays in the dialog; an unrelated 409 shows the "already decided" guardrail (G2). |
+| AC-3.5 | int | Approve → change the default accounts → each line keeps its account copy and its VAT copy, or none; the `line_classified` row has cause `approval`. |
 | AC-3.6 | int | Approved line (no batch, then compiled batch) + `request:reclassify` → 200 and audit `post_approval`; `approvedTotalCents`, `status`, `decided*` unchanged. Without `reclassify` → 403. |
 | AC-3.7 | int, db | Request `paid` → 409 `classification_locked`; raw `UPDATE refund_line SET "vatCodeId"` on a paid request's line raises. |
-| AC-3.8 | unit, int | `amounts-vectors.json` (VAT rows). Accounting view: CHF line `vatAmountCents` set; EUR line without a rate → `chf.rateMissing: true`, `vatAmountCents: null`. |
+| AC-3.8 | unit, int, ui | `amounts-vectors.json` (VAT rows). View: a CHF line of 20.80 with `IPM81` → `vatAmountCents` 156, with `IP00` → 0, with no code → `null`; an EUR line with rate pending → `null`. The panel shows no VAT amount without a code. |
 | AC-3.9 | int, ui | IT line → `classification: null`; PUT → 422 `line_not_welld_ch`; an IT-only request approves with no defaults configured (the existing approve tests stay green). |
 | AC-3.10 | int, ui | For each status, the owner's `GET /requests/{id}` line JSON has no `ledgerAccount*`/`vat*`/`chf` keys (asserted on the key set); owner without review → `GET …/accounting` 404. `RequestDetailPage` renders no accounting copy. |
+| AC-3.11 | int | A request whose CH lines (CHF and EUR) all have accounts and no VAT code → approve 200, numbered; its batch exports 200 with those rows. |
+| AC-3.12 | int, ui | The PUT body takes one `vatCode` string or `null` (an array or an object → 422); the panel has one VAT select; the composer shows the split hint for a WellD CH line and not for a WellD Italia line (SO-15). |
+| AC-3.13 | int, ui | A submitted CH line in EUR → `vatCode: null`; PUT `BZM81` → saved and shown; the VAT select offers every active code and "None". |
 | AC-4.1 | int | Approve a request with one rejected line → the others numbered, the rejected one `receiptNumber: null`; IT lines numbered too. |
 | AC-4.2 | unit, int | `initials("Matteo Codogno")` = `MC`; a line dated 2026 → `MC26/001`. |
-| AC-4.3 | int | Three successive approvals → 001…n, contiguous. A refused approval (AC-3.4) consumes nothing. Counter `lastSeq` equals the max. |
+| AC-4.3 | int | Three successive approvals → 001…n, contiguous (no baseline). A refused approval (AC-3.4) consumes nothing. Counter `lastSeq` equals the max. With a 2026 baseline the start is N + 1 (AC-4.11). |
 | AC-4.4 | int | Lines created in order (03-10, 03-02, 03-02′) → 03-02, 03-02′, 03-10. Equal `createdAt` tie broken by id. |
 | AC-4.5 | int | Lines dated 2025-12-30 and 2026-01-02 in one request → `XX25/001` and `XX26/001`; counters locked in year order. |
 | AC-4.6 | int | Two owners both "MC" → both get `MC26/001`; accounting view, batch detail and CSV carry the employee name. |
@@ -890,28 +918,40 @@ backs the parser unit test.
 | AC-4.8 | unit | `matteo.codogno@…` → MC; `mcodogno@…` → MC; `m.c@…` → MC; name `"Cher"` → falls back to email; `x@…` → XX; diacritics `"Élise Würth"` → EW. |
 | AC-4.9 | int, unit, ui | `GET /requests/{id}` and `GET /batches/{id}` carry numbers; batch PDF text (`test-support/pdfText.ts`) contains them; the archive PDF contains them; Request and Review pages render them. |
 | AC-4.10 | int | Two approvals of the same owner fired with `Promise.all` → distinct, contiguous numbers; repeated 20× in a loop to shake out the race. |
-| AC-5.1 | unit, int | `parse.ts` on the recorded 2026-03 fixture → EUR 924600, USD 780800, GBP 1063500, `<monat>` 2026-03. Fake source → `POST /exchange-rates/fetch` records rows with `sourceUrl`, `fetchedAt`, actor `system:fx-fetch`. |
-| AC-5.2 | int, ui | GET shows the rate and `status` fetched/corrected per currency; the card shows the origin badge. |
-| AC-5.3 | int, db | PUT correction → in effect; `history` keeps the fetched value; the row carries actor and time; immutability of `exchange_rate_entry`. |
-| AC-5.4 | int | Correct, then fetch again with the fake source returning another value → the correction stays in effect; the discrepancy is in the fetch-attempt log, and no API field carries it. |
-| AC-5.5 | int, ui | A month with no row → `{status:"missing"}`; the card shows "missing". |
-| AC-5.6 | int, ui | Fake source throws / times out / returns a wrong `<monat>` → no rate row changes; `lastFetch.outcome = "failed"` with `at`; banner shown. |
-| AC-5.7 | int | No `settings:manage` → PUT and POST fetch 403. |
-| AC-6.1 | int | Compiled and paid batches → CSV: header plus one row per approved non-rejected CH line. |
-| AC-6.2 | int, unit | Golden CSV file compared byte for byte (header, column order, quoting, BOM, CRLF). |
-| AC-6.3 | unit, int | Vector 1040 EUR @ 924600 → 962; the golden CSV row reads `10.40;0.9246;9.62`. |
-| AC-6.4 | unit, int | Vector 2080 @ 810 bp → 156; the golden row reads `8.10;1.56`. |
-| AC-6.5 | int | Missing EUR 2026-03 → summary and CSV 409 list `{EUR, 2026-03}`; compile, mark-paid and discard of that batch still 2xx. |
+| AC-4.11 | int, script | Baseline `MC` = 81 loaded by the release → the first 2026 line `MC26/082`, then `083`; an employee with a baseline and no request at release → their first 2026 approval gets N + 1. |
+| AC-4.12 | int, db | No baseline → `001`; a 2025 and a 2027 line of an employee with a 2026 baseline → `…25/001`, `…27/001`; raw insert of a baseline row for 2025 → CHECK violation; baseline rows immutable. |
+| AC-4.13 | int | A 2026 counter at 142 → the first 2027 line `MC27/001`. |
+| AC-5.1 *(moved: mapped in specs/20261119-accounting)* | unit, int | `parse.ts` on the recorded 2026-03 fixture → EUR 924600, USD 780800, GBP 1063500, `<monat>` 2026-03. Fake source → `POST /exchange-rates/fetch` records rows with `sourceUrl`, `fetchedAt`, actor `system:fx-fetch`. |
+| AC-5.2 *(moved: mapped in specs/20261119-accounting)* | int, ui | GET shows the rate and `status` fetched/corrected per currency; the card shows the origin badge. |
+| AC-5.3 *(moved: mapped in specs/20261119-accounting)* | int, db | PUT correction → in effect; `history` keeps the fetched value; the row carries actor and time; immutability of `exchange_rate_entry`. |
+| AC-5.4 *(moved: mapped in specs/20261119-accounting)* | int | Correct, then fetch again with the fake source returning another value → the correction stays in effect; the discrepancy is in the fetch-attempt log, and no API field carries it. |
+| AC-5.5 *(moved: mapped in specs/20261119-accounting)* | int, ui | A month with no row → `{status:"missing"}`; the card shows "missing". |
+| AC-5.6 *(moved: mapped in specs/20261119-accounting)* | int, ui | Fake source throws / times out / returns a wrong `<monat>` → no rate row changes; `lastFetch.outcome = "failed"` with `at`; banner shown. |
+| AC-5.7 *(moved: mapped in specs/20261119-accounting)* | int | No `settings:manage` → PUT and POST fetch 403. |
+| AC-6.1 | int | Compiled and paid batches → the XLSX: header row plus one row per approved, non-rejected CH line. |
+| AC-6.2 | unit, int | Golden XLSX compared byte for byte, plus the golden cells: one sheet `Sheet 1`, header `Date \| Description \| Debit \| Credit \| Amount \| Currency \| Tax \| Note`, typed cells (SO-8), Credit `5832`, Currency `CHF`, no other column; content type and `.xlsx` filename. |
+| AC-6.3 | unit, int | Vector 1040 EUR @ 924600 → 962; the golden row's Amount cell is the number `9.62`. |
+| AC-6.4 | — | *(retired 2026-11-19)* The VAT amount is a screen value only (AC-3.8's test); the golden file has no VAT column. |
+| AC-6.5 | int | Missing EUR 2026-03 → summary and the `/file` route 409 list `{EUR, 2026-03}`; compile, mark-paid and discard of that batch still 2xx. |
 | AC-6.6 | int, ui | A batch with IT lines → they are absent from the CSV; `excludedLineCount` correct; the card states the count. |
 | AC-6.7 | int | Batch whose CH lines are all rejected (or that has none) → 200, header row only. |
-| AC-6.8 | int | Export twice → identical bytes and SHA-256 in both log rows; after a rate correction → different hash. |
+| AC-6.8 | int | Export twice → identical bytes and SHA-256 in both log rows (STORE, fixed entry dates, SO-7); after a classification change → a different hash. |
 | AC-6.9 | int, ui | Discarded batch → 409 `batch_discarded` on both routes; the card is absent. |
 | AC-6.10 | int, db | Download → a `refund_batch_export` row with actor, batch and time; immutability test. A summary call writes no row. |
 | AC-6.11 | int | No `request:review` → 403; review scoped to `welld_it` → 403 `accounting_export_out_of_scope`. |
-| AC-6.12 | int | A line approved at 0, not rejected → a row with `0.00` CHF and `0.00` VAT. |
-| AC-7.1 | int (script) | Seed legacy approved/paid CH lines (no numbers), CHF and EUR → run `accounting-release` → CHF lines get the type defaults, EUR lines the type's default account and the foreign-currency VAT code; all numbered by expense date per owner and year; audit actor `system:accounting-release`. A second run changes nothing. Before the marker, approve → 409 `accounting_release_pending`. `--offsets` makes numbering start after N; an offset for an (owner, year) that already has numbers is refused. |
-| AC-7.2 | int (script + export) | Legacy line whose type has no default, and a legacy EUR line released while the foreign-currency VAT code is inactive → both unclassified after release; export 409 lists them under `unclassifiedLines` with `date` and `type`; the 409 body validates against the summary schema; after PUT classification (`reclassify`) → export 200. |
+| AC-6.12 | int | A line approved at 0, not rejected → a row with Amount `0.00`. |
+| AC-6.13 | unit | CHF line → `Treno Lugano-Zurigo [AR26/001] Anna Rossi`; AC-6.3's line → `Cancelleria [MC26/001] [EUR 10.40 = CHF 9.62] Matteo Codogno`; a nameless account → the email. |
+| AC-6.14 | unit, int | Column G `Tax` (and H `Note`) present and empty on every row of the golden file. |
+| AC-6.15 | unit | Reasons starting with `=`, `+`, `-`, `@`, or containing `;`, `"`, `<`, `&`, CR, LF, TAB, U+2028 or a lone surrogate → a shared string, XML-escaped, line breaks as one space, `quotePrefix` style, one row of 8 cells; no `<f` in any part. |
+| AC-7.1 | int (script) | Legacy approved/paid CH lines (CHF and EUR) → `accounting-release --offsets <list>` → each gets the type's default account copy and **no VAT code**, numbered by expense date per owner and year after the baseline (AC-4.11); audit actor `system:accounting-release`. A second run changes nothing. Before the marker, approve → 409 `accounting_release_pending`. |
+| AC-7.2 | int (script + export) | A legacy line whose type has no default account → unclassified after release; the export 409 lists it under `unclassifiedLines` with `date`, `type` and `missing: ["account"]`; the 409 body validates against the summary schema; after PUT classification (`reclassify`) → export 200. |
 | AC-7.3 | int (script + export) | Legacy approved WellD Italia lines → after `accounting-release` (and a second run): `receiptNumber` null, no classification, no audit row for them; no counter row created for them; an export of their batch leaves them out and counts them in `excludedLineCount`. An IT line approved after release is numbered (AC-4.1). |
+| AC-7.4 | script | No `--offsets` → exit 3 and nothing written (no default row, counter, number, baseline or marker); approve still 409 `accounting_release_pending`; rerun with the list → done, numbered from N + 1; a header-only list → accepted; `--dry-run` without the list → `BLOCKED: list missing`. |
+| AC-8.1 | unit, int, ui | `EXPENSE_TYPE_VALUES` and the Prisma enum have 14 values in enum order; a line can be created with `travel_flight` and `travel_taxi` for both entities; `document-labels.json` and refund-ui's labels agree (parity test), en and it. |
+| AC-8.2 | unit, int, ui | `representation_meals` shows "Meals with clients" / "Pranzi/cene con clienti" in the composer, the review page, Settings and the batch PDF text; an existing line keeps the type. |
+| AC-8.3 | script, int | After the release on an empty database, GET defaults: `representation_meals` 6701, `company_manuals` 6501, `travel_flight` 5902, `travel_taxi` 5903, `representation_gifts` none, the others as the defaults file. |
+| AC-8.4 | int | A `representation_gifts` CH line → approve 409 naming it, no account suggested in the view; after PUT any active account → 200. |
+| AC-8.5 | int | With 7122 and 2620.1 active in the fake → the PUT accepts either on a CH line; no type default names them (defaults-file test); approval never sets them. |
 
 **Extra tests (ADR writer and design sync).** These prove properties that no single AC states:
 
@@ -925,8 +965,13 @@ backs the parser unit test.
 | FX budget (G6) | int | Fake source delaying 30 s for 3 months → the summary answers in under 11 s, with the three months as `missingRates` and three `failed`/`timeout` attempts logged. |
 | Inactive default account counts as missing (G3) | unit | `resolveClassification` vector: type default pointing at an inactive account → `account: null`; a stored override on an inactive account → kept with `active: false`. |
 
-**Mapping result: total.** Every AC of the amended spec (61: the 53 approved ones plus AC-1.9,
-AC-1.10, AC-1.11, AC-2.5 to AC-2.8 and AC-7.3) maps to at least one automated test, and the rows
+**Mapping result (2026-11-19, after the sign-off): total.** 76 AC ids: 18 moved to
+specs/20261119-accounting and mapped there, 5 retired (AC-2.5, AC-2.6, AC-2.7, AC-3.2, AC-6.4, marked in
+the table), and the 53 that stay in Refund each map to at least one automated test (rows added for AC-3.11
+to AC-3.13, AC-4.11 to AC-4.13, AC-6.13 to AC-6.15, AC-7.4 and AC-8.1 to AC-8.5). Checked by script.
+
+*Before the sign-off:* every AC of the amended spec (61: the 53 approved ones plus AC-1.9,
+AC-1.10, AC-1.11, AC-2.5 to AC-2.8 and AC-7.3) mapped to at least one automated test, and the rows
 of the ACs the amendments reworded (AC-1.2, 1.4, 1.7, 1.8, 2.3, 3.2, 3.4, 7.1, 7.2) cover the new
 wording. No AC needed a spec change to be testable.
 
@@ -934,10 +979,11 @@ wording. No AC needed a spec change to be testable.
 
 1. An admin adds an account and sets a default.
 2. An employee submits a CH CHF line and a CH EUR line.
-3. Accounting sees the defaults, changes one VAT code, and approves.
+3. Accounting sees the default accounts, sets a VAT code on one line and leaves the other blank
+   (since 2026-11-19, AC-3.11), and approves.
 4. The employee sees the receipt numbers.
-5. Accounting compiles a batch, downloads the export, and the test parses the CSV, checking columns
-   and amounts.
+5. Accounting compiles a batch, downloads the export, and the test reads the workbook (an XLSX since
+   2026-11-19), checking columns, Description and amounts.
 
 Fixtures: the release marker and an EUR rate seeded through refund-api test-support.
 
@@ -947,8 +993,8 @@ Fixtures: the release marker and an EUR rate seeded through refund-api test-supp
 |---|---|---|
 | R1 | **Seed data is a draft** (open question 4). A wrong default gets frozen into legacy lines at release, and into paid ones irreversibly. | Seed lives in one JSON file. The release script has `--dry-run` printing every line's would-be classification. Running the script is a **release gate**: run only after accounting signs off the seed. Unpaid lines can still be reclassified (AC-3.6). |
 | R2 | **The FX source answers for months that are not finished.** Checked 2026-11-18: `j=2026&m=03` → EUR **0.9246**, matching the register. But `m=11` (current month) and `m=12` (future) also returned values, `m=05` of 2027 returned none, and `?d=` is ignored (it returns the current month). | Only completed months plus 5 grace days are fetchable. The `<monat>` echo must equal the request. Fetched once, never overwritten; discrepancies logged. Admin correction always available. Accounting confirms the source before release (Q1 stays open on the meaning of early values). |
-| R3 | **Collision with paper-era numbers** (open question 2). Numbering starts at 001 per the spec while the register already issued `MC26/081`. | `startAfter` offsets loaded by the release script before any number exists; the approval gate (D6) guarantees nothing is numbered before that. Once a number exists for (employee, year), the offset is immutable. |
-| R4 | **CSV dialect wrong for the accounting system** (open question 3). | All choices in `exportFormat.ts`; `formatVersion` in the export log; a golden-file test, so a format change is one deliberate diff. |
+| R3 | **Collision with paper-era numbers** (open question 2). Numbering starts at 001 per the spec while the register already issued `MC26/081`. | `startAfter` offsets loaded by the release script before any number exists; the approval gate (D6) guarantees nothing is numbered before that. Once a number exists for (employee, year), the offset is immutable. *2026-11-19: the spec now continues the register for 2026 (AC-4.11); the list is required and kept as a baseline (SO-13).* |
+| R4 | **CSV dialect wrong for the accounting system** (open question 3). | All choices in `exportFormat.ts`; `formatVersion` in the export log; a golden-file test, so a format change is one deliberate diff. *2026-11-19: answered by the accountant's sample (an XLSX template), SO-6 to SO-12; residual risk R16.* |
 | R5 | **Approvals blocked if the operator forgets the release script.** | Clear 409 `accounting_release_pending` message in the UI; runbook step in `infra/README.md`; the script is idempotent and safe to run again. |
 | R6 | **Concurrency on numbering**: deadlock between two approvals touching two years. | Counter rows locked in ascending year order; unique index as backstop; the AC-4.10 loop test. |
 | R7 | **A classification PUT racing approve or mark-paid** could store an override after the freeze, under the wrong permission. | The PUT locks the request row `FOR UPDATE` and decides on the locked status; mark-paid and approve already update that row, so they serialise. DB trigger for paid. |
@@ -981,7 +1027,7 @@ Surfaces to review:
 1. **`GET /batches/{id}/accounting-export` and `/csv`**: capability plus the `welld_ch` scope check
    (A01); no data in logs (the request logger already logs path only); filename without PII; the
    Content-Type/Disposition headers; the export log written before the body.
-2. **CSV injection** in `export.ts`: the formula guard on every text cell (motivo, name, account
+2. **CSV injection** in `export.ts` (since 2026-11-19 the workbook rules of SO-10): the formula guard on every text cell (motivo, name, account
    name, type label), quoting of `;`/`"`/CR/LF (A03).
 3. **`bazgSource.ts` / `parse.ts`**:
    - SSRF: constant host and https only, `redirect: "error"`, no user input in the URL beyond a
@@ -1009,10 +1055,10 @@ it.
 
 | # | Decision | Why | Change |
 |---|---|---|---|
-| **D1** | **Seed** (open question 4): 15 accounts, `IMP81`/`IMP77`/`NOVAT`, and the type mapping in § Data model. `representation_gifts` gets no default account and `company_manuals` no default VAT code. | Where the register gives no answer, approval asks a human (AC-3.4) instead of booking silently. `NOVAT` is a placeholder name for the register's unnamed "no VAT" code. | Edit `scripts/data/accounting-seed.welld-ch.json` before release, or change in Settings afterwards. |
-| **D2** | **Sequence offset** (open question 2): numbering starts at **001** as the spec says. Per-(employee, year) offsets can be loaded once, before any number exists, by `accounting:release --offsets file.csv`. | Follows the spec text, keeps the paper-era fix available, and never renumbers anything. | Supply the CSV at release; no code change. |
-| **D3** | **CSV dialect** (open question 3): UTF-8 with BOM, `;`, `.` decimal, CRLF, ISO dates, English headers and expense-type labels, `formatVersion 1`. | `;` + BOM opens correctly in Excel/Numbers under CH and IT locales; `.` is the Swiss decimal mark and cannot clash with `;`; English matches the 2026-09-08 documents decision (`labels.ts`). | Constants in `exportFormat.ts`; bump `FORMAT_VERSION`. |
-| **D4** | **Foreign-currency VAT code** (now spec domain term, amendment A2) is stored as an append-only `refund_setting` key with its own route, history and admin-only gate. Unset, cleared or inactive → no default VAT code for non-CHF lines → approval asks (AC-2.7). | The spec names one code for all foreign currencies; the self-auditing store gives AC-2.5's history for free; "inactive = none" is the safe reading and matches how type defaults are resolved. | Settings UI. |
+| **D1** | **Seed** (open question 4): 15 accounts, `IMP81`/`IMP77`/`NOVAT`, and the type mapping in § Data model. `representation_gifts` gets no default account and `company_manuals` no default VAT code. | Where the register gives no answer, approval asks a human (AC-3.4) instead of booking silently. `NOVAT` is a placeholder name for the register's unnamed "no VAT" code. | Edit `scripts/data/accounting-seed.welld-ch.json` before release, or change in Settings afterwards. **Superseded 2026-11-19 (SO-17; specs/20261119-accounting SO-20).** |
+| **D2** | **Sequence offset** (open question 2): numbering starts at **001** as the spec says. Per-(employee, year) offsets can be loaded once, before any number exists, by `accounting:release --offsets file.csv`. | Follows the spec text, keeps the paper-era fix available, and never renumbers anything. | Supply the CSV at release; no code change. **Superseded 2026-11-19: the list is required and loaded as a 2026 baseline (SO-13).** |
+| **D3** | **CSV dialect** (open question 3): UTF-8 with BOM, `;`, `.` decimal, CRLF, ISO dates, English headers and expense-type labels, `formatVersion 1`. | `;` + BOM opens correctly in Excel/Numbers under CH and IT locales; `.` is the Swiss decimal mark and cannot clash with `;`; English matches the 2026-09-08 documents decision (`labels.ts`). | Constants in `exportFormat.ts`; bump `FORMAT_VERSION`. **Superseded 2026-11-19: XLSX, SO-6 to SO-12.** |
+| **D4** | **Foreign-currency VAT code** (now spec domain term, amendment A2) is stored as an append-only `refund_setting` key with its own route, history and admin-only gate. Unset, cleared or inactive → no default VAT code for non-CHF lines → approval asks (AC-2.7). | The spec names one code for all foreign currencies; the self-auditing store gives AC-2.5's history for free; "inactive = none" is the safe reading and matches how type defaults are resolved. | Settings UI. **Retired 2026-11-19 (SO-2, SO-16).** |
 | **D5** | **Post-approval reclassification** (open question 5): a new `request:reclassify` action, granted to the same holders as `approve` **with the same conditions, `self-approval` included** (amended by SR-2). | Behaviour equals the spec today; restricting it later is a role edit with no deploy; segregation of duties follows approve's. | admin-ui role grants. |
 | **D6** | **Release gate**: approvals are refused (409 `accounting_release_pending`) until `accounting:release` has run. | Guarantees legacy lines are numbered first and in expense-date order, and that offsets can still be applied. No ordering hazard between deploy and backfill. | Remove the gate check once released (it is one `refund_setting` read). |
 | **D7** | **IT legacy lines are not numbered** by the release script; IT lines approved after release are (AC-4.1 applies to every line). Now spec text: AC-7.3 and a Non-goal. | AC-7.1 scopes the backfill to WellD CH. | — (specified) |
@@ -1021,7 +1067,7 @@ it.
 | **D10** | **FX source**: the federal monthly averages of the BAZG (the Federal Office for Customs and Border Security, which publishes the monthly averages the ESTV/AFC refers to). Its XML endpoint returned the register's EUR 0.9246 for March 2026. Fetched **on demand** (admin, settings view, export), never by a scheduler; completed months + 5 days only; fetched once, never overwritten; corrections win. | Verified against the register value; no new scheduler (ADR 20260714 posture); a rate cannot change under a file already exported without a visible admin action. | `bazgSource.ts` URL constant and `FX_FETCH_GRACE_DAYS`. |
 | **D11** | **Pre-approval VAT/CHF display** uses `approvedTotal ?? requestedAmount`. | Approve defaults untouched lines to the requested amount, so that is the figure that will be booked. | `classification.repo.ts`. |
 | **D12** | **Withdraw-to-draft clears classification overrides** (audited, cause `withdrawn`). | The employee may change the line's type in draft; a stale override would survive silently otherwise. | `lifecycle.repo.ts`. |
-| **D13** | **Real name of the foreign-currency VAT code** (the spec's new open question). Fallback: the seed creates `NOVAT` "Senza IVA" at 0 % and designates it as a system-actor designation. Before release, accounting's answer is one edit of the code string in `accounting-seed.welld-ch.json`; `--dry-run` prints the code that will be designated. After release, an admin adds the real code, designates it (AC-2.5) and deactivates `NOVAT`; lines already approved keep `NOVAT` (AC-2.3) and unpaid ones can be reclassified (AC-3.6). | The rate (0 %) is known, only the name is not; a designated placeholder keeps foreign-currency lines approvable and exportable, while every step to the real code is audited and needs no deploy. The stricter alternative, seeding no designation, would block every non-CHF approval and the release backfill of EUR lines until accounting answers. | Seed JSON before release; Settings after. |
+| **D13** | **Real name of the foreign-currency VAT code** (the spec's new open question). Fallback: the seed creates `NOVAT` "Senza IVA" at 0 % and designates it as a system-actor designation. Before release, accounting's answer is one edit of the code string in `accounting-seed.welld-ch.json`; `--dry-run` prints the code that will be designated. After release, an admin adds the real code, designates it (AC-2.5) and deactivates `NOVAT`; lines already approved keep `NOVAT` (AC-2.3) and unpaid ones can be reclassified (AC-3.6). | The rate (0 %) is known, only the name is not; a designated placeholder keeps foreign-currency lines approvable and exportable, while every step to the real code is audited and needs no deploy. The stricter alternative, seeding no designation, would block every non-CHF approval and the release backfill of EUR lines until accounting answers. | Seed JSON before release; Settings after. **Retired 2026-11-19: no designation (SO-2); `IP00` is the 0 % code.** |
 
 ## Spec amendments applied
 
@@ -1060,7 +1106,7 @@ changes. The two mediums tighten access within what the spec already asks (AC-3.
 | SR-7 | S-07 (low): a plausible but wrong fetched rate stays in effect until an admin notices. | **Accepted for this release.** The source was verified against the register (D10), the parser is strict, and corrections always win. **Follow-up FU-S2:** a plausibility band against the previous month (for example ±25 %, failing as `implausible`), which changes what AC-5.1 records and so needs accounting's agreement; and showing discrepancies in Settings (design follow-up F3). |
 | SR-8 | S-08 (low): immutability is by row triggers only (TRUNCATE and DISABLE TRIGGER remain to the table owner); no DB rule keeps classification off `welld_it` lines. | **Accepted, follow-up.** <br>• This is the suite-wide posture of every Tier 1 table (ADR 20260716-immutable-financial-audit-trail-refund): the service connects as the owner today. <br>• **FU-S3 (infra, all services):** a non-owner runtime role without TRUNCATE/ALTER, owner credentials for migrations only. <br>• **FU-S4:** a CHECK that `ledgerAccountId`/`vatCodeId` are NULL when `entity <> 'welld_ch'`, in the next refund-api migration. The route already refuses it (422 `line_not_welld_ch`), and IS-1 shows such a write books nothing. |
 | SR-9 | S-09 (info): the fetch-attempt `trigger` is client-supplied. | **Accepted, follow-up FU-S5:** derive it server-side. The permission (`settings:manage`) and the actor (JWT) are already server-side, so only the label is the caller's claim. |
-| SR-10 | S-10 (info): the formula guard does not cover a leading LF or a trigger after leading whitespace. | **Accepted, follow-up FU-S6:** add `\n` and a whitespace-trimmed check to `FORMULA_TRIGGERS`, with a golden-file case. Excel does not evaluate those today. |
+| SR-10 | S-10 (info): the formula guard does not cover a leading LF or a trigger after leading whitespace. | **Accepted, follow-up FU-S6:** add `\n` and a whitespace-trimmed check to `FORMULA_TRIGGERS`, with a golden-file case. Excel does not evaluate those today. *Obsolete 2026-11-19: there is no CSV (SO-10).* |
 | — | S-11 (info): AC-3.10 verified OK. | Nothing to do. |
 
 **Fix list for development** (the S-01, S-02, S-03, S-04 and S-06 fixes, each with its test):
@@ -1236,3 +1282,210 @@ as this plan; review on the owner's return). Each carries a `## Failure shape` s
 
 The catalog tables, the defaults history and the export log reuse the self-auditing and
 immutability pattern unchanged (ADR 20260716/0024/0028). That reuse needs no ADR of its own.
+
+## Accounting sign-off delta (2026-11-19)
+
+Plans the spec's "Amendment 2026-11-19 (accounting sign-off; decided by the owner)" (E1 to E7, approved by
+the owner on 2026-11-19), for the Refund behaviour this spec owns. The Accounting side (the reference data,
+the rate source, the defaults tables and copies built by specs/20261119-accounting) is planned in
+specs/20261119-accounting/plan.md § "Accounting sign-off delta (2026-11-19)", and the tasks for both are
+T58 to T81 in specs/20261119-accounting/tasks.md § "Sign-off round (2026-11-19)". Planned unattended
+(owner's autonomous-run choice); every decision is listed below with its reason. The plan stays
+`approved`. Earlier text that this delta contradicts has been corrected in place or marked "superseded
+2026-11-19" with a pointer here.
+
+**Input received during planning.** The accountant's sample import file (an `.xlsx` workbook, the
+"Riclassificazione RS 2025" template for the accounting system Accrio) arrived on 2026-11-19 through the
+coordinator. It holds real names and reasons and is **not** in the repository. What it fixes is recorded
+in SO-6 to SO-12. It answers most of the spec's open question on the sample file (§ Spec drift below
+lists what the product-owner agent must sync into spec.md).
+
+### What changes, by spec item
+
+| Spec item | ACs | Refund change | Decisions |
+|---|---|---|---|
+| E1 types and accounts | AC-8.1 to AC-8.5; AC-2.2 | Two enum values (`travel_flight`, `travel_taxi`), labels, `representation_meals` relabelled; 14 type defaults (accounts only) | SO-1, SO-17 |
+| E2 VAT optional | AC-3.11 to AC-3.13; AC-2.1 to AC-2.4, AC-2.8, AC-3.1, AC-3.3 to AC-3.5, AC-3.8, AC-7.1, AC-7.2; retired AC-2.5 to AC-2.7, AC-3.2 | No VAT default of any kind; the VAT half is a stored copy or nothing; approval, export and release need the account only; the PUT can clear the VAT code; the VAT amount only with a code; the designation route and table are gone | SO-2 to SO-5, SO-16 |
+| E3 VAT codes | (AC-7.6 of 20261119) | Nothing in Refund's code: the codes are data in Accounting (seed in 20261119 delta, SO-20) | — |
+| E4 numbering | AC-4.3, AC-4.11 to AC-4.13, AC-7.4 | A 2026 baseline per employee, kept by email and applied when the employee's 2026 counter is created; the release refuses to number without the list | SO-13, SO-14 |
+| E5 rate source | (AC-2.1, AC-2.12 of 20261119) | Nothing in Refund | SO-21 (20261119) |
+| E6 export | AC-6.1, AC-6.2, AC-6.3, AC-6.5, AC-6.12 to AC-6.15; retired AC-6.4 | The CSV becomes an XLSX journal file in the accountant's template shape | SO-6 to SO-12 |
+| E7 AI scanning | Non-goals | Nothing; the expense form tells employees to split multi-rate receipts (owner decision at approval) | SO-15 |
+
+### Decisions
+
+| # | Decision | Why | Change |
+|---|---|---|---|
+| SO-1 | **Expense types.** New `ExpenseType` values `travel_flight` and `travel_taxi`, placed right after `travel_other_public_transport` (enum order = Settings and select order, AC-2.2). Labels: IT "Spese di viaggio (aereo)" and "Spese di viaggio (taxi)" (the spec's fallback, paper-form pattern); EN "Travel — flight" and "Travel — taxi" (document labels and `labelEn`). `representation_meals` keeps its id; its labels become IT "Pranzi/cene con clienti" and EN **"Meals with clients"** (proposal, open question owner Matteo Codogno). `representation_gifts` keeps "Spese di rappresentanza (regali)" / "Representation — gifts". The batch PDF and the archive PDF follow `document-labels.json`, so AC-8.2's "batch PDF" holds with no renderer change. | AC-8.1, AC-8.2: lines keep the id, only the name changes; no data migration. A rename of the id would rewrite stored lines and audit for nothing. | `document-labels.json` + `expenseTypes.ts` (both asserted by the parity tests). |
+| SO-2 | **The VAT half has no default.** `resolveClassification` keeps its signature minus the designation: the VAT half is the stored copy, or **none**. `missing` can only be `["account"]`. `vatCodeIsDefault` leaves the wire (view, audit stays v2 with `fromDefault`/`toDefault` always `false` for VAT). The column `refund_line."vatCodeIsDefault"` stays in the database (dropping it means a third replacement of `refund_line_accounting_guard()`, for no visible gain); new writes set it to `false` when a code is set by hand and `NULL` when there is none, and nothing reads it. Lines already holding a VAT copy that came from a former default keep it (AC-3.5); unpaid ones can be cleared by hand (AC-3.6). | E2: "No VAT code is ever pre-set". One rule in one function keeps the view, approval, release and export in agreement (the reason that function exists). | `classification.ts`. |
+| SO-3 | **Clearing a VAT code.** `PUT …/lines/{lineId}/classification` body: `{ accountNumber?: string, vatCode?: string \| null }`, at least one key. `vatCode: null` clears the copy (both columns null) and audits `line_classified` with `vatCode.to: null`, which the UI shows as "none" (AC-3.3). `accountNumber` stays non-nullable: the account is required and there is still no "back to default" (G8, follow-up F1). Same gates as before (SR-1, SR-2, FR-1, FR-2), same paid lock (AC-3.7). | AC-3.3 "sets, changes or clears". A null is unambiguous; a separate DELETE route would duplicate the gate logic. | `classification.schemas.ts`. |
+| SO-4 | **Account only, everywhere.** Approval refuses with `classification_missing` only for lines without a usable account (AC-3.4, AC-8.4); the release leaves unclassified only lines whose type has no usable default account (AC-7.1, AC-7.2); the export's `unclassifiedLines` lists only missing accounts. A line without a VAT code is approved, released and exported like any other (AC-3.11). The approve 409's `lines[].missing` keeps its array shape (`["account"]`) so the UI's existing parser needs no new branch. | E2; AC-3.11. | — |
+| SO-5 | **VAT amount only with a code** (AC-3.8): `vatAmountCents` is `null` when the line has no VAT code, else `vatCents(chf, bp)` as before (IP00 → 0.00). The reverse-charge code BZM81 uses the same formula, as a reference only (the spec's fallback for its open question; never exported). | AC-3.8; open question "reverse charge" fallback. | `classification.repo.ts`. |
+| SO-6 | **The export is an XLSX workbook in the template's shape** (replaces the CSV of D3). One sheet named `Sheet 1`; row 1 is the header `Date \| Description \| Debit \| Credit \| Amount \| Currency \| Tax \| Note` (8 columns, A–H, these exact names); one row per approved, not rejected WellD CH line (AC-6.1); a batch with no such line gives the header row only (AC-6.7). **Tax and Note are present and empty on every row** (AC-6.14; the template has both). No other column (AC-6.2). | The accountant's sample is binding (coordinator, 2026-11-19); a file the accounting system imports as-is is the point of US-6. | `exportFormat.ts`. |
+| SO-7 | **A hand-written, deterministic OOXML writer, no dependency.** `src/accounting/xlsx.ts` (pure, knows nothing of accounting) writes the parts as strings and packs them in a ZIP with **method STORE** (no compression), entries in a fixed order, every entry dated 1980-01-01 00:00 (DOS epoch, as the sample itself), no extra fields, the UTF-8 name flag, CRC-32 per entry (`zlib.crc32`, which Bun provides; a 20-line table fallback if a Bun version lacks it). The same lines therefore give **the same bytes**, so AC-6.8 and AC-5.4 of 20261119 keep their byte-identical meaning and the export log's SHA-256 stays a real fingerprint. Size: about 350 bytes per row uncompressed, so a 300-line batch is about 100 KiB. **Rejected:** `exceljs` (a large dependency tree; it stamps creation and modification times in `docProps/core.xml` and in the ZIP entries, so determinism needs post-processing); SheetJS (`xlsx`, distributed from its own CDN rather than the npm registry, so pinning and supply-chain review are harder); `fflate` plus hand XML (DEFLATE output depends on the library version and level, which would make "identical" a property of a lockfile; STORE avoids it at a size cost that does not matter here); redefining "identical" as "same cell content" (weakens AC-6.8's test and the log hash, and would need an XLSX reader in production code). | Determinism is an AC; the format subset needed is small (one sheet, shared strings, three number formats); no new third-party code on a path that carries personal and financial data. | Swap the writer behind `buildAccountingFile`; the golden file says what must not change. |
+| SO-8 | **Cell types and styles, as in the template.** Date: a numeric serial (1900 date system, days since 1899-12-30, computed from the `YYYY-MM-DD` string with integer arithmetic, never a time zone) with number format `yyyy\-mm\-dd;@`. Description: a shared string with the text format `@`. **Debit: a numeric cell** holding the account number exactly as stored, when the number is in canonical decimal form (`^[1-9][0-9]{0,14}(\.[0-9]*[1-9])?$`, which covers `5905` and `2620.1`; the sample has two `2620.1` rows as numbers, so the accounting system reads it that way); any other account number (for example `2620.10` or `1.2.3`, which Accounting accepts) is written as a **text** cell, unchanged, never rounded or re-formatted; a unit test pins both. Credit: numeric `5832`. Amount: numeric, written from integer cents as exact decimal text (`9.62`, `0.00`; never through a float), number format `0.00`. Currency: shared string `CHF` (`@`). Tax and Note: empty cells carrying the column style. Header: shared strings. One `styles.xml` with those formats (custom id 164 for the date, built-in 2 for `0.00`, 49 for `@`); no theme, no `docProps` (no author, no timestamp), no Table object (the template's "Table1" is presentation; added only if the import needs it, see Open items). | The template's types: a text-typed date or amount is a classic import failure. `2620.1` as a number follows the sample; text for a non-canonical number avoids silently turning `2620.10` into `2620.1`. | `exportFormat.ts` constants. |
+| SO-9 | **Description pattern (provisional, for the accountant).** `<reason> [<receipt number>] <employee>` for a CHF line, and `<reason> [<receipt number>] [<CUR> <approved total> = CHF <CHF amount>] <employee>` for any other currency, amounts with `.` and two decimals. Examples: `Treno Lugano-Zurigo [AR26/001] Anna Rossi`; for AC-6.3's line `Cancelleria [MC26/001] [EUR 10.40 = CHF 9.62] Matteo Codogno`. `<employee>` is the name, or the email when the account has none (as the old Employee column). The reason comes first and the name last, as in every template row; the bracketed parts are new and easy to cut or move once accounting answers (AC-6.13 leaves order and separators to the sample, which shows only reason + name because all its rows were CHF and it predates receipt numbers). **Sanitised** before writing: each control character (C0, C1, including CR, LF and TAB) and U+2028/U+2029 becomes one space, runs of spaces collapse to one, the ends are trimmed; a character XML 1.0 cannot carry (a lone surrogate, U+FFFE, U+FFFF) becomes U+FFFD. Reasons are at most 2000 characters (`lines.schemas.ts`), far under a cell's 32,767, so nothing is cut. | AC-6.13 content is mandatory, its form provisional; one line per row is safe for any importer and answers the spec's question on line breaks with "no". | `exportFormat.ts` (`describeLine`). |
+| SO-10 | **Injection guard for a workbook (AC-6.15).** Text reaches the file **only** as a shared string (`t="s"`), XML-escaped (`& < > " '`); the writer has no code path that emits `<f>` (a formula) or an inline formula, and a unit test scans every part for `<f`. Every text cell's style carries `quotePrefix="1"`, so a spreadsheet keeps a value starting with `=`, `+`, `-` or `@` as text even when a person edits the cell. **The CSV-era leading `'` is dropped**: in a workbook it would be imported into Accrio as part of the description. "Separator" and "quote" have no meaning inside a shared string; line breaks are removed by SO-9, so nothing adds, merges or splits a column or a row. FU-S6 (leading LF, trigger after spaces) is obsolete. | AC-6.15, restated for the format the sample imposes. | `xlsx.ts`, `exportFormat.ts`. |
+| SO-11 | **Row order: Date descending** (as the template), then by the employee cell in code-point order, `ownerUserId`, `receiptYear`, `receiptSeq` and line id, ascending. | The template's order; the tie-breakers keep the file deterministic (AC-6.8). | `compareExportLines`. |
+| SO-12 | **Route, media type, version.** `GET /batches/{id}/accounting-export/file` replaces `…/csv` (the old path answers 404; nothing outside the repo calls it, both are unreleased). `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`; `Content-Disposition: attachment; filename="refund-accounting-<cutoff YYYY-MM-DD>-<batchId>.xlsx"`; `Cache-Control: private, no-store`; `X-Content-Type-Options: nosniff`; `X-Export-Row-Count`, `X-Export-Excluded-Line-Count` and the CORS exposure kept. The blockers, the 409 `accounting_export_blocked` body, the pending-rate copy inside the export transaction, the export-log row (actor, batch, rows, SHA-256, `formatVersion`) written before the body, and the 500-without-file on a failed log write are unchanged. **`FORMAT_VERSION = 2`.** New golden `fixtures/accounting-export.golden.xlsx` (bytes) plus `fixtures/accounting-export.golden.cells.json` (the expected cells, so a review diff is readable); the CSV golden is deleted. `exportFormat.ts` stays the one module holding every dialect choice (headers, order, sheet name, formats, description pattern, sanitiser, ordering); `xlsx.ts` is mechanism only; `export.ts` maps lines to cells. The route is named for what it gives, not its format, so the next dialect change does not move it. | The export ADR's rules (generated on request, logged, never stored) hold; only the bytes' format changes. | `export.routes.ts`, `exportFormat.ts`. |
+| SO-13 | **2026 numbering baseline (AC-4.11 to AC-4.13, AC-7.4).** A new append-only table `receipt_number_baseline` (§ Data model below) holds, per employee **email** (lower-cased) and year, the last hand-issued sequence. When `classifyAndNumber` **creates** an employee's counter for a year, `startAfter` and the starting `lastSeq` come from the latest baseline row for that email and year (else 0), and `startAfterSetBy` is `baseline`. So the first 2026 line of an employee with baseline 81 is `…26/082`, whenever it is numbered (release backfill or a later approval), **including an employee who has no Refund request at release** (the current script refuses those, `offset_unknown_employee`, which would make their first number collide with paper). A DB CHECK allows only year 2026 (AC-4.12: no other year is continued); 2027 counters never read it (AC-4.13). The release's `--offsets <csv>` (format `email,year,lastIssuedSeq`, unchanged) now **loads the baseline** instead of writing counters. It is **required**: without it the run writes nothing at all (no default, no number, no marker), prints "the list of last hand-issued 2026 numbers is missing: nothing was numbered (AC-7.4)" and **exits 3**; since approvals stay refused until the marker exists (D6 gate), no number is consumed meanwhile, and a rerun with the list is safe. A header-only file is an explicit "no employee has a hand-issued number" and is accepted. Rows are refused when: the year is not 2026; the same email appears twice; the sequence is not 1–99999; the employee's 2026 counter already exists with another start (`already-applied` when equal, as today). The report lists each row as `<initials Refund will use> · <user ref>` for a known employee, or "not yet in Refund" (masked email unless `--show-emails`), so accounting can check that Refund's initials (AC-4.8) match the register's. `--dry-run` without the list runs and reports `BLOCKED: list missing`. | AC-4.11 holds for every employee, not only those already in Refund; AC-7.4 literally; one code path (counter creation) for backfill and approvals. | Constants `BASELINE_YEAR`, exit code; the list itself is data. |
+| SO-14 | **Deriving the list from the register (operator, optional helper).** `refund-api/scripts/receipt-baseline-from-register.ts --register <csv>` reads a CSV export of `Recap_RS_2026` (a `receiptNumber` column, optionally `expenseDate`) and prints, per initials, the highest 2026 sequence and the anomalies: **duplicates** (for example `FR26/002` twice: listed, harmless to the maximum), **wrong-year numbers** (for example `LG25/…` in the 2026 register: counted toward that initials' 2026 maximum when its expense date is in 2026 or when the export has no date column, because a gap after the paper numbers is harmless and a repeat is not; always listed for accounting to confirm), and malformed numbers. Output is initials and numbers only (no names, no emails); the operator maps initials to emails (two employees with the same initials, AC-4.6, need a person) and writes the offsets file **outside the repository** (SR-3: `.gitignore` already covers `*offsets*.csv`). The helper never writes to a database. | The register has known defects (spec open question); a script makes the maximum reproducible and the anomalies explicit instead of a hand count over 253 rows. | Delete the helper; the release does not depend on it. |
+| SO-15 | **The expense form says to split multi-rate receipts.** `ExpenseLineComposer` shows a hint under the amount for a **WellD CH** line: EN "One VAT rate per line: if a receipt has items at different VAT rates (for example 8.1 % and 2.6 % at a supermarket), enter one line per rate." / IT "Una sola aliquota IVA per riga: se uno scontrino contiene articoli con aliquote diverse (per esempio 8,1 % e 2,6 % al supermercato), inserisci una riga per aliquota." No validation (spec non-goal). Not shown for WellD Italia lines, which are never classified (AC-3.9). Accounting's way to refuse a line that needs splitting is the existing line rejection, with its reason. | Owner decision at approval; AC-3.12. It tells the employee nothing about accounts or codes (AC-3.10). | `strings.ts`. |
+| SO-16 | **Refund Settings: default accounts only.** `GET /accounting/expense-type-defaults` returns the **14** types, each with `account` (number, name, state) or `null`, `updatedAt`, `updatedByEmail` and an account-only `history`; the `foreignCurrencyVatCode*` members and every `vatCode` member are gone. `PUT …/expense-type-defaults/{type}` takes `{ accountNumber: string \| null }` (strict: a body with `vatCode` → 422 `invalid_request`). `PUT /accounting/foreign-currency-vat-code` is removed (404). Gates unchanged (`settings:read` / `settings:manage`, AC-2.8, AC-3.7 of 20261119). The card shows one column (account) and no designation block; `ForeignCurrencyVatDialog` is deleted. | AC-2.1 to AC-2.4, AC-2.8 as adjusted; AC-2.5 to AC-2.7 retired. | `defaults.*`. |
+| SO-17 | **The 14 default accounts** in `refund-api/scripts/data/accounting-defaults.welld-ch.json` (accounts only; the file's schema refuses `vatCode` and `foreignCurrencyVatCode` keys so a stale file fails loudly): `travel_km` 5905, `travel_train` 5901, `travel_other_public_transport` 5904, `travel_flight` 5902, `travel_taxi` 5903, `travel_highway` 5906, `travel_parking` 5907, `representation_meals` 6701, `representation_gifts` none, `office_material` 6101, `stationery` 6101, `company_manuals` 6501, `postal` 6104, `telephone` 6102. The release seeds a type's default only when Refund has no row for it (unchanged), so this is what production gets (AC-8.3); the nine "remaining defaults" stay the draft until accounting confirms (spec open question). | AC-8.3; E1. | The JSON before release; Settings after. |
+
+### Data model (refund-api; tasks T58 and T63)
+
+Two additive migrations; nothing applied is edited (ADR 20261119-data-that-moves-…, AGENTS.md). A third
+one, for the retired VAT defaults, is specified in the 20261119 delta (SO-18) and lands in the same task.
+
+1. `20261119200000_expense_types_flight_taxi`:
+   ```sql
+   ALTER TYPE "ExpenseType" ADD VALUE 'travel_taxi'   AFTER 'travel_other_public_transport';
+   ALTER TYPE "ExpenseType" ADD VALUE 'travel_flight' AFTER 'travel_other_public_transport';
+   ```
+   Both statements position against a committed value, so no new value is referenced inside the
+   migration's transaction; the order of the two lines yields `…, travel_other_public_transport,
+   travel_flight, travel_taxi, …`. `schema.prisma` lists them at the same place, and `prisma migrate diff`
+   shows no difference (the migration test asserts it). Nothing writes the new values in the migration.
+2. `20261119200100_receipt_number_baseline`:
+   ```prisma
+   // Append-only (accounting_history_immutable triggers). Current = latest row per (emailKey, year).
+   model ReceiptNumberBaseline {
+     id              String   @id @default(cuid())
+     emailKey        String                       // lower(btrim(email)); CHECK emailKey = lower(emailKey) AND emailKey LIKE '%@%'
+     year            Int                          // CHECK year = 2026 (AC-4.12)
+     lastIssuedSeq   Int                          // CHECK 1..99999
+     createdByUserId String                       // system:accounting-release
+     createdByEmail  String
+     createdAt       DateTime @default(now())
+     @@index([emailKey, year, createdAt])
+     @@map("receipt_number_baseline")
+   }
+   ```
+   `receipt_counter."startAfterSetBy"` gains the value `baseline` (free text today; no DDL). The counter
+   guard (immutable `startAfter` after insert, monotonic `lastSeq`) is unchanged. The counter `INSERT` in
+   `classifyAndNumber` becomes `VALUES (…, COALESCE(baseline, 0) + count, COALESCE(baseline, 0), …)` with
+   the baseline read by a sub-select on `lower(ownerEmail)`. A baseline row added after the counter
+   exists is refused by the release script (the counter's start never changes, ADR
+   20261118-receipt-numbers-…).
+
+### API contracts (changed or removed; everything else as above and as in 20261119's plan)
+
+```
+PUT  /review/requests/{id}/lines/{lineId}/classification
+  body { accountNumber?: string, vatCode?: string | null }          // ≥ 1 key; vatCode null = clear (SO-3)
+  200 the line object: classification { account: {number,name,state} | null, accountIsDefault,
+                                        vatCode: {code,label|null,ratePercent,state} | null }   // no vatCodeIsDefault
+      vatAmountCents: number | null                                  // null when vatCode is null (SO-5)
+POST /review/requests/{id}/approve
+  409 { code: "classification_missing", lines: [ { lineId, date, type, missing: ["account"] } ] }
+GET  /accounting/expense-type-defaults                               // SO-16
+  200 { entity: "welld_ch", accounting: "available" | "unavailable",
+        types: [ { type, account: { number, name, state } | null, updatedAt | null, updatedByEmail | null,
+                   history: [ { account: { number, name } | null, at, byEmail } ] } ] }   // 14 types, enum order
+PUT  /accounting/expense-type-defaults/{type}   { accountNumber: string | null }          // strict
+PUT  /accounting/foreign-currency-vat-code      → 404 (removed)
+GET  /batches/{id}/accounting-export            // summary unchanged; blockers.unclassifiedLines[].missing = ["account"]
+GET  /batches/{id}/accounting-export/file       // SO-12
+  200 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+  409 { code: "accounting_export_blocked", ...summary }
+GET  /batches/{id}/accounting-export/csv        → 404 (removed)
+```
+
+The release script: `bun run accounting:release [--dry-run] --offsets <csv> [--defaults <json>]
+[--show-emails]`; exit 0 done, 1 other failure, 2 Accounting unreadable, **3 baseline list missing**
+(nothing written in each failing case).
+
+### AC → test mapping for the delta
+
+The main table in § Test strategy has been updated in place (adjusted rows rewritten, retired rows marked,
+new rows added); this is the summary of the delta's rows.
+
+| AC | Level | What proves it |
+|---|---|---|
+| AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.8 | int, ui | GET defaults returns 14 types, account only; PUT twice → account-only history; a body with `vatCode` → 422; designation route 404; a changed default leaves approved lines' copies unchanged; inactive account → 422; no `settings:manage` → 403. UI: the card has no VAT column and no designation block. |
+| AC-3.1, AC-3.13 | int, ui | Submitted CH lines in CHF, EUR, USD and GBP → default account `isDefault: true` and `vatCode: null`; no `vatCodeIsDefault` member. UI: the VAT select shows "None". |
+| AC-3.3 | int, ui | PUT `vatCode: "IPM81"`, then `"BZM81"`, then `null` → each saved; audit `vatCode.to` = the copy, then `null`; account change → `accountIsDefault: false`. |
+| AC-3.4, AC-3.11, AC-8.4 | int, ui | A line with no account → 409 `missing: ["account"]`; a request whose lines all have accounts and no VAT code → 200, numbered; a `representation_gifts` line → 409 until an account is set by hand, then 200. UI: the ErrorSummary lists accounts only. |
+| AC-3.5, AC-7.1, AC-7.2 | int, script | Approve and release copy the account and no VAT code; a later default change leaves them; a legacy line of a type without a default stays unclassified and blocks the export. |
+| AC-3.8 | unit, int, ui | CHF 20.80 with IPM81 → 1.56, with IP00 → 0.00, with none → `vatAmountCents: null`; the panel shows no VAT amount without a code. |
+| AC-3.12 | int, ui | The PUT body schema accepts one `vatCode` string only (an array → 422); the panel has one VAT select; the composer shows the split hint for a WellD CH line and not for a WellD Italia line. |
+| AC-4.3, AC-4.11, AC-4.12, AC-4.13 | int, script, db | Baseline MC 81 → first 2026 line `MC26/082`, then 083; an employee with a baseline and no request at release → their first 2026 approval gets N + 1; no baseline → `001`; a 2025 or 2027 line ignores the baseline; 2026 at 142 → first 2027 line `MC27/001`; raw insert of a year-2025 baseline row → CHECK violation; baseline rows immutable. |
+| AC-6.1, AC-6.2, AC-6.14 | unit, int | Golden XLSX byte for byte; parts list, sheet name `Sheet 1`, header `Date…Note`, 8 columns, Tax and Note empty on every row, no other column; content type and filename. |
+| AC-6.3 | unit, int, e2e | Line of AC-6.3 → Amount cell `9.62` (numeric, format `0.00`). |
+| AC-6.5 | int | Unchanged blocker test, on the `/file` route. |
+| AC-6.8 | int | Two downloads → identical bytes and SHA-256 (STORE, fixed dates). |
+| AC-6.12 | int | An approved total of 0 → a row with Amount `0.00`. |
+| AC-6.13 | unit | CHF line → `<reason> [<receipt>] <name>`; EUR line → `… [EUR 10.40 = CHF 9.62] …`; a nameless account → the email. |
+| AC-6.15 | unit | Reasons `=SUM(A1)`, `+1`, `-2`, `@x`, one with `;`, `"`, `<`, `&`, CR, LF, TAB, U+2028, a lone surrogate → a shared string, XML-escaped, no `<f` anywhere, one row, 8 cells, `quotePrefix` on its style, line breaks as single spaces. |
+| AC-7.4 | script | No `--offsets` → exit 3, nothing written (no default row, counter, number, marker); then with the list → numbered from N + 1; header-only list → accepted; `--dry-run` without the list → `BLOCKED` in the report. |
+| AC-8.1, AC-8.2 | int, ui, unit | `EXPENSE_TYPE_VALUES` has 14 values in enum order; a line can be created with each new type for both entities; labels parity (`document-labels.json` = refund-ui); `representation_meals` lines show "Meals with clients" / "Pranzi/cene con clienti" on entry, review, Settings and in the batch PDF text. |
+| AC-8.3 | script, int | After the release on an empty database, GET defaults shows the five named defaults and the draft for the others. |
+| AC-8.5 | int | With 7122 and 2620.1 active in the fake, the PUT accepts either on a CH line; no type default names them (defaults file test); no approval sets them. |
+
+**Mapping result: total.** The spec now has 76 AC ids: 71 live (18 of them moved to
+specs/20261119-accounting and mapped there) and 5 retired (AC-2.5, AC-2.6, AC-2.7, AC-3.2, AC-6.4).
+Every live AC that stays in Refund (53) maps to an automated test; the e2e (owner step) adds live
+evidence for AC-6.3, AC-6.13 and AC-8.1. Checked by script against spec.md on 2026-11-19.
+
+### Risks (delta)
+
+| # | Risk | Mitigation / early check |
+|---|---|---|
+| R16 | **The workbook does not import into Accrio** (a detail the sample does not show: the Table object, a style, shared vs inline strings). | The golden file is handed to accounting for a trial import before release (owner task T80); the writer mirrors the template's parts and types; every choice is a constant in `exportFormat.ts`. |
+| R17 | **A hand-written ZIP/OOXML writer has a defect** that Excel repairs silently or LibreOffice refuses. | Unit tests read the archive back with an independent minimal reader in `test-support/` (central directory, CRC-32 checked), check every part is well-formed XML (a strict parse in the test), and the e2e and the owner open the golden file in Excel or Numbers and LibreOffice. |
+| R18 | **The baseline list is late** (spec open question, owner accounting). | AC-7.4: the release refuses and writes nothing; approvals stay gated, so nothing collides; the runbook makes the list a release input next to the seed. |
+| R19 | **Wrong-year or duplicate register entries give a wrong maximum.** | SO-14 counts a doubtful entry toward the maximum (a gap, never a repeat) and lists it for accounting. |
+| R20 | **An employee's email in the list differs from the one Refund records.** | The report shows "not yet in Refund" for an email no request carries, so a typo for an existing employee is visible in the dry run; the runbook asks accounting to read it. |
+| R21 | **Description pattern rejected by accounting.** | Provisional (SO-9); one function; `FORMAT_VERSION` bump and golden diff. |
+
+### Security (delta)
+
+**Security-sensitive: YES (delta re-review, standard tier).** New surface: a new file format generated
+from user-controlled text (names, reasons) and carrying personal and financial data; a new table and a
+release input naming employees by email. Surfaces for the `owasp-reviewer` (T78):
+
+1. `xlsx.ts` / `exportFormat.ts`: XML escaping and invalid-character handling, no formula path, `quotePrefix`,
+   the sanitiser, ZIP structure (no path in an entry name taken from data), deterministic output.
+2. `GET /batches/{id}/accounting-export/file`: gate, scope (D8), headers (`no-store`, `nosniff`, content
+   type, filename without personal data), log-before-body; `/csv` gone.
+3. `PUT …/classification` with `vatCode: null`: SR-1, SR-2, FR-1, FR-2 and the paid lock unchanged.
+4. `receipt_number_baseline` and `accounting:release --offsets`: immutability, CHECKs, emails masked in the
+   report (SR-4), the file kept outside the repository (SR-3), the new exit path writes nothing.
+5. The register helper: reads a local file, prints initials and numbers only.
+
+Escalate to frontier only if the export becomes reachable by a non-accounting principal.
+
+### Spec drift (for the product-owner agent; the plan proceeds on these readings)
+
+- **SD-1 (AC-6.1, AC-6.2):** "a CSV file" → an XLSX workbook in the accountant's template; the header
+  names are `Debit` and `Credit` (not "Debit account" / "Credit account"); the template's empty **Note**
+  column is present, which AC-6.2's "No other column exists" does not allow as written.
+- **SD-2 (open questions answered by the sample):** header names, column order and the Tax column's
+  position (G, before Note), present and empty (AC-6.14's fallback confirmed); encoding, separator and
+  line ending have no object in a workbook; date and amount are typed cells (`yyyy-mm-dd`, `0.00`);
+  rows are ordered by Date descending. Still open: the Description's maximum length, the receipt
+  number's and FX part's place in it (SO-9), and whether the Table object matters to the import.
+- **SD-3 (AC-6.15):** "contains the separator, a quote or a line break" reads, for a workbook, as "a
+  character with a meaning in the file's markup, or a line break"; the test covers both readings.
+- **SD-4 (AC-7.4):** an explicit empty list counts as "available".
+- **SD-5 (open question on line breaks in the Description):** answered "no" by SO-9.
+
+### ADR candidates (delta; for the `adr-writer`, task T75)
+
+Each is an amendment of an existing record, dated "Amendment (2026-11-19, accounting sign-off)":
+
+1. **20261118-the-accounting-export-is-generated-on-request-…**: the file is an XLSX workbook in the
+   importer's template; it is written by a small in-repo deterministic writer (STORE, fixed entry dates,
+   fixed part order) so "identical" stays byte-identical and the log hash stays meaningful; text is
+   only ever a shared string, never a formula, with `quotePrefix` (replacing the CSV convention's leading
+   `'`); `FORMAT_VERSION` 2. Escalation trigger: an importer that needs features beyond the subset
+   (several sheets, formulas, a Table object), which would reopen the library choice.
+2. **20261118-receipt-numbers-come-from-a-row-locked-…**: a per-employee, per-year starting baseline kept
+   by email and applied when the counter row is created (so it reaches employees not yet in Refund); the
+   release refuses to number without the list.
+3. **20261118-accounting-classification-is-live-until-approval-…**: the VAT half has no default and is
+   optional; only the account is frozen from a default; the VAT code is a hand copy or none.
+4. **20261118-monthly-exchange-rates-are-fetched-on-demand-…** (also 20261119 SO-21): the authority is the
+   AFC/ESTV; the channel is the XML file the AFC links, served by the BAZG; verified 2026-11-19.
