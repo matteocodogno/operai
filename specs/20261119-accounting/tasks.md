@@ -1171,18 +1171,18 @@ for REF, except T68, which needs the shared `document-labels.json` (T59).
 
 ### OPS — docs, e2e, changesets, ADRs, rehearsal
 
-- [ ] T72: docs — AGENTS.md (domain language: 14 types, VAT code optional, the XLSX journal export, the 2026 baseline, AFC/ESTV), `infra/README.md` (runbook: the baseline list is a release input, kept outside the repo, derived with T64's helper; `--offsets` required, exit 3; the AFC live check; seed list), `docs/refund-accounting-backlog.md` (flight and taxi done, AI scanning stays item 8) — refs: none (docs) — deps: T61, T62, T63, T64, T65
+- [x] T72: docs — AGENTS.md (domain language: 14 types, VAT code optional, the XLSX journal export, the 2026 baseline, AFC/ESTV), `infra/README.md` (runbook: the baseline list is a release input, kept outside the repo, derived with T64's helper; `--offsets` required, exit 3; the AFC live check; seed list), `docs/refund-accounting-backlog.md` (flight and taxi done, AI scanning stays item 8) — refs: none (docs) — deps: T61, T62, T63, T64, T65
   - touch: `AGENTS.md`, `infra/README.md`, `docs/refund-accounting-backlog.md`
   - agent: tech-writer · docs
   - done when: grep finds no statement that a VAT code is pre-set, that the export is a CSV, or that offsets are optional; the runbook's release step lists seed, defaults and baseline; no employee data in any doc.
 
-- [ ] T73: e2e — global setup passes a header-only baseline file from a temp directory to the release; helpers (`accountingFixtures` with the new codes, `refundFixtures` account-only defaults, an XLSX reader helper replacing `parseAccountingCsv`); adapt `refund-accounting.spec.ts` (a line approved with no VAT code, a flight line, the workbook's Amount `9.62` and Description, the rate-pending path), `refund-accounting-settings.spec.ts` (14 types, account only, no designation), `accounting.spec.ts` (IPM codes, AFC Source text) — refs: 20261118:AC-3.11, 20261118:AC-6.2, 20261118:AC-6.13, 20261118:AC-8.1, AC-2.1, AC-4.4, AC-4.6, AC-5.5, AC-5.6 — deps: T61, T62, T63, T65, T66, T68, T69, T70, T71
+- [x] T73: e2e — global setup passes a header-only baseline file from a temp directory to the release; helpers (`accountingFixtures` with the new codes, `refundFixtures` account-only defaults, an XLSX reader helper replacing `parseAccountingCsv`); adapt `refund-accounting.spec.ts` (a line approved with no VAT code, a flight line, the workbook's Amount `9.62` and Description, the rate-pending path), `refund-accounting-settings.spec.ts` (14 types, account only, no designation), `accounting.spec.ts` (IPM codes, AFC Source text) — refs: 20261118:AC-3.11, 20261118:AC-6.2, 20261118:AC-6.13, 20261118:AC-8.1, AC-2.1, AC-4.4, AC-4.6, AC-5.5, AC-5.6 — deps: T61, T62, T63, T65, T66, T68, T69, T70, T71
   - touch: `shell/e2e/global-setup.ts`, `shell/e2e/helpers/accountingFixtures.ts`, `shell/e2e/helpers/refundFixtures.ts`, `shell/e2e/helpers/xlsxReader.ts`, `shell/e2e/refund-accounting.spec.ts`, `shell/e2e/refund-accounting-settings.spec.ts`, `shell/e2e/accounting.spec.ts`, `shell/e2e/refund-headline.spec.ts`
   - agent: qe · e2e
   - Details: the reader helper inflates with `node:zlib` when an entry is DEFLATE (so a re-saved file still reads) and reads STORE as is. The live run stays an owner step (T81).
   - done when: `pnpm lint` and `tsc` of the e2e project green; the specs list their changed assertions in the PR.
 
-- [ ] T74: changesets — edit `refund-accounting-export.md` (journal XLSX export, VAT optional, flight and taxi, 2026 numbering continues the register) and `accounting-module.md` (the AFC/ESTV named, the signed-off seed, the designation gone) — refs: none (release plumbing) — deps: T58, T59, T60, T61, T62, T63, T65, T66, T68, T69, T70, T71
+- [x] T74: changesets — edit `refund-accounting-export.md` (journal XLSX export, VAT optional, flight and taxi, 2026 numbering continues the register) and `accounting-module.md` (the AFC/ESTV named, the signed-off seed, the designation gone) — refs: none (release plumbing) — deps: T58, T59, T60, T61, T62, T63, T65, T66, T68, T69, T70, T71
   - touch: `.changeset/refund-accounting-export.md`, `.changeset/accounting-module.md`
   - agent: tech-writer · docs
   - done when: `mise run changeset:check` green; no changeset announces the CSV, a default VAT code or the designation.
@@ -1193,7 +1193,7 @@ for REF, except T68, which needs the shared `document-labels.json` (T59).
   - Details: dated "Amendment (2026-11-19, accounting sign-off)" sections; history not rewritten. `AGENTS.md` only for the ADR index line, after T72 merges (rebase; declared overlap).
   - done when: each ADR has its amendment; the index is consistent.
 
-- [ ] T76: release rehearsal on scratch databases: `seed:welld-ch` on `accounting_qe` (19 accounts, 6 codes), then `accounting:release` on `refund_mig` with legacy fixture lines: without `--offsets` (exit 3, nothing written), with a synthetic baseline (numbers from N + 1), `--dry-run` reports; databases dropped after — refs: AC-7.4, AC-7.5, AC-7.6, 20261118:AC-7.1, 20261118:AC-7.4, 20261118:AC-8.3 — deps: T61, T63, T65
+- [x] T76: release rehearsal on scratch databases: `seed:welld-ch` on `accounting_qe` (19 accounts, 6 codes), then `accounting:release` on `refund_mig` with legacy fixture lines: without `--offsets` (exit 3, nothing written), with a synthetic baseline (numbers from N + 1), `--dry-run` reports; databases dropped after — refs: AC-7.4, AC-7.5, AC-7.6, 20261118:AC-7.1, 20261118:AC-7.4, 20261118:AC-8.3 — deps: T61, T63, T65
   - touch: `specs/20261119-accounting/qe-report.md`
   - agent: qe · release
   - done when: the rehearsal's commands and outputs (masked) are recorded in a "Sign-off round" section of `qe-report.md`.
