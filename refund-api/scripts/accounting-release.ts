@@ -51,7 +51,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import { db } from "../src/lib/db";
+import { createQuietDb, db as serviceDb } from "../src/lib/db";
 import type { Prisma } from "../src/lib/generated/prisma/client";
 import { ExpenseType } from "../src/lib/generated/prisma/enums";
 import {
@@ -250,6 +250,13 @@ export function describeReleaseFailure(error: unknown): string {
   const code = (error as { code?: unknown }).code;
   return typeof code === "string" && /^[A-Z][A-Z0-9_]{1,31}$/.test(code) ? `${name} (${code})` : name;
 }
+
+/**
+ * The client of the run. As a command (`bun run accounting:release`) it is the quiet one: Prisma's own error log would print the
+ * invocation, the source path and the host before `describeReleaseFailure` speaks (T57, F-03). Imported (the in-process tests of
+ * `accounting-release.test.ts`), it is the shared `db`, which the tests seed and read through.
+ */
+const db: typeof serviceDb = import.meta.main ? createQuietDb() : serviceDb;
 
 /** Thrown to roll a dry run back; carries the finished report. */
 class DryRunRollback extends Error {

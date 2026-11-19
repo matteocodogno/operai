@@ -296,12 +296,27 @@ describe("accounting:release, run as the operator runs it", () => {
     await legacyRequest(["2026-03-02"]);
     const res = await cliWith({ DATABASE_URL: "postgresql://leak_user:leak_pw@127.0.0.1:1/refund" }, "--dry-run");
     expect(res.exitCode).toBe(1);
-    // Prisma's own error log (db.ts) comes first on stderr; the script's line is the last one and is one line.
     const mine = res.stderr.slice(res.stderr.lastIndexOf("accounting:release failed"));
     expect(mine.trim().split("\n")).toHaveLength(1);
     expect(mine).toContain("accounting:release failed, nothing was changed: ");
     expect(mine).not.toMatch(/leak_pw|leak_user|127\.0\.0\.1|reach database|findMany|accounting-release\.ts|\/Users\//);
     expect(mine).toMatch(/PrismaClient\w*Error|Error/);
+  });
+
+  it("(T57, F-03) with an unreachable database NOTHING but the script's own line reaches stdout or stderr: no host, credential, path or invocation text, in either development or production mode", async () => {
+    await legacyRequest(["2026-03-02"]);
+    for (const nodeEnv of ["development", "production", "test"]) {
+      for (const args of [["--dry-run"], []]) {
+        const res = await cliWith({ DATABASE_URL: "postgresql://leak_user:leak_pw@127.0.0.1:1/refund", NODE_ENV: nodeEnv }, ...args);
+        const all = `${res.stdout}\n${res.stderr}`;
+        expect(res.exitCode).toBe(1);
+        expect(all).not.toMatch(/leak_pw|leak_user|127\.0\.0\.1|invocation|\/Users\/|\.ts\b|prisma:|node_modules|ECONNREFUSED|reach database|findMany/i);
+        // The only output is the script's own one line.
+        expect(res.stdout).toBe("");
+        expect(res.stderr.trim().split("\n")).toHaveLength(1);
+        expect(res.stderr).toContain("accounting:release failed, nothing was changed: ");
+      }
+    }
   });
 
   it("(AC-7.5) Accounting with no WellD CH entries: exit 0, every legacy line numbered and listed unclassified, with the warning", async () => {
