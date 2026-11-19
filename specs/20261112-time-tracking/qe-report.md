@@ -1,26 +1,41 @@
 # QE report — specs/20261112-time-tracking (rigor: production, full mode)
 
-Three passes, newest first. **Third pass (2026-11-19, re-run of the blocked whole-suite row only): this section, the current verdict.**
+Three passes, newest first. **Third pass (2026-11-19, re-run of the blocked whole-suite row only, re-decided the same day under T35's amended done-when): this section, the current verdict.**
 The second pass (BLOCKED) and the first pass (FAIL; D-1, D-2, D-3) are kept below, unchanged, as history.
 
-## QE verdict: BLOCKED   (third pass; e2e measured at 8756952a; every other row carried from the second pass: `git diff --stat 3ca1931f HEAD` is 4 files, the run trace, `shell/e2e/hours.spec.ts` (my test), this file and `tasks.md`; 0 application files)
+## QE verdict: PASS   (third pass, re-decided 2026-11-19 under T35's amended done-when, `b891e73f`; e2e measured at 8756952a; every other row carried from the second pass: `git diff --stat 3ca1931f HEAD` is 4 files, the run trace, `shell/e2e/hours.spec.ts` (my test), this file and `tasks.md`; 0 application files)
+
+**Re-decision, 2026-11-19 (no new test run; the evidence below is unchanged).** As first written (`fbb298d1`) this pass was BLOCKED. Two facts changed the same
+day, both relayed to me by the main loop (I did not hear them from the user directly):
+
+1. **The user accepted every failure outside hours as independent of this branch**: P-2 and P-2b, P-3, Q-1 and Q-2, on the evidence recorded below.
+2. **T35's done-when was amended** (`tasks.md`, commit `b891e73f`, which I re-read): `hours.spec.ts` passes with the stack up; the whole `pnpm e2e` runs on a stack whose
+   crm-api has the letterhead service off, with every failure outside hours shown independent of the branch and named in this file with its evidence;
+   `crm-offer-wizard-service.spec.ts`, which needs the opposite crm-api mode, is **outside this feature's gate**. The earlier wording ("the whole `pnpm e2e` still passes")
+   could not be met on one stack.
+
+Under the amended done-when every row holds, so the verdict is **PASS**. I record the acceptance as the user's, not as my verification, and I keep the two levels
+of proof apart. **P-2, P-2b, P-3: shown independent**: the specs, fixtures, services and remotes they exercise are byte-identical to the merge base `512851c2`
+(empty `git diff`), with a mechanism and a control for each. **Q-1, Q-2: accepted, not proven by me.** The test files, notify-ui, crm-ui and `operai-ui/src/styles`
+are byte-identical, but the shell build they run in carries the branch's additive hours changes (the "My hours" link, one trusted origin, one Tailwind
+`@source` line, the hours remote entry), their cause is unknown and I have no main baseline. The PASS depends on that acceptance for those two.
 
 The three environment faults of the second pass are **repaired, and verified by their specs now passing**: EF-9 (push-notifications 6 of 6), EF-2
 (crm-offer-wizard 9 of 9), EF-10 (meetings-deal 3 of 3). Every hours journey is green: 12 of 12 in the targeted re-run and in each of two
-whole-suite runs. **No defect in this branch, and nothing red is attributable to it.**
+whole-suite runs. **No defect in this branch, and on the evidence nothing red is attributable to it** (for Q-1 and Q-2 see the re-decision note: accepted, not proven).
 
-The verdict is still not PASS, and the reason is specific. The brief's premise, "green except P-1 and P-2", does not hold. Two whole `pnpm e2e` runs
+Why it was BLOCKED as first written, kept for the record. The brief's premise, "green except P-1 and P-2", does not hold. Two whole `pnpm e2e` runs
 on the repaired stack ended **158 passed / 5 failed / 1 skipped / 20 not run (13.1 min)** and **156 / 5 / 1 / 22 (12.9 min)**. Beyond P-1 and P-2 the red set holds: P-3 (a test of another feature whose fixture cannot satisfy its own control), P-2's second placement
 (`letterheads-access.spec.ts:126`, the same fixture race), two **intermittent** failures I could not explain (Q-1, Q-2), and a spec file that needs the
-other stack mode (EF-12: 9 tests I could not execute). I do not write PASS on the user's behalf for those:
-acceptance is theirs to give, as it was for P-2. What each one needs is in "Next".
+other stack mode (EF-12: 9 tests I could not execute). I did not write PASS on the user's behalf for those:
+acceptance is theirs to give, as it was for P-2. The user has since given it (above).
 
-### Checks I could not run to green (named first)
+### Checks not executed (named first)
 
 | Check | Needs | What I did |
 |---|---|---|
-| `crm-offer-wizard-service.spec.ts`, 9 tests (part of T35's "whole `pnpm e2e`") | crm-api with `LETTERHEAD_SERVICE_ENABLED=true`, `LETTERHEAD_API_URL=http://localhost:18240` (the relay the spec runs) and an `auth` `crm-api` client holding `letterhead:render`: a stack in the **other mode**. The three legacy offer-wizard specs need it **off** (the spec header says so: with it on they answer 410 `letterhead_upload_retired`) | ran it: 1 timed out, 8 not run. `GET /scope` on the running crm-api answers `letterheadService:false`, and crm-ui mounts `ServicePreview` (the `crm-wizard-service-preview` element the test waits for) only when it is `true` (`OfferWizard.tsx:176-178`). I did not reconfigure the shared crm-api: it is the main loop's, and its secrets are in files I am not to read |
-| Whole `pnpm e2e` green (T35 done-when) | the four items above resolved or accepted | measured twice, see below |
+| `crm-offer-wizard-service.spec.ts`, 9 tests | crm-api with `LETTERHEAD_SERVICE_ENABLED=true`, `LETTERHEAD_API_URL=http://localhost:18240` (the relay the spec runs) and an `auth` `crm-api` client holding `letterhead:render`: a stack in the **other mode**. The three legacy offer-wizard specs need it **off** (the spec header says so: with it on they answer 410 `letterhead_upload_retired`) | ran it: 1 timed out, 8 not run. `GET /scope` on the running crm-api answers `letterheadService:false`, and crm-ui mounts `ServicePreview` (the `crm-wizard-service-preview` element the test waits for) only when it is `true` (`OfferWizard.tsx:176-178`). I did not reconfigure the shared crm-api: it is the main loop's, and its secrets are in files I am not to read. **Outside this feature's gate since `b891e73f`**: not executed, and not required |
+| `crm-offer-wizard-revise.spec.ts:230` (AC-7.3) | an active classic English template on welld_ch | skipped by the spec's own precondition, with its named reason; not a failure |
 
 Everything else ran.
 
@@ -29,14 +44,16 @@ Everything else ran.
 | Check | Threshold | Actual | Result |
 |---|---|---|---|
 | EF-9 repaired: `push-notifications.spec.ts` | 6/6 | 6/6 (turn on and reload, removal from the list, removal from another session, on-load offer ×2, signed-out deep link) | ✓ |
-| EF-2 repaired: `crm-offer-wizard.spec.ts` | 9/9 | 9/9 in two runs; 6/9 in one (Q-2: `:533` failed, `:588` and `:617` then not run) | ✓ (EF-2); Q-2 below |
-| EF-2: `crm-offer-wizard-revise.spec.ts` | all | 4 passed, 1 skipped by its own precondition (`:230`, AC-7.3: "welld_ch has no active classic English template to make a legacy offer from"; a spec-owned skip with a named reason) | ✓ (4); 1 not executed |
-| EF-2: `crm-offer-wizard-pages.spec.ts` | 12/12 | 11/12: `:380` fails (P-3); the 10 tests the serial describe then does not run were run by me without `:380` (`--grep-invert`): **11 of 11 pass** | ✗ 1 (P-3, not the branch) |
-| `crm-offer-wizard-service.spec.ts` | 9/9 | 0/9: the stack is in the legacy mode (EF-12) | BLOCKED |
+| EF-2 repaired: `crm-offer-wizard.spec.ts` | 9/9 | 9/9 in two runs; 6/9 in one (Q-2: `:533` failed, `:588` and `:617` then not run) | ✓ (EF-2); Q-2 accepted by the user |
+| EF-2: `crm-offer-wizard-revise.spec.ts` | all | 4 passed, 1 skipped by its own precondition (`:230`, AC-7.3: "welld_ch has no active classic English template to make a legacy offer from"; a spec-owned skip with a named reason) | ✓ (4); 1 spec-owned skip |
+| EF-2: `crm-offer-wizard-pages.spec.ts` | 12/12 | 11/12: `:380` fails (P-3); the 10 tests the serial describe then does not run were run by me without `:380` (`--grep-invert`): **11 of 11 pass** | ✓ (`:380` is P-3, accepted by the user 2026-11-19) |
+| `crm-offer-wizard-service.spec.ts` | outside the gate (`b891e73f`) | 0/9, not executed: the stack is in the legacy mode (EF-12) | n/a (outside the gate) |
 | EF-10 repaired: `meetings-deal.spec.ts` | 3/3 | 3/3 (record, stop, `ready` in 23 s; link a meeting; the access journey); every `meetings-*` test also passed in both whole runs | ✓ |
 | `hours.spec.ts` + `hours-owners.spec.ts`, once after the restart | 12/12 | 12/12 (5 + 7, 54 s); 12/12 again in each of the two whole runs | ✓ |
-| Whole `pnpm e2e` (T35 done-when), run A (08:29) | all green | 158 passed / 5 failed / 1 skipped / 20 not run of 184; the 5: `crm-offer-wizard-pages:380`, `crm-offer-wizard-service:200`, `letterheads-access:126`, `letterheads:379`, `notifications:426` | BLOCKED |
-| Whole `pnpm e2e`, run B (08:53) | all green | 156 / 5 / 1 / 22 of 184; the 5: `pages:380`, `service:200`, `crm-offer-wizard:533`, `letterheads-access:126`, `letterheads:379` | BLOCKED |
+| Whole `pnpm e2e` (T35 as amended), run A (08:29) | legacy-mode stack; every failure outside hours named with its evidence and accepted as independent | 158 passed / 5 failed / 1 skipped / 20 not run of 184; the 5: `crm-offer-wizard-pages:380`, `crm-offer-wizard-service:200`, `letterheads-access:126`, `letterheads:379`, `notifications:426` | ✓ (P-3, EF-12 outside the gate, P-2, P-2b, Q-1 accepted by the user 2026-11-19) |
+| Whole `pnpm e2e` (T35 as amended), run B (08:53) | same | 156 / 5 / 1 / 22 of 184; the 5: `pages:380`, `service:200`, `crm-offer-wizard:533`, `letterheads-access:126`, `letterheads:379` | ✓ (Q-2, P-2b, P-2, P-3, EF-12 as above) |
+| T35 as amended: `hours.spec.ts` passes with the stack up | 5/5 | 5/5 (with `hours-owners.spec.ts` 7/7), in the targeted re-run and in both whole runs | ✓ |
+| T35 as amended: the whole e2e ran on a stack whose crm-api has the letterhead service off | `letterheadService:false` | `GET /scope` → `letterheadService:false`; the three legacy offer-wizard specs ran in their intended mode (wizard 9/9, revise 4 + 1 skip, pages 11/12) | ✓ |
 | All other rows of the second pass (gates, coverage, D-1/D-2/D-3, AC 44/44, a11y, design) | as before | **carried**: nothing but my e2e test and docs changed since 3ca1931f | ✓ (carried) |
 
 Run command, both whole runs and the targeted ones: the ten `E2E_*_REMOTE_PORT` variables of the earlier passes, `pnpm exec playwright test --reporter=list,json --trace off`.
@@ -46,21 +63,22 @@ Evidence, in `/private/tmp/claude-331608204/-Users-edoardo-paronzini-Work-Experi
 Accounting of the 42 tests the second pass called blocked (4 + 31 crm-offer-wizard, 5 push, 2 meetings-deal), plus the two other crm-offer-wizard tests:
 44 tests of the three groups = **33 passed, 2 failed (`pages:380`, `service:200`), 1 self-skipped (`revise:230`), 8 not run (the rest of the service spec)**.
 
-## The red set, one by one (none touches this branch's diff)
+## The red set, one by one (all outside hours; each named with its evidence, as T35 now requires)
 
 The branch's diff against the merge base (`512851c2`) holds no file of crm-api's offers or entity profiles, crm-ui, letterhead-api, letterheads-ui, nor any of
 the specs and fixtures named here (`git diff --stat 512851c2 HEAD -- crm-ui crm-api/src/offers crm-api/src/entity-profiles shell/e2e/crm-offer-wizard*.spec.ts
-shell/e2e/helpers/crmOfferFixtures.ts shell/e2e/fixtures/letterhead-a4.pdf shell/e2e/letterheads*.spec.ts shell/e2e/fixtures/letterheads.ts` is empty).
+shell/e2e/helpers/crmOfferFixtures.ts shell/e2e/fixtures/letterhead-a4.pdf shell/e2e/letterheads*.spec.ts shell/e2e/fixtures/letterheads.ts` is empty). Q-1 and Q-2 also run in
+the shell, which the branch changes additively (see the re-decision note).
 
 | # | Test | Cause | Evidence | Status |
 |---|---|---|---|---|
 | P-1 | env-doctor `push.test.ts` | fails on `origin/main` | second pass, not re-run (the diff touches neither file) | pre-existing, carried |
 | P-2 | `letterheads.spec.ts:379` | `recordPreviewCalls` keeps `request.response()` of every preview request; the test closes its context while the (debug-build) service still draws the preview, and the promise rejects unhandled | second pass: mechanism proven (a temp copy awaiting the response passes); **accepted by the user 2026-11-19 as pre-existing**, spec fix a separate bugfix | accepted |
-| P-2b | `letterheads-access.spec.ts:126` (then `:202`, `:264` not run: serial) | **the same fixture, the same line** (`fixtures/letterheads.ts:327`, `request.response: Target page, context or browser has been closed`). Failed in both whole runs; it passed in the second pass, where it simply finished after the preview | placements of `recordPreviewCalls`, five tests: `letterheads.spec` `:75` ✓ `:129` ✓ `:270` ✓ `:379` ✗, `letterheads-access` `:126` ✗ (the other tests of those files do not use it) | same class as P-2; the user's acceptance covered `:379` only |
-| P-3 | `crm-offer-wizard-pages.spec.ts:380` | the test's last assertion is a **control**: with the cover over the page number hidden, the letterhead's own number must show (> 20 pixels of ink in the corner). `ensureLetterhead` uploads `fixtures/letterhead-a4.pdf` only when the entity has none and "never replaces an existing one (the owner's real one on a dev stack)"; that PDF has **no page number** (its content stream: a band, a title, a rule, one footer line at the left). On this dev DB welld_ch's letterhead is that fixture, byte-identical (sha256 `48c3e296…7191`, uploaded 2026-11-16 by the e2e persona). So the control reads 0, always | `SP/p2/stored-letterhead.pdf` equals the fixture; **as stored: 0 of 3 pass** (`Received: 0` ×3, `SP/p2/pages380-fixture-letterhead.log`); **the same letterhead with "1/1" added in the corner** (`SP/p2/letterhead-numbered.pdf`, made by `SP/p2/make-numbered.ts`, served to the browser by a route in a temporary copy of the spec, removed): **3 of 3 pass** (`SP/p2/pages380-numbered-letterhead.log`). So the cover logic works; the fixture cannot satisfy the control. The spec, the PDF and `ensureLetterhead` are identical on `origin/main` (`cc2c3f46`): main's later edits of `crmOfferFixtures.ts` are the legal-entity registry | pre-existing spec/fixture defect (passes only on a stack whose welld_ch letterhead carries its own number) |
-| EF-12 | `crm-offer-wizard-service.spec.ts` (9) | stack mode, see "could not run" | `GET /scope` → `letterheadService:false`; the test times out waiting for `crm-wizard-service-preview` | environment, needs the other mode |
-| Q-1 | `notifications.spec.ts:426` (sign out A, sign in B) | **not established**. Run A only: `page.goto('/notify')` "is interrupted by another navigation to `…/sign-in?redirect=…`" after 1.5 s. Passed in the first and second passes and in run B | **0 failures in 76 isolated executions**: the file ×3 (`SP/e2e-notif-run1..3.log`), the test ×25 (`SP/e2e-notif-repeat.log`), ×25 with every core busy (`SP/e2e-notif-repeat-load.log`), ×3 with a 1.5 s sign-out answer (`SP/e2e-notif-slow-signout.log`), and delays of 150, 250, 350, 500, 700 ms ×4 each (`SP/e2e-notif-slow-*.log`). My race hypothesis (the old document's sign-out redirect landing during the new `goto`) did **not** reproduce, so I do not claim it. The test file, the shell sign-out path and notify-ui are untouched; the branch's shell diff there is additive (`session.ts`: one more trusted origin; `UserMenu.tsx`: one link) | intermittent, cause unknown |
-| Q-2 | `crm-offer-wizard.spec.ts:533` (dark theme, "the paper looks the same in both themes"), then `:588`, `:617` not run | **not established**. Run B only; passed in the targeted run and run A. In isolation it is **flaky at about 3 in 10**: 3/10 (`SP/e2e-wizard-dark-repeat.log`), 3/12 in a temporary copy that saves both screenshots (`SP/p3/dark-repeat.log`, `SP/p3/*.png`), the whole file 6 of 9 once | in the three saved pairs the two screenshots have the same size and the same paper and letterhead; **2,650 to 9,235 pixels differ, all in the offer's text area** (x 60 to 464, y 107 to 314). My hypothesis, text layout not yet settled when the screenshot is taken, is **refuted**: with the pages spec's own settle wait added, still 3 of 20 fail (`SP/p3/dark-settled-repeat.log`). crm-ui and `operai-ui/src/styles` are byte-identical to the merge base; the branch's only shell-CSS change is one Tailwind `@source` line for hours-ui. I have no baseline on a main-built shell (that reproduction was withdrawn, below) | intermittent, cause unknown, not plausibly the branch |
+| P-2b | `letterheads-access.spec.ts:126` (then `:202`, `:264` not run: serial) | **the same fixture, the same line** (`fixtures/letterheads.ts:327`, `request.response: Target page, context or browser has been closed`). Failed in both whole runs; it passed in the second pass, where it simply finished after the preview | placements of `recordPreviewCalls`, five tests: `letterheads.spec` `:75` ✓ `:129` ✓ `:270` ✓ `:379` ✗, `letterheads-access` `:126` ✗ (the other tests of those files do not use it) | same class as P-2; **accepted by the user 2026-11-19** |
+| P-3 | `crm-offer-wizard-pages.spec.ts:380` | the test's last assertion is a **control**: with the cover over the page number hidden, the letterhead's own number must show (> 20 pixels of ink in the corner). `ensureLetterhead` uploads `fixtures/letterhead-a4.pdf` only when the entity has none and "never replaces an existing one (the owner's real one on a dev stack)"; that PDF has **no page number** (its content stream: a band, a title, a rule, one footer line at the left). On this dev DB welld_ch's letterhead is that fixture, byte-identical (sha256 `48c3e296…7191`, uploaded 2026-11-16 by the e2e persona). So the control reads 0, always | `SP/p2/stored-letterhead.pdf` equals the fixture; **as stored: 0 of 3 pass** (`Received: 0` ×3, `SP/p2/pages380-fixture-letterhead.log`); **the same letterhead with "1/1" added in the corner** (`SP/p2/letterhead-numbered.pdf`, made by `SP/p2/make-numbered.ts`, served to the browser by a route in a temporary copy of the spec, removed): **3 of 3 pass** (`SP/p2/pages380-numbered-letterhead.log`). So the cover logic works; the fixture cannot satisfy the control. The spec, the PDF and `ensureLetterhead` are identical on `origin/main` (`cc2c3f46`): main's later edits of `crmOfferFixtures.ts` are the legal-entity registry | pre-existing spec/fixture defect (passes only on a stack whose welld_ch letterhead carries its own number); **accepted by the user 2026-11-19** |
+| EF-12 | `crm-offer-wizard-service.spec.ts` (9) | stack mode, see "could not run" | `GET /scope` → `letterheadService:false`; the test times out waiting for `crm-wizard-service-preview` | environment, needs the other mode; **outside this feature's gate** (T35 amended, `b891e73f`) |
+| Q-1 | `notifications.spec.ts:426` (sign out A, sign in B) | **not established**. Run A only: `page.goto('/notify')` "is interrupted by another navigation to `…/sign-in?redirect=…`" after 1.5 s. Passed in the first and second passes and in run B | **0 failures in 76 isolated executions**: the file ×3 (`SP/e2e-notif-run1..3.log`), the test ×25 (`SP/e2e-notif-repeat.log`), ×25 with every core busy (`SP/e2e-notif-repeat-load.log`), ×3 with a 1.5 s sign-out answer (`SP/e2e-notif-slow-signout.log`), and delays of 150, 250, 350, 500, 700 ms ×4 each (`SP/e2e-notif-slow-*.log`). My race hypothesis (the old document's sign-out redirect landing during the new `goto`) did **not** reproduce, so I do not claim it. The test file, the shell sign-out path and notify-ui are untouched; the branch's shell diff there is additive (`session.ts`: one more trusted origin; `UserMenu.tsx`: one link) | intermittent, cause unknown; **accepted by the user 2026-11-19**; independence not proven by me |
+| Q-2 | `crm-offer-wizard.spec.ts:533` (dark theme, "the paper looks the same in both themes"), then `:588`, `:617` not run | **not established**. Run B only; passed in the targeted run and run A. In isolation it is **flaky at about 3 in 10**: 3/10 (`SP/e2e-wizard-dark-repeat.log`), 3/12 in a temporary copy that saves both screenshots (`SP/p3/dark-repeat.log`, `SP/p3/*.png`), the whole file 6 of 9 once | in the three saved pairs the two screenshots have the same size and the same paper and letterhead; **2,650 to 9,235 pixels differ, all in the offer's text area** (x 60 to 464, y 107 to 314). My hypothesis, text layout not yet settled when the screenshot is taken, is **refuted**: with the pages spec's own settle wait added, still 3 of 20 fail (`SP/p3/dark-settled-repeat.log`). crm-ui and `operai-ui/src/styles` are byte-identical to the merge base; the branch's only shell-CSS change is one Tailwind `@source` line for hours-ui. I have no baseline on a main-built shell (that reproduction was withdrawn, below) | intermittent, cause unknown; **accepted by the user 2026-11-19**; independence not proven by me (no main baseline) |
 
 **On the main-worktree reproduction of P-2 (step 3 of the brief).** It was withdrawn at the user's request after I had already run it. I stopped, the scratch
 worktree is removed and pruned (`git worktree list` shows only the main checkout), and **P-2 rests on the second pass's mechanism evidence and the user's
@@ -75,18 +93,18 @@ letterhead-api allow), so this is test-code evidence against this stack, not a f
 
 ## Defects
 
-None. Nothing in this pass is attributable to the time-tracking diff, and the hours journeys (12 of 12, three times) did not fail once.
+None. Nothing in this pass is attributable to the time-tracking diff on the evidence, and the hours journeys (12 of 12, three times) did not fail once.
 
 ## Environment faults
 
-EF-12 (above). EF-2, EF-9, EF-10 of the second pass: **repaired, verified**. What I could not verify is whether Q-1 and Q-2 are the environment (a loaded
+EF-12 (above): outside this feature's gate. EF-2, EF-9, EF-10 of the second pass: **repaired, verified**. What I could not verify is whether Q-1 and Q-2 are the environment (a loaded
 machine) or the tests; the repeats under load did not reproduce them.
 
-## Spec bug (drift rule: reported, not fixed)
+## Spec bug (drift rule): resolved
 
-T35's done-when ("the whole `pnpm e2e` still passes") **cannot be met on one stack as written**: `crm-offer-wizard-service.spec.ts` needs `LETTERHEAD_SERVICE_ENABLED=true`
-and the three legacy offer-wizard specs need it off, by their own headers. A wording that can be satisfied: "the whole `pnpm e2e` on a legacy-mode stack, the service
-spec on a service-mode one, every failure outside hours explained and accepted by the user". The main loop edits `tasks.md`; I did not.
+T35's done-when ("the whole `pnpm e2e` still passes") could not be met on one stack as written: `crm-offer-wizard-service.spec.ts` needs `LETTERHEAD_SERVICE_ENABLED=true`
+and the three legacy offer-wizard specs need it off, by their own headers. The main loop amended it (`tasks.md`, `b891e73f`) to a wording that can be satisfied
+(legacy-mode stack, failures outside hours named with evidence, the service spec outside the gate); I read it and judge this pass against it.
 
 ## Observations (not defects)
 
@@ -107,14 +125,8 @@ No new surface. No `owasp-reviewer` pass needed for this round.
 
 ## Next
 
-1. The user decides, one item each (I cannot accept on their behalf): (a) P-2b and P-3 as pre-existing spec defects like P-2 (the fixes are known: rebase onto
-   `main` for P-2/P-2b; a letterhead fixture that carries its own number for P-3); (b) Q-1 and Q-2 as intermittent tests outside the branch (or another whole run
-   while the main loop watches them); (c) the service spec: run by a person on a service-mode stack (recorded as `verified by: <who>, <date>, <what>`), or declared outside
-   this PR's gate.
-2. With (a) to (c) answered, T35's row can be closed on that basis; every other row already stands. If (c) is "run it", the commands are: crm-api with
-   `LETTERHEAD_SERVICE_ENABLED=true`, `LETTERHEAD_API_URL=http://localhost:18240`, auth's `crm-api` client with `letterhead:render` and `activities.write`; then
-   `cd shell && <the ten E2E_* variables> pnpm exec playwright test crm-offer-wizard-service --trace off`; then put the stack back in the legacy mode.
-3. T40 (close) still needs the eval, which is not mine.
+1. T40 (close) still needs the eval, which is not mine. The QE row of T40 is PASS.
+2. After a rebase onto `main` (see Observations) the gates and the whole suite need a re-run; `main` already fixes P-2 and P-2b (`a07f57da`).
 
 ---
 
