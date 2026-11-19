@@ -151,3 +151,13 @@ export function refusedFields(error: ApiError): RefusedField[] {
  */
 export const duplicateIsDeactivated = (error: ApiError): boolean | null =>
   typeof error.extras.reactivate === 'boolean' ? error.extras.reactivate : null
+
+/**
+ * The `limit` of a 409 `catalog_full` (T53: the entity holds as many entries as it may, deactivated ones included), as the
+ * server sent it, or `fallback` (the mirrored cap) when the body carries no whole number above 0. The sentence must always
+ * name a limit, never "undefined" or "0".
+ */
+export const catalogFullLimit = (error: ApiError, fallback: number): number => {
+  const limit = error.extras.limit
+  return typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0 ? limit : fallback
+}

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fakeApi, problem } from '../test-support/fakeApi'
 import { ApiError } from './api'
 import {
+  catalogFullLimit,
   createLedgerAccount,
   createVatCode,
   deactivateLedgerAccount,
@@ -206,5 +207,27 @@ describe('catalogApi: reading a refusal', () => {
     expect(duplicateIsDeactivated(error({ reactivate: true }))).toBe(true)
     expect(duplicateIsDeactivated(error({ reactivate: 'true' }))).toBeNull()
     expect(duplicateIsDeactivated(error({}))).toBeNull()
+  })
+})
+
+describe('catalogFullLimit (T53: 409 catalog_full carries `limit`)', () => {
+  const full = (extras: Record<string, unknown>) =>
+    new ApiError({ status: 409, title: 'Conflict', code: 'catalog_full', extras })
+
+  it('is the server’s limit when it is a whole number above 0', () => {
+    expect(catalogFullLimit(full({ limit: 200 }), 7)).toBe(200)
+    expect(catalogFullLimit(full({ limit: 50 }), 7)).toBe(50)
+    expect(catalogFullLimit(full({ limit: 1 }), 7)).toBe(1)
+  })
+
+  it.each([undefined, null, 0, -3, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '200', [200], { limit: 200 }, 2 ** 60])(
+    'is the fallback for an unreadable limit %j (a sentence never says "undefined" or 0)',
+    (limit) => {
+      expect(catalogFullLimit(full({ limit }), 7)).toBe(7)
+    },
+  )
+
+  it('is the fallback when the body has no extras at all', () => {
+    expect(catalogFullLimit(new ApiError({ status: 409, title: 'Conflict', code: 'catalog_full' }), 7)).toBe(7)
   })
 })

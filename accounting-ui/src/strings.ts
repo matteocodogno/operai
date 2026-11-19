@@ -102,6 +102,10 @@ export const en = {
       numberTooLong: 'The number can have up to 20 characters.',
       nameEmpty: 'Enter a name.',
       nameTooLong: 'The name can have up to 120 characters.',
+      nameFormat: 'The name cannot contain control characters.',
+      // T53: the entity holds the most it may (409 `catalog_full`), nothing was added; deactivated ones count.
+      catalogFull: (limit: number, entity: string) =>
+        `${entity} already has the most accounts it can hold (${limit}, deactivated ones included). Nothing was added. Use an existing account instead.`,
       duplicate: (number: string, entity: string) => `Account ${number} already exists in ${entity}.`,
       duplicateInactive: (number: string) =>
         `Account ${number} already exists but is deactivated. Reactivate it from the list.`,
@@ -153,6 +157,9 @@ export const en = {
       codeTooLong: 'The code can have up to 16 characters.',
       labelEmpty: 'Enter a label.',
       labelTooLong: 'The label can have up to 80 characters.',
+      labelFormat: 'The label cannot contain control characters.',
+      catalogFull: (limit: number, entity: string) =>
+        `${entity} already has the most VAT codes it can hold (${limit}, deactivated ones included). Nothing was added. Use an existing code instead.`,
       rateInvalid: 'Enter a rate between 0 and 100, with up to 2 decimals.',
       duplicate: (code: string, entity: string) => `VAT code ${code} already exists in ${entity}.`,
       duplicateInactive: (code: string) =>
@@ -336,6 +343,9 @@ export const it: typeof en = {
       numberTooLong: 'Il numero può avere al massimo 20 caratteri.',
       nameEmpty: 'Inserire un nome.',
       nameTooLong: 'Il nome può avere al massimo 120 caratteri.',
+      nameFormat: 'Il nome non può contenere caratteri di controllo.',
+      catalogFull: (limit: number, entity: string) =>
+        `${entity} ha già il numero massimo di conti consentito (${limit}, compresi quelli disattivati). Non è stato aggiunto nulla. Usare un conto esistente.`,
       duplicate: (number: string, entity: string) => `Il conto ${number} esiste già in ${entity}.`,
       duplicateInactive: (number: string) => `Il conto ${number} esiste già ma è disattivato. Riattivarlo dall’elenco.`,
       alreadyActive: (number: string) => `Il conto ${number} è già attivo.`,
@@ -384,6 +394,9 @@ export const it: typeof en = {
       codeTooLong: 'Il codice può avere al massimo 16 caratteri.',
       labelEmpty: 'Inserire una descrizione.',
       labelTooLong: 'La descrizione può avere al massimo 80 caratteri.',
+      labelFormat: 'La descrizione non può contenere caratteri di controllo.',
+      catalogFull: (limit: number, entity: string) =>
+        `${entity} ha già il numero massimo di codici IVA consentito (${limit}, compresi quelli disattivati). Non è stato aggiunto nulla. Usare un codice esistente.`,
       rateInvalid: 'Inserire un’aliquota tra 0 e 100, con al massimo 2 decimali.',
       duplicate: (code: string, entity: string) => `Il codice IVA ${code} esiste già in ${entity}.`,
       duplicateInactive: (code: string) =>

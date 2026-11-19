@@ -345,3 +345,138 @@ describe('AddVatCodeDialog: accessibility (axe)', () => {
     await expectNoAxeViolations()
   })
 })
+
+describe('AddVatCodeDialog: blank and invisible labels, characters not units (T53, T56; AC-1.5)', () => {
+  it.each([
+    ['a zero-width space', '\u200B'],
+    ['a soft hyphen and a word joiner', '\u00AD\u2060'],
+    ['a Hangul filler', '\u3164\u3164'],
+    ['a Braille blank', '\u2800'],
+    ['zero-width spaces between spaces', ' \u200B\u200B '],
+  ])('a label of only %s is "Enter a label.", focused, with no request', (_what, blank) => {
+    serve(() => ({ status: 201, body: vat() }))
+    setup()
+    fill('IMP81', blank, '8.1')
+    submit()
+    expect(err('label')).toBe('Enter a label.')
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-label'))
+    expect(screen.getByTestId('accounting-vat-label').getAttribute('aria-invalid')).toBe('true')
+    expect(posts()).toHaveLength(0)
+  })
+
+  it('names the blank on blur, before submit', () => {
+    setup()
+    fill('IMP81', '\u200B', '8.1')
+    fireEvent.blur(screen.getByTestId('accounting-vat-label'))
+    expect(err('label')).toBe('Enter a label.')
+  })
+
+  it('a label with a control character is refused for its format, not as empty', () => {
+    setup()
+    fill('IMP81', 'a\u0007b', '8.1')
+    submit()
+    expect(err('label')).toBe('The label cannot contain control characters.')
+    expect(posts()).toHaveLength(0)
+  })
+
+  it('counts a label in characters: 80 emoji pass and are sent as typed, 81 are too long', async () => {
+    serve(() => ({ status: 201, body: vat() }))
+    setup()
+    const emoji = '\u{1F600}'
+    fill('IMP81', emoji.repeat(81), '8.1')
+    submit()
+    expect(err('label')).toBe('The label can have up to 80 characters.')
+    expect(posts()).toHaveLength(0)
+
+    fill('IMP81', ` ${emoji.repeat(80)} `, '8.1')
+    submit()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(sent().label).toBe(emoji.repeat(80))
+  })
+
+  it('maps a server `format` of the label to its own sentence, never "Enter a label."', async () => {
+    serve(() => problem(422, 'invalid_vat_code', { fields: [{ field: 'label', reason: 'format' }] }))
+    setup()
+    fill('IMP81', 'Imposta', '8.1')
+    submit()
+    await waitFor(() => expect(err('label')).toBe('The label cannot contain control characters.'))
+  })
+})
+
+describe('AddVatCodeDialog: 409 catalog_full (T53, T56; F-01)', () => {
+  const generalError = () => screen.getByTestId('accounting-vat-dialog-error')
+
+  it('says the entity holds the most it may, names the limit, says nothing was added, and keeps the typed values', async () => {
+    serve(() => problem(409, 'catalog_full', { limit: 50 }))
+    const { onAdded, onStale, onForbidden, onGone } = setup()
+    fill('IMP81', 'Imposta 8.1%', '8,1')
+    submit()
+
+    await waitFor(() =>
+      expect(generalError().textContent).toBe(
+        'WellD CH already has the most VAT codes it can hold (50, deactivated ones included). Nothing was added. Use an existing code instead.',
+      ),
+    )
+    expect(generalError().getAttribute('role')).toBe('alert')
+    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe('IMP81')
+    expect((screen.getByTestId('accounting-vat-label') as HTMLInputElement).value).toBe('Imposta 8.1%')
+    expect((screen.getByTestId('accounting-vat-rate') as HTMLInputElement).value).toBe('8,1')
+    for (const field of ['code', 'label', 'rate']) expect(screen.queryByTestId(`accounting-vat-${field}-error`)).toBeNull()
+    expect(onAdded).not.toHaveBeenCalled()
+    expect(onStale).not.toHaveBeenCalled()
+    expect(onForbidden).not.toHaveBeenCalled()
+    expect(onGone).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Add VAT code — WellD CH' })).not.toBeNull()
+    expect((screen.getByTestId('accounting-vat-dialog-submit') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('names the limit the server sent, whatever it is', async () => {
+    serve(() => problem(409, 'catalog_full', { limit: 77 }))
+    setup()
+    fill('IMP81', 'Imposta', '8.1')
+    submit()
+    await waitFor(() => expect(generalError().textContent).toContain('(77, deactivated ones included)'))
+  })
+
+  it.each([undefined, 0, '50', null, 2.5])('falls back to the mirrored cap of 50 when `limit` is %j', async (limit) => {
+    serve(() => problem(409, 'catalog_full', limit === undefined ? {} : { limit }))
+    setup()
+    fill('IMP81', 'Imposta', '8.1')
+    submit()
+    await waitFor(() => expect(generalError().textContent).toContain('(50, deactivated ones included)'))
+    expect(generalError().textContent).not.toContain('undefined')
+  })
+
+  it('keeps focus inside the dialog (never on the page behind) and a later submit clears the message', async () => {
+    const answers: FakeAnswer[] = [problem(409, 'catalog_full', { limit: 50 }), { status: 201, body: vat() }]
+    serve(() => answers.shift()!)
+    const { onAdded } = setup()
+    fill('IMP81', 'Imposta', '8.1')
+    screen.getByTestId('accounting-vat-dialog-submit').focus()
+    submit()
+    await screen.findByTestId('accounting-vat-dialog-error')
+    const dialog = screen.getByRole('dialog')
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
+    expect(document.activeElement).not.toBe(document.body)
+
+    submit()
+    await waitFor(() => expect(onAdded).toHaveBeenCalledTimes(1))
+  })
+
+  it('has no axe violations with the message shown', async () => {
+    serve(() => problem(409, 'catalog_full', { limit: 50 }))
+    setup()
+    fill('IMP81', 'Imposta', '8.1')
+    submit()
+    await screen.findByTestId('accounting-vat-dialog-error')
+    await expectNoAxeViolations()
+  })
+
+  it('has no axe violations with a blank-label refusal shown', async () => {
+    setup()
+    fill('IMP81', '\u200B', '8.1')
+    submit()
+    await screen.findByTestId('accounting-vat-label-error')
+    await expectNoAxeViolations()
+  })
+})

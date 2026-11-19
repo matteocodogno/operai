@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CATALOG_CAPS,
   LIMITS,
   checkFxRate,
   checkLedgerName,
   checkLedgerNumber,
+  checkText,
   checkVatCode,
   checkVatLabel,
   checkVatRatePercent,
@@ -70,6 +72,66 @@ describe('limits (the mirror of accounting-api, AC-1.2, AC-1.5, AC-2.5)', () => 
     it('trims, and the length is the trimmed length', () => {
       expect(checkLedgerName('  Cassa  ')).toEqual(accepted('Cassa'))
       expect(checkLedgerName(` ${'x'.repeat(120)} `).ok).toBe(true)
+    })
+  })
+
+  describe('a blank is nothing to see, and a length is counted in characters (T53 D-6, the server vectors of limits.test.ts)', () => {
+    // Keep in step with accounting-api/src/catalog/limits.test.ts `INVISIBLE`.
+    const INVISIBLE = [
+      ['a zero-width space', '\u200B'],
+      ['a zero-width non-joiner and joiner', '\u200C\u200D'],
+      ['a left-to-right and a right-to-left mark', '\u200E\u200F'],
+      ['a bidi embedding and its pop', '\u202A\u202C'],
+      ['a bidi isolate and its pop', '\u2066\u2069'],
+      ['an Arabic letter mark', '\u061C'],
+      ['a word joiner', '\u2060'],
+      ['a byte order mark', '\uFEFF'],
+      ['a soft hyphen', '\u00AD'],
+      ['a no-break space and an ideographic space', '\u00A0\u3000'],
+      ['a Hangul filler', '\u3164'],
+      ['a Braille blank', '\u2800'],
+    ] as const
+
+    it.each(INVISIBLE)('a name or a label made only of %s is `empty`, however many of them', (_what, chars) => {
+      for (const blank of [chars, chars.repeat(5), ` ${chars} `, `\t${chars}\n`]) {
+        expect(checkLedgerName(blank)).toEqual(refused('empty'))
+        expect(checkVatLabel(blank)).toEqual(refused('empty'))
+        expect(checkText(blank, 5)).toEqual(refused('empty'))
+      }
+    })
+
+    it('a visible character among the invisible ones makes it a name, kept as typed (only the ends are trimmed)', () => {
+      expect(checkLedgerName('\u200Bspese\u200B')).toEqual(accepted('\u200Bspese\u200B'))
+      expect(checkLedgerName('a\u200Bb')).toEqual(accepted('a\u200Bb'))
+      // an emoji sequence joined by ZWJ is a name, not a blank
+      expect(checkVatLabel('\u{1F468}\u200D\u{1F4BB}')).toEqual(accepted('\u{1F468}\u200D\u{1F4BB}'))
+    })
+
+    it('an invisible character with a NUL or another control is still `format`, a NUL alone too', () => {
+      expect(checkLedgerName('\u200B\u0000')).toEqual(refused('format'))
+      expect(checkLedgerName('\u0000')).toEqual(refused('format'))
+      expect(checkVatLabel('a\u0007')).toEqual(refused('format'))
+    })
+
+    it('counts code points: 120 emoji are a name of 120 characters, 121 are `too_long`', () => {
+      const emoji = '\u{1F600}'
+      expect(checkLedgerName(emoji.repeat(120))).toEqual(accepted(emoji.repeat(120)))
+      expect(checkLedgerName(emoji.repeat(121))).toEqual(refused('too_long'))
+      expect(checkVatLabel(emoji.repeat(80))).toEqual(accepted(emoji.repeat(80)))
+      expect(checkVatLabel(emoji.repeat(81))).toEqual(refused('too_long'))
+      expect(checkLedgerName('a'.repeat(120))).toEqual(accepted('a'.repeat(120)))
+      expect(checkLedgerName('a'.repeat(121))).toEqual(refused('too_long'))
+    })
+
+    it('a name the length of which in UTF-16 units is over the limit but in characters is not, is accepted', () => {
+      expect('\u{1F600}'.repeat(100).length).toBe(200)
+      expect(checkLedgerName('\u{1F600}'.repeat(100)).ok).toBe(true)
+    })
+  })
+
+  describe('CATALOG_CAPS (T53: the server pins the same numbers)', () => {
+    it('pins the caps used only as the fallback of a 409 `catalog_full` without a readable limit', () => {
+      expect(CATALOG_CAPS).toEqual({ ledgerAccountsPerEntity: 200, vatCodesPerEntity: 50 })
     })
   })
 

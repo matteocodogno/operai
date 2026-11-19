@@ -11,7 +11,9 @@
  *
  * The server stays the authority. Its `fields[]` (`{field, reason}`) is mapped to the same reasons by `reasonOf`, so
  * the client check and a server refusal read the same. Leading and trailing blanks are removed before every check
- * (AC-1.2); a length is the string's `.length`, as the server's schema counts it. No arithmetic on money or rates
+ * (AC-1.2); a length is counted in code points, as the server counts it (an emoji is one character, T53). A name or label with
+ * nothing to see in it (white space, zero-width and bidi marks, soft hyphen, fillers; T53 `BLANK`) is `empty`, and one with a
+ * control character is `format`. No arithmetic on money or rates
  * happens here: the rate checks compare a validated decimal string to its bounds and return the string.
  *
  * Checks never throw and return the value the request must carry (trimmed, upper-cased), or the reason.
@@ -30,6 +32,16 @@ export const LIMITS = {
   fxRateBelow: 1000,
 } as const
 
+/**
+ * How many entries an entity may hold, deactivated ones included (accounting-api `CATALOG_CAPS`, T53). Not a field rule, so
+ * apart from `LIMITS`: the add dialogs use it only as the fallback when a 409 `catalog_full` carries no readable `limit`.
+ * The server stays the authority and a test pins each number.
+ */
+export const CATALOG_CAPS = {
+  ledgerAccountsPerEntity: 200,
+  vatCodesPerEntity: 50,
+} as const
+
 /** Why a value is refused. `range` is a well-formed number outside its bounds. */
 export type LimitReason = 'empty' | 'format' | 'too_long' | 'range'
 
@@ -43,6 +55,33 @@ const VAT_CODE = /^[A-Z0-9_-]+$/
 const VAT_RATE = /^[0-9]{1,3}(?:\.[0-9]{1,2})?$/
 const FX_RATE = new RegExp(`^[0-9]+(?:\\.[0-9]{1,${LIMITS.fxRateDecimals}})?$`)
 
+/** C0 controls and DEL: nothing a person types into a name or a label (accounting-api `CONTROL`, `[\u0000-\u001f\u007f]`). */
+const hasControl = (value: string): boolean => {
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index)
+    if (unit <= 0x1f || unit === 0x7f) return true
+  }
+  return false
+}
+
+/**
+ * A string with nothing to see in it: white space, the invisible format characters (Unicode category Cf: zero-width space
+ * and joiners, LTR/RTL marks, bidi embeddings and isolates, word joiner, soft hyphen, byte order mark) and the fillers that
+ * draw nothing (Hangul fillers, Braille blank). `String.prototype.trim` removes only White_Space. Same pattern as the
+ * server's `BLANK`; keep in step.
+ */
+const BLANK = /^[\p{White_Space}\p{Cf}\u115F\u1160\u3164\uFFA0\u2800]*$/u
+
+/** Characters as a person counts them: code points, not UTF-16 units (an emoji is one, a lone surrogate too: as the server counts). */
+const lengthOf = (value: string): number => {
+  let count = 0
+  for (let index = 0; index < value.length; index++) {
+    count++
+    if ((value.codePointAt(index) ?? 0) > 0xffff) index++
+  }
+  return count
+}
+
 /** A ledger account number, as the request must carry it. Format before length: a long garbage value is not fixed by cutting it. */
 export function checkLedgerNumber(input: string): LimitCheck {
   const value = input.trim()
@@ -52,11 +91,15 @@ export function checkLedgerNumber(input: string): LimitCheck {
   return ok(value)
 }
 
-/** A ledger account name (or any free label): non-blank after trimming, at most `max` characters. */
-const checkText = (input: string, max: number): LimitCheck => {
+/**
+ * A ledger account name (or any free label), the server's `checkText`: not blank after trimming (invisible characters count
+ * as blank), no control character, at most `max` code points. The value is kept as typed, only its ends are trimmed.
+ */
+export const checkText = (input: string, max: number): LimitCheck => {
   const value = input.trim()
-  if (value === '') return refused('empty')
-  if (value.length > max) return refused('too_long')
+  if (value === '' || BLANK.test(value)) return refused('empty')
+  if (hasControl(value)) return refused('format')
+  if (lengthOf(value) > max) return refused('too_long')
   return ok(value)
 }
 

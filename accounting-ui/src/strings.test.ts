@@ -200,6 +200,10 @@ const EXTRA_KEYS: Readonly<Record<string, string>> = {
   'common.unknownError': 'the failure ladder’s sentence for a Problem with no detail',
   'vatCodes.columns.status': 'the VAT list has the same Status column as the accounts list',
   'vatCodes.columns.actions': 'the VAT list has the same Actions column as the accounts list',
+  'accounts.errors.nameFormat': 'T53/T56: the server refuses a control character in a name as `format`; "Enter a name." would be false',
+  'vatCodes.errors.labelFormat': 'T53/T56: the same for a label',
+  'accounts.errors.catalogFull': 'T53/T56: 409 `catalog_full` of the add-account dialog, naming the limit and the entity',
+  'vatCodes.errors.catalogFull': 'T53/T56: 409 `catalog_full` of the add-VAT-code dialog, naming the limit and the entity',
 }
 
 /**
@@ -267,6 +271,18 @@ describe('strings (AC-8.4)', () => {
       if (SAME_IN_BOTH.has(path)) continue
       const args: Args = DESIGN_KEYS.find(([key]) => key === path)?.[1] ?? ['«x»', '«y»', '«z»', '«w»']
       expect(call(itLeaves[path]!, args), path).not.toBe(call(leaf, args))
+    }
+  })
+
+  it('the `catalog_full` sentences name the limit, the entity and that nothing was added, in both languages (T53, T56)', () => {
+    for (const [name, text] of [
+      ['en accounts', en.accounts.errors.catalogFull(200, 'WellD CH')],
+      ['en vat', en.vatCodes.errors.catalogFull(50, 'WellD CH')],
+      ['it accounts', italian.accounts.errors.catalogFull(200, 'WellD CH')],
+      ['it vat', italian.vatCodes.errors.catalogFull(50, 'WellD CH')],
+    ] as const) {
+      expect(text, name).toContain('WellD CH')
+      expect(text, name).toMatch(/\((200|50),/)
     }
   })
 

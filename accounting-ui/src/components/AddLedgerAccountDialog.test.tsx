@@ -370,3 +370,149 @@ describe('AddLedgerAccountDialog: accessibility (axe)', () => {
     await expectNoAxeViolations()
   })
 })
+
+describe('AddLedgerAccountDialog: blank and invisible names, characters not units (T53, T56; AC-1.2)', () => {
+  it.each([
+    ['a zero-width space', '\u200B'],
+    ['a soft hyphen and a word joiner', '\u00AD\u2060'],
+    ['a Hangul filler', '\u3164\u3164'],
+    ['a Braille blank', '\u2800'],
+    ['zero-width spaces between spaces', ' \u200B\u200B '],
+  ])('a name of only %s is "Enter a name.", focused, with no request', (_what, blank) => {
+    serve(() => ({ status: 201, body: account() }))
+    setup()
+    fill('5905', blank)
+    // Save is enabled (the field has text), the check on submit says what is wrong.
+    submit()
+    expect(nameError()).toBe('Enter a name.')
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-ledger-name'))
+    expect(screen.getByTestId('accounting-ledger-name').getAttribute('aria-invalid')).toBe('true')
+    expect(posts()).toHaveLength(0)
+  })
+
+  it('names the blank on blur, before submit', () => {
+    setup()
+    fill('5905', '\u200B')
+    fireEvent.blur(screen.getByTestId('accounting-ledger-name'))
+    expect(nameError()).toBe('Enter a name.')
+  })
+
+  it('a name with a control character is refused for its format, not as empty', () => {
+    setup()
+    fill('5905', 'a\u0007b')
+    submit()
+    expect(nameError()).toBe('The name cannot contain control characters.')
+    expect(posts()).toHaveLength(0)
+  })
+
+  it('counts a name in characters: 120 emoji pass and are sent as typed, 121 are too long', async () => {
+    serve(() => ({ status: 201, body: account() }))
+    setup()
+    const emoji = '\u{1F600}'
+    fill('5905', emoji.repeat(121))
+    submit()
+    expect(nameError()).toBe('The name can have up to 120 characters.')
+    expect(posts()).toHaveLength(0)
+
+    fill('5905', ` ${emoji.repeat(120)} `)
+    submit()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(JSON.parse(String(posts()[0]![1]!.body))).toEqual({ number: '5905', name: emoji.repeat(120) })
+  })
+
+  it('keeps a visible name that has invisible characters inside it', async () => {
+    serve(() => ({ status: 201, body: account() }))
+    setup()
+    fill('5905', 'Spese\u200Brimborsi')
+    submit()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+  })
+
+  it('maps a server `format` of the name to its own sentence, never "Enter a name."', async () => {
+    serve(() => problem(422, 'invalid_ledger_account', { fields: [{ field: 'name', reason: 'format' }] }))
+    setup()
+    fill('5905', 'Spese')
+    submit()
+    await waitFor(() => expect(nameError()).toBe('The name cannot contain control characters.'))
+  })
+})
+
+describe('AddLedgerAccountDialog: 409 catalog_full (T53, T56; F-01)', () => {
+  const generalError = () => screen.getByTestId('accounting-ledger-dialog-error')
+
+  it('says the entity holds the most it may, names the limit, says nothing was added, and keeps the typed values', async () => {
+    serve(() => problem(409, 'catalog_full', { limit: 200 }))
+    const { onAdded, onStale, onForbidden, onGone } = setup()
+    fill('5905', 'Spese rimborsi')
+    submit()
+
+    await waitFor(() =>
+      expect(generalError().textContent).toBe(
+        'WellD CH already has the most accounts it can hold (200, deactivated ones included). Nothing was added. Use an existing account instead.',
+      ),
+    )
+    expect(generalError().getAttribute('role')).toBe('alert')
+    expect((screen.getByTestId('accounting-ledger-number') as HTMLInputElement).value).toBe('5905')
+    expect((screen.getByTestId('accounting-ledger-name') as HTMLInputElement).value).toBe('Spese rimborsi')
+    // No field is at fault: no field error, no duplicate handling, no frame callback.
+    expect(screen.queryByTestId('accounting-ledger-number-error')).toBeNull()
+    expect(screen.queryByTestId('accounting-ledger-name-error')).toBeNull()
+    expect(onAdded).not.toHaveBeenCalled()
+    expect(onStale).not.toHaveBeenCalled()
+    expect(onForbidden).not.toHaveBeenCalled()
+    expect(onGone).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Add ledger account — WellD CH' })).not.toBeNull()
+    expect((screen.getByTestId('accounting-ledger-dialog-submit') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('names the limit the server sent, whatever it is', async () => {
+    serve(() => problem(409, 'catalog_full', { limit: 321 }))
+    setup()
+    fill('5905', 'Spese')
+    submit()
+    await waitFor(() => expect(generalError().textContent).toContain('(321, deactivated ones included)'))
+  })
+
+  it.each([undefined, 0, '200', null, 1.5])('falls back to the mirrored cap of 200 when `limit` is %j', async (limit) => {
+    serve(() => problem(409, 'catalog_full', limit === undefined ? {} : { limit }))
+    setup()
+    fill('5905', 'Spese')
+    submit()
+    await waitFor(() => expect(generalError().textContent).toContain('(200, deactivated ones included)'))
+    expect(generalError().textContent).not.toContain('undefined')
+  })
+
+  it('keeps focus inside the dialog (never on the page behind) and a later submit clears the message', async () => {
+    const answers: FakeAnswer[] = [problem(409, 'catalog_full', { limit: 200 }), { status: 201, body: account() }]
+    serve(() => answers.shift()!)
+    const { onAdded } = setup()
+    fill('5905', 'Spese')
+    const button = screen.getByTestId('accounting-ledger-dialog-submit')
+    button.focus()
+    submit()
+    await screen.findByTestId('accounting-ledger-dialog-error')
+    const dialog = screen.getByRole('dialog')
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
+    expect(document.activeElement).not.toBe(document.body)
+
+    submit()
+    await waitFor(() => expect(onAdded).toHaveBeenCalledTimes(1))
+  })
+
+  it('has no axe violations with the message shown', async () => {
+    serve(() => problem(409, 'catalog_full', { limit: 200 }))
+    setup()
+    fill('5905', 'Spese')
+    submit()
+    await screen.findByTestId('accounting-ledger-dialog-error')
+    await expectNoAxeViolations()
+  })
+
+  it('has no axe violations with a blank-name refusal shown', async () => {
+    setup()
+    fill('5905', '\u200B')
+    submit()
+    await screen.findByTestId('accounting-ledger-name-error')
+    await expectNoAxeViolations()
+  })
+})

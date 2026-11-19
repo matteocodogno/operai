@@ -8,7 +8,8 @@
  * dots up to 20 characters, a name of 1 to 120; blanks around a value are removed first, AC-1.2), one sentence per reason, and
  * the number is also compared with THIS entity's loaded list on blur and on submit, so a duplicate is named before a round
  * trip (the same number in another entity is allowed, AC-1.3). The server stays the authority: its 409 is shown the same way
- * (`reactivate` says whether the existing one is deactivated, G9) and its 422 `fields[]` is mapped to the same sentences.
+ * (`reactivate` says whether the existing one is deactivated, G9) and its 422 `fields[]` is mapped to the same sentences. A 409
+ * `catalog_full` (the entity holds the most accounts it may, T53) is the dialog's own alert naming the limit; no field is at fault.
  *
  * No `ErrorSummary` (UX-6): focus goes to the first refused field, whose own `role="alert"` error carries the sentence, so it
  * is announced once. A failed save keeps every typed value. Success reports the server's account to the card (`onAdded`),
@@ -18,9 +19,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Field, FormDialog } from '@operai/ui'
 import { ApiError } from '../lib/api'
-import { createLedgerAccount, duplicateIsDeactivated, refusedFields } from '../lib/catalogApi'
+import { catalogFullLimit, createLedgerAccount, duplicateIsDeactivated, refusedFields } from '../lib/catalogApi'
 import type { LedgerAccount } from '../lib/catalogApi'
-import { checkLedgerName, checkLedgerNumber } from '../lib/limits'
+import { CATALOG_CAPS, checkLedgerName, checkLedgerNumber } from '../lib/limits'
 import type { LimitReason } from '../lib/limits'
 import type { EntityId } from '../lib/meApi'
 import { strings } from '../strings'
@@ -31,7 +32,7 @@ const numberMessage = (reason: LimitReason): string =>
   reason === 'empty' ? t.errors.numberEmpty : reason === 'too_long' ? t.errors.numberTooLong : t.errors.numberFormat
 
 const nameMessage = (reason: LimitReason): string =>
-  reason === 'too_long' ? t.errors.nameTooLong : t.errors.nameEmpty
+  reason === 'too_long' ? t.errors.nameTooLong : reason === 'format' ? t.errors.nameFormat : t.errors.nameEmpty
 
 export type AddLedgerAccountDialogProps = {
   entity: EntityId
@@ -111,6 +112,13 @@ export default function AddLedgerAccountDialog({
         setNumberError(duplicateText(named, duplicateIsDeactivated(error)))
         setFocusRequest({ field: 'number' })
         onStale()
+      } else if (error instanceof ApiError && error.code === 'catalog_full') {
+        // Nothing a field can fix (T53, F-01): the entity holds the most accounts it may, deactivated ones included. The
+        // sentence names the limit and that nothing was added; it is the dialog's own alert (announced once), the typed
+        // values stay, and focus stays in the dialog (the library returns it to Cancel when the busy Save is disabled).
+        setGeneralError(
+          t.errors.catalogFull(catalogFullLimit(error, CATALOG_CAPS.ledgerAccountsPerEntity), strings.entity[entity]),
+        )
       } else if (error instanceof ApiError && error.code === 'invalid_ledger_account') {
         // The client check passed but the server refused: the same sentences, from its `fields[]`.
         const fields = refusedFields(error)

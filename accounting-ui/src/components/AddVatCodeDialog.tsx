@@ -12,15 +12,16 @@
  *
  * A duplicate names the code and points to Reactivate only when the existing one is deactivated: the server's `reactivate` flag
  * decides (G9), the loaded list is the fallback (AC-1.6). A 422's `fields[]` gives the same sentences as the client check. No
- * `ErrorSummary` (UX-6): focus goes to the first refused field, whose own `role="alert"` error carries the sentence.
+ * `ErrorSummary` (UX-6): focus goes to the first refused field, whose own `role="alert"` error carries the sentence. A 409
+ * `catalog_full` (the entity holds the most codes it may, T53) is the dialog's own alert naming the limit; no field is at fault.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { Field, FormDialog, MoneyInput } from '@operai/ui'
 import { ApiError } from '../lib/api'
-import { createVatCode, duplicateIsDeactivated, refusedFields } from '../lib/catalogApi'
+import { catalogFullLimit, createVatCode, duplicateIsDeactivated, refusedFields } from '../lib/catalogApi'
 import type { VatCode } from '../lib/catalogApi'
-import { checkVatCode, checkVatLabel, checkVatRatePercent } from '../lib/limits'
+import { CATALOG_CAPS, checkVatCode, checkVatLabel, checkVatRatePercent } from '../lib/limits'
 import type { LimitReason } from '../lib/limits'
 import type { EntityId } from '../lib/meApi'
 import { strings } from '../strings'
@@ -31,7 +32,7 @@ const codeMessage = (reason: LimitReason): string =>
   reason === 'empty' ? t.errors.codeEmpty : reason === 'too_long' ? t.errors.codeTooLong : t.errors.codeFormat
 
 const labelMessage = (reason: LimitReason): string =>
-  reason === 'too_long' ? t.errors.labelTooLong : t.errors.labelEmpty
+  reason === 'too_long' ? t.errors.labelTooLong : reason === 'format' ? t.errors.labelFormat : t.errors.labelEmpty
 
 /** Dot or comma is typed; the request carries a dot. */
 const dotted = (raw: string): string => raw.trim().replace(',', '.')
@@ -138,6 +139,9 @@ export default function AddVatCodeDialog({
         setCodeError(duplicateText(named, duplicateIsDeactivated(error)))
         setFocusRequest({ field: 'code' })
         onStale()
+      } else if (error instanceof ApiError && error.code === 'catalog_full') {
+        // See AddLedgerAccountDialog: no field is at fault; the dialog's own alert names the limit and that nothing was added.
+        setGeneralError(t.errors.catalogFull(catalogFullLimit(error, CATALOG_CAPS.vatCodesPerEntity), strings.entity[entity]))
       } else if (error instanceof ApiError && error.code === 'invalid_vat_code') {
         // The client check passed but the server refused: the same sentences, from its `fields[]`.
         const fields = refusedFields(error)
