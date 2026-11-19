@@ -123,6 +123,16 @@ Described above.
 - **Accounting changes between the read and the commit** of an approval (R9). Mitigation: allowed by AC-4.8 (seconds old); the line records what was read; the audit holds the copied values.
 - **A consumer starts to cache for speed.** Mitigation: the escalation trigger below; a review that asks the three questions.
 
+## Amendment (2026-11-19, accounting sign-off) — the write-side live validation covers account defaults only; there is no VAT default and no foreign-currency designation
+
+The accounting sign-off of 2026-11-19 (specs/20261118-refund-accounting-export/plan.md decisions SO-2, SO-16; specs/20261119-accounting/plan.md SO-18, SO-19) retires every VAT default and the foreign-currency VAT designation (see the amendment of ADR 20261118-accounting-classification-…). The Decision stands: one owner, live reads as itself, no cache across requests, copy by natural key at booking, refuse when the owner cannot be read. To be read in place of the original wording:
+
+1. **What the consumer validates on write is now the account defaults and a hand-chosen line classification.** Wherever this ADR (point 5 of the Decision, the "Read and write" bullet of the Failure shape) names "defaults, designation", read: the per-expense-type default **account** (`PUT /accounting/expense-type-defaults/{type}`, `{ accountNumber }` only, strict) and the account and VAT code a reviewer sets by hand on a line. Each key is still checked against the live read, in the same operation, and a write refuses with 503 `accounting_unavailable` when Accounting cannot be read.
+2. **A line's VAT code is optional and always a hand choice.** The consumer never resolves a VAT code from a type or a currency, so there is nothing of the VAT half to copy at approval unless a person set it; a line without one holds none. The "copy at the moment of booking" rule is unchanged for what is held (account, a hand-set VAT code and rate, the exchange rate).
+3. **Accounting's side is unchanged.** It keeps VAT codes as plain data (six seeded codes) and never decides which applies.
+
+**Failure shape of this amendment.** The write-side rule is unchanged, but its object shrank, so a write-side check must not be left guarding a stored value that no longer exists, nor a stored value be left unguarded because its route was removed. Recognise it when a consumer stores any key of the owner's domain: each stored key has a live check on write, and a retired storage (the designation table, the VAT columns) leaves no route that still accepts the key.
+
 ## Escalation triggers
 
 This decision is revisited when any of these happens:
