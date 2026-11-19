@@ -41,8 +41,8 @@ export const UnclassifiedLineSchema = z.object({
   type: z.string(),
   employee: z.string(),
   receiptNumber: z.string().nullable(),
-  /** What the line lacks, `account` before `vatCode` (AC-7.2). */
-  missing: z.array(z.enum(["account", "vatCode"])),
+  /** What the line lacks: the account only, a VAT code is optional (AC-7.2, SO-4); the array shape is kept for the UI. */
+  missing: z.array(z.enum(["account"])),
 });
 
 export const UnnumberedLineSchema = z.object({

@@ -79,13 +79,9 @@ beforeEach(async () => {
   for (const v of ["IMP81", "NOVAT"]) fake.removeVatCode(v);
   fake.setAccount("5901", "Spese viaggi in treno").setAccount("6101", "Spese materiale ufficio").setVatCode("IMP81", "IVA 8.1%", 810).setVatCode("NOVAT", "Senza IVA", 0);
   useFakeAccounting(fake);
-  await db.expenseTypeAccountingDefault.create({
-    data: { entity: "welld_ch", type: "travel_train", accountNumber: "5901", accountName: "Spese viaggi in treno", vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by },
-  });
-  await db.expenseTypeAccountingDefault.create({
-    data: { entity: "welld_ch", type: "office_material", accountNumber: "6101", accountName: "Spese materiale ufficio", vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by },
-  });
-  await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", vatCode: "NOVAT", vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...by } });
+  // Accounts only: there is no VAT default and no designation (20261118 SO-2, SO-16).
+  await db.expenseTypeAccountingDefault.create({ data: { entity: "welld_ch", type: "travel_train", accountNumber: "5901", accountName: "Spese viaggi in treno", ...by } });
+  await db.expenseTypeAccountingDefault.create({ data: { entity: "welld_ch", type: "office_material", accountNumber: "6101", accountName: "Spese materiale ufficio", ...by } });
 });
 afterAll(async () => {
   restoreAccounting();
@@ -157,7 +153,7 @@ async function legacyBatch(types: ("travel_train" | "office_material")[]) {
 /** The release with no defaults of its own to seed: Refund's rows of `beforeEach` are the defaults. */
 const release = () =>
   runAccountingRelease({
-    defaults: parseDefaults({ typeDefaults: {}, foreignCurrencyVatCode: null }),
+    defaults: parseDefaults({ typeDefaults: {} }),
     accounting: { begin: (name) => fake.begin(name) },
     now: () => new Date("2026-11-20T08:00:00Z"),
   });
@@ -188,7 +184,7 @@ async function submittedRequest(lines: { type: "travel_train" | "office_material
 const lineOf = (id: string) => db.refundLine.findUniqueOrThrow({ where: { id } });
 
 describe("the review view and the PUT agree on a default Accounting no longer offers (G8a, AC-4.5, AC-4.3)", () => {
-  it("a deactivated default account: the view reports it with its state and isDefault true, never null; the VAT half is untouched", async () => {
+  it("a deactivated default account: the view reports it with its state and isDefault true, never null; there is no VAT half", async () => {
     const r = await submittedRequest([{ type: "travel_train" }, { type: "office_material" }]);
     fake.setAccountActive("5901", false);
 
@@ -196,8 +192,7 @@ describe("the review view and the PUT agree on a default Accounting no longer of
     expect(trainLine.classification).toEqual({
       account: { number: "5901", name: "Spese viaggi in treno", state: "deactivated" },
       accountIsDefault: true,
-      vatCode: { code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", state: "active" },
-      vatCodeIsDefault: true,
+      vatCode: null,
     });
     expect(officeLine.classification.account).toMatchObject({ number: "6101", state: "active" });
   });
@@ -223,8 +218,7 @@ describe("the review view and the PUT agree on a default Accounting no longer of
     expect((await view(r.id)).body!["lines"][0].classification).toMatchObject({
       account: { number: "6101", state: "active" },
       accountIsDefault: false,
-      vatCode: { code: "IMP81" },
-      vatCodeIsDefault: true,
+      vatCode: null,
     });
   });
 
@@ -236,14 +230,14 @@ describe("the review view and the PUT agree on a default Accounting no longer of
     expect((await view(r.id)).body!["lines"][0].classification).toMatchObject({ account: { number: "5901", state: "active" }, accountIsDefault: true });
   });
 
-  it("the same holds for a deactivated default VAT code, and for a deactivated foreign-currency designation (AC-4.5)", async () => {
+  it("a VAT code is no default: deactivating a code changes nothing of a line that holds none, in CHF or in EUR (20261118 SO-2)", async () => {
     const r = await submittedRequest([{ type: "travel_train" }, { type: "office_material", currency: "EUR" }]);
-    fake.setVatCodeActive("IMP81", false); // the type default of the CHF line
-    fake.setVatCodeActive("NOVAT", false); // the designation used by the EUR line
+    fake.setVatCodeActive("IMP81", false);
+    fake.setVatCodeActive("NOVAT", false);
     const [chf, eur] = (await view(r.id)).body!["lines"] as any[];
-    expect(chf.classification.vatCode).toMatchObject({ code: "IMP81", state: "deactivated" });
-    expect(eur.classification.vatCode).toMatchObject({ code: "NOVAT", state: "deactivated" });
+    expect([chf.classification.vatCode, eur.classification.vatCode]).toEqual([null, null]);
     expect([chf.vatAmountCents, eur.vatAmountCents]).toEqual([null, null]);
+    expect((await approve(r.id)).status).toBe(200); // nor does it hold back an approval (AC-3.11)
   });
 
   it("a copy on a line whose entry was deactivated afterwards is kept, shown with the state, and the line still prices from its copied rate (AC-5.3)", async () => {
@@ -265,7 +259,7 @@ describe("the review view and the PUT agree on a default Accounting no longer of
         ledgerAccountIsDefault: true,
         vatCodeCopy: "IMP81",
         vatRateBasisPoints: 810,
-        vatCodeIsDefault: true,
+        vatCodeIsDefault: false,
         receiptNumber: "MC26/001",
         receiptOwnerUserId: "owner-1",
         receiptYear: 2026,
@@ -317,8 +311,8 @@ describe("the review view and the approval agree (AC-6.3)", () => {
     expect(await lineOf(r.lineIds[0]!)).toMatchObject({
       accountNumber: "6101",
       ledgerAccountIsDefault: false,
-      vatCodeCopy: "IMP81",
-      vatCodeIsDefault: true,
+      vatCodeCopy: null,
+      vatCodeIsDefault: null,
       receiptNumber: "MC26/001",
     });
   });
@@ -332,30 +326,34 @@ describe("the review view and the approval agree (AC-6.3)", () => {
     expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", ledgerAccountIsDefault: true });
   });
 
-  it("the same holds for a deactivated default VAT code, and for a deactivated foreign-currency designation", async () => {
+  it("a line with no account is the only thing that refuses an approval: a missing VAT code never does, in CHF or EUR (AC-3.4, AC-3.11)", async () => {
     const r = await submittedRequest([{ type: "travel_train" }, { type: "office_material", currency: "EUR" }]);
-    fake.setVatCodeActive("IMP81", false); // the type default of the CHF line
-    fake.setVatCodeActive("NOVAT", false); // the designation used by the EUR line
+    fake.setVatCodeActive("IMP81", false);
+    fake.setVatCodeActive("NOVAT", false);
+    fake.setAccountActive("6101", false);
     const refused = await approve(r.id);
     expect(refused.status).toBe(409);
-    expect((refused.body["lines"] as any[]).map((l) => [l.lineId, l.missing])).toEqual([
-      [r.lineIds[0], ["vatCode"]],
-      [r.lineIds[1], ["vatCode"]],
-    ]);
+    expect((refused.body["lines"] as any[]).map((l) => [l.lineId, l.missing])).toEqual([[r.lineIds[1], ["account"]]]);
   });
 
   it("a default deactivated AFTER the approval does not move the booked line (AC-5.3), and the line still shows it, deactivated", async () => {
     const r = await submittedRequest([{ type: "travel_train" }]);
     expect((await approve(r.id)).status).toBe(200);
     fake.setAccountActive("5901", false);
-    fake.setVatCodeActive("IMP81", false);
 
     const shown = (await view(r.id)).body!["lines"][0];
-    expect(shown.classification).toMatchObject({
-      account: { number: "5901", state: "deactivated" },
-      vatCode: { code: "IMP81", state: "deactivated" },
-    });
-    expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", vatCodeCopy: "IMP81" });
+    expect(shown.classification).toMatchObject({ account: { number: "5901", state: "deactivated" }, vatCode: null });
+    expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", vatCodeCopy: null });
+  });
+
+  it("a hand-chosen VAT code survives the approval and a later deactivation of the code (AC-3.5, AC-5.3)", async () => {
+    const r = await submittedRequest([{ type: "travel_train" }]);
+    expect((await put(r.id, r.lineIds[0]!, { vatCode: "IMP81" })).status).toBe(200);
+    expect((await approve(r.id)).status).toBe(200);
+    fake.setVatCodeActive("IMP81", false);
+    const shown = (await view(r.id)).body!["lines"][0];
+    expect(shown.classification.vatCode).toMatchObject({ code: "IMP81", state: "deactivated" });
+    expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: false });
   });
 });
 
@@ -365,13 +363,11 @@ describe("the release and the export agree (AC-7.2, AC-7.4)", () => {
     fake.setAccountActive("5901", false);
 
     const report = await release();
-    expect(report.unclassified.map((l) => [l.lineId, l.missing, l.account, l.vatCode])).toEqual([
-      [batch.lineIds[0]!, ["account"], null, "IMP81"],
-    ]);
+    expect(report.unclassified.map((l) => [l.lineId, l.missing, l.account])).toEqual([[batch.lineIds[0]!, ["account"], null]]);
 
     const [trainLine, officeLine] = await Promise.all(batch.lineIds.map(lineOf));
-    expect(trainLine).toMatchObject({ accountNumber: null, accountName: null, vatCodeCopy: "IMP81", receiptNumber: "MC26/001" });
-    expect(officeLine).toMatchObject({ accountNumber: "6101", vatCodeCopy: "IMP81", receiptNumber: "MC26/002" });
+    expect(trainLine).toMatchObject({ accountNumber: null, accountName: null, vatCodeCopy: null, receiptNumber: "MC26/001" });
+    expect(officeLine).toMatchObject({ accountNumber: "6101", vatCodeCopy: null, receiptNumber: "MC26/002" });
 
     // The export reads the same thing: stored-only, so the deactivated default is not consulted and the line blocks.
     const summary = await exportSummary(batch.batchId);
@@ -403,10 +399,9 @@ describe("the release and the export agree (AC-7.2, AC-7.4)", () => {
   it("an approved line keeps a classification whose entries were deactivated afterwards, and the export includes it (AC-5.3)", async () => {
     const batch = await legacyBatch(["travel_train"]);
     await release();
-    expect(await lineOf(batch.lineIds[0]!)).toMatchObject({ accountNumber: "5901", vatCodeCopy: "IMP81" });
+    expect(await lineOf(batch.lineIds[0]!)).toMatchObject({ accountNumber: "5901", vatCodeCopy: null });
 
     fake.setAccountActive("5901", false);
-    fake.setVatCodeActive("IMP81", false);
     fake.resetCalls();
     const summary = await exportSummary(batch.batchId);
     expect(summary.body).toMatchObject({ exportable: true, rowCount: 1 });
@@ -414,11 +409,12 @@ describe("the release and the export agree (AC-7.2, AC-7.4)", () => {
     expect(fake.calls).toHaveLength(0); // every copy is held: Accounting is not asked
   });
 
-  it("a default vanished from Accounting at release is numbered unclassified the same way, and listed by the report", async () => {
+  it("a release with no VAT code in Accounting at all leaves nothing unclassified and the export open (AC-7.5: no VAT is needed)", async () => {
     const batch = await legacyBatch(["office_material"]);
     fake.removeVatCode("IMP81");
+    fake.removeVatCode("NOVAT");
     const report = await release();
-    expect(report.unclassified.map((l) => [l.lineId, l.missing])).toEqual([[batch.lineIds[0]!, ["vatCode"]]]);
-    expect((await exportSummary(batch.batchId)).body!["blockers"]["unclassifiedLines"].map((l: any) => l.missing)).toEqual([["vatCode"]]);
+    expect(report.unclassified).toEqual([]);
+    expect((await exportSummary(batch.batchId)).body).toMatchObject({ exportable: true, rowCount: 1 });
   });
 });

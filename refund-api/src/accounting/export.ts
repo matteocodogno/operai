@@ -71,8 +71,9 @@ export interface AccountingExportLine {
   readonly rateMicros: number | null;
   readonly accountNumber: string;
   readonly accountName: string;
-  readonly vatCode: string;
-  readonly vatRateBasisPoints: number;
+  /** `null`: the line has no VAT code (optional since the 2026-11-19 sign-off); its VAT cells are then empty. */
+  readonly vatCode: string | null;
+  readonly vatRateBasisPoints: number | null;
   readonly batchId: string;
 }
 
@@ -176,8 +177,8 @@ function cellsOf(line: AccountingExportLine): Record<ColumnKey, string> {
     throw new RangeError(`line ${line.lineId} in ${line.currency} has no exchange rate: the export must be blocked before this`);
   }
   const chf = chfCents(line.approvedCents, line.currency, isChf ? null : line.rateMicros);
-  const vat = vatCents(chf, line.vatRateBasisPoints);
-  if (chf === null || vat === null) {
+  const vat = line.vatRateBasisPoints === null ? null : vatCents(chf, line.vatRateBasisPoints);
+  if (chf === null || (line.vatRateBasisPoints !== null && vat === null)) {
     throw new RangeError(`line ${line.lineId} has no CHF or VAT amount: the export must be blocked before this`);
   }
 
@@ -200,9 +201,10 @@ function cellsOf(line: AccountingExportLine): Record<ColumnKey, string> {
     chfAmount: formatCents(chf),
     accountNumber: line.accountNumber,
     accountName: line.accountName,
-    vatCode: line.vatCode,
-    vatRate: formatBasisPoints(line.vatRateBasisPoints),
-    vatAmount: formatCents(vat),
+    // No VAT code: the three VAT cells are empty, never 0 (AC-3.8, AC-3.11).
+    vatCode: line.vatCode ?? "",
+    vatRate: line.vatRateBasisPoints === null ? "" : formatBasisPoints(line.vatRateBasisPoints),
+    vatAmount: vat === null ? "" : formatCents(vat),
     batch: line.batchId,
   };
 }

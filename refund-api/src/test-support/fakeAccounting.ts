@@ -258,32 +258,19 @@ export function createStandardFakeAccounting(): FakeAccounting {
 const BY = { createdByUserId: "test-admin", createdByEmail: "admin@welld.ch" };
 
 /**
- * Test-only: Refund's own default rows (the copies, in the two append-only tables), so that a test which approves
- * WellD CH lines without being about classification still approves (AC-6.3 refuses a CH line with no default). The
- * account `6101` and the VAT code `IMP81` are the default of every expense type, and `IMP81` is also the designated
- * foreign-currency VAT code, as `seedAccountingFixtures` was in the 20261118 world. Call it AFTER
+ * Test-only: Refund's own default rows (the account copies, in the append-only table), so that a test which approves
+ * WellD CH lines without being about classification still approves (AC-6.3 refuses a CH line with no usable account).
+ * The account `6101` is the default of every expense type. There is no VAT default and no designation any more
+ * (20261118 SO-2, SO-16): a line approved on these defaults has no VAT code unless the test sets one. Call it AFTER
  * `truncateRefundTables()`; pair it with `createStandardFakeAccounting()`.
  */
-export async function seedDefaultCopies(options: { account?: { number: string; name: string }; vat?: { code: string; label: string; rateBasisPoints: number } } = {}): Promise<void> {
+export async function seedDefaultCopies(options: { account?: { number: string; name: string } } = {}): Promise<void> {
   const { db } = await import("../lib/db");
   const { ExpenseType } = await import("../lib/generated/prisma/enums");
   const account = options.account ?? FAKE_STANDARD.account;
-  const vat = options.vat ?? FAKE_STANDARD.vat;
   for (const type of Object.values(ExpenseType)) {
     await db.expenseTypeAccountingDefault.create({
-      data: {
-        entity: "welld_ch",
-        type,
-        accountNumber: account.number,
-        accountName: account.name,
-        vatCode: vat.code,
-        vatLabel: vat.label,
-        vatRateBasisPoints: vat.rateBasisPoints,
-        ...BY,
-      },
+      data: { entity: "welld_ch", type, accountNumber: account.number, accountName: account.name, ...BY },
     });
   }
-  await db.foreignCurrencyVatDesignation.create({
-    data: { entity: "welld_ch", vatCode: vat.code, vatLabel: vat.label, vatRateBasisPoints: vat.rateBasisPoints, ...BY },
-  });
 }

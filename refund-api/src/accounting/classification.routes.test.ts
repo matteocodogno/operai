@@ -99,14 +99,9 @@ beforeEach(async () => {
     .setVatCode("NOVAT", "Senza IVA", 0)
     .setVatCode("IMP77", "IVA 7.7%", 770);
   useFakeAccounting(fake);
-  // Refund's recorded defaults (copies): train and office, and NOVAT for foreign currencies.
-  await db.expenseTypeAccountingDefault.create({
-    data: { entity: "welld_ch", type: "travel_train", accountNumber: "5901", accountName: "Treno", vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by },
-  });
-  await db.expenseTypeAccountingDefault.create({
-    data: { entity: "welld_ch", type: "office_material", accountNumber: "6101", accountName: "Ufficio", vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by },
-  });
-  await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", vatCode: "NOVAT", vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...by } });
+  // Refund's recorded defaults (copies): accounts only, train and office. There is no VAT default and no designation.
+  await db.expenseTypeAccountingDefault.create({ data: { entity: "welld_ch", type: "travel_train", accountNumber: "5901", accountName: "Treno", ...by } });
+  await db.expenseTypeAccountingDefault.create({ data: { entity: "welld_ch", type: "office_material", accountNumber: "6101", accountName: "Ufficio", ...by } });
 });
 afterAll(async () => {
   restoreAccounting();
@@ -180,7 +175,7 @@ const booked = (over: Partial<NonNullable<LineSpec["stored"]>> = {}): NonNullabl
   ...TRAIN,
   ledgerAccountIsDefault: true,
   ...IMP81,
-  vatCodeIsDefault: true,
+  vatCodeIsDefault: false,
   ...over,
 });
 
@@ -198,7 +193,7 @@ async function get(path: string, sub = "acct-1") {
 const view = (id: string, sub?: string) => get(`/review/requests/${id}/accounting`, sub);
 
 describe("GET /review/requests/{id}/accounting: what a line shows", () => {
-  it("(AC-4.5, AC-7.3) a CHF line shows its type's defaults marked as defaults, with Accounting's state, its CHF amount and its VAT", async () => {
+  it("(AC-4.5, AC-7.3) a CHF line shows its type's default account marked as default and no VAT code, with Accounting's state and its CHF amount", async () => {
     const r = await createRequest([{ type: "travel_train", requestedAmountCents: 2080 }]);
     const res = await view(r.id);
     expect(res.status).toBe(200);
@@ -225,15 +220,14 @@ describe("GET /review/requests/{id}/accounting: what a line shows", () => {
       classification: {
         account: { number: "5901", name: "Treno", state: "active" },
         accountIsDefault: true,
-        vatCode: { code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", state: "active" },
-        vatCodeIsDefault: true,
+        vatCode: null, // no VAT default of any kind (20261118 SO-2)
       },
       chf: { amountCents: 2080, rateMicros: null, rate: null, rateMonth: null, rateStatus: "not_applicable" },
-      vatAmountCents: 156, // 2080 at 8.1 % contains 156
+      vatAmountCents: null, // no VAT code, no VAT amount (AC-3.8)
     });
   });
 
-  it("(AC-3.2 of 20261118) a line in EUR, USD or GBP shows the type's account and the foreign-currency VAT code, not the type's own", async () => {
+  it("(AC-3.13 of 20261118) a line in EUR, USD or GBP shows the type's account and NO VAT code: nothing is pre-set", async () => {
     const r = await createRequest([
       { currency: "EUR", type: "travel_train" },
       { currency: "USD", type: "office_material" },
@@ -241,19 +235,17 @@ describe("GET /review/requests/{id}/accounting: what a line shows", () => {
     ]);
     const lines = (await view(r.id)).body["lines"] as any[];
     for (const line of lines) {
-      expect(line.classification.vatCode).toMatchObject({ code: "NOVAT", ratePercent: "0", state: "active" });
-      expect(line.classification.vatCodeIsDefault).toBe(true);
+      expect(line.classification.vatCode).toBeNull();
+      expect(line.classification).not.toHaveProperty("vatCodeIsDefault");
       expect(line.classification.accountIsDefault).toBe(true);
+      expect(line.vatAmountCents).toBeNull();
     }
     expect(lines.map((l) => l.classification.account.number)).toEqual(["5901", "6101", "5901"]);
   });
 
-  it("a foreign line under review converts at the rate in effect now, and VAT is computed on the CHF amount", async () => {
-    await db.foreignCurrencyVatDesignation.create({
-      data: { entity: "welld_ch", vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by, createdAt: new Date(Date.now() + 1000) },
-    });
+  it("a foreign line under review converts at the rate in effect now, and VAT (of its own code) is computed on the CHF amount", async () => {
     fake.setRate("EUR", "2026-03", 924_600);
-    const r = await createRequest([{ currency: "EUR", requestedAmountCents: 1040, date: "2026-03-15" }]);
+    const r = await createRequest([{ currency: "EUR", requestedAmountCents: 1040, date: "2026-03-15", stored: { ...IMP81, vatCodeIsDefault: false } }]);
     const line = (await view(r.id)).body["lines"][0];
     expect(line.chf).toEqual({ amountCents: 962, rateMicros: 924_600, rate: "0.9246", rateMonth: "2026-03", rateStatus: "in_effect" }); // AC-5.5 vector
     expect(line.vatAmountCents).toBe(72); // 962 at 8.1 % contains round(962*810/10810) = 72
@@ -272,7 +264,7 @@ describe("GET /review/requests/{id}/accounting: what a line shows", () => {
     const [eur, usd] = (await view(r.id)).body["lines"] as any[];
     expect(eur.chf).toEqual({ amountCents: null, rateMicros: null, rate: null, rateMonth: "2026-03", rateStatus: "missing" });
     expect(eur.vatAmountCents).toBeNull();
-    expect(eur.classification.vatCode.code).toBe("NOVAT"); // the classification itself is still shown
+    expect(eur.classification.account.number).toBe("5901"); // the classification itself is still shown
     expect(usd.chf.amountCents).toBe(781);
     expect(usd.chf.rateStatus).toBe("in_effect");
   });
@@ -293,27 +285,32 @@ describe("GET /review/requests/{id}/accounting: what a line shows", () => {
     expect(fake.calls.find((c) => c.read === "rates")!.pairs).toEqual(["EUR:2026-02", "EUR:2026-03"]);
   });
 
-  it("(D11) the amount is approvedTotalCents when set, else the requested amount, and a line approved at 0 shows 0 and 0, not null", async () => {
+  it("(D11) the amount is approvedTotalCents when set, else the requested amount, and a line approved at 0 shows 0, not null", async () => {
     const r = await createRequest([{ requestedAmountCents: 1000, approvedTotalCents: 700 }, { requestedAmountCents: 1000, approvedTotalCents: 0 }, { requestedAmountCents: 1000 }]);
     const lines = (await view(r.id)).body["lines"] as any[];
     expect(lines.map((l) => l.amountCents)).toEqual([700, 0, 1000]);
     expect(lines[1].chf.amountCents).toBe(0);
-    expect(lines[1].vatAmountCents).toBe(0);
+    expect(lines[1].vatAmountCents).toBeNull(); // no VAT code
+    expect(lines[0].vatAmountCents).toBeNull();
   });
 
-  it("a copy stored on the line is shown as not-default, and the other half still follows its default", async () => {
-    const r = await createRequest([{ stored: { ...OFFICE, ledgerAccountIsDefault: false } }]);
-    const c = (await view(r.id)).body["lines"][0].classification;
-    expect(c.account).toEqual({ number: "6101", name: "Ufficio", state: "active" });
-    expect(c.accountIsDefault).toBe(false);
-    expect(c.vatCode.code).toBe("IMP81");
-    expect(c.vatCodeIsDefault).toBe(true);
+  it("a copy stored on the line is shown as not-default; a VAT copy is shown as stored and gives a VAT amount (AC-3.8)", async () => {
+    const r = await createRequest([{ stored: { ...OFFICE, ledgerAccountIsDefault: false } }, { stored: { ...IMP81, vatCodeIsDefault: false }, requestedAmountCents: 2080 }]);
+    const [held, vatOnly] = (await view(r.id)).body["lines"] as any[];
+    expect(held.classification.account).toEqual({ number: "6101", name: "Ufficio", state: "active" });
+    expect(held.classification.accountIsDefault).toBe(false);
+    expect(held.classification.vatCode).toBeNull();
+    // the VAT copy leaves the account following its default
+    expect(vatOnly.classification.account).toEqual({ number: "5901", name: "Treno", state: "active" });
+    expect(vatOnly.classification.accountIsDefault).toBe(true);
+    expect(vatOnly.classification.vatCode).toEqual({ code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", state: "active" });
+    expect(vatOnly.vatAmountCents).toBe(156); // 2080 at 8.1 % contains 156
   });
 
-  it("a type with no default shows no account and no VAT code (the approve refusal's reason), not an error", async () => {
+  it("a type with no default shows no account (the approve refusal's reason), not an error", async () => {
     const r = await createRequest([{ type: "stationery" }]);
     const line = (await view(r.id)).body["lines"][0];
-    expect(line.classification).toMatchObject({ account: null, vatCode: null, accountIsDefault: false, vatCodeIsDefault: false });
+    expect(line.classification).toEqual({ account: null, vatCode: null, accountIsDefault: false });
     expect(line.vatAmountCents).toBeNull();
   });
 
@@ -356,53 +353,41 @@ describe("what Accounting says of an entry: the state vocabulary (AC-4.5, SA-3, 
 
   it("(G8a) a type default that points at a deactivated entry is reported WITH its state and isDefault true, never as null", async () => {
     fake.setAccountActive("5901", false);
-    fake.setVatCodeActive("IMP81", false);
     const r = await createRequest([{ type: "travel_train" }]);
     const line = (await view(r.id)).body["lines"][0];
     expect(line.classification).toEqual({
       account: { number: "5901", name: "Treno", state: "deactivated" },
       accountIsDefault: true,
-      vatCode: { code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", state: "deactivated" },
-      vatCodeIsDefault: true,
+      vatCode: null,
     });
-    expect(line.vatAmountCents).toBeNull(); // the rate that would be booked is unknown: unknown is never 0
     // reactivation brings the default back (AC-1.9, AC-1.10)
     fake.setAccountActive("5901", true);
-    fake.setVatCodeActive("IMP81", true);
     expect((await view(r.id)).body["lines"][0]).toMatchObject({
-      classification: { account: { state: "active" }, vatCode: { state: "active" } },
-      vatAmountCents: 156,
+      classification: { account: { state: "active" }, vatCode: null },
     });
   });
 
   it("(SA-3) a default that Accounting no longer lists is not_found, shown as recorded", async () => {
     fake.removeAccount("5901");
-    fake.removeVatCode("IMP81");
     const r = await createRequest([{ type: "travel_train" }]);
     expect((await view(r.id)).body["lines"][0].classification).toEqual({
       account: { number: "5901", name: "Treno", state: "not_found" },
       accountIsDefault: true,
-      vatCode: { code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", state: "not_found" },
-      vatCodeIsDefault: true,
+      vatCode: null,
     });
   });
 
-  it("(AC-2.7 of 20261118) a deactivated designation: a foreign line shows the default account and the code deactivated, a CHF line is unaffected", async () => {
-    fake.setVatCodeActive("NOVAT", false);
-    const r = await createRequest([{ currency: "EUR" }, { currency: "CHF" }]);
-    const [eur, chf] = (await view(r.id)).body["lines"] as any[];
-    expect(eur.classification.account).toMatchObject({ number: "5901", state: "active" });
-    expect(eur.classification.vatCode).toMatchObject({ code: "NOVAT", state: "deactivated" });
-    expect(eur.vatAmountCents).toBeNull();
-    expect(chf.classification.vatCode).toMatchObject({ code: "IMP81", state: "active" });
-    fake.setVatCodeActive("NOVAT", true); // reactivated: the default comes back with no further step
-    expect((await view(r.id)).body["lines"][0].classification.vatCode).toMatchObject({ code: "NOVAT", state: "active" });
-  });
-
-  it("a cleared designation is no VAT code for a foreign line", async () => {
-    await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", ...by, createdAt: new Date(Date.now() + 1000) } });
-    const r = await createRequest([{ currency: "GBP" }]);
-    expect((await view(r.id)).body["lines"][0].classification.vatCode).toBeNull();
+  it("(AC-3.13 of 20261118) a foreign line's own VAT code that was deactivated is shown deactivated and keeps its amount; it follows no default", async () => {
+    fake.setRate("EUR", "2026-03", 1_000_000);
+    const r = await createRequest([{ currency: "EUR", requestedAmountCents: 1081, stored: { ...IMP81, vatCodeIsDefault: false } }, { currency: "EUR", requestedAmountCents: 1081 }]);
+    fake.setVatCodeActive("IMP81", false);
+    const [coded, plain] = (await view(r.id)).body["lines"] as any[];
+    expect(coded.classification.vatCode).toMatchObject({ code: "IMP81", state: "deactivated" });
+    expect(coded.vatAmountCents).toBe(81); // 1081 at 8.1 % contains 81
+    expect(plain.classification.vatCode).toBeNull();
+    expect(plain.vatAmountCents).toBeNull();
+    fake.setVatCodeActive("IMP81", true);
+    expect((await view(r.id)).body["lines"][0].classification.vatCode).toMatchObject({ code: "IMP81", state: "active" });
   });
 });
 
@@ -455,7 +440,7 @@ describe("states and booked lines", () => {
     fake.setAccount("5901", "A completely new name");
     fake.setRate("EUR", "2026-03", 930_000, "corrected");
     await db.expenseTypeAccountingDefault.create({
-      data: { entity: "welld_ch", type: "travel_train", accountNumber: "6101", accountName: "Ufficio", vatCode: "NOVAT", vatLabel: "x", vatRateBasisPoints: 0, ...by, createdAt: new Date(Date.now() + 1000) },
+      data: { entity: "welld_ch", type: "travel_train", accountNumber: "6101", accountName: "Ufficio", ...by, createdAt: new Date(Date.now() + 1000) },
     });
     const after = (await view(r.id)).body["lines"][0];
     expect(after.chf).toEqual(before.chf);
@@ -475,7 +460,7 @@ describe("states and booked lines", () => {
     expect(fake.reads.rates).toBe(0);
   });
 
-  it("(AC-7.2 of 20261118) an approved line left without an account or a VAT code shows it missing, even though a default now exists", async () => {
+  it("(AC-7.2 of 20261118) an approved line left without an account shows it missing, even though a default now exists", async () => {
     const r = await createRequest([{ receiptNumber: "MC26/001", type: "travel_train", stored: { ...IMP81, vatCodeIsDefault: true } }], { status: "approved" });
     const c = (await view(r.id)).body["lines"][0].classification;
     expect(c.account).toBeNull(); // 5901 is the live default of travel_train and is NOT applied to a booked line
@@ -508,7 +493,7 @@ describe("(AC-6.5) Accounting unreachable: the view is still a view", () => {
       const [held, followed] = res.body["lines"] as any[];
       expect(held.classification.account).toEqual({ number: "6101", name: "Ufficio", state: "unverified" });
       expect(held.classification.accountIsDefault).toBe(false);
-      expect(held.classification.vatCode).toEqual({ code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", state: "unverified" }); // the recorded default
+      expect(held.classification.vatCode).toBeNull(); // there is no recorded VAT default to show
       expect(followed.classification.account).toEqual({ number: "5901", name: "Treno", state: "unverified" });
       expect(followed.chf).toEqual({ amountCents: null, rateMicros: null, rate: null, rateMonth: "2026-03", rateStatus: "unavailable" });
       expect(followed.vatAmountCents).toBeNull();
@@ -757,9 +742,10 @@ describe("PUT classification while submitted (AC-5.2)", () => {
     expect(res.body["lineId"]).toBe(r.lineIds[0]!);
     expect(res.body["classification"].account).toEqual({ number: "6101", name: "Ufficio", state: "active" });
     expect(res.body["classification"].accountIsDefault).toBe(false);
-    // the other half still follows its default
-    expect(res.body["classification"].vatCodeIsDefault).toBe(true);
-    expect(res.body["vatAmountCents"]).toBe(156);
+    // no VAT code was set: none appears, and there is no VAT amount
+    expect(res.body["classification"].vatCode).toBeNull();
+    expect(res.body["classification"]).not.toHaveProperty("vatCodeIsDefault");
+    expect(res.body["vatAmountCents"]).toBeNull();
 
     const stored = await lineRow(r.lineIds[0]!);
     expect(stored).toMatchObject({ accountNumber: "6101", accountName: "Ufficio", ledgerAccountIsDefault: false, vatCodeCopy: null, vatCodeIsDefault: null });
@@ -772,12 +758,7 @@ describe("PUT classification while submitted (AC-5.2)", () => {
       v: 2,
       cause: "review",
       account: { from: { number: "5901", name: "Treno" }, to: { number: "6101", name: "Ufficio" }, fromDefault: true, toDefault: false },
-      vatCode: {
-        from: { code: "IMP81", rateBasisPoints: 810 },
-        to: { code: "IMP81", rateBasisPoints: 810 },
-        fromDefault: true,
-        toDefault: true,
-      },
+      vatCode: { from: null, to: null, fromDefault: false, toDefault: false },
     });
   });
 
@@ -792,8 +773,8 @@ describe("PUT classification while submitted (AC-5.2)", () => {
     const r = await createRequest([{ type: "travel_train" }]);
     const res = await put(r.id, r.lineIds[0]!, { accountNumber: "6101", vatCode: "NOVAT" });
     expect(res.status).toBe(200);
-    expect(res.body["classification"]).toMatchObject({ accountIsDefault: false, vatCodeIsDefault: false, vatCode: { code: "NOVAT", ratePercent: "0" } });
-    expect(res.body["vatAmountCents"]).toBe(0);
+    expect(res.body["classification"]).toMatchObject({ accountIsDefault: false, vatCode: { code: "NOVAT", ratePercent: "0" } });
+    expect(res.body["vatAmountCents"]).toBe(0); // a code at 0 % has a VAT amount of 0.00 (AC-3.8)
     expect(await lineRow(r.lineIds[0]!)).toMatchObject({ vatCodeCopy: "NOVAT", vatRateBasisPoints: 0, vatCodeIsDefault: false });
     expect(await auditOf(r.id)).toHaveLength(1);
   });
@@ -931,7 +912,7 @@ describe("PUT classification: refusals (AC-4.3, AC-1.4, AC-1.8, AC-6.5, AC-6.10)
   for (const [name, body] of [
     ["an empty body", {}],
     ["null for the account (there is no back-to-default)", { accountNumber: null }],
-    ["null for the VAT code", { vatCode: null }],
+    ["a number for the VAT code", { vatCode: 7 }],
     ["a number", { accountNumber: 12 }],
     ["an empty key", { vatCode: "" }],
     ["an unknown key", { accountNumber: "6101", note: "y" }],
@@ -950,6 +931,122 @@ describe("PUT classification: refusals (AC-4.3, AC-1.4, AC-1.8, AC-6.5, AC-6.10)
     expect((await put(r.id, r.lineIds[0]!, "{not json")).status).toBe(400);
     expect((await put(r.id, r.lineIds[0]!, JSON.stringify({ accountNumber: "x".repeat(5000) }))).status).toBe(413);
     expect(await auditOf(r.id)).toHaveLength(0);
+  });
+});
+
+describe("PUT classification: clearing the VAT code (20261118 AC-3.3, AC-3.6, SO-3)", () => {
+  const withVat = (over: Record<string, unknown> = {}) => ({ ...IMP81, vatCodeIsDefault: false, ...over });
+
+  it("`vatCode: null` clears the copy (both columns null, the flag null), audits `to: null`, and the answer shows no code and no VAT amount", async () => {
+    const r = await createRequest([{ stored: withVat() }]);
+    const res = await put(r.id, r.lineIds[0]!, { vatCode: null });
+    expect(res.status).toBe(200);
+    expect(res.body["classification"].vatCode).toBeNull();
+    expect(res.body["vatAmountCents"]).toBeNull();
+    expect(await lineRow(r.lineIds[0]!)).toMatchObject({ vatCodeCopy: null, vatRateBasisPoints: null, vatCodeIsDefault: null, accountNumber: null });
+
+    const audit = await auditOf(r.id);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.detail).toEqual({
+      v: 2,
+      cause: "review",
+      account: { from: { number: "5901", name: "Treno" }, to: { number: "5901", name: "Treno" }, fromDefault: true, toDefault: true },
+      vatCode: { from: { code: "IMP81", rateBasisPoints: 810 }, to: null, fromDefault: false, toDefault: false },
+    });
+  });
+
+  it("clearing a line that has no VAT code is a no-op: nothing written, no audit row", async () => {
+    const r = await createRequest([{}]);
+    const res = await put(r.id, r.lineIds[0]!, { vatCode: null });
+    expect(res.status).toBe(200);
+    expect(await auditOf(r.id)).toHaveLength(0);
+    expect(await lineRow(r.lineIds[0]!)).toMatchObject({ vatCodeCopy: null, vatRateBasisPoints: null });
+  });
+
+  it("an account and a clear in one call: one audit row with both halves, the account checked against Accounting", async () => {
+    const r = await createRequest([{ stored: withVat() }]);
+    const res = await put(r.id, r.lineIds[0]!, { accountNumber: "6101", vatCode: null });
+    expect(res.status).toBe(200);
+    const stored = await lineRow(r.lineIds[0]!);
+    expect(stored).toMatchObject({ accountNumber: "6101", vatCodeCopy: null, vatRateBasisPoints: null });
+    const audit = await auditOf(r.id);
+    expect(audit).toHaveLength(1);
+    expect((audit[0]!.detail as any).account.to).toEqual({ number: "6101", name: "Ufficio" });
+    expect((audit[0]!.detail as any).vatCode.to).toBeNull();
+    // and a deactivated account refuses the whole call, the VAT code stays
+    fake.setAccountActive("5901", false);
+    const again = await createRequest([{ stored: withVat() }]);
+    const refused = await put(again.id, again.lineIds[0]!, { accountNumber: "5901", vatCode: null });
+    expect([refused.status, refused.body["code"]]).toEqual([422, "ledger_account_inactive"]);
+    expect((await lineRow(again.lineIds[0]!)).vatCodeCopy).toBe("IMP81");
+  });
+
+  it("a code can be set again after a clear, and a changed code is audited from -> to", async () => {
+    const r = await createRequest([{ stored: withVat() }]);
+    await put(r.id, r.lineIds[0]!, { vatCode: null });
+    await put(r.id, r.lineIds[0]!, { vatCode: "IMP77" });
+    await put(r.id, r.lineIds[0]!, { vatCode: "NOVAT" });
+    const audit = await auditOf(r.id);
+    expect(audit.map((a) => [(a.detail as any).vatCode.from?.code ?? null, (a.detail as any).vatCode.to?.code ?? null])).toEqual([
+      ["IMP81", null],
+      [null, "IMP77"],
+      ["IMP77", "NOVAT"],
+    ]);
+    expect(await lineRow(r.lineIds[0]!)).toMatchObject({ vatCodeCopy: "NOVAT", vatCodeIsDefault: false });
+  });
+
+  it("a clear needs no Accounting: with it unreachable the VAT code is still cleared and the answer says unavailable states", async () => {
+    const r = await createRequest([{ stored: withVat() }]);
+    fake.failWith("timeout");
+    const res = await put(r.id, r.lineIds[0]!, { vatCode: null });
+    expect(res.status).toBe(200);
+    expect((await lineRow(r.lineIds[0]!)).vatCodeCopy).toBeNull();
+    expect(await auditOf(r.id)).toHaveLength(1);
+    // while choosing a code still needs it (AC-6.5)
+    const second = await put(r.id, r.lineIds[0]!, { vatCode: "IMP81" });
+    expect([second.status, second.body["code"]]).toEqual([503, "accounting_unavailable"]);
+  });
+
+  it("an approved unpaid line is cleared with request:reclassify only, cause post_approval; the fx copy and the booking stay", async () => {
+    const r = await createRequest(
+      [{ currency: "EUR", receiptNumber: "MC26/001", requestedAmountCents: 1040, stored: booked({ fxRateMicros: 924_600, fxRateMonth: new Date("2026-03-01T00:00:00Z"), fxRateCopiedAt: new Date() }) }],
+      { status: "approved" },
+    );
+    expect((await put(r.id, r.lineIds[0]!, { vatCode: null }, SET_ONLY)).status).toBe(403);
+    const res = await put(r.id, r.lineIds[0]!, { vatCode: null }, RECLASSIFY_ONLY);
+    expect(res.status).toBe(200);
+    expect(res.body["classification"].vatCode).toBeNull();
+    expect(res.body["vatAmountCents"]).toBeNull();
+    expect(res.body["chf"]).toMatchObject({ rateStatus: "copied", amountCents: 962 });
+    expect(await lineRow(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", vatCodeCopy: null, fxRateMicros: 924_600, receiptNumber: "MC26/001" });
+    const audit = await auditOf(r.id);
+    expect((audit[0]!.detail as any).cause).toBe("post_approval");
+    expect((audit[0]!.detail as any).vatCode.to).toBeNull();
+  });
+
+  it("a paid request refuses a clear (409 classification_locked), the copy stays", async () => {
+    const batch = await createBatch("paid");
+    const r = await createRequest([{ receiptNumber: "MC26/001", stored: booked() }], { status: "paid", batchId: batch.id });
+    const res = await put(r.id, r.lineIds[0]!, { vatCode: null });
+    expect([res.status, res.body["code"]]).toEqual([409, "classification_locked"]);
+    expect((await lineRow(r.lineIds[0]!)).vatCodeCopy).toBe("IMP81");
+  });
+
+  it("the database refuses to clear the copy of a numbered line of a paid request even past the route (the trigger is the second line of defense)", async () => {
+    const batch = await createBatch("paid");
+    const r = await createRequest([{ receiptNumber: "MC26/001", stored: booked() }], { status: "paid", batchId: batch.id });
+    await expect(
+      (async () => db.refundLine.update({ where: { id: r.lineIds[0]! }, data: { vatCodeCopy: null, vatRateBasisPoints: null } }))(),
+    ).rejects.toThrow();
+    expect((await lineRow(r.lineIds[0]!)).vatCodeCopy).toBe("IMP81");
+  });
+
+  it("a WellD Italia line and a stranger's line refuse a clear as they refuse any change", async () => {
+    const it = await createRequest([{ entity: "welld_it", currency: "EUR" }]);
+    expect((await put(it.id, it.lineIds[0]!, { vatCode: null })).body["code"]).toBe("line_not_welld_ch");
+    const ch = await createRequest([{ stored: withVat() }]);
+    expect((await put(ch.id, ch.lineIds[0]!, { vatCode: null }, grants(["review", "set-approved-total"], "welld_it"))).status).toBe(404);
+    expect((await lineRow(ch.lineIds[0]!)).vatCodeCopy).toBe("IMP81");
   });
 });
 
@@ -1057,7 +1154,7 @@ describe("PUT classification: who, and on which request (AC-5.7, R7)", () => {
     const res = await put(r.id, r.lineIds[0]!, { accountNumber: "6101", vatCode: "NOVAT" }, RECLASSIFY_ONLY);
     expect(res.status).toBe(200);
     expect(res.body["classificationState"]).toBeUndefined(); // the answer is the line, not the view
-    expect(res.body["classification"]).toMatchObject({ accountIsDefault: false, vatCodeIsDefault: false });
+    expect(res.body["classification"]).toMatchObject({ accountIsDefault: false, vatCode: { code: "NOVAT" } });
     expect(res.body["receiptNumber"]).toBe("MC26/001");
     expect(res.body["chf"]).toMatchObject({ rateStatus: "copied", rateMicros: 924_600 }); // the rate stays the line's own
 

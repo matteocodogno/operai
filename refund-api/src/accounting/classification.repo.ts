@@ -8,7 +8,7 @@
  *
  * What a line shows, by the state of its request
  * - `submitted` (state `review`): LIVE. A line with nothing stored follows the recorded default of its type (the
- *   foreign-currency VAT code for a non-CHF line) as long as Accounting still lists the entry as active, through
+ *   account only: there is no VAT default) as long as Accounting still lists the entry as active, through
  *   `resolveClassification`, the same function the approval and the release use. A copy stored on the line wins and is no
  *   longer marked as a default. A foreign-currency line shows the rate in effect now, which is copied at approval.
  * - `approved` (state `post_approval`): the copies stored on the line, each with Accounting's present state, so a booked
@@ -83,7 +83,6 @@ const lineSelect = {
   ledgerAccountIsDefault: true,
   vatCodeCopy: true,
   vatRateBasisPoints: true,
-  vatCodeIsDefault: true,
   fxRateMicros: true,
   fxRateMonth: true,
 } satisfies Prisma.RefundLineSelect;
@@ -143,7 +142,7 @@ const isoDate = (date: Date): string => date.toISOString().slice(0, 10);
 
 const NO_CHF = { amountCents: null, rateMicros: null, rate: null, rateMonth: null, rateStatus: "not_applicable" } as const;
 
-const NO_DEFAULTS: RecordedDefaults = { defaults: {}, foreignCurrencyVatCode: null };
+const NO_DEFAULTS: RecordedDefaults = { defaults: {} };
 
 /** The pairs of the foreign-currency lines of a request under review that have no copy yet: what the view asks Accounting. */
 function pairsUnderReview(lines: readonly AccountingLineRow[]): RatePair[] {
@@ -233,12 +232,7 @@ export async function buildAccountingView(
       return { ...base, classification: null, chf: { ...NO_CHF }, vatAmountCents: null };
     }
 
-    const classification = resolveClassification(
-      classifiableInput(line),
-      recorded.defaults,
-      recorded.foreignCurrencyVatCode,
-      snapshot,
-    );
+    const classification = resolveClassification(classifiableInput(line), recorded.defaults, snapshot);
     if (classification === null) return { ...base, classification: null, chf: { ...NO_CHF }, vatAmountCents: null };
 
     let chf: NonNullable<AccountingLine["chf"]>;
@@ -291,10 +285,9 @@ export async function buildAccountingView(
           ratePercent: basisPointsToPercent(classification.vatCode.rateBasisPoints),
           state: classification.vatCode.state,
         },
-        vatCodeIsDefault: classification.vatCodeIsDefault,
       },
       chf,
-      // The VAT is the rate the line would BOOK: an unusable default has none, so its amount stays unknown.
+      // The VAT amount only with a code (AC-3.8): the copied rate of the line's own code, none without one.
       vatAmountCents: vatCents(chf.amountCents, classification.bookable.vatCode?.rateBasisPoints ?? null),
     };
   });
@@ -397,10 +390,26 @@ type Decision =
       readonly line: AccountingLineRow;
       readonly scope: Exclude<ActionScope, undefined | null>;
       readonly cause: "review" | "post_approval";
-      /** The natural keys this call would change: a value the line already stores is no change (and no Accounting read). */
+      /** The natural key this call would set: a value the line already stores is no change (and no Accounting read). */
       readonly newAccountNumber: string | null;
-      readonly newVatCode: string | null;
+      /** The VAT code this call would set or clear (`null` in the body): storing what is stored, or clearing none, is no change. */
+      readonly vatChange: VatChange;
     };
+
+/** What the body asks of the VAT code, relative to what the line stores. */
+type VatChange = { readonly kind: "none" } | { readonly kind: "set"; readonly code: string } | { readonly kind: "clear" };
+
+const NO_VAT_CHANGE: VatChange = { kind: "none" };
+
+function vatChangeOf(body: ClassifyBody, stored: string | null): VatChange {
+  if (body.vatCode === undefined) return NO_VAT_CHANGE;
+  if (body.vatCode === null) return stored === null ? NO_VAT_CHANGE : { kind: "clear" };
+  return body.vatCode === stored ? NO_VAT_CHANGE : { kind: "set", code: body.vatCode };
+}
+
+/** Accounting is read only to check an entry that is being CHOSEN: clearing a VAT code has nothing to check. */
+const needsAccounting = (decision: { newAccountNumber: string | null; vatChange: VatChange }): boolean =>
+  decision.newAccountNumber !== null || decision.vatChange.kind === "set";
 
 /**
  * The refusals that need no Accounting and no write, in the order that keeps the line-level scope (SR-1) and segregation
@@ -439,7 +448,7 @@ function decide(request: AccountingRequestRow, lineId: string, body: ClassifyBod
     scope,
     cause,
     newAccountNumber: body.accountNumber !== undefined && body.accountNumber !== line.accountNumber ? body.accountNumber : null,
-    newVatCode: body.vatCode !== undefined && body.vatCode !== line.vatCodeCopy ? body.vatCode : null,
+    vatChange: vatChangeOf(body, line.vatCodeCopy),
   };
 }
 
@@ -485,7 +494,7 @@ export async function classifyLine(
     if (!first) return { kind: "not_found" };
     const early = decide(first, lineId, body, caller);
     if (early.kind !== "go") return early;
-    if ((early.newAccountNumber !== null || early.newVatCode !== null) && snapshot === null) {
+    if (needsAccounting(early) && snapshot === null) {
       snapshot = await tryReferenceSnapshot(operation);
       if (snapshot === null) return { kind: "unavailable" };
     }
@@ -504,36 +513,41 @@ export async function classifyLine(
         const decision = decide(request, lineId, body, caller);
         if (decision.kind !== "go") return decision;
         const { line, scope, cause } = decision;
-        if (decision.newAccountNumber === null && decision.newVatCode === null) return { kind: "written", changed: false, scope };
-        // A change that was not one at the unlocked read: Accounting has not been read yet, and no call is made under a lock.
-        if (snapshot === null) return { kind: "retry" };
-
+        if (decision.newAccountNumber === null && decision.vatChange.kind === "none") return { kind: "written", changed: false, scope };
+        const read = snapshot;
         let account: { number: string; name: string } | null = null;
-        if (decision.newAccountNumber !== null) {
-          const refusal = accountRefusal(snapshot, decision.newAccountNumber);
-          if (refusal) return { kind: "refused", code: refusal.code };
-          const found = snapshot.lookupAccount(decision.newAccountNumber);
-          if (found.state !== "active") return { kind: "refused", code: "ledger_account_not_found" };
-          account = { number: found.number, name: found.name };
-        }
         let vat: { code: string; rateBasisPoints: number } | null = null;
-        if (decision.newVatCode !== null) {
-          const refusal = vatRefusal(snapshot, decision.newVatCode);
-          if (refusal) return { kind: "refused", code: refusal.code };
-          const found = snapshot.lookupVat(decision.newVatCode);
-          if (found.state !== "active") return { kind: "refused", code: "vat_code_not_found" };
-          vat = { code: found.code, rateBasisPoints: found.rateBasisPoints };
+        if (needsAccounting(decision)) {
+          // A change that was not one at the unlocked read: Accounting has not been read yet, and no call is made under a lock.
+          if (read === null) return { kind: "retry" };
+          if (decision.newAccountNumber !== null) {
+            const refusal = accountRefusal(read, decision.newAccountNumber);
+            if (refusal) return { kind: "refused", code: refusal.code };
+            const found = read.lookupAccount(decision.newAccountNumber);
+            if (found.state !== "active") return { kind: "refused", code: "ledger_account_not_found" };
+            account = { number: found.number, name: found.name };
+          }
+          if (decision.vatChange.kind === "set") {
+            const refusal = vatRefusal(read, decision.vatChange.code);
+            if (refusal) return { kind: "refused", code: refusal.code };
+            const found = read.lookupVat(decision.vatChange.code);
+            if (found.state !== "active") return { kind: "refused", code: "vat_code_not_found" };
+            vat = { code: found.code, rateBasisPoints: found.rateBasisPoints };
+          }
         }
 
         // What the accountant saw before, for the audit row: live while under review, stored once approved.
         const recorded = request.status === "submitted" ? await loadRecordedDefaults(tx) : NO_DEFAULTS;
-        const before = resolveClassification(classifiableInput(line), recorded.defaults, recorded.foreignCurrencyVatCode, snapshot);
+        // A clear alone read no Accounting: the audit then needs only the copies, which the unverified snapshot keeps.
+        const before = resolveClassification(classifiableInput(line), recorded.defaults, read ?? UNVERIFIED_SNAPSHOT);
 
         await tx.refundLine.update({
           where: { id: lineId },
           data: {
             ...(account ? { accountNumber: account.number, accountName: account.name, ledgerAccountIsDefault: false } : {}),
+            // `vatCodeIsDefault` stays in the table but nothing reads it (SO-2): false for a hand copy, NULL for none.
             ...(vat ? { vatCodeCopy: vat.code, vatRateBasisPoints: vat.rateBasisPoints, vatCodeIsDefault: false } : {}),
+            ...(decision.vatChange.kind === "clear" ? { vatCodeCopy: null, vatRateBasisPoints: null, vatCodeIsDefault: null } : {}),
           },
         });
         const detail: LineClassifiedDetail = {
@@ -547,9 +561,10 @@ export async function classifyLine(
           },
           vatCode: {
             from: vatSummary(before?.vatCode ?? null),
-            to: vatSummary(vat ?? before?.vatCode ?? null),
-            fromDefault: before?.vatCodeIsDefault ?? false,
-            toDefault: vat ? false : (before?.vatCodeIsDefault ?? false),
+            // A clear is recorded as `to: null`, read as "none" (AC-3.3). A VAT code is never a default (SO-2).
+            to: decision.vatChange.kind === "clear" ? null : vatSummary(vat ?? before?.vatCode ?? null),
+            fromDefault: false,
+            toDefault: false,
           },
         };
         await writeAuditEntry(tx, {

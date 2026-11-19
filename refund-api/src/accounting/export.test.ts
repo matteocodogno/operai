@@ -487,7 +487,7 @@ function sourceRow(patch: Record<string, unknown> = {}): ExportSource["rows"][nu
       ledgerAccountIsDefault: true,
       vatCodeCopy: "IMP81",
       vatRateBasisPoints: 810,
-      vatCodeIsDefault: true,
+      vatCodeIsDefault: false,
       fxRateMicros: null,
       fxRateMonth: null,
       ...patch,
@@ -526,11 +526,20 @@ describe("evaluateExport: the rows come from the copies (AC-5.3, AC-5.4, AC-5.5)
     expect(other.summary.fetchAttempted).toBe(true);
   });
 
-  it("a stored half is bookable whatever it is called now; a missing half is missing, with no default to fill it", () => {
-    const result = evaluateExport(sourceOf(sourceRow({ accountNumber: null, accountName: null }), sourceRow({ vatCodeCopy: null, vatRateBasisPoints: null })), { kind: "none" });
+  it("a stored account is bookable whatever it is called now; a missing account blocks, with no default to fill it", () => {
+    const result = evaluateExport(sourceOf(sourceRow({ accountNumber: null, accountName: null })), { kind: "none" });
     expect(result.summary.exportable).toBe(false);
-    expect(result.summary.blockers.unclassifiedLines.map((l) => l.missing)).toEqual([["account"], ["vatCode"]]);
+    expect(result.summary.blockers.unclassifiedLines.map((l) => l.missing)).toEqual([["account"]]);
     expect(result.lines).toEqual([]);
+  });
+
+  it("(20261118 AC-3.11) a line with no VAT code is exported like any other: no blocker, and its VAT cells are empty", () => {
+    const result = evaluateExport(sourceOf(sourceRow({ vatCodeCopy: null, vatRateBasisPoints: null })), { kind: "none" });
+    expect(result.summary).toMatchObject({ exportable: true, rowCount: 1 });
+    expect(result.summary.blockers.unclassifiedLines).toEqual([]);
+    expect(result.lines.map((l) => [l.accountNumber, l.vatCode, l.vatRateBasisPoints])).toEqual([["6101", null, null]]);
+    const row = buildAccountingCsv(result.lines).text.split("\r\n")[1]!.split(";");
+    expect(row.slice(10, 15)).toEqual(["6101", "Spese materiale ufficio", "", "", ""]); // account, name, then no code, rate or amount
   });
 
   it("a line with no receipt number is an unnumbered blocker", () => {

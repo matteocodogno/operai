@@ -346,7 +346,8 @@ describe("POST /requests/:id/withdraw", () => {
       v: 2,
       cause: "withdrawn",
       account: { from: { number: "6101", name: "Ufficio" }, to: null, fromDefault: false, toDefault: true },
-      vatCode: { from: { code: "IMP81", rateBasisPoints: 810 }, to: null, fromDefault: false, toDefault: true },
+      // a VAT code has no default to go back to (SO-2): the copy simply goes
+      vatCode: { from: { code: "IMP81", rateBasisPoints: 810 }, to: null, fromDefault: false, toDefault: false },
     });
     expect(detailOf(onlyVat.id).account).toEqual({ from: null, to: null, fromDefault: true, toDefault: true });
     // the withdrawal itself is still audited, once

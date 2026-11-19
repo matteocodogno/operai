@@ -35,22 +35,12 @@ beforeEach(async () => {
   for (const v of ["IMP81", "NOVAT"]) fake.removeVatCode(v);
   for (const c of ["EUR", "USD", "GBP"] as const) for (const m of ["2026-03", "2025-12", "2026-01"]) fake.removeRate(c, m);
   fake.setAccount("5901", "Treno").setAccount("6101", "Ufficio").setVatCode("IMP81", "IVA 8.1%", 810).setVatCode("NOVAT", "Senza IVA", 0);
-  // Refund's recorded defaults (copies): train, office, postal (an account, no VAT code), NOVAT for foreign currencies.
-  const copy = (type: ExpenseType, accountNumber: string, accountName: string, withVat: boolean) =>
-    db.expenseTypeAccountingDefault.create({
-      data: {
-        entity: "welld_ch",
-        type,
-        accountNumber,
-        accountName,
-        ...(withVat ? { vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810 } : {}),
-        ...by,
-      },
-    });
-  await copy("travel_train", "5901", "Treno", true);
-  await copy("office_material", "6101", "Ufficio", true);
-  await copy("postal", "6101", "Ufficio", false);
-  await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", vatCode: "NOVAT", vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...by } });
+  // Refund's recorded defaults (copies): train, office and postal. Accounts only: there is no VAT default, no designation.
+  const copy = (type: ExpenseType, accountNumber: string, accountName: string) =>
+    db.expenseTypeAccountingDefault.create({ data: { entity: "welld_ch", type, accountNumber, accountName, ...by } });
+  await copy("travel_train", "5901", "Treno");
+  await copy("office_material", "6101", "Ufficio");
+  await copy("postal", "6101", "Ufficio");
   reference = await readReference([{ currency: "EUR", month: "2026-03" }, { currency: "EUR", month: "2026-01" }, { currency: "EUR", month: "2025-12" }]);
 });
 afterAll(async () => {
@@ -273,14 +263,14 @@ describe("numbering", () => {
 });
 
 describe("classification copy", () => {
-  it("(AC-5.1) copies the defaults from Accounting's current entries, with *IsDefault true, and audits cause approval, from null to the copies", async () => {
+  it("(AC-5.1) copies the default account from Accounting's current entry, marked default, no VAT code, and audits cause approval, from null to the copy", async () => {
     const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", type: "travel_train" }]);
     const res = await run([r.request.id]);
     expect(res.ok && res.lines[0]!.missing).toEqual([]);
     const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
     expect(line).toMatchObject({
       accountNumber: "5901", accountName: "Treno", ledgerAccountIsDefault: true,
-      vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: true,
+      vatCodeCopy: null, vatRateBasisPoints: null, vatCodeIsDefault: null,
       fxRateMicros: null, fxRateMonth: null, fxRateCopiedAt: null,
     });
     expect(Object.keys(line).filter((key) => /ledgerAccountId|vatCodeId/.test(key))).toEqual([]); // the old foreign keys are gone (T24)
@@ -291,7 +281,7 @@ describe("classification copy", () => {
       v: 2,
       cause: "approval",
       account: { from: null, to: { number: "5901", name: "Treno" }, fromDefault: true, toDefault: true },
-      vatCode: { from: null, to: { code: "IMP81", rateBasisPoints: 810 }, fromDefault: true, toDefault: true },
+      vatCode: { from: null, to: null, fromDefault: false, toDefault: false },
     });
     const assigned = audit.find((a) => a.action === "receipt_number_assigned")!;
     expect(assigned.detail).toEqual({ cause: "approval", receiptNumber: "MC26/001", year: 2026, seq: 1 });
@@ -305,19 +295,34 @@ describe("classification copy", () => {
     expect(await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } })).toMatchObject({ accountNumber: "5901", accountName: "Treno e bus" });
   });
 
-  it("(AC-3.2 of 20261118) a foreign-currency line gets the designated VAT code, not the type's own", async () => {
+  it("(AC-3.13 of 20261118) a foreign-currency line gets the account and NO VAT code: nothing is pre-set", async () => {
     const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", currency: "EUR" }]);
-    await run([r.request.id]);
+    expect((await run([r.request.id])).ok).toBe(true);
     const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
-    expect([line.vatCodeCopy, line.vatRateBasisPoints]).toEqual(["NOVAT", 0]);
+    expect([line.vatCodeCopy, line.vatRateBasisPoints, line.vatCodeIsDefault]).toEqual([null, null, null]);
     expect(line.accountNumber).toBe("5901");
+  });
+
+  it("(AC-3.5, AC-5.1) a VAT copy stored by hand is booked as it is, flagged false, audited from the copy to the same copy", async () => {
+    const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", currency: "EUR" }]);
+    await db.refundLine.update({ where: { id: "l1" }, data: { vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: true /* a former default's flag */ } });
+    expect((await run([r.request.id])).ok).toBe(true);
+    const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
+    expect(line).toMatchObject({ vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: false });
+    const detail = (await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: "l1", action: "line_classified" } })).detail as any;
+    expect(detail.vatCode).toEqual({
+      from: { code: "IMP81", rateBasisPoints: 810 },
+      to: { code: "IMP81", rateBasisPoints: 810 },
+      fromDefault: false,
+      toDefault: false,
+    });
   });
 
   it("keeps a hand copy and its flag exactly as stored, and audits it from the copy", async () => {
     const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", accountNumber: "6101", accountName: "Ufficio (as copied)", ledgerAccountIsDefault: false }]);
     await run([r.request.id]);
     const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
-    expect(line).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as copied)", ledgerAccountIsDefault: false, vatCodeIsDefault: true });
+    expect(line).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as copied)", ledgerAccountIsDefault: false, vatCodeIsDefault: null });
     const detail = (await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: "l1", action: "line_classified" } })).detail as any;
     expect(detail.account).toMatchObject({ from: { number: "6101" }, to: { number: "6101", name: "Ufficio (as copied)" }, fromDefault: false, toDefault: false });
   });
@@ -330,19 +335,20 @@ describe("classification copy", () => {
     expect((await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } })).accountNumber).toBe("6101");
   });
 
-  it("(AC-6.3) a missing half refuses the approval, naming line, date and type, and writes nothing", async () => {
+  it("(AC-6.3, AC-3.4) a missing account refuses the approval, naming line, date and type, and writes nothing; a line with no VAT code never does", async () => {
     const r = await makeRequest("owner-1", [
       { date: "2026-03-05", id: "ok", type: "travel_train" },
-      { date: "2026-03-02", id: "bad", type: "postal" }, // postal has an account but no VAT code
+      { date: "2026-03-02", id: "fine", type: "postal" }, // an account, no VAT code: complete
       { date: "2026-03-03", id: "worse", type: "stationery" }, // no default at all
+      { date: "2026-03-04", id: "gifts", type: "representation_gifts" }, // no account chosen yet (20261118 AC-8.3)
     ]);
     const res = await run([r.request.id]);
     expect(res).toEqual({
       ok: false,
       reason: "classification_missing",
       missing: [
-        { lineId: "bad", requestId: r.request.id, date: "2026-03-02", type: "postal", missing: ["vatCode"] },
-        { lineId: "worse", requestId: r.request.id, date: "2026-03-03", type: "stationery", missing: ["account", "vatCode"] },
+        { lineId: "worse", requestId: r.request.id, date: "2026-03-03", type: "stationery", missing: ["account"] },
+        { lineId: "gifts", requestId: r.request.id, date: "2026-03-04", type: "representation_gifts", missing: ["account"] },
       ],
     });
     expect(await db.receiptCounter.count()).toBe(0);
@@ -357,21 +363,22 @@ describe("classification copy", () => {
     reference = await readReference();
     let res = await run([r.request.id]);
     expect(res.ok === false && res.reason === "classification_missing" && res.missing[0]!.missing).toEqual(["account"]);
-    fake.setAccountActive("5901", true);
-    fake.removeVatCode("IMP81");
-    reference = await readReference();
-    res = await run([r.request.id]);
-    expect(res.ok === false && res.reason === "classification_missing" && res.missing[0]!.missing).toEqual(["vatCode"]);
     expect(await db.refundLine.count({ where: { receiptNumber: { not: null } } })).toBe(0);
+    fake.setAccountActive("5901", true);
+    reference = await readReference();
+    expect((await run([r.request.id])).ok).toBe(true);
   });
 
-  it("(AC-6.3) a foreign-currency line with no usable designation is refused while a CHF line of the same type is not", async () => {
-    await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", ...by, createdAt: new Date(Date.now() + 1000) } }); // cleared
+  it("(AC-3.11) VAT codes are irrelevant to the approval: with no code in Accounting at all, CHF and foreign lines are numbered alike", async () => {
+    fake.removeVatCode("IMP81");
+    fake.removeVatCode("NOVAT");
+    fake.setRate("EUR", "2026-03", 924_600);
+    reference = await readReference([{ currency: "EUR", month: "2026-03" }]);
     const chf = await makeRequest("owner-1", [{ date: "2026-03-02", id: "chf" }]);
     const eur = await makeRequest("owner-2", [{ date: "2026-03-02", id: "eur", currency: "EUR" }]);
     expect((await run([chf.request.id])).ok).toBe(true);
-    const res = await run([eur.request.id], { userId: "owner-2", name: "A B", email: "a.b@x.ch" });
-    expect(res.ok === false && res.reason === "classification_missing" && res.missing[0]!.missing).toEqual(["vatCode"]);
+    expect((await run([eur.request.id], { userId: "owner-2", name: "A B", email: "a.b@x.ch" })).ok).toBe(true);
+    expect(await db.refundLine.count({ where: { receiptNumber: { not: null }, vatCodeCopy: null } })).toBe(2);
   });
 
   it("a WellD CH line with no read of Accounting is refused as reference_missing, never classified from nothing", async () => {
@@ -469,18 +476,20 @@ describe("the exchange-rate copy (AC-5.1, AC-5.6)", () => {
 });
 
 describe("release cause", () => {
-  it("(AC-7.2 of 20261118) numbers a line it cannot fully classify, copies the half that resolved, and reports what is missing", async () => {
-    const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", type: "postal" }], { status: "approved" });
+  it("(AC-7.2 of 20261118) numbers a line it cannot classify (no usable account) and reports what is missing; a line with no VAT code is complete", async () => {
+    const r = await makeRequest("owner-1", [{ date: "2026-03-02", id: "l1", type: "postal" }, { date: "2026-03-03", id: "l2", type: "stationery" }], { status: "approved" });
     const res = await db.$transaction((tx) =>
       classifyAndNumber(tx, { owner: { userId: "owner-1", name: "Matteo Codogno", email: "m@x.ch" }, requestIds: [r.request.id], cause: "release", actor: { userId: "system:accounting-release", email: "system-accounting-release@welld.ch" }, reference }),
     );
-    expect(res.ok && res.lines[0]).toMatchObject({ lineId: "l1", receiptNumber: "MC26/001", missing: ["vatCode"] });
+    expect(res.ok && res.lines[0]).toMatchObject({ lineId: "l1", receiptNumber: "MC26/001", missing: [] });
+    expect(res.ok && res.lines[1]).toMatchObject({ lineId: "l2", receiptNumber: "MC26/002", missing: ["account"] });
     const line = await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } });
     expect(line).toMatchObject({ accountNumber: "6101", accountName: "Ufficio", ledgerAccountIsDefault: true, vatCodeCopy: null, vatRateBasisPoints: null, vatCodeIsDefault: null });
+    expect(await db.refundLine.findUniqueOrThrow({ where: { id: "l2" } })).toMatchObject({ accountNumber: null, accountName: null, ledgerAccountIsDefault: null, vatCodeCopy: null });
     const audit = await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: "l1", action: "line_classified" } });
     expect(audit.actorUserId).toBe("system:accounting-release");
     expect((audit.detail as any).cause).toBe("release");
-    expect((audit.detail as any).vatCode).toEqual({ from: null, to: null, fromDefault: true, toDefault: false });
+    expect((audit.detail as any).vatCode).toEqual({ from: null, to: null, fromDefault: false, toDefault: false });
   });
 
   it("(IS-1) classifies and numbers a legacy line of a PAID request: one statement, so the database guard allows it", async () => {
@@ -490,7 +499,7 @@ describe("release cause", () => {
     );
     expect(res.ok).toBe(true);
     expect(await db.refundLine.findUniqueOrThrow({ where: { id: "l1" } })).toMatchObject({
-      receiptNumber: "MC26/001", accountNumber: "5901", vatCodeCopy: "IMP81",
+      receiptNumber: "MC26/001", accountNumber: "5901", vatCodeCopy: null,
     });
     // and from now on it is locked
     // T16 (specs/20261119-accounting): guard v2 watches the COPY columns, no longer the old FK columns.

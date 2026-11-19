@@ -83,20 +83,19 @@ const recordedAccount = (row: AccountCopyColumns) =>
   row.accountNumber !== null && row.accountName !== null ? { number: row.accountNumber, name: row.accountName } : null;
 
 /**
- * The defaults a line is resolved against: the latest recorded copy of each type and of the designation. They are
- * returned AS RECORDED; whether an entry is still usable is the resolver's question, against a snapshot.
+ * The defaults a line is resolved against: the latest recorded account copy of each type (accounts only: there is no VAT
+ * default, SO-2). They are returned AS RECORDED; whether an entry is still usable is the resolver's question, against a
+ * snapshot.
  */
 export async function loadRecordedDefaults(client: Client = db): Promise<RecordedDefaults> {
   const rows = await typeRows(client);
   const latestByType = new Map<ExpenseType, (typeof rows)[number]>();
   for (const row of rows) latestByType.set(row.type, row);
-  const designations = await designationRows(client);
-  const latestDesignation = designations[designations.length - 1];
 
-  const defaults: Partial<Record<ExpenseType, { account: { number: string; name: string } | null; vatCode: RecordedVat | null }>> = {};
-  for (const [type, row] of latestByType) defaults[type] = { account: recordedAccount(row), vatCode: recordedVat(row) };
+  const defaults: Partial<Record<ExpenseType, { account: { number: string; name: string } | null }>> = {};
+  for (const [type, row] of latestByType) defaults[type] = { account: recordedAccount(row) };
   const byType: TypeDefaultsByType = defaults;
-  return { defaults: byType, foreignCurrencyVatCode: latestDesignation ? recordedVat(latestDesignation) : null };
+  return { defaults: byType };
 }
 
 const stateOfAccount = (snapshot: ReferenceSnapshot, number: string): ReferenceState => snapshot.lookupAccount(number).state;

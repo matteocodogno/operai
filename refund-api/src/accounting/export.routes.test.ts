@@ -663,12 +663,12 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
     expect(discarded.status).toBe(200);
   });
 
-  it("(AC-7.2, G11) unclassified lines block, named by id, date, type, employee and number, until accounting classifies them", async () => {
+  it("(AC-7.2, G11, 20261118 AC-3.11) lines without an account block, named by id, date, type, employee and number, until accounting classifies them; a missing VAT code never blocks", async () => {
     const { batchId, lineIds, requestIds } = await createBatch([
       {
         lines: [
           { type: "office_material", date: "2026-03-10", account: null, vat: IMP81 },
-          { type: "travel_train", date: "2026-03-03", account: OFFICE, vat: null },
+          { type: "travel_train", date: "2026-03-03", account: OFFICE, vat: null }, // an account and no VAT code: complete
           { type: "postal", date: "2026-03-04", account: null, vat: null },
           { type: "office_material", date: "2026-03-05" }, // fully classified: not listed
         ],
@@ -677,51 +677,53 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
     const { body } = await summaryOf(batchId);
     expect(body["exportable"]).toBe(false);
     expect(body["blockers"]["unclassifiedLines"]).toEqual([
-      { lineId: lineIds[1], requestId: requestIds[0], date: "2026-03-03", type: "travel_train", employee: "Matteo Codogno", receiptNumber: "MC26/002", missing: ["vatCode"] },
-      { lineId: lineIds[2], requestId: requestIds[0], date: "2026-03-04", type: "postal", employee: "Matteo Codogno", receiptNumber: "MC26/003", missing: ["account", "vatCode"] },
+      { lineId: lineIds[2], requestId: requestIds[0], date: "2026-03-04", type: "postal", employee: "Matteo Codogno", receiptNumber: "MC26/003", missing: ["account"] },
       { lineId: lineIds[0], requestId: requestIds[0], date: "2026-03-10", type: "office_material", employee: "Matteo Codogno", receiptNumber: "MC26/001", missing: ["account"] },
     ]);
     const csv = await csvOf(batchId);
     expect(csv.status).toBe(409);
-    expect(json(csv.text)["blockers"]["unclassifiedLines"]).toHaveLength(3);
+    expect(json(csv.text)["blockers"]["unclassifiedLines"]).toHaveLength(2);
     // Nothing was classified, copied or read from Accounting to say so.
     expect(fake.reads.total).toBe(0);
 
     // Accounting classifies them (the PUT writes copies by natural key): the export opens.
     await db.refundLine.update({ where: { id: lineIds[0]! }, data: { accountNumber: OFFICE.number, accountName: OFFICE.name, ledgerAccountIsDefault: false } });
-    await db.refundLine.update({ where: { id: lineIds[1]! }, data: { vatCodeCopy: IMP81.code, vatRateBasisPoints: IMP81.rateBasisPoints, vatCodeIsDefault: false } });
     await db.refundLine.update({
       where: { id: lineIds[2]! },
-      data: { accountNumber: OFFICE.number, accountName: OFFICE.name, ledgerAccountIsDefault: false, vatCodeCopy: NOVAT.code, vatRateBasisPoints: 0, vatCodeIsDefault: false },
+      data: { accountNumber: OFFICE.number, accountName: OFFICE.name, ledgerAccountIsDefault: false },
     });
     as(GLOBAL_REVIEWER);
     expect((await summaryOf(batchId)).body).toMatchObject({ exportable: true, rowCount: 4 });
     expect((await csvOf(batchId)).status).toBe(200);
   });
 
-  it("BINDING: an approved line is read STORED-ONLY, exactly as the review view reads it: a live default never fills a half left empty", async () => {
-    // Refund records defaults for the type and for foreign currencies, Accounting lists every entry as active...
+  it("BINDING: an approved line is read STORED-ONLY, exactly as the review view reads it: a live default never fills an account left empty", async () => {
+    // Refund records a default account for the type, Accounting lists every entry as active...
     const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
     await db.expenseTypeAccountingDefault.create({
-      data: { entity: "welld_ch", type: "office_material", accountNumber: OFFICE.number, accountName: OFFICE.name, vatCode: IMP81.code, vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by },
+      data: { entity: "welld_ch", type: "office_material", accountNumber: OFFICE.number, accountName: OFFICE.name, ...by },
     });
-    await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", vatCode: NOVAT.code, vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...by } });
     fake.setRate("EUR", "2026-03", 924_600);
-    // ...but the approved lines have nothing stored for one half: they stay blocked, they are not classified by the defaults.
+    // ...but the approved line has nothing stored for the account: it stays blocked, it is not classified by the default.
     const { batchId, lineIds } = await createBatch([
       { lines: [{ type: "office_material", account: null, vat: null }, { type: "office_material", currency: "EUR", account: OFFICE, vat: null }] },
     ]);
     const { body } = await summaryOf(batchId);
     expect(body["exportable"]).toBe(false);
-    expect(body["blockers"]["unclassifiedLines"].map((l: any) => [l.lineId, l.missing])).toEqual([
-      [lineIds[0], ["account", "vatCode"]],
-      [lineIds[1], ["vatCode"]],
-    ]);
+    expect(body["blockers"]["unclassifiedLines"].map((l: any) => [l.lineId, l.missing])).toEqual([[lineIds[0], ["account"]]]);
     expect((await csvOf(batchId)).status).toBe(409);
     // The rate of the EUR line was asked (it is pending), the reference data and the defaults never were consulted.
     expect(fake.reads.referenceData).toBe(0);
     // ...and the refused export copied nothing.
     expect((await db.refundLine.findUniqueOrThrow({ where: { id: lineIds[1]! } })).fxRateMicros).toBeNull();
+  });
+
+  it("(20261118 AC-3.11) a batch whose lines have an account and no VAT code is exported like any other, the VAT cells empty", async () => {
+    const { batchId } = await createBatch([{ lines: [{ account: OFFICE, vat: null }] }]);
+    expect((await summaryOf(batchId)).body).toMatchObject({ exportable: true, rowCount: 1 });
+    const out = await csvOf(batchId);
+    expect(out.status).toBe(200);
+    expect(out.text).toContain(";6101;Spese materiale ufficio;;;;");
   });
 
   it("(AC-5.3) a stored account or VAT code that was deactivated since, or renamed, or gone, is kept: the line still exports as copied", async () => {

@@ -102,7 +102,7 @@ beforeEach(async () => {
   // specs/20261119-accounting (T20): approving and reclassifying read Accounting by natural key; Refund records the defaults.
   useFakeAccounting(createStandardFakeAccounting());
   await db.expenseTypeAccountingDefault.create({
-    data: { entity: "welld_ch", type: "office_material", accountNumber: "6101", accountName: "Spese materiale ufficio", vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by },
+    data: { entity: "welld_ch", type: "office_material", accountNumber: "6101", accountName: "Spese materiale ufficio", ...by },
   });
 });
 afterAll(async () => {

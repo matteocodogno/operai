@@ -204,7 +204,8 @@ export function setApprovedTotal(
 
 /**
  * 409 `classification_missing` (AC-3.4): at least one non-rejected WellD CH
- * line has no account or no VAT code once resolved. The approval was rolled
+ * line has no usable account once resolved (the VAT code
+ * is optional, 20261118 SO-4: `missing` is `["account"]`, the array shape kept for the UI). The approval was rolled
  * back, so nothing changed and no number was consumed. `lines` is what the
  * review page needs to point at each value: id, date and type are always
  * present (plan § API contracts).

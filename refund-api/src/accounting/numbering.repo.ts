@@ -165,7 +165,6 @@ export async function classifyAndNumber(
       ledgerAccountIsDefault: true,
       vatCodeCopy: true,
       vatRateBasisPoints: true,
-      vatCodeIsDefault: true,
       fxRateMicros: true,
     },
   });
@@ -181,7 +180,7 @@ export async function classifyAndNumber(
   const classifiesSomething = lines.some((l) => l.entity === "welld_ch");
   if (classifiesSomething && input.reference === null) return { ok: false, reason: "reference_missing" };
   // Refund's own recorded defaults, read inside the transaction (they are Refund's rows); Accounting was read before it.
-  const recorded = classifiesSomething ? await loadRecordedDefaults(tx) : { defaults: {}, foreignCurrencyVatCode: null };
+  const recorded = classifiesSomething ? await loadRecordedDefaults(tx) : { defaults: {} };
 
   const resolved = new Map<string, Classification | null>();
   const missingLines: MissingLine[] = [];
@@ -189,7 +188,7 @@ export async function classifyAndNumber(
     const classification =
       input.reference === null
         ? null
-        : resolveClassification(classifiableInput(line), recorded.defaults, recorded.foreignCurrencyVatCode, input.reference.snapshot);
+        : resolveClassification(classifiableInput(line), recorded.defaults, input.reference.snapshot);
     resolved.set(line.id, classification);
     // A foreign-currency line to copy a rate for must have its pair among the answers the caller read: "Accounting was not
     // asked" is never "Accounting has no rate" (that would leave a line pending that had one).
@@ -274,7 +273,8 @@ export async function classifyAndNumber(
               ledgerAccountIsDefault: classification.bookable.account ? classification.accountIsDefault : null,
               vatCodeCopy: classification.bookable.vatCode?.code ?? null,
               vatRateBasisPoints: classification.bookable.vatCode?.rateBasisPoints ?? null,
-              vatCodeIsDefault: classification.bookable.vatCode ? classification.vatCodeIsDefault : null,
+              // Nothing reads the flag (SO-2): `false` for a copy, NULL for none.
+              vatCodeIsDefault: classification.bookable.vatCode ? false : null,
             }
           : {}),
         ...(fxCopy ? { fxRateMicros: fxCopy.rateMicros, fxRateMonth: monthStart(fxCopy.month), fxRateCopiedAt: numberedAt } : {}),
@@ -298,8 +298,8 @@ export async function classifyAndNumber(
         vatCode: {
           from: vatSummary(stored.vatCode),
           to: vatSummary(classification.bookable.vatCode),
-          fromDefault: stored.vatCode === null ? true : line.vatCodeIsDefault === true,
-          toDefault: classification.bookable.vatCode ? classification.vatCodeIsDefault : false,
+          fromDefault: false,
+          toDefault: false,
         },
         ...(fxRate !== undefined ? { fxRate } : {}),
       };

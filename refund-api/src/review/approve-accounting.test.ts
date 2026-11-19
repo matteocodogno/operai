@@ -83,22 +83,13 @@ const fake = createFakeAccounting();
 /** AC-6.10: a refusal names the cause and carries no address, identifier or internal text. */
 const NO_INTERNALS = /https?:\/\/(?!httpstatuses\.com)|localhost|railway|\bc[a-z0-9]{24}\b|\bat .*\(/;
 
-/** Refund's recorded default of one type: copies of the entry as it was chosen. */
-const recordDefault = (type: string, account: [string, string] | null, vat: [string, string, number] | null) =>
+/** Refund's recorded default of one type: a copy of the account as it was chosen (there is no VAT default). */
+const recordDefault = (type: string, account: [string, string] | null, offsetMs = 0) =>
   db.expenseTypeAccountingDefault.create({
     data: {
       entity: "welld_ch",
       type: type as never,
       ...(account ? { accountNumber: account[0], accountName: account[1] } : {}),
-      ...(vat ? { vatCode: vat[0], vatLabel: vat[1], vatRateBasisPoints: vat[2] } : {}),
-      ...by,
-    },
-  });
-const designate = (vat: [string, string, number] | null, offsetMs = 0) =>
-  db.foreignCurrencyVatDesignation.create({
-    data: {
-      entity: "welld_ch",
-      ...(vat ? { vatCode: vat[0], vatLabel: vat[1], vatRateBasisPoints: vat[2] } : {}),
       ...by,
       createdAt: new Date(Date.now() + offsetMs),
     },
@@ -116,10 +107,9 @@ async function seedCatalog() {
   fake.setAccount(...TRAIN).setAccount(...OFFICE).setVatCode(...IMP81).setVatCode(...NOVAT);
   useFakeAccounting(fake);
   // `stationery` deliberately has no default.
-  await recordDefault("travel_train", TRAIN, IMP81);
-  await recordDefault("office_material", OFFICE, IMP81);
-  await recordDefault("postal", OFFICE, NOVAT);
-  await designate(NOVAT);
+  await recordDefault("travel_train", TRAIN);
+  await recordDefault("office_material", OFFICE);
+  await recordDefault("postal", OFFICE);
 }
 
 beforeEach(async () => {
@@ -148,6 +138,8 @@ interface LineSpec {
   /** A hand copy of the account stored before the approval (WellD CH only). */
   accountNumber?: string;
   accountName?: string;
+  /** A VAT code copy stored by hand (code, rate in basis points). */
+  vat?: [string, number];
 }
 
 async function createRequest(owner: { id: string; name?: string | null; email?: string }, lines: LineSpec[]) {
@@ -175,6 +167,7 @@ async function createRequest(owner: { id: string; name?: string | null; email?: 
         approvedTotalCents: spec.approvedTotalCents === undefined ? null : spec.approvedTotalCents,
         ...(spec.createdAt ? { createdAt: new Date(spec.createdAt) } : {}),
         ...(spec.accountNumber ? { accountNumber: spec.accountNumber, accountName: spec.accountName ?? "x", ledgerAccountIsDefault: false } : {}),
+        ...(spec.vat ? { vatCodeCopy: spec.vat[0], vatRateBasisPoints: spec.vat[1], vatCodeIsDefault: false } : {}),
         ...(spec.rejected ? { rejectionReason: "no", rejectedAt: new Date(), rejectedByUserId: "a", rejectedByEmail: "a@x", approvedTotalCents: 0 } : {}),
       },
     });
@@ -244,7 +237,7 @@ describe("the release gate (D6)", () => {
 });
 
 describe("approve: copies and numbering", () => {
-  it("(AC-5.1, AC-4.2) copies the type defaults, numbers the line MC26/001 and audits cause approval", async () => {
+  it("(AC-5.1, AC-4.2) copies the type's default account, numbers the line MC26/001 and audits cause approval; no VAT code", async () => {
     const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }]);
     const res = await approve(r.id);
     expect(res.status).toBe(200);
@@ -254,9 +247,9 @@ describe("approve: copies and numbering", () => {
       accountNumber: "5901",
       accountName: "Treno",
       ledgerAccountIsDefault: true,
-      vatCodeCopy: "IMP81",
-      vatRateBasisPoints: 810,
-      vatCodeIsDefault: true,
+      vatCodeCopy: null,
+      vatRateBasisPoints: null,
+      vatCodeIsDefault: null,
       receiptNumber: "MC26/001",
       receiptOwnerUserId: "owner-1",
       receiptYear: 2026,
@@ -273,7 +266,7 @@ describe("approve: copies and numbering", () => {
     expect((classified[0]!.detail as any).v).toBe(2);
     expect((classified[0]!.detail as any).cause).toBe("approval");
     expect((classified[0]!.detail as any).account.to).toEqual({ number: "5901", name: "Treno" });
-    expect((classified[0]!.detail as any).vatCode.to).toEqual({ code: "IMP81", rateBasisPoints: 810 });
+    expect((classified[0]!.detail as any).vatCode).toEqual({ from: null, to: null, fromDefault: false, toDefault: false });
     expect(classified[0]!.detail).not.toHaveProperty("fxRate"); // a CHF line has no rate
     const numbered = await db.refundAuditEntry.findMany({ where: { requestId: r.id, action: "receipt_number_assigned" } });
     expect(numbered).toHaveLength(1);
@@ -284,15 +277,15 @@ describe("approve: copies and numbering", () => {
     fake.setRate("EUR", "2026-03", 924_600);
     const r = await createRequest({ id: "owner-1" }, [
       { date: "2026-03-01", type: "travel_train" }, // on defaults
-      { date: "2026-03-02", type: "travel_train", accountNumber: "6101", accountName: "Ufficio (as copied)" }, // classified by hand earlier
+      { date: "2026-03-02", type: "travel_train", accountNumber: "6101", accountName: "Ufficio (as copied)", vat: ["IMP81", 810] }, // classified by hand earlier
       { date: "2026-03-03", type: "office_material", currency: "EUR", requestedAmountCents: 1040 }, // a rate in effect
       { date: "2026-03-04", type: "stationery", rejected: true },
     ]);
     expect((await approve(r.id)).status).toBe(200);
     const [defaults, hand, eur, rejected] = await Promise.all(r.lineIds.map(lineOf));
-    expect(defaults).toMatchObject({ accountNumber: "5901", ledgerAccountIsDefault: true, vatCodeCopy: "IMP81" });
-    expect(hand).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as copied)", ledgerAccountIsDefault: false, vatCodeCopy: "IMP81", vatCodeIsDefault: true });
-    expect(eur).toMatchObject({ accountNumber: "6101", vatCodeCopy: "NOVAT", vatRateBasisPoints: 0, fxRateMicros: 924_600 });
+    expect(defaults).toMatchObject({ accountNumber: "5901", ledgerAccountIsDefault: true, vatCodeCopy: null });
+    expect(hand).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as copied)", ledgerAccountIsDefault: false, vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: false });
+    expect(eur).toMatchObject({ accountNumber: "6101", vatCodeCopy: null, vatRateBasisPoints: null, fxRateMicros: 924_600 });
     expect(eur!.fxRateMonth?.toISOString().slice(0, 10)).toBe("2026-03-01");
     expect(eur!.fxRateCopiedAt).not.toBeNull();
     expect([rejected!.accountNumber, rejected!.vatCodeCopy, rejected!.fxRateMicros, rejected!.receiptNumber]).toEqual([null, null, null, null]);
@@ -308,42 +301,43 @@ describe("approve: copies and numbering", () => {
     const r = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "EUR" }]);
     expect((await approve(r.id)).status).toBe(200);
     const line = await lineOf(r.lineIds[0]!);
-    expect(line).toMatchObject({ receiptNumber: "MC26/001", accountNumber: "6101", vatCodeCopy: "NOVAT", fxRateMicros: null, fxRateMonth: null, fxRateCopiedAt: null });
+    expect(line).toMatchObject({ receiptNumber: "MC26/001", accountNumber: "6101", vatCodeCopy: null, fxRateMicros: null, fxRateMonth: null, fxRateCopiedAt: null });
     const detail = (await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: r.lineIds[0]!, action: "line_classified" } })).detail as any;
     expect(detail.fxRate).toBe("pending");
   });
 
-  it("(AC-3.2 of 20261118) a manual copy on the line is what gets copied, as not-default", async () => {
+  it("(AC-3.11) a manual account copy on the line is what gets copied, as not-default, and the line has no VAT code", async () => {
     const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train", accountNumber: "6101", accountName: "Ufficio" }]);
     expect((await approve(r.id)).status).toBe(200);
     const line = await lineOf(r.lineIds[0]!);
     expect(line.accountNumber).toBe("6101");
     expect(line.ledgerAccountIsDefault).toBe(false);
-    expect(line.vatCodeCopy).toBe("IMP81");
-    expect(line.vatCodeIsDefault).toBe(true);
+    expect(line.vatCodeCopy).toBeNull();
+    expect(line.vatCodeIsDefault).toBeNull();
   });
 
-  it("(AC-3.2 of 20261118) a non-CHF line copies the type's account and the foreign-currency VAT code", async () => {
-    const r = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "EUR" }]);
+  it("(AC-3.13 of 20261118) a non-CHF line copies the type's account and NO VAT code; one chosen by hand is kept, reverse-charge code included", async () => {
+    fake.setVatCode("BZM81", "IVA 8.1% reverse charge", 810);
+    const r = await createRequest({ id: "owner-1" }, [
+      { date: "2026-03-02", type: "office_material", currency: "EUR" },
+      { date: "2026-03-03", type: "office_material", currency: "EUR", vat: ["BZM81", 810] },
+    ]);
     expect((await approve(r.id)).status).toBe(200);
-    const line = await lineOf(r.lineIds[0]!);
-    expect(line.accountNumber).toBe("6101");
-    expect(line.vatCodeCopy).toBe("NOVAT");
-    expect(line.vatCodeIsDefault).toBe(true);
+    const [plain, reverse] = await Promise.all(r.lineIds.map(lineOf));
+    expect(plain).toMatchObject({ accountNumber: "6101", vatCodeCopy: null, vatRateBasisPoints: null, vatCodeIsDefault: null });
+    expect(reverse).toMatchObject({ accountNumber: "6101", vatCodeCopy: "BZM81", vatRateBasisPoints: 810, vatCodeIsDefault: false });
   });
 
-  it("(AC-5.3) Accounting and the defaults changing after approval do not move the booked copy, and the designation neither", async () => {
+  it("(AC-5.3) Accounting and the defaults changing after approval do not move the booked copy", async () => {
     fake.setRate("EUR", "2026-03", 924_600);
-    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }, { type: "office_material", currency: "EUR" }]);
+    const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train", vat: ["IMP81", 810] }, { type: "office_material", currency: "EUR", vat: ["NOVAT", 0] }]);
     expect((await approve(r.id)).status).toBe(200);
     const before = await Promise.all(r.lineIds.map(lineOf));
 
     // Refund's defaults change...
     await db.expenseTypeAccountingDefault.create({
-      data: { entity: "welld_ch", type: "travel_train", accountNumber: "6101", accountName: "Ufficio", vatCode: "NOVAT", vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...by, createdAt: new Date(Date.now() + 1000) },
+      data: { entity: "welld_ch", type: "travel_train", accountNumber: "6101", accountName: "Ufficio", ...by, createdAt: new Date(Date.now() + 1000) },
     });
-    await designate(IMP81, 2000);
-    await designate(null, 3000);
     // ...and Accounting does too.
     fake.setAccountActive("5901", false);
     fake.setVatCodeActive("IMP81", false);
@@ -357,7 +351,7 @@ describe("approve: copies and numbering", () => {
       ]);
       expect(line.ledgerAccountIsDefault).toBe(before[i]!.ledgerAccountIsDefault);
     }
-    expect([after[1]!.vatCodeCopy, after[1]!.fxRateMicros]).toEqual(["NOVAT", 924_600]);
+    expect([after[0]!.vatCodeCopy, after[1]!.vatCodeCopy, after[1]!.fxRateMicros]).toEqual(["IMP81", "NOVAT", 924_600]);
   });
 
   it("(AC-4.1, AC-4.9) a rejected line is not numbered or classified; WellD Italia lines are numbered but never classified", async () => {
@@ -407,7 +401,7 @@ describe("approve: copies and numbering", () => {
     const line = await lineOf(r.lineIds[0]!);
     expect(line.approvedTotalCents).toBe(0);
     expect(line.receiptNumber).toBe("MC26/001");
-    expect(line.vatCodeCopy).toBe("IMP81");
+    expect(line.vatCodeCopy).toBeNull();
   });
 
   it("AC-7.2 of the old spec still holds: untouched lines default to the requested amount", async () => {
@@ -580,26 +574,37 @@ describe("(AC-6.3) classification_missing", () => {
     expect(res.body["code"]).toBe("classification_missing");
     expect(res.body["status"]).toBe(409);
     expect(res.body["lines"]).toEqual([
-      { lineId: r.lineIds[1]!, date: "2026-03-05", type: "stationery", missing: ["account", "vatCode"] },
+      { lineId: r.lineIds[1]!, date: "2026-03-05", type: "stationery", missing: ["account"] },
     ]);
     await expectNothingChanged(r.id, r.lineIds);
   });
 
-  it("lists every missing line, with only the missing halves", async () => {
-    const r = await createRequest({ id: "owner-1" }, [
-      { date: "2026-03-01", type: "stationery" },
-      { date: "2026-03-02", type: "representation_gifts", currency: "EUR" },
-    ]);
-    // a half default: account only
-    await recordDefault("representation_gifts", OFFICE, null);
-    await designate(null, 1000);
+  it("(AC-8.4 of 20261118) a representation_gifts line (no default account) is refused until an account is chosen, then approves with no VAT code", async () => {
+    const r = await createRequest({ id: "owner-1" }, [{ date: "2026-03-01", type: "representation_gifts" }, { date: "2026-03-02", type: "representation_gifts", currency: "EUR" }]);
+    await recordDefault("representation_gifts", null); // the settings state at release: a row that names no account
     const res = await approve(r.id);
     expect(res.status).toBe(409);
     expect(res.body["lines"]).toEqual([
-      { lineId: r.lineIds[0]!, date: "2026-03-01", type: "stationery", missing: ["account", "vatCode"] },
-      { lineId: r.lineIds[1]!, date: "2026-03-02", type: "representation_gifts", missing: ["vatCode"] },
+      { lineId: r.lineIds[0]!, date: "2026-03-01", type: "representation_gifts", missing: ["account"] },
+      { lineId: r.lineIds[1]!, date: "2026-03-02", type: "representation_gifts", missing: ["account"] },
     ]);
     await expectNothingChanged(r.id, r.lineIds);
+
+    await db.refundLine.updateMany({ where: { requestId: r.id }, data: { accountNumber: "6101", accountName: "Ufficio", ledgerAccountIsDefault: false } });
+    expect((await approve(r.id)).status).toBe(200);
+    expect((await lineOf(r.lineIds[0]!)).vatCodeCopy).toBeNull();
+  });
+
+  it("(AC-3.4, AC-3.11) the 409 lists `missing: [\"account\"]` only, and never a line merely lacking a VAT code, in CHF or EUR", async () => {
+    const r = await createRequest({ id: "owner-1" }, [
+      { date: "2026-03-01", type: "travel_train" },
+      { date: "2026-03-02", type: "office_material", currency: "EUR" },
+      { date: "2026-03-03", type: "stationery", currency: "USD" },
+    ]);
+    const res = await approve(r.id);
+    expect(res.status).toBe(409);
+    expect(res.body["lines"]).toEqual([{ lineId: r.lineIds[2]!, date: "2026-03-03", type: "stationery", missing: ["account"] }]);
+    expect(JSON.stringify(res.body)).not.toContain("vatCode");
   });
 
   it("a type whose default ACCOUNT was deactivated in Accounting counts as missing (G3, AC-4.5)", async () => {
@@ -616,34 +621,24 @@ describe("(AC-6.3) classification_missing", () => {
     expect((await approve(r.id)).status).toBe(200);
   });
 
-  it("a default that is no longer found in Accounting counts as missing too (SA-3)", async () => {
-    fake.removeVatCode("IMP81");
+  it("a default account that is no longer found in Accounting counts as missing too (SA-3)", async () => {
+    fake.removeAccount("5901");
     const r = await createRequest({ id: "owner-1" }, [{ type: "travel_train" }]);
     const res = await approve(r.id);
-    expect([res.status, res.body["lines"]]).toEqual([409, [{ lineId: r.lineIds[0]!, date: "2026-03-02", type: "travel_train", missing: ["vatCode"] }]]);
+    expect([res.status, res.body["lines"]]).toEqual([409, [{ lineId: r.lineIds[0]!, date: "2026-03-02", type: "travel_train", missing: ["account"] }]]);
     await expectNothingChanged(r.id, r.lineIds);
   });
 
-  it("an unset foreign-currency VAT code refuses a non-CHF line, while a CHF line of the same type approves", async () => {
-    await designate(null, 1000);
-    const eur = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "EUR" }]);
-    const res = await approve(eur.id);
-    expect(res.status).toBe(409);
-    expect(res.body["lines"]).toEqual([{ lineId: eur.lineIds[0]!, date: "2026-03-02", type: "office_material", missing: ["vatCode"] }]);
-    await expectNothingChanged(eur.id, eur.lineIds);
-
-    const chf = await createRequest({ id: "owner-2" }, [{ type: "office_material", currency: "CHF" }]);
-    expect((await approve(chf.id)).status).toBe(200);
-  });
-
-  it("a DEACTIVATED foreign-currency VAT code refuses a non-CHF line, and reactivating it lets it through", async () => {
+  it("(AC-3.11) a VAT code that is missing, deactivated or never chosen never holds an approval back, in any currency", async () => {
+    fake.removeVatCode("IMP81");
     fake.setVatCodeActive("NOVAT", false);
-    const r = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "USD" }]);
-    const res = await approve(r.id);
-    expect(res.status).toBe(409);
-    expect((res.body["lines"] as any[])[0].missing).toEqual(["vatCode"]);
-    fake.setVatCodeActive("NOVAT", true);
-    expect((await approve(r.id)).status).toBe(200);
+    const eur = await createRequest({ id: "owner-1" }, [{ type: "office_material", currency: "EUR" }]);
+    expect((await approve(eur.id)).status).toBe(200);
+    const usd = await createRequest({ id: "owner-2" }, [{ type: "office_material", currency: "USD" }]);
+    expect((await approve(usd.id)).status).toBe(200);
+    const chf = await createRequest({ id: "owner-3" }, [{ type: "office_material", currency: "CHF" }]);
+    expect((await approve(chf.id)).status).toBe(200);
+    for (const id of [...eur.lineIds, ...usd.lineIds, ...chf.lineIds]) expect((await lineOf(id)).vatCodeCopy).toBeNull();
   });
 
   it("a hand copy rescues a line with no usable default, even when its entry is deactivated since (the copy is what it books)", async () => {

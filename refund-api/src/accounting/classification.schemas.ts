@@ -30,14 +30,14 @@ export const VatCodeShownSchema = z.object({
 });
 
 /**
- * An unusable default (deactivated, not found, unverified) is returned WITH its state and `*IsDefault: true`, never as
- * `null` (G8a): `null` means "no default set". Approval still refuses it server-side (AC-6.3).
+ * An unusable default account (deactivated, not found, unverified) is returned WITH its state and `accountIsDefault: true`,
+ * never as `null` (G8a): `null` means "no default set". Approval still refuses it server-side (AC-6.3). The VAT code is
+ * the line's stored copy or `null` (no VAT code): it has no default, so there is no `vatCodeIsDefault` (20261118 SO-2).
  */
 export const LineClassificationSchema = z.object({
   account: AccountShownSchema.nullable(),
   accountIsDefault: z.boolean(),
   vatCode: VatCodeShownSchema.nullable(),
-  vatCodeIsDefault: z.boolean(),
 });
 
 export const RATE_STATUSES = ["copied", "in_effect", "missing", "pending", "unavailable", "not_applicable"] as const;
@@ -81,7 +81,7 @@ export const AccountingLineSchema = z.object({
   classification: LineClassificationSchema.nullable(),
   /** `null` for a line out of scope (SR-1); otherwise an object, with null members when no CHF figure applies. */
   chf: LineChfSchema.nullable(),
-  /** `null` when the CHF amount is unknown or no VAT code is bookable (AC-5.6): unknown is never 0. Also `null` out of scope. */
+  /** `null` when the line has no VAT code (AC-3.8) or its CHF amount is unknown (AC-5.6): unknown is never 0. Also `null` out of scope. */
   vatAmountCents: z.number().int().nullable(),
 });
 export type AccountingLine = z.infer<typeof AccountingLineSchema>;
@@ -142,12 +142,13 @@ export const ClassificationProblemSchema = z.object({
 const KeySchema = z.string().trim().min(1).max(32);
 
 /**
- * At least one of the two natural keys, and keys ONLY: there is no `null` and so no "back to the default" (G8). A line
- * that follows a default keeps following it until accounting picks a value, and a picked value stays picked. Unknown
- * keys are refused rather than ignored, so a typo, or the old `ledgerAccountId` body, cannot read as success.
+ * At least one of the two keys. `accountNumber` is a natural key and never null: the account is required and there is no
+ * "back to the default" (G8). `vatCode` is a natural key, or `null` to CLEAR the line's VAT code (20261118 SO-3, AC-3.3):
+ * the code is optional, so "none" is a value a person can choose. Unknown keys are refused rather than ignored, so a typo,
+ * or the old `ledgerAccountId` body, cannot read as success.
  */
 export const ClassifyBodySchema = z
-  .object({ accountNumber: KeySchema.optional(), vatCode: KeySchema.optional() })
+  .object({ accountNumber: KeySchema.optional(), vatCode: KeySchema.nullable().optional() })
   .strict()
   .refine((body) => body.accountNumber !== undefined || body.vatCode !== undefined, {
     message: "give accountNumber, vatCode, or both",

@@ -114,9 +114,7 @@ beforeEach(async () => {
   fake.failWith(null).failReferenceDataWith(null).failRatesWith(null).setDelayMs(0).onRead(null).resetCalls();
   fake.setAccount("5901", "Treno").setAccount("6101", "Ufficio").setVatCode("IMP81", "IVA 8.1%", 810);
   useFakeAccounting(fake);
-  await db.expenseTypeAccountingDefault.create({
-    data: { entity: "welld_ch", type: "travel_train", accountNumber: "5901", accountName: "Treno", vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...by },
-  });
+  await db.expenseTypeAccountingDefault.create({ data: { entity: "welld_ch", type: "travel_train", accountNumber: "5901", accountName: "Treno", ...by } });
 });
 afterAll(async () => {
   restoreAccounting();
@@ -197,7 +195,7 @@ async function compiledRequest(owner: string, seq: number) {
       ledgerAccountIsDefault: true,
       vatCodeCopy: "IMP81",
       vatRateBasisPoints: 810,
-      vatCodeIsDefault: true,
+      vatCodeIsDefault: false,
       receiptNumber: `MC26/${String(seq).padStart(3, "0")}`,
       receiptOwnerUserId: owner,
       receiptYear: 2026,

@@ -2,32 +2,31 @@
  * Pure, DB-free resolution of a WellD CH line's accounting classification, on COPIES and a snapshot of Accounting
  * (specs/20261119-accounting T18; AC-4.4, AC-4.5, AC-4.7, AC-6.3, AC-6.9, AC-3.7; D1, D13; ADR
  * 20261119-accounting-reference-data-belongs-to-accounting-api-... and, as amended, ADR 20261118-accounting-
- * classification-is-live-until-approval-then-frozen-...; first written as T4 of specs/20261118-refund-accounting-export).
+ * classification-is-live-until-approval-then-frozen-...; first written as T4 of specs/20261118-refund-accounting-export;
+ * reworked by SO-2 of 20261118's sign-off delta, T60 of specs/20261119-accounting: the VAT half has no default).
  *
  * THE ONE FUNCTION behind the places that must never disagree: the review view (`GET /review/requests/{id}/accounting`),
  * the approval, the release backfill and the export blockers. Each of them loads the same inputs (the line with the copies
- * stored on it, Refund's recorded defaults, a snapshot of Accounting's reference data) and calls this.
+ * stored on it, Refund's recorded defaults, a snapshot of Accounting) and calls this.
  *
  * What a line holds is a COPY, keyed by Accounting's natural key: an account's number and name, a VAT code's code and
- * rate. Refund's own recorded defaults are copies too (number, name, code, label, rate). A snapshot says what Accounting
+ * rate. Refund's own recorded defaults are copies too (number, name) and are ACCOUNTS ONLY. A snapshot says what Accounting
  * holds NOW for a number or a code: `active`, `deactivated`, `not_found`, or `unverified` when Accounting cannot be read.
  *
- * Rules, per half (account, VAT code) independently:
+ * Rules, per half:
  *
- * 1. A copy STORED on the line wins: a hand classification before approval, the booked value after it. It is returned as
- *    stored (it is what the line BOOKS: AC-5.3), and it is always bookable, whatever Accounting says of the entry now
- *    (AC-1.4 of 20261118: "lines already carrying it keep it unchanged"). Its state is Accounting's present state of
- *    the entry, for information only. Its `*IsDefault` flag is the stored one (`null` counts as "set by hand").
- * 2. Otherwise the LIVE default applies, marked `*IsDefault: true`:
- *    - account: the recorded default account of the line's expense type;
- *    - VAT code: for a CHF line the recorded default VAT code of the expense type, for any other currency the recorded
- *      foreign-currency VAT code (AC-3.1, AC-3.2 of 20261118). The type's own VAT code is NOT used for a non-CHF line.
- * 3. A default is BOOKABLE only when its entry is `active` in the snapshot. The booked values are then Accounting's
- *    current ones (D11: "a default's values taken from the snapshot"). A default whose entry is deactivated, no longer
- *    found, or unverifiable is not bookable, so the half is `missing` for approval (AC-6.3, AC-4.5 with SA-3), but it is
- *    still REPORTED, with its recorded values, its state and `isDefault: true`, never as `null`: `null` means "no default
- *    set" (G8a). When the snapshot is not available the state is `unverified`, and the recorded values are shown.
- * 4. `missing` lists what approval would refuse (AC-6.3): `"account"` and/or `"vatCode"`, in that order.
+ * 1. ACCOUNT. A copy STORED on the line wins: a hand classification before approval, the booked value after it. It is
+ *    returned as stored (it is what the line BOOKS: AC-5.3), and it is always bookable, whatever Accounting says of the
+ *    entry now (AC-1.4 of 20261118: "lines already carrying it keep it unchanged"). Its state is Accounting's present state
+ *    of the entry, for information only. Otherwise the LIVE default of the line's expense type applies, marked
+ *    `accountIsDefault: true`. A default is BOOKABLE only when its entry is `active` in the snapshot; the booked values are
+ *    then Accounting's current ones (D11). A default whose entry is deactivated, no longer found, or unverifiable is not
+ *    bookable, so the account is `missing` for approval (AC-6.3, AC-4.5 with SA-3), but it is still REPORTED, with its
+ *    recorded values, its state and `isDefault: true`, never as `null`: `null` means "no default set" (G8a).
+ * 2. VAT CODE. There is no default of any kind (AC-3.1, AC-3.13 of 20261118, sign-off 2026-11-19): the VAT half is the
+ *    COPY stored on the line, or NONE. A copy is always bookable and is never "missing": a line with no VAT code is
+ *    approved, released and exported like any other (AC-3.11). The code of a non-CHF line is not pre-set either.
+ * 3. `missing` lists what approval would refuse (AC-6.3): `["account"]` or `[]`, never anything else.
  *
  * Returns `null` (no classification at all, AC-4.9) for a WellD Italia line and for a rejected line, whatever is stored.
  */
@@ -47,11 +46,6 @@ export interface VatCopy {
   readonly rateBasisPoints: number;
 }
 
-/** A VAT code as Refund recorded it with a default: the copy and the label it was shown with (D13). */
-export interface RecordedVat extends VatCopy {
-  readonly label: string;
-}
-
 /** The line, with the copies stored on it (null = follow the live default). */
 export interface ClassifiableLine {
   readonly entity: Entity;
@@ -62,7 +56,6 @@ export interface ClassifiableLine {
   readonly account: AccountCopy | null;
   readonly accountIsDefault: boolean | null;
   readonly vatCode: VatCopy | null;
-  readonly vatCodeIsDefault: boolean | null;
 }
 
 /** The columns of a `refund_line` row that `classifiableInput` reads. */
@@ -77,7 +70,6 @@ export interface LineCopyColumns {
   readonly vatCodeCopy: string | null;
   readonly vatRateBasisPoints: number | null;
   readonly ledgerAccountIsDefault: boolean | null;
-  readonly vatCodeIsDefault: boolean | null;
 }
 
 /** What `resolveClassification` needs of a line row: its facts and the copies stored on it. Never reads the old FK columns. */
@@ -93,26 +85,24 @@ export function classifiableInput(line: LineCopyColumns): ClassifiableLine {
       line.vatCodeCopy !== null && line.vatRateBasisPoints !== null
         ? { code: line.vatCodeCopy, rateBasisPoints: line.vatRateBasisPoints }
         : null,
-    vatCodeIsDefault: line.vatCodeIsDefault,
   };
 }
 
-/** The recorded default of one expense type for WellD CH (either half may be unset). */
+/** The recorded default of one expense type for WellD CH: an account, or none. There is no VAT default. */
 export interface TypeDefaults {
   readonly account: AccountCopy | null;
-  readonly vatCode: RecordedVat | null;
 }
 
 /** The recorded defaults, keyed by expense type; a type with no entry has no default. */
 export type TypeDefaultsByType = Readonly<Partial<Record<ExpenseType, TypeDefaults>>>;
 
-/** Refund's recorded defaults: the type defaults and the foreign-currency VAT code, as copies. */
+/** Refund's recorded defaults: the type default accounts, as copies. */
 export interface RecordedDefaults {
   readonly defaults: TypeDefaultsByType;
-  readonly foreignCurrencyVatCode: RecordedVat | null;
 }
 
-export type MissingPart = "account" | "vatCode";
+/** What approval can refuse a line for: its account. The VAT code is optional (SO-4). */
+export type MissingPart = "account";
 
 /** An account as the line shows it: the copy (or the default) and Accounting's present state of the entry. */
 export interface ShownAccount extends AccountCopy {
@@ -128,11 +118,11 @@ export interface ShownVatCode extends VatCopy {
 export interface Classification {
   readonly account: ShownAccount | null;
   readonly accountIsDefault: boolean;
+  /** The stored copy with Accounting's present state of the entry, or `null`: the line has no VAT code. */
   readonly vatCode: ShownVatCode | null;
-  readonly vatCodeIsDefault: boolean;
   /**
-   * What an approval books right now: the stored copy, or the CURRENT entry of an active default. `null` for a half that
-   * is `missing`.
+   * What an approval books right now: the stored account copy, or the CURRENT entry of an active default (`null` while the
+   * account is `missing`), and the stored VAT copy (`null`: none).
    */
   readonly bookable: { readonly account: AccountCopy | null; readonly vatCode: VatCopy | null };
   readonly missing: readonly MissingPart[];
@@ -140,15 +130,12 @@ export interface Classification {
 
 /**
  * @param line the line with its stored copies
- * @param defaults the recorded defaults of WellD CH (`{}` for an approved line: it never follows a default again)
- * @param foreignCurrencyVatCode the recorded foreign-currency VAT code, or `null` when none is designated (never set, or
- *   cleared)
+ * @param defaults the recorded default accounts of WellD CH (`{}` for an approved line: it never follows a default again)
  * @param snapshot Accounting's reference data as one operation read it, or `UNVERIFIED_SNAPSHOT`
  */
 export function resolveClassification(
   line: ClassifiableLine,
   defaults: TypeDefaultsByType,
-  foreignCurrencyVatCode: RecordedVat | null,
   snapshot: ReferenceSnapshot,
 ): Classification | null {
   if (line.entity !== "welld_ch" || line.rejected) return null;
@@ -182,10 +169,8 @@ export function resolveClassification(
     accountIsDefault = account !== null;
   }
 
-  // ── VAT code ────────────────────────────────────────────────────────────
-  let vatCode: ShownVatCode | null;
-  let vatCodeIsDefault: boolean;
-  let bookableVat: VatCopy | null;
+  // ── VAT code: the stored copy, or none (SO-2). Never a default, never missing. ──
+  let vatCode: ShownVatCode | null = null;
   if (line.vatCode !== null) {
     const found = snapshot.lookupVat(line.vatCode.code);
     vatCode = {
@@ -193,37 +178,14 @@ export function resolveClassification(
       label: found.state === "active" || found.state === "deactivated" ? found.label : null,
       state: found.state,
     };
-    vatCodeIsDefault = line.vatCodeIsDefault === true;
-    bookableVat = line.vatCode;
-  } else {
-    const candidate = line.currency === "CHF" ? (typeDefaults?.vatCode ?? null) : foreignCurrencyVatCode;
-    if (candidate === null) {
-      vatCode = null;
-      bookableVat = null;
-    } else {
-      const found = snapshot.lookupVat(candidate.code);
-      if (found.state === "active") {
-        vatCode = { code: found.code, rateBasisPoints: found.rateBasisPoints, label: found.label, state: "active" };
-        bookableVat = { code: found.code, rateBasisPoints: found.rateBasisPoints };
-      } else {
-        vatCode = { code: candidate.code, rateBasisPoints: candidate.rateBasisPoints, label: candidate.label, state: found.state };
-        bookableVat = null;
-      }
-    }
-    vatCodeIsDefault = vatCode !== null;
   }
-
-  const missing: MissingPart[] = [];
-  if (bookableAccount === null) missing.push("account");
-  if (bookableVat === null) missing.push("vatCode");
 
   return {
     account,
     accountIsDefault,
     vatCode,
-    vatCodeIsDefault,
-    bookable: { account: bookableAccount, vatCode: bookableVat },
-    missing,
+    bookable: { account: bookableAccount, vatCode: line.vatCode },
+    missing: bookableAccount === null ? ["account"] : [],
   };
 }
 

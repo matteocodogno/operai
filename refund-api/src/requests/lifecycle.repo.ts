@@ -362,7 +362,6 @@ export function withdrawRequest(
                   ledgerAccountIsDefault: true,
                   vatCodeCopy: true,
                   vatRateBasisPoints: true,
-                  vatCodeIsDefault: true,
                 },
               });
               if (overridden.length > 0) {
@@ -396,8 +395,9 @@ export function withdrawRequest(
                           ? { code: line.vatCodeCopy, rateBasisPoints: line.vatRateBasisPoints }
                           : null,
                       to: null,
-                      fromDefault: line.vatCodeCopy === null ? true : line.vatCodeIsDefault === true,
-                      toDefault: true,
+                      // A VAT code has no default to go back to (SO-2): the copy simply goes.
+                      fromDefault: false,
+                      toDefault: false,
                     },
                   };
                   await writeAuditEntry(tx, {

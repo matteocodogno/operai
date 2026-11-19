@@ -132,7 +132,7 @@ const optionsRoute = createRoute({
   method: "get",
   path: "/accounting/options",
   tags: ["Accounting"],
-  summary: "The accounts and VAT codes a line, a default or the foreign-currency designation can use",
+  summary: "The accounts and VAT codes a line or a default can use",
   description:
     "Accounting's active WellD CH entries only, by natural key, read live (AC-4.1, AC-4.4): no deactivated entry, no " +
     "history, no who-added, no rates, and no Accounting capability needed. Needs `request:review` with a scope that " +
@@ -182,11 +182,11 @@ const viewRoute = createRoute({
   tags: ["Accounting"],
   summary: "A request's lines with their account, VAT code, CHF amount and VAT amount",
   description:
-    "While the request is `submitted`, a line with nothing stored shows the live default of its expense type " +
-    "(the foreign-currency VAT code for a line not in CHF) marked as a default (AC-3.1, AC-3.2 of 20261118), with " +
-    "Accounting's present state of the entry (`active`, `deactivated`, `not_found`, `unverified`); an unusable default " +
-    "is returned WITH its state and `isDefault: true`, never as `null` (G8a). Once approved, only what is stored on the " +
-    "line is shown, as copied. WellD Italia and rejected lines carry `classification: null` (AC-4.9). `amountCents` is " +
+    "While the request is `submitted`, a line with no account stored shows the live default ACCOUNT of its expense type " +
+    "marked `accountIsDefault` (AC-3.1 of 20261118), with Accounting's present state of the entry (`active`, " +
+    "`deactivated`, `not_found`, `unverified`); an unusable default is returned WITH its state and `accountIsDefault: true`, " +
+    "never as `null` (G8a). The VAT code has no default of any kind: it is the line's stored copy or `null`, and " +
+    "`vatAmountCents` is `null` without one (AC-3.8, AC-3.13). Once approved, only what is stored on the line is shown, as copied. WellD Italia and rejected lines carry `classification: null` (AC-4.9). `amountCents` is " +
     "`approvedTotalCents ?? requestedAmountCents`. `chf` and `vatAmountCents` are derived on read from the line's copied " +
     "rate (`rateStatus: copied`), or under review from the rate in effect (`in_effect`, `missing`, `unavailable`); an " +
     "approved foreign-currency line with no rate is `pending` with a `null` CHF and VAT amount, never 0 (AC-5.6). " +
@@ -261,7 +261,9 @@ const classifyRoute = createRoute({
   tags: ["Accounting"],
   summary: "Set the account and/or the VAT code of one WellD CH line",
   description:
-    "Body: `accountNumber`, `vatCode`, or both; Accounting's natural keys only, never null (there is no \"back to the default\"). " +
+    "Body: `accountNumber`, `vatCode`, or both. `accountNumber` is Accounting's natural key and never null (there is no " +
+    "\"back to the default\"). `vatCode` is a natural key, or `null` to clear the line's VAT code: it is optional, nothing is " +
+    "pre-set, and a clear is audited as `to: null` (\"none\") and needs no read of Accounting. " +
     "While the request is `submitted` it needs `request:set-approved-total`; once `approved` (not paid) it needs " +
     "`request:reclassify`; a `paid` request is refused (AC-3.7), and so is a database trigger. The status is " +
     "decided on the locked request row, so a change racing the approval or the payment is either before it or " +

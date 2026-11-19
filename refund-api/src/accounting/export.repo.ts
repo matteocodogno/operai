@@ -83,7 +83,6 @@ const exportLineSelect = {
   ledgerAccountIsDefault: true,
   vatCodeCopy: true,
   vatRateBasisPoints: true,
-  vatCodeIsDefault: true,
   fxRateMicros: true,
   fxRateMonth: true,
 } satisfies Prisma.RefundLineSelect;
@@ -239,8 +238,8 @@ export function evaluateExport(source: ExportSource, rates: ExportRates, options
     const date = isoDate(line.date);
 
     // Stored only: no defaults, no snapshot (see the header).
-    const classification = resolveClassification(classifiableInput(line), {}, null, UNVERIFIED_SNAPSHOT);
-    const missing = classification?.missing ?? (["account", "vatCode"] as const);
+    const classification = resolveClassification(classifiableInput(line), {}, UNVERIFIED_SNAPSHOT);
+    const missing = classification?.missing ?? (["account"] as const);
     if (missing.length > 0) {
       unclassified.push({
         lineId: line.id,
@@ -294,7 +293,6 @@ export function evaluateExport(source: ExportSource, rates: ExportRates, options
 
     if (
       classification?.bookable.account &&
-      classification.bookable.vatCode &&
       line.receiptNumber !== null &&
       line.receiptYear !== null &&
       line.receiptSeq !== null &&
@@ -318,8 +316,8 @@ export function evaluateExport(source: ExportSource, rates: ExportRates, options
         rateMicros,
         accountNumber: classification.bookable.account.number,
         accountName: classification.bookable.account.name,
-        vatCode: classification.bookable.vatCode.code,
-        vatRateBasisPoints: classification.bookable.vatCode.rateBasisPoints,
+        vatCode: classification.bookable.vatCode?.code ?? null,
+        vatRateBasisPoints: classification.bookable.vatCode?.rateBasisPoints ?? null,
         batchId: source.batch.id,
       });
     }
