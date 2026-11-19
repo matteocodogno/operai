@@ -3,10 +3,14 @@ import { fakeApi, problem } from '../test-support/fakeApi'
 import { ApiError } from './api'
 import {
   createLedgerAccount,
+  createVatCode,
   deactivateLedgerAccount,
+  deactivateVatCode,
   duplicateIsDeactivated,
   listLedgerAccounts,
+  listVatCodes,
   reactivateLedgerAccount,
+  reactivateVatCode,
   refusedFields,
 } from './catalogApi'
 
@@ -107,6 +111,77 @@ describe('catalogApi: ledger accounts (T29, plan § API contracts)', () => {
     expect(error).toBeInstanceOf(ApiError)
     expect((error as ApiError).code).toBe('ledger_account_duplicate')
     expect(duplicateIsDeactivated(error as ApiError)).toBe(true)
+  })
+})
+
+describe('catalogApi: VAT codes (T30, plan § API contracts)', () => {
+  it('lists under /v1/entities/{entity}/vat-codes, unwraps { entity, items } and keeps the rate as the server’s string', async () => {
+    apiFetch.mockImplementation(
+      fakeApi({
+        'GET /v1/entities/welld_it/vat-codes': () => ({
+          status: 200,
+          body: {
+            entity: 'welld_it',
+            items: [
+              { code: 'IVA22', label: 'IVA 22%', ratePercent: '22', rateBasisPoints: 2200, active: true },
+              { code: 'BAD', label: 'no rate' },
+              { label: 'no code', ratePercent: '1' },
+            ],
+          },
+        }),
+      }),
+    )
+    expect(await listVatCodes('welld_it')).toEqual([{ code: 'IVA22', label: 'IVA 22%', ratePercent: '22', active: true }])
+    expect(urlOf(0)).toBe('http://accounting-api.test/v1/entities/welld_it/vat-codes')
+  })
+
+  it('creates with POST { code, label, ratePercent } and returns the row; an answer that is not a row fails', async () => {
+    apiFetch.mockImplementation(
+      fakeApi({
+        'POST /v1/entities/welld_ch/vat-codes': () => ({
+          status: 201,
+          body: { code: 'IMP81', label: 'Imposta', ratePercent: '8.1', rateBasisPoints: 810, active: true },
+        }),
+      }),
+    )
+    expect(await createVatCode('welld_ch', { code: 'IMP81', label: 'Imposta', ratePercent: '8.1' })).toEqual({
+      code: 'IMP81',
+      label: 'Imposta',
+      ratePercent: '8.1',
+      active: true,
+    })
+    expect(JSON.parse(String((apiFetch.mock.calls[0]![1] as RequestInit).body))).toEqual({
+      code: 'IMP81',
+      label: 'Imposta',
+      ratePercent: '8.1',
+    })
+    apiFetch.mockImplementation(fakeApi({ 'POST /v1/entities/welld_ch/vat-codes': () => ({ status: 201, body: { code: 'X' } }) }))
+    await expect(createVatCode('welld_ch', { code: 'X', label: 'x', ratePercent: '1' })).rejects.toBeInstanceOf(TypeError)
+  })
+
+  it('deactivates and reactivates by the code, encoded, with no body; it has no way to send a rate change', async () => {
+    const row = { code: 'A-1_B', label: 'x', ratePercent: '1', rateBasisPoints: 100 }
+    apiFetch.mockImplementation(
+      fakeApi({
+        'POST /v1/entities/welld_ch/vat-codes/A-1_B/deactivate': () => ({ status: 200, body: { ...row, active: false } }),
+        'POST /v1/entities/welld_ch/vat-codes/A-1_B/reactivate': () => ({ status: 200, body: { ...row, active: true } }),
+      }),
+    )
+    expect((await deactivateVatCode('welld_ch', 'A-1_B')).active).toBe(false)
+    expect((await reactivateVatCode('welld_ch', 'A-1_B')).active).toBe(true)
+    expect((apiFetch.mock.calls[0]![1] as RequestInit).body).toBeUndefined()
+  })
+
+  it('a 409 duplicate carries the code and the reactivate flag in its extras', async () => {
+    apiFetch.mockImplementation(
+      fakeApi({
+        'POST /v1/entities/welld_ch/vat-codes': () => problem(409, 'vat_code_duplicate', { vatCode: 'IMP81', reactivate: false }),
+      }),
+    )
+    const error = (await createVatCode('welld_ch', { code: 'imp81', label: 'x', ratePercent: '1' }).catch((e: unknown) => e)) as ApiError
+    expect(error.code).toBe('vat_code_duplicate')
+    expect(error.extras.vatCode).toBe('IMP81')
+    expect(duplicateIsDeactivated(error)).toBe(false)
   })
 })
 

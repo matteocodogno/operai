@@ -1,47 +1,71 @@
 /**
- * AddVatCodeDialog — add one VAT code (specs/20261118-refund-accounting-export, design S6b, F3; AC-1.4, AC-1.5). Same shape
- * as `AddLedgerAccountDialog`: mounted beside the card, owns its fields and the `POST`, mirrors the server's checks
- * and leaves it the authority.
+ * AddVatCodeDialog — add one VAT code to an entity (moved from refund-ui; specs/20261119-accounting, design FA4, AS6b, UX-3,
+ * UX-6; AC-1.5, AC-1.6, AC-1.7, AC-8.4). Same shape as `AddLedgerAccountDialog`: mounted beside the card, owns its fields and the
+ * `POST`, names the entity in its title, checks with `lib/limits.ts` (the server's limits) and leaves the server the authority.
  *
- *   - Code: letters, digits, `-` and `_`, up to 16, saved in capitals (it is upper-cased when the field loses focus,
- *     and again on submit); compared with the loaded list on blur, case-insensitively.
+ *   - Code: capital letters, digits, `-` and `_`, 1 to 16, saved in capitals (it is upper-cased when the field loses focus and
+ *     again on submit, AC-1.5); compared with the loaded list on blur, case-insensitively (`imp81` when `IMP81` exists).
  *   - Label: 1 to 80 characters.
- *   - Rate in percent: dot or comma, 0 to 100, up to 2 decimals. Parsed exactly (`parseDecimal`, never through a
- *     float) and sent as the canonical string the API expects (`8.1`, never `8,10`). The description states that the
- *     rate cannot be changed later: there is no edit anywhere (AC-1.5).
+ *   - Rate in percent: dot or comma, 0 to 100, at most 2 decimals. Validated as text (`checkVatRatePercent`, no float) and sent
+ *     as the canonical string the API expects (`8.1`, never `8,10`). The description states that the rate cannot be changed
+ *     later: there is no edit anywhere (AC-1.7).
+ *
+ * A duplicate names the code and points to Reactivate only when the existing one is deactivated: the server's `reactivate` flag
+ * decides (G9), the loaded list is the fallback (AC-1.6). A 422's `fields[]` gives the same sentences as the client check. No
+ * `ErrorSummary` (UX-6): focus goes to the first refused field, whose own `role="alert"` error carries the sentence.
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { Field, FormDialog, MoneyInput, parseDecimal } from '@operai/ui'
-import { strings } from '../../strings'
-import { createVatCode } from '../../lib/accountingApi'
-import type { VatCode } from '../../lib/accountingApi'
-import { ApiError } from '../../lib/refundApi'
+import { Field, FormDialog, MoneyInput } from '@operai/ui'
+import { ApiError } from '../lib/api'
+import { createVatCode, duplicateIsDeactivated, refusedFields } from '../lib/catalogApi'
+import type { VatCode } from '../lib/catalogApi'
+import { checkVatCode, checkVatLabel, checkVatRatePercent } from '../lib/limits'
+import type { LimitReason } from '../lib/limits'
+import type { EntityId } from '../lib/meApi'
+import { strings } from '../strings'
 
-const CODE_PATTERN = /^[A-Z0-9_-]{1,16}$/
-const LABEL_MAX = 80
-/** 100.00 % in hundredths of a percent. */
-const RATE_MAX_HUNDREDTHS = 10000
+const t = strings.vatCodes
 
-/** Hundredths of a percent as the API's string: `810` → `8.1`, `800` → `8`, `5` → `0.05`. */
-const rateString = (hundredths: number): string => {
-  const whole = Math.floor(hundredths / 100)
-  const fraction = String(hundredths % 100)
-    .padStart(2, '0')
-    .replace(/0+$/, '')
-  return fraction === '' ? String(whole) : `${whole}.${fraction}`
+const codeMessage = (reason: LimitReason): string =>
+  reason === 'empty' ? t.errors.codeEmpty : reason === 'too_long' ? t.errors.codeTooLong : t.errors.codeFormat
+
+const labelMessage = (reason: LimitReason): string =>
+  reason === 'too_long' ? t.errors.labelTooLong : t.errors.labelEmpty
+
+/** Dot or comma is typed; the request carries a dot. */
+const dotted = (raw: string): string => raw.trim().replace(',', '.')
+
+/** `8.10` → `8.1`, `8.00` → `8`, `0.05` stays: the canonical string of an already validated rate, by text only. */
+const canonicalRate = (validated: string): string => {
+  const [whole = '0', fraction = ''] = validated.split('.')
+  const trimmed = fraction.replace(/0+$/, '')
+  return trimmed === '' ? String(Number(whole)) : `${Number(whole)}.${trimmed}`
 }
 
 export type AddVatCodeDialogProps = {
-  /** The VAT codes the card has loaded, for the duplicate pre-check. */
+  entity: EntityId
+  /** The VAT codes the card has loaded (this entity's), for the duplicate pre-check. */
   vatCodes: readonly VatCode[]
   onCancel: () => void
   onAdded: (vatCode: VatCode) => void
+  /** The server named a duplicate: the list the card holds may be stale, so it loads it again. */
+  onStale: () => void
+  /** A write answered 403: the frame re-reads `/v1/me` (UX-15). */
+  onForbidden: () => void
+  /** A write answered 404: the entity is not covered any more (UX-12). */
+  onGone: () => void
 }
 
-export default function AddVatCodeDialog({ vatCodes, onCancel, onAdded }: AddVatCodeDialogProps) {
-  const t = strings.settings.vatCodes
-  const tc = strings.settings.catalog
+export default function AddVatCodeDialog({
+  entity,
+  vatCodes,
+  onCancel,
+  onAdded,
+  onStale,
+  onForbidden,
+  onGone,
+}: AddVatCodeDialogProps) {
   const [code, setCode] = useState('')
   const [label, setLabel] = useState('')
   const [rate, setRate] = useState('')
@@ -60,30 +84,27 @@ export default function AddVatCodeDialog({ vatCodes, onCancel, onAdded }: AddVat
     if (focusRequest) ({ code: codeRef, label: labelRef, rate: rateRef })[focusRequest.field].current?.focus()
   }, [focusRequest])
 
-  const duplicateMessage = (value: string): string | null => {
-    const existing = vatCodes.find((vatCode) => vatCode.code.toUpperCase() === value)
-    if (!existing) return null
-    return existing.active ? t.errors.duplicate(value) : t.errors.duplicateInactive(value)
+  /** The duplicate sentence: the server's `reactivate` flag when it sent one, else what the loaded list says. */
+  const duplicateText = (value: string, deactivated: boolean | null): string => {
+    const inactive =
+      deactivated ?? vatCodes.find((vatCode) => vatCode.code.toUpperCase() === value.toUpperCase())?.active === false
+    return inactive ? t.errors.duplicateInactive(value) : t.errors.duplicate(value, strings.entity[entity])
   }
 
   const checkCode = (raw: string): string | null => {
-    const value = raw.trim().toUpperCase()
-    if (!CODE_PATTERN.test(value)) return t.errors.codeInvalid
-    return duplicateMessage(value)
+    const checked = checkVatCode(raw)
+    if (!checked.ok) return codeMessage(checked.reason)
+    return vatCodes.some((vatCode) => vatCode.code.toUpperCase() === checked.value)
+      ? duplicateText(checked.value, null)
+      : null
   }
 
   const checkLabel = (raw: string): string | null => {
-    const value = raw.trim()
-    return value.length === 0 || value.length > LABEL_MAX ? t.errors.labelRequired : null
+    const checked = checkVatLabel(raw)
+    return checked.ok ? null : labelMessage(checked.reason)
   }
 
-  /** The rate in hundredths of a percent, or null when it is not a valid 0 to 100 percentage. */
-  const parseRate = (raw: string): number | null => {
-    const hundredths = parseDecimal(raw, 2)
-    return hundredths !== null && hundredths <= RATE_MAX_HUNDREDTHS ? hundredths : null
-  }
-
-  const checkRate = (raw: string): string | null => (parseRate(raw) === null ? t.errors.rateInvalid : null)
+  const checkRate = (raw: string): string | null => (checkVatRatePercent(dotted(raw)).ok ? null : t.errors.rateInvalid)
 
   const handleSubmit = async () => {
     const nextCodeError = checkCode(code)
@@ -98,26 +119,47 @@ export default function AddVatCodeDialog({ vatCodes, onCancel, onAdded }: AddVat
       return
     }
 
-    const hundredths = parseRate(rate)
-    if (hundredths === null) return
-    const normalized = code.trim().toUpperCase()
-    setCode(normalized)
+    const checkedCode = checkVatCode(code)
+    const checkedRate = checkVatRatePercent(dotted(rate))
+    if (!checkedCode.ok || !checkedRate.ok) return
+    setCode(checkedCode.value)
     setBusy(true)
     let created: VatCode
     try {
-      created = await createVatCode({ code: normalized, label: label.trim(), ratePercent: rateString(hundredths) })
+      created = await createVatCode(entity, {
+        code: checkedCode.value,
+        label: label.trim(),
+        ratePercent: canonicalRate(checkedRate.value),
+      })
     } catch (error) {
       setBusy(false)
       if (error instanceof ApiError && error.code === 'vat_code_duplicate') {
-        setCodeError(duplicateMessage(normalized) ?? t.errors.duplicate(normalized))
+        const named = typeof error.extras.vatCode === 'string' ? error.extras.vatCode : checkedCode.value
+        setCodeError(duplicateText(named, duplicateIsDeactivated(error)))
         setFocusRequest({ field: 'code' })
+        onStale()
       } else if (error instanceof ApiError && error.code === 'invalid_vat_code') {
-        setCodeError(t.errors.codeInvalid)
-        setFocusRequest({ field: 'code' })
+        // The client check passed but the server refused: the same sentences, from its `fields[]`.
+        const fields = refusedFields(error)
+        const refusedCode = fields.find((field) => field.field === 'code')
+        const refusedLabel = fields.find((field) => field.field === 'label')
+        const refusedRate = fields.find((field) => field.field === 'ratePercent')
+        if (refusedCode) setCodeError(codeMessage(refusedCode.reason))
+        if (refusedLabel) setLabelError(labelMessage(refusedLabel.reason))
+        if (refusedRate) setRateError(t.errors.rateInvalid)
+        if (refusedCode || refusedLabel || refusedRate) {
+          setFocusRequest({ field: refusedCode ? 'code' : refusedLabel ? 'label' : 'rate' })
+        } else {
+          setGeneralError(strings.common.genericError)
+        }
       } else if (error instanceof ApiError && error.status === 403) {
-        setGeneralError(tc.forbidden)
+        setGeneralError(strings.common.forbidden)
+        onForbidden()
+      } else if (error instanceof ApiError && error.status === 404) {
+        setGeneralError(strings.common.genericError)
+        onGone()
       } else {
-        setGeneralError(tc.genericError)
+        setGeneralError(strings.common.genericError)
       }
       return
     }
@@ -126,25 +168,25 @@ export default function AddVatCodeDialog({ vatCodes, onCancel, onAdded }: AddVat
 
   return (
     <FormDialog
-      title={t.addDialog.title}
+      title={t.addDialog.title(strings.entity[entity])}
       description={t.addDialog.description}
       size="sm"
       submitLabel={t.add}
       busyLabel={t.addDialog.busy}
-      cancelLabel={tc.cancel}
-      closeLabel={tc.cancel}
+      cancelLabel={strings.common.cancel}
+      closeLabel={strings.common.close}
       busy={busy}
       canSubmit={code.trim() !== '' && label.trim() !== '' && rate.trim() !== ''}
       error={generalError}
       onSubmit={() => void handleSubmit()}
       onCancel={onCancel}
-      testIdPrefix="add-vat-code"
+      testIdPrefix="accounting-vat-dialog"
     >
       <Field
         label={t.addDialog.code}
         hint={t.addDialog.codeHint}
         required
-        error={codeError && <span data-testid="add-vat-code-code-error">{codeError}</span>}
+        error={codeError && <span data-testid="accounting-vat-code-error">{codeError}</span>}
         errorRole="alert"
       >
         {(control) => (
@@ -165,14 +207,14 @@ export default function AddVatCodeDialog({ vatCodes, onCancel, onAdded }: AddVat
               setCode(upper)
               setCodeError(checkCode(upper))
             }}
-            data-testid="add-vat-code-code"
+            data-testid="accounting-vat-code"
           />
         )}
       </Field>
       <Field
         label={t.addDialog.label}
         required
-        error={labelError && <span data-testid="add-vat-code-label-error">{labelError}</span>}
+        error={labelError && <span data-testid="accounting-vat-label-error">{labelError}</span>}
         errorRole="alert"
       >
         {(control) => (
@@ -189,7 +231,7 @@ export default function AddVatCodeDialog({ vatCodes, onCancel, onAdded }: AddVat
             onBlur={() => {
               if (label.trim() !== '') setLabelError(checkLabel(label))
             }}
-            data-testid="add-vat-code-label"
+            data-testid="accounting-vat-label"
           />
         )}
       </Field>
@@ -197,7 +239,7 @@ export default function AddVatCodeDialog({ vatCodes, onCancel, onAdded }: AddVat
         label={t.addDialog.rate}
         hint={t.addDialog.rateHint}
         required
-        error={rateError && <span data-testid="add-vat-code-rate-error">{rateError}</span>}
+        error={rateError && <span data-testid="accounting-vat-rate-error">{rateError}</span>}
         errorRole="alert"
       >
         {(control) => (
@@ -212,7 +254,7 @@ export default function AddVatCodeDialog({ vatCodes, onCancel, onAdded }: AddVat
             onBlur={() => {
               if (rate.trim() !== '') setRateError(checkRate(rate))
             }}
-            data-testid="add-vat-code-rate"
+            data-testid="accounting-vat-rate"
           />
         )}
       </Field>

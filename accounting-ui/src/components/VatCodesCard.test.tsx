@@ -1,323 +1,416 @@
 /**
  * @vitest-environment jsdom
  *
- * VatCodesCard (T24, specs/20261118-refund-accounting-export, design S3, F2, F3; AC-1.4, AC-1.5, AC-1.7, AC-1.10,
- * AC-1.11): the list with its fixed rates, Add, Deactivate (confirmed) and Reactivate, a stale list's 409,
- * read-only without `settings:manage`, and above all NO edit control for a rate (AC-1.5).
+ * VatCodesCard (T30, specs/20261119-accounting, design AS4, FA4, FA5, FA6, UX-3 to UX-8, UX-15; AC-1.5 to AC-1.8, AC-1.10,
+ * AC-8.3, AC-8.4): the list and every state of it, Add, the Deactivate confirm, Reactivate, a stale list's 409, read-only without
+ * `canManage`, NO EDIT CONTROL for a rate (AC-1.7), no dialog inside a form, and axe on every state. accounting-api is faked at
+ * `shell/session`'s `apiFetch`, so the real `catalogApi` paths and bodies are exercised.
  */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { expectNoAxeViolations } from '../../test-support/axe'
+import { fakeApi, problem } from '../test-support/fakeApi'
+import type { FakeAnswer, FakeHandler } from '../test-support/fakeApi'
+import { expectNoAxeViolations } from '../test-support/axe'
+import type { VatCode } from '../lib/catalogApi'
+import type { EntityId } from '../lib/meApi'
 
-vi.mock('../../lib/accountingApi', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../lib/accountingApi')>()
-  return {
-    ...original,
-    listVatCodes: vi.fn(),
-    createVatCode: vi.fn(),
-    deactivateVatCode: vi.fn(),
-    reactivateVatCode: vi.fn(),
-  }
-})
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock('shell/session', () => ({ apiFetch, getAccountingApiBaseUrl: () => 'http://accounting-api.test' }))
 
-import * as accountingApi from '../../lib/accountingApi'
-import type { VatCode } from '../../lib/accountingApi'
-import { ApiError } from '../../lib/refundApi'
 import VatCodesCard from './VatCodesCard'
 
-const vatCode = (overrides: Partial<VatCode> = {}): VatCode => ({
-  id: 'v1',
-  code: 'IMP81',
-  label: 'Imposta piena',
-  rateBasisPoints: 810,
-  ratePercent: '8.1',
-  active: true,
-  createdAt: '2026-03-01T09:00:00Z',
-  createdByEmail: 'admin@welld.ch',
-  history: [],
-  ...overrides,
+const ACTIVE: VatCode = { code: 'IMP81', label: 'Imposta 8.1%', ratePercent: '8.1', active: true }
+const INACTIVE: VatCode = { code: 'IMP77', label: 'Imposta 7.7%', ratePercent: '7.7', active: false }
+
+const LIST = 'GET /v1/entities/welld_ch/vat-codes'
+const list = (...items: VatCode[]): FakeAnswer => ({
+  status: 200,
+  body: { entity: 'welld_ch', items: items.map((item) => ({ ...item, rateBasisPoints: Math.round(Number(item.ratePercent) * 100) })) },
 })
+const never = (): Promise<FakeAnswer> => new Promise(() => {})
 
-const ACTIVE = vatCode()
-const INACTIVE = vatCode({ id: 'v2', code: 'OLD77', label: 'Vecchia aliquota', ratePercent: '7.7', active: false })
+const onEntityGone = vi.fn()
+const onWriteRefused = vi.fn()
 
-const problem = (status: number, code?: string) => new ApiError({ type: 't', title: 'x', status, code })
-const pending = <T,>() => new Promise<T>(() => {})
+const serve = (routes: Record<string, FakeHandler>) => apiFetch.mockImplementation(fakeApi(routes))
+const calls = (key: string) =>
+  apiFetch.mock.calls.filter(([url, init]) => `${init?.method ?? 'GET'} ${new URL(String(url)).pathname}` === key)
 
 beforeEach(() => {
-  vi.mocked(accountingApi.listVatCodes).mockResolvedValue([ACTIVE, INACTIVE])
+  serve({ [LIST]: () => list(ACTIVE, INACTIVE) })
 })
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
-  document.documentElement.removeAttribute('lang')
 })
 
+const card = (canManage = true, entity: EntityId = 'welld_ch') => (
+  <VatCodesCard entity={entity} canManage={canManage} onEntityGone={onEntityGone} onWriteRefused={onWriteRefused} />
+)
+
 const renderCard = async (canManage = true) => {
-  const view = render(<VatCodesCard canManage={canManage} />)
-  await screen.findByTestId('settings-vat-codes-table')
+  const view = render(card(canManage))
+  await screen.findByTestId('accounting-vat-table')
   return view
 }
 
-describe('VatCodesCard: the list', () => {
-  it('shows a polite loading line and a skeleton while the list loads', () => {
-    vi.mocked(accountingApi.listVatCodes).mockReturnValue(pending())
-    render(<VatCodesCard canManage />)
-    expect(screen.getByText('Loading VAT codes…').getAttribute('aria-live')).toBe('polite')
-    expect(screen.getByTestId('skeleton-list-rows')).not.toBeNull()
+describe('VatCodesCard: the list (AS4)', () => {
+  it('shows a polite loading line and a skeleton while the list loads', async () => {
+    serve({ [LIST]: never })
+    const { container } = render(card())
+    expect(screen.getByRole('status').textContent).toBe('Loading VAT codes…')
+    expect(screen.queryByTestId('accounting-vat-table')).toBeNull()
+    await expectNoAxeViolations(container)
   })
 
-  it('lists code (row header, mono), label, rate as a percent, status and who added it and when', async () => {
-    await renderCard()
-    expect(screen.getByRole('heading', { name: 'VAT codes' })).not.toBeNull()
-    const row = screen.getByTestId('settings-vat-code-row-v1')
-    expect(within(row).getByRole('rowheader').textContent).toBe('IMP81')
-    expect(within(row).getByText('Imposta piena')).not.toBeNull()
+  it('names the entity in the title, the caption and the description, and lists code (row header, mono), label, rate and status', async () => {
+    const { container } = await renderCard()
+    expect(screen.getByRole('heading', { name: 'VAT codes — WellD CH' })).not.toBeNull()
+    expect(screen.getByRole('table', { name: 'WellD CH VAT codes' })).not.toBeNull()
+    expect(screen.getByText('The VAT codes of WellD CH. Each carries one fixed rate.')).not.toBeNull()
+    const row = screen.getByTestId('accounting-vat-row-IMP81')
+    const header = within(row).getByRole('rowheader')
+    expect(header.textContent).toBe('IMP81')
+    expect(header.querySelector('.font-mono')).not.toBeNull()
+    expect(within(row).getByText('Imposta 8.1%')).not.toBeNull()
     expect(within(row).getByText('8.1%')).not.toBeNull()
     expect(within(row).getByText('Active')).not.toBeNull()
-    expect(within(row).getByText('admin@welld.ch · 01.03.2026')).not.toBeNull()
-    expect(within(screen.getByTestId('settings-vat-code-row-v2')).getByText('Inactive')).not.toBeNull()
+    expect(within(screen.getByTestId('accounting-vat-row-IMP77')).getByText('Inactive')).not.toBeNull()
     expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
       'Code',
       'Label',
       'VAT rate',
       'Status',
-      'Added',
       'Actions',
     ])
+    expect(screen.queryByText(/@/)).toBeNull()
+    await expectNoAxeViolations(container)
   })
 
-  it('writes the rate with the viewer’s decimal mark', async () => {
-    document.documentElement.setAttribute('lang', 'it')
-    await renderCard()
-    expect(within(screen.getByTestId('settings-vat-code-row-v1')).getByText('8,1%')).not.toBeNull()
+  it('reads the list of the entity it is given, by path (WellD Italia)', async () => {
+    serve({
+      'GET /v1/entities/welld_it/vat-codes': () => ({
+        status: 200,
+        body: { entity: 'welld_it', items: [{ code: 'IVA22', label: 'IVA 22%', ratePercent: '22', rateBasisPoints: 2200, active: true }] },
+      }),
+    })
+    render(card(true, 'welld_it'))
+    await screen.findByTestId('accounting-vat-table')
+    expect(screen.getByRole('heading', { name: 'VAT codes — WellD Italia' })).not.toBeNull()
+    expect(screen.getByTestId('accounting-vat-row-IVA22')).not.toBeNull()
   })
 
-  it('says there are no VAT codes yet', async () => {
-    vi.mocked(accountingApi.listVatCodes).mockResolvedValue([])
-    render(<VatCodesCard canManage />)
-    expect((await screen.findByTestId('settings-vat-codes-empty')).textContent).toContain('No VAT codes yet')
+  it('manager, empty: a state for the entity, not an error (AC-8.3)', async () => {
+    serve({ [LIST]: () => list() })
+    const { container } = render(card())
+    const empty = await screen.findByTestId('accounting-empty')
+    expect(empty.textContent).toContain('Nothing entered yet for WellD CH')
+    expect(empty.textContent).toContain("Add the entity's VAT codes with Add VAT code.")
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByTestId('accounting-vat-add')).not.toBeNull()
+    await expectNoAxeViolations(container)
   })
 
-  it('shows a retryable error, and is left out entirely on a 403', async () => {
-    vi.mocked(accountingApi.listVatCodes).mockRejectedValueOnce(problem(500))
-    render(<VatCodesCard canManage />)
-    expect((await screen.findByTestId('error-banner')).textContent).toContain('Could not load the VAT codes.')
-    fireEvent.click(screen.getByTestId('error-banner-retry'))
-    await screen.findByTestId('settings-vat-codes-table')
+  it('reader, empty (WellD Italia): the reader sentence, no Add', async () => {
+    serve({ 'GET /v1/entities/welld_it/vat-codes': () => ({ status: 200, body: { entity: 'welld_it', items: [] } }) })
+    const { container } = render(card(false, 'welld_it'))
+    const empty = await screen.findByTestId('accounting-empty')
+    expect(empty.textContent).toContain('Nothing entered yet for WellD Italia')
+    expect(empty.textContent).toContain('Accounting managers enter them.')
+    expect(screen.queryByTestId('accounting-vat-add')).toBeNull()
+    await expectNoAxeViolations(container)
+  })
 
+  it('failed: a warning banner with the card’s sentence, and Retry loads again; 503 is the authorization banner', async () => {
+    let reads = 0
+    serve({ [LIST]: () => (++reads === 1 ? problem(500) : list(ACTIVE)) })
+    const { container } = render(card())
+    expect((await screen.findByTestId('accounting-load-error')).textContent).toContain('Could not load the VAT codes.')
+    await expectNoAxeViolations(container)
+    fireEvent.click(screen.getByTestId('accounting-load-error-retry'))
+    await screen.findByTestId('accounting-vat-table')
+    expect(calls(LIST)).toHaveLength(2)
     cleanup()
-    vi.mocked(accountingApi.listVatCodes).mockRejectedValue(problem(403))
-    const { container } = render(<VatCodesCard canManage />)
-    await waitFor(() => expect(container.innerHTML).toBe(''))
+
+    serve({ [LIST]: () => problem(503) })
+    const unavailable = render(card())
+    expect((await screen.findByTestId('accounting-load-error')).textContent).toContain('Authorization service unavailable')
+    await expectNoAxeViolations(unavailable.container)
+  })
+
+  it('403: PermissionDenied replaces the view, with no retry', async () => {
+    serve({ [LIST]: () => problem(403, 'accounting_forbidden') })
+    const { container } = render(card())
+    expect((await screen.findByTestId('accounting-denied')).textContent).toContain('No access to Accounting')
+    expect(screen.queryByTestId('accounting-vat-card')).toBeNull()
+    await expectNoAxeViolations(container)
+  })
+
+  it('404: tells the frame once that the entity is gone', async () => {
+    serve({ [LIST]: () => problem(404, 'not_found') })
+    render(card())
+    await screen.findByTestId('accounting-load-error')
+    await waitFor(() => expect(onEntityGone).toHaveBeenCalledTimes(1))
   })
 })
 
-describe('VatCodesCard: no rate edit control (AC-1.5)', () => {
-  it('has Deactivate and Reactivate as its only row actions, and no field or edit affordance anywhere', async () => {
-    await renderCard()
-    const table = screen.getByTestId('settings-vat-codes-table')
-    expect(
-      within(table)
-        .getAllByRole('button')
-        .map((button) => button.getAttribute('aria-label')),
-    ).toEqual(['Deactivate VAT code IMP81', 'Reactivate VAT code OLD77'])
-    expect(table.querySelector('input, select, textarea')).toBeNull()
-    expect(screen.queryByRole('button', { name: /edit|modify|change|rate/i })).toBeNull()
-    expect(screen.queryByRole('link', { name: /edit/i })).toBeNull()
-  })
-
-  it('is read-only without settings:manage: no Add, no Actions column', async () => {
-    await renderCard(false)
-    expect(screen.queryByTestId('settings-vat-codes-add')).toBeNull()
+describe('VatCodesCard: reader (UX-4, AC-3.4)', () => {
+  it('shows the table, the one quiet sentence, and no Add, no Actions column, no row button', async () => {
+    const { container } = await renderCard(false)
+    expect(screen.getByTestId('accounting-vat-read-only').textContent).toBe(
+      'You can view this list. Accounting managers add and deactivate VAT codes.',
+    )
+    expect(screen.queryByTestId('accounting-vat-add')).toBeNull()
     expect(screen.queryByRole('columnheader', { name: 'Actions' })).toBeNull()
-    expect(within(screen.getByTestId('settings-vat-codes-table')).queryAllByRole('button')).toHaveLength(0)
+    expect(within(screen.getByTestId('accounting-vat-table')).queryAllByRole('button')).toHaveLength(0)
+    await expectNoAxeViolations(container)
   })
 })
 
-describe('VatCodesCard: Add VAT code (AC-1.4)', () => {
-  it('adds a code beside the card, shows the row and a confirmation, and returns focus to Add', async () => {
-    const created = vatCode({ id: 'v3', code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', rateBasisPoints: 0 })
-    vi.mocked(accountingApi.createVatCode).mockResolvedValue(created)
-    vi.mocked(accountingApi.listVatCodes)
-      .mockResolvedValueOnce([ACTIVE, INACTIVE])
-      .mockResolvedValue([ACTIVE, INACTIVE, created])
+describe('VatCodesCard: no edit control for a rate (AC-1.7)', () => {
+  it('shows each rate as plain text and offers only Deactivate and Reactivate on a row: no input, no edit, no delete', async () => {
     await renderCard()
+    const table = screen.getByTestId('accounting-vat-table')
+    expect(within(screen.getByTestId('accounting-vat-row-IMP81')).getByText('8.1%').closest('td')?.querySelector('input, select, textarea, button')).toBeNull()
+    expect(table.querySelector('input, select, textarea')).toBeNull()
+    expect(within(table).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Deactivate VAT code IMP81',
+      'Reactivate VAT code IMP77',
+    ])
+    expect(screen.queryByRole('button', { name: /edit|modify|change|rate|delete|remove/i })).toBeNull()
+    // and the client has no function that could send one
+    const verbs = apiFetch.mock.calls.map(([, init]) => init?.method ?? 'GET')
+    expect(verbs.every((verb) => verb === 'GET')).toBe(true)
+  })
+})
 
-    const addButton = screen.getByTestId('settings-vat-codes-add')
+describe('VatCodesCard: Add VAT code (AC-1.5, AC-1.6)', () => {
+  const created: VatCode = { code: 'RID26', label: 'Ridotta 2.6%', ratePercent: '2.6', active: true }
+
+  it('opens the dialog beside the card naming the entity, adds the code, shows the row and a confirmation, and returns focus to Add', async () => {
+    let added = false
+    serve({
+      [LIST]: () => list(ACTIVE, INACTIVE, ...(added ? [created] : [])),
+      'POST /v1/entities/welld_ch/vat-codes': () => ((added = true), { status: 201, body: created }),
+    })
+    await renderCard()
+    const addButton = screen.getByTestId('accounting-vat-add')
     expect(addButton.getAttribute('aria-haspopup')).toBe('dialog')
     fireEvent.click(addButton)
-    const dialog = screen.getByRole('dialog', { name: 'Add VAT code' })
-    expect(screen.getByTestId('settings-vat-codes-card').contains(dialog)).toBe(false)
+    const dialog = screen.getByRole('dialog', { name: 'Add VAT code — WellD CH' })
+    expect(screen.getByTestId('accounting-vat-card').contains(dialog)).toBe(false)
     expect(document.querySelectorAll('form form')).toHaveLength(0)
 
-    fireEvent.change(screen.getByTestId('add-vat-code-code'), { target: { value: 'novat' } })
-    fireEvent.change(screen.getByTestId('add-vat-code-label'), { target: { value: 'Senza IVA' } })
-    fireEvent.change(screen.getByTestId('add-vat-code-rate'), { target: { value: '0' } })
-    fireEvent.click(screen.getByTestId('add-vat-code-submit'))
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'rid26' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-label'), { target: { value: 'Ridotta 2.6%' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-rate'), { target: { value: '2,60' } })
+    fireEvent.click(screen.getByTestId('accounting-vat-dialog-submit'))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(accountingApi.createVatCode).toHaveBeenCalledWith({ code: 'NOVAT', label: 'Senza IVA', ratePercent: '0' })
-    expect(within(screen.getByTestId('settings-vat-code-row-v3')).getByText('0%')).not.toBeNull()
-    expect(screen.getByTestId('settings-vat-codes-success').textContent).toBe('VAT code NOVAT added')
-    expect(document.activeElement).toBe(screen.getByTestId('settings-vat-codes-add'))
-    await waitFor(() => expect(accountingApi.listVatCodes).toHaveBeenCalledTimes(2))
+    // upper-cased, comma accepted, the canonical rate sent
+    expect(JSON.parse(String(calls('POST /v1/entities/welld_ch/vat-codes')[0]![1]!.body))).toEqual({
+      code: 'RID26',
+      label: 'Ridotta 2.6%',
+      ratePercent: '2.6',
+    })
+    expect(screen.getByTestId('accounting-vat-row-RID26')).not.toBeNull()
+    expect(screen.getByTestId('accounting-saved').textContent).toBe('VAT code RID26 added')
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-add'))
+    await waitFor(() => expect(calls(LIST)).toHaveLength(2))
+    expect(screen.getAllByTestId(/^accounting-vat-row-/)).toHaveLength(3)
   })
 
-  it('names a duplicate, deactivated one with the reactivate hint, and Cancel returns focus to Add', async () => {
+  it('names a case-insensitive duplicate on the field, with the reactivation pointer only when it is deactivated (AC-1.6)', async () => {
     await renderCard()
-    fireEvent.click(screen.getByTestId('settings-vat-codes-add'))
-    fireEvent.change(screen.getByTestId('add-vat-code-code'), { target: { value: 'old77' } })
-    fireEvent.blur(screen.getByTestId('add-vat-code-code'))
-    expect(screen.getByTestId('add-vat-code-code-error').textContent).toBe(
-      'VAT code OLD77 already exists but is deactivated. Reactivate it from the list.',
+    fireEvent.click(screen.getByTestId('accounting-vat-add'))
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'imp77' } })
+    fireEvent.blur(screen.getByTestId('accounting-vat-code'))
+    expect(screen.getByTestId('accounting-vat-code-error').textContent).toBe(
+      'VAT code IMP77 already exists but is deactivated. Reactivate it from the list.',
     )
-    fireEvent.click(screen.getByTestId('add-vat-code-cancel'))
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'imp81' } })
+    fireEvent.blur(screen.getByTestId('accounting-vat-code'))
+    expect(screen.getByTestId('accounting-vat-code-error').textContent).toBe('VAT code IMP81 already exists in WellD CH.')
+    expect(calls('POST /v1/entities/welld_ch/vat-codes')).toHaveLength(0)
+  })
+
+  it('Cancel closes the dialog without a request and returns focus to Add', async () => {
+    await renderCard()
+    fireEvent.click(screen.getByTestId('accounting-vat-add'))
+    fireEvent.click(screen.getByTestId('accounting-vat-dialog-cancel'))
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(accountingApi.createVatCode).not.toHaveBeenCalled()
-    expect(document.activeElement).toBe(screen.getByTestId('settings-vat-codes-add'))
+    expect(calls('POST /v1/entities/welld_ch/vat-codes')).toHaveLength(0)
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-add'))
   })
 })
 
-describe('VatCodesCard: Deactivate and Reactivate (AC-1.10, AC-1.11)', () => {
-  it('asks first with its own consequences, and Cancel does nothing', async () => {
+describe('VatCodesCard: Deactivate (AC-1.8, AC-1.10, UX-7)', () => {
+  const deactivate = 'POST /v1/entities/welld_ch/vat-codes/IMP81/deactivate'
+
+  it('asks first, saying the rate never changes and naming no consumer, and Cancel does nothing', async () => {
     await renderCard()
-    fireEvent.click(screen.getByTestId('settings-vat-code-deactivate-v1'))
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-IMP81'))
     const dialog = screen.getByRole('alertdialog', { name: 'Deactivate VAT code IMP81?' })
     expect(within(dialog).getByText(/Its rate never changes\./)).not.toBeNull()
-    expect(within(dialog).getByText(/as the foreign-currency VAT code/)).not.toBeNull()
-    fireEvent.click(screen.getByTestId('deactivate-vat-code-cancel'))
-    expect(accountingApi.deactivateVatCode).not.toHaveBeenCalled()
-  })
+    expect(within(dialog).getByText(/You can reactivate it at any time\./)).not.toBeNull()
+    expect(dialog.textContent).not.toMatch(/refund|request|line/i)
+    expect(screen.getByTestId('accounting-vat-deactivate-dialog-confirm').className).toContain('btn-primary')
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-deactivate-dialog-cancel'))
+    await expectNoAxeViolations()
 
-  it('deactivates on confirm, swaps the action to Reactivate, confirms and focuses the row header', async () => {
-    vi.mocked(accountingApi.deactivateVatCode).mockResolvedValue({ ...ACTIVE, active: false })
-    await renderCard()
-    fireEvent.click(screen.getByTestId('settings-vat-code-deactivate-v1'))
-    fireEvent.click(screen.getByTestId('deactivate-vat-code-confirm'))
-
-    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
-    expect(accountingApi.deactivateVatCode).toHaveBeenCalledWith('v1')
-    const row = screen.getByTestId('settings-vat-code-row-v1')
-    expect(within(row).getByText('Inactive')).not.toBeNull()
-    expect(screen.getByTestId('settings-vat-code-reactivate-v1')).not.toBeNull()
-    expect(screen.getByTestId('settings-vat-codes-success').textContent).toBe('VAT code IMP81 deactivated')
-    expect(document.activeElement).toBe(within(row).getByRole('rowheader'))
-  })
-
-  it('reactivates at once, with no dialog', async () => {
-    vi.mocked(accountingApi.reactivateVatCode).mockResolvedValue({ ...INACTIVE, active: true })
-    await renderCard()
-    fireEvent.click(screen.getByTestId('settings-vat-code-reactivate-v2'))
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-dialog-cancel'))
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    await waitFor(() => expect(screen.getByTestId('settings-vat-code-deactivate-v2')).not.toBeNull())
-    expect(screen.getByTestId('settings-vat-codes-success').textContent).toBe('VAT code OLD77 reactivated')
-    expect(document.activeElement).toBe(within(screen.getByTestId('settings-vat-code-row-v2')).getByRole('rowheader'))
+    expect(calls(deactivate)).toHaveLength(0)
   })
 
-  it('a stale list on reactivate (409 already_active) shows an alert naming the code and reloads', async () => {
-    vi.mocked(accountingApi.reactivateVatCode).mockRejectedValue(problem(409, 'already_active'))
+  it('on confirm marks the row inactive, offers Reactivate, confirms, and moves focus to the row header', async () => {
+    serve({ [LIST]: () => list(ACTIVE, INACTIVE), [deactivate]: () => ({ status: 200, body: { ...ACTIVE, active: false } }) })
     await renderCard()
-    vi.mocked(accountingApi.listVatCodes).mockResolvedValue([ACTIVE, { ...INACTIVE, active: true }])
-    fireEvent.click(screen.getByTestId('settings-vat-code-reactivate-v2'))
-
-    expect((await screen.findByTestId('settings-vat-codes-action-error')).textContent).toContain(
-      'VAT code OLD77 is already active.',
-    )
-    await waitFor(() => expect(accountingApi.listVatCodes).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(screen.getByTestId('settings-vat-code-deactivate-v2')).not.toBeNull())
-  })
-
-  it('a stale list on deactivate (409 already_inactive) closes the confirm, says so and reloads', async () => {
-    vi.mocked(accountingApi.deactivateVatCode).mockRejectedValue(problem(409, 'already_inactive'))
-    await renderCard()
-    fireEvent.click(screen.getByTestId('settings-vat-code-deactivate-v1'))
-    fireEvent.click(screen.getByTestId('deactivate-vat-code-confirm'))
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-IMP81'))
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-dialog-confirm'))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
-    expect(screen.getByTestId('settings-vat-codes-action-error').textContent).toContain(
-      'VAT code IMP81 is already deactivated.',
-    )
-    await waitFor(() => expect(accountingApi.listVatCodes).toHaveBeenCalledTimes(2))
+    const row = screen.getByTestId('accounting-vat-row-IMP81')
+    expect(within(row).getByText('Inactive')).not.toBeNull()
+    expect(within(row).getByText('8.1%')).not.toBeNull()
+    expect(screen.getByTestId('accounting-vat-reactivate-IMP81')).not.toBeNull()
+    expect(screen.getByTestId('accounting-saved').textContent).toBe('VAT code IMP81 deactivated')
+    expect(document.activeElement).toBe(within(row).getByRole('rowheader'))
+    await expectNoAxeViolations()
   })
 
-  it('keeps the confirm open on a server failure, busy while saving', async () => {
-    vi.mocked(accountingApi.deactivateVatCode).mockRejectedValueOnce(problem(500)).mockReturnValueOnce(pending())
+  it('is busy while saving: not dismissible, and the row actions are disabled', async () => {
+    serve({ [LIST]: () => list(ACTIVE, INACTIVE), [deactivate]: never })
     await renderCard()
-    fireEvent.click(screen.getByTestId('settings-vat-code-deactivate-v1'))
-    fireEvent.click(screen.getByTestId('deactivate-vat-code-confirm'))
-    await waitFor(() =>
-      expect(screen.getByTestId('deactivate-vat-code-error').textContent).toBe('Could not save. Try again.'),
-    )
-    fireEvent.click(screen.getByTestId('deactivate-vat-code-confirm'))
-    await waitFor(() => expect(screen.getByTestId('deactivate-vat-code-confirm').textContent).toBe('Deactivating…'))
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-IMP81'))
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-dialog-confirm'))
+    await waitFor(() => expect(screen.getByTestId('accounting-vat-deactivate-dialog-confirm').textContent).toBe('Deactivating…'))
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.getByRole('alertdialog')).not.toBeNull()
+    expect((screen.getByTestId('accounting-vat-reactivate-IMP77') as HTMLButtonElement).disabled).toBe(true)
+    await expectNoAxeViolations()
+  })
+
+  it('a failure keeps the confirm open with a retry message, and a 403 says permission and re-reads /v1/me', async () => {
+    let call = 0
+    serve({
+      [LIST]: () => list(ACTIVE, INACTIVE),
+      [deactivate]: () => (++call === 1 ? problem(500) : problem(403, 'accounting_manage_required')),
+    })
+    await renderCard()
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-IMP81'))
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-dialog-confirm'))
+    await waitFor(() =>
+      expect(screen.getByTestId('accounting-vat-deactivate-dialog-error').textContent).toBe('Could not save. Try again.'),
+    )
+    await expectNoAxeViolations()
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-dialog-confirm'))
+    await waitFor(() =>
+      expect(screen.getByTestId('accounting-vat-deactivate-dialog-error').textContent).toBe("You don't have permission to do this."),
+    )
+    expect(onWriteRefused).toHaveBeenCalledTimes(1)
+  })
+
+  it('a stale list (409 already_inactive) is said in an alert, closes the confirm and reloads (AC-1.11)', async () => {
+    let reads = 0
+    serve({
+      [LIST]: () => (++reads === 1 ? list(ACTIVE, INACTIVE) : list({ ...ACTIVE, active: false }, INACTIVE)),
+      [deactivate]: () => problem(409, 'already_inactive'),
+    })
+    await renderCard()
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-IMP81'))
+    fireEvent.click(screen.getByTestId('accounting-vat-deactivate-dialog-confirm'))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(screen.getByTestId('accounting-vat-action-error').textContent).toContain('VAT code IMP81 is already deactivated.')
+    await waitFor(() => expect(within(screen.getByTestId('accounting-vat-row-IMP81')).getByText('Inactive')).not.toBeNull())
+    await expectNoAxeViolations()
   })
 })
 
-// T44: automated axe checks (test-support/axe.ts) on every state the card shows, with its dialogs open.
-describe('VatCodesCard: accessibility (axe)', () => {
-  it('has no violations: loading, list, read-only, empty and load failure', async () => {
-    vi.mocked(accountingApi.listVatCodes).mockReturnValueOnce(pending())
-    const loading = render(<VatCodesCard canManage />)
-    await expectNoAxeViolations(loading.container)
-    loading.unmount()
+describe('VatCodesCard: Reactivate (AC-1.8, AC-1.10, AC-1.11)', () => {
+  const reactivate = 'POST /v1/entities/welld_ch/vat-codes/IMP77/reactivate'
 
-    const list = await renderCard()
-    await expectNoAxeViolations(list.container)
-    list.unmount()
-
-    const readOnly = await renderCard(false)
-    await expectNoAxeViolations(readOnly.container)
-    readOnly.unmount()
-
-    vi.mocked(accountingApi.listVatCodes).mockResolvedValue([])
-    const empty = render(<VatCodesCard canManage />)
-    await screen.findByTestId('settings-vat-codes-empty')
-    await expectNoAxeViolations(empty.container)
-    empty.unmount()
-
-    vi.mocked(accountingApi.listVatCodes).mockRejectedValue(problem(500))
-    const failed = render(<VatCodesCard canManage />)
-    await screen.findByTestId('error-banner')
-    await expectNoAxeViolations(failed.container)
-  })
-
-  it('has no violations: the Add dialog, with a duplicate-code error and while saving', async () => {
+  it('acts at once, with no dialog, marks the row active, confirms and moves focus to the row header', async () => {
+    serve({ [LIST]: () => list(ACTIVE, INACTIVE), [reactivate]: () => ({ status: 200, body: { ...INACTIVE, active: true } }) })
     await renderCard()
-    fireEvent.click(screen.getByTestId('settings-vat-codes-add'))
-    await expectNoAxeViolations()
-    fireEvent.change(screen.getByTestId('add-vat-code-code'), { target: { value: 'old77' } })
-    fireEvent.blur(screen.getByTestId('add-vat-code-code'))
-    await screen.findByTestId('add-vat-code-code-error')
-    await expectNoAxeViolations()
-    vi.mocked(accountingApi.createVatCode).mockReturnValue(pending())
-    fireEvent.change(screen.getByTestId('add-vat-code-code'), { target: { value: 'novat' } })
-    fireEvent.change(screen.getByTestId('add-vat-code-label'), { target: { value: 'Senza IVA' } })
-    fireEvent.change(screen.getByTestId('add-vat-code-rate'), { target: { value: '0' } })
-    fireEvent.click(screen.getByTestId('add-vat-code-submit'))
+    fireEvent.click(screen.getByTestId('accounting-vat-reactivate-IMP77'))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    await waitFor(() => expect(screen.getByTestId('accounting-vat-deactivate-IMP77')).not.toBeNull())
+    const row = screen.getByTestId('accounting-vat-row-IMP77')
+    expect(within(row).getByText('Active')).not.toBeNull()
+    expect(screen.getByTestId('accounting-saved').textContent).toBe('VAT code IMP77 reactivated')
+    expect(document.activeElement).toBe(within(row).getByRole('rowheader'))
     await expectNoAxeViolations()
   })
 
-  it('has no violations: the Deactivate confirm, its failure, the row after success and after a failed Reactivate', async () => {
-    vi.mocked(accountingApi.deactivateVatCode).mockRejectedValueOnce(problem(500))
+  it('a stale list (409 already_active) shows the alert and reloads; a 403 or 500 shows in the same alert', async () => {
+    let call = 0
+    let reads = 0
+    serve({
+      [LIST]: () => (++reads === 1 ? list(ACTIVE, INACTIVE) : list(ACTIVE, { ...INACTIVE, active: true })),
+      [reactivate]: () => (++call === 1 ? problem(409, 'already_active') : problem(500)),
+    })
     await renderCard()
-    fireEvent.click(screen.getByTestId('settings-vat-code-deactivate-v1'))
+    fireEvent.click(screen.getByTestId('accounting-vat-reactivate-IMP77'))
+    const alert = await screen.findByTestId('accounting-vat-action-error')
+    expect(alert.textContent).toContain('VAT code IMP77 is already active.')
+    expect(alert.getAttribute('role')).toBe('alert')
+    await waitFor(() => expect(screen.getByTestId('accounting-vat-deactivate-IMP77')).not.toBeNull())
     await expectNoAxeViolations()
-    fireEvent.click(screen.getByTestId('deactivate-vat-code-confirm'))
-    await screen.findByTestId('deactivate-vat-code-error')
+  })
+
+  it('shows a permission failure in the alert, tells the frame, and changes nothing', async () => {
+    serve({ [LIST]: () => list(ACTIVE, INACTIVE), [reactivate]: () => problem(403, 'accounting_manage_required') })
+    await renderCard()
+    fireEvent.click(screen.getByTestId('accounting-vat-reactivate-IMP77'))
+    expect((await screen.findByTestId('accounting-vat-action-error')).textContent).toContain("You don't have permission to do this.")
+    expect(onWriteRefused).toHaveBeenCalledTimes(1)
+    expect(within(screen.getByTestId('accounting-vat-row-IMP77')).getByText('Inactive')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByTestId('accounting-vat-action-error')).toBeNull()
+  })
+
+  it('addresses a code by its natural key, encoded in the path', async () => {
+    const odd: VatCode = { code: 'A-1_B', label: 'x', ratePercent: '1', active: false }
+    serve({
+      [LIST]: () => list(odd),
+      'POST /v1/entities/welld_ch/vat-codes/A-1_B/reactivate': () => ({ status: 200, body: { ...odd, active: true } }),
+    })
+    await renderCard()
+    fireEvent.click(screen.getByTestId('accounting-vat-reactivate-A-1_B'))
+    await screen.findByTestId('accounting-saved')
+  })
+})
+
+describe('VatCodesCard: Add dialog states under axe (AS6b)', () => {
+  it('is clean: idle, a field refused, a server duplicate, a general error and while saving', async () => {
+    const answers: FakeAnswer[] = [
+      problem(409, 'vat_code_duplicate', { vatCode: 'NEW1', reactivate: false }),
+      problem(500),
+    ]
+    serve({ [LIST]: () => list(ACTIVE, INACTIVE), 'POST /v1/entities/welld_ch/vat-codes': () => answers.shift() ?? never() })
+    await renderCard()
+    fireEvent.click(screen.getByTestId('accounting-vat-add'))
     await expectNoAxeViolations()
 
-    vi.mocked(accountingApi.deactivateVatCode).mockResolvedValue({ ...ACTIVE, active: false })
-    fireEvent.click(screen.getByTestId('deactivate-vat-code-confirm'))
-    await screen.findByTestId('settings-vat-codes-success')
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'a b' } })
+    fireEvent.blur(screen.getByTestId('accounting-vat-code'))
+    await screen.findByTestId('accounting-vat-code-error')
     await expectNoAxeViolations()
 
-    vi.mocked(accountingApi.reactivateVatCode).mockRejectedValue(problem(409, 'already_active'))
-    fireEvent.click(screen.getByTestId('settings-vat-code-reactivate-v2'))
-    await screen.findByTestId('settings-vat-codes-action-error')
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'NEW1' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-label'), { target: { value: 'New' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-rate'), { target: { value: '5' } })
+    fireEvent.click(screen.getByTestId('accounting-vat-dialog-submit'))
+    await waitFor(() => expect(screen.getByTestId('accounting-vat-code-error').textContent).toContain('already exists'))
+    await expectNoAxeViolations()
+
+    fireEvent.click(screen.getByTestId('accounting-vat-dialog-submit'))
+    await screen.findByTestId('accounting-vat-dialog-error')
+    await expectNoAxeViolations()
+
+    fireEvent.click(screen.getByTestId('accounting-vat-dialog-submit'))
+    await waitFor(() => expect(screen.getByTestId('accounting-vat-dialog-submit').textContent).toBe('Adding…'))
     await expectNoAxeViolations()
   })
 })

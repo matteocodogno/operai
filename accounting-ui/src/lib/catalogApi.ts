@@ -9,13 +9,19 @@
  *        409 ledger_account_duplicate { number, reactivate }   422 invalid_ledger_account { fields: [ { field, reason } ] }
  *   POST /v1/entities/{entity}/ledger-accounts/{number}/deactivate | /reactivate   200 item | 409 already_inactive / already_active
  *
+ *   GET  /v1/entities/{entity}/vat-codes                             200 { entity, items: [ { code, label, ratePercent: "8.1", rateBasisPoints: 810, active } ] }
+ *   POST /v1/entities/{entity}/vat-codes                { code, label, ratePercent }    201 item
+ *        409 vat_code_duplicate { vatCode, reactivate }   422 invalid_vat_code { fields: [ { field: code|label|ratePercent, reason } ] }
+ *   POST /v1/entities/{entity}/vat-codes/{code}/deactivate | /reactivate                200 item | 409 already_inactive / already_active
+ *
  * A list is unwrapped from its `{ entity, items }` envelope and read defensively (a row it cannot vouch for is dropped, an
  * unreadable `active` reads as deactivated), as `readMe` does. A write answers with the row, which the card swaps in; the
  * card reloads for order, and nothing here computes anything. A failure is an `ApiError` whose `code` is the discriminator
  * (`ledger_account_duplicate`, `invalid_ledger_account`, `already_active`, `accounting_manage_required`, …), whose `extras`
  * hold `reactivate`, `number` and `fields`; a caller branches on `code`, never on `detail` (AC-6.10).
  *
- * There is no PUT, PATCH or DELETE on an entry, so there is no function for one (AC-1.7, AC-1.12).
+ * There is no PUT, PATCH or DELETE on an entry, so there is no function for one: not for a ledger account (AC-1.12), and not
+ * for a VAT code's rate either (AC-1.7: a new rate is a new code). The rate is the server's display string, never computed.
  */
 import { getJson, sendJson } from './api'
 import type { ApiError } from './api'
@@ -76,6 +82,49 @@ export const deactivateLedgerAccount = (entity: EntityId, number: string): Promi
 
 export const reactivateLedgerAccount = (entity: EntityId, number: string): Promise<LedgerAccount> =>
   ledgerAction(entity, number, 'reactivate')
+
+// ---------------------------------------------------------------------------
+// VAT codes
+// ---------------------------------------------------------------------------
+
+/** What accounting-api says about a VAT code. The rate is fixed for the life of the code (AC-1.7). */
+export interface VatCode {
+  code: string
+  label: string
+  /** The rate as the server displays it: `"8.1"`. Shown through `formatVatRate`; never parsed to compute anything. */
+  ratePercent: string
+  active: boolean
+}
+
+const readVatCode = (item: Record<string, unknown>): VatCode | null =>
+  typeof item.code === 'string' && typeof item.label === 'string' && typeof item.ratePercent === 'string'
+    ? { code: item.code, label: item.label, ratePercent: item.ratePercent, active: item.active === true }
+    : null
+
+export const listVatCodes = async (entity: EntityId, init?: RequestInit): Promise<VatCode[]> =>
+  readItems(await getJson<unknown>(basePath(entity, 'vat-codes'), init), readVatCode)
+
+const readVatCodeAnswer = (body: unknown): VatCode => {
+  const vatCode = isRecord(body) ? readVatCode(body) : null
+  if (vatCode === null) throw new TypeError('accounting-api answered a VAT code that cannot be read')
+  return vatCode
+}
+
+export const createVatCode = async (
+  entity: EntityId,
+  input: { code: string; label: string; ratePercent: string },
+): Promise<VatCode> => readVatCodeAnswer(await sendJson<unknown>(basePath(entity, 'vat-codes'), 'POST', input))
+
+const vatAction = async (entity: EntityId, code: string, action: 'deactivate' | 'reactivate') =>
+  readVatCodeAnswer(
+    await sendJson<unknown>(`${basePath(entity, 'vat-codes')}/${encodeURIComponent(code)}/${action}`, 'POST'),
+  )
+
+export const deactivateVatCode = (entity: EntityId, code: string): Promise<VatCode> =>
+  vatAction(entity, code, 'deactivate')
+
+export const reactivateVatCode = (entity: EntityId, code: string): Promise<VatCode> =>
+  vatAction(entity, code, 'reactivate')
 
 // ---------------------------------------------------------------------------
 // What a refusal says (shared by both catalogs)

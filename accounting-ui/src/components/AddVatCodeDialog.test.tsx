@@ -1,252 +1,347 @@
 /**
  * @vitest-environment jsdom
  *
- * AddVatCodeDialog (T24, specs/20261118-refund-accounting-export, design S6b, F3; AC-1.4, AC-1.5): the code saved in
- * capitals, the rate parsed exactly from a dot or a comma and sent canonical, the duplicate named, values kept.
+ * AddVatCodeDialog (T30, specs/20261119-accounting, design FA4, AS6b, UX-3, UX-6; AC-1.5, AC-1.6, AC-1.7, AC-8.4): the entity in
+ * the title, required fields, the code upper-cased, the limits of `lib/limits.ts` with one sentence per reason, the rate as
+ * text (dot or comma, 0 to 100, 2 decimals, sent canonically), a case-insensitive duplicate with the reactivation pointer decided
+ * by the server's `reactivate` flag (G9), the server's `fields[]` mapped to the same sentences, values kept on failure, focus on
+ * the first refused field with no `ErrorSummary`, and axe on every state.
  */
-
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { expectNoAxeViolations } from '../../test-support/axe'
+import { fakeApi, problem } from '../test-support/fakeApi'
+import type { FakeAnswer, FakeHandler } from '../test-support/fakeApi'
+import { expectNoAxeViolations } from '../test-support/axe'
+import type { VatCode } from '../lib/catalogApi'
 
-vi.mock('../../lib/accountingApi', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../lib/accountingApi')>()
-  return { ...original, createVatCode: vi.fn() }
-})
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock('shell/session', () => ({ apiFetch, getAccountingApiBaseUrl: () => 'http://accounting-api.test' }))
 
-import * as accountingApi from '../../lib/accountingApi'
-import type { VatCode } from '../../lib/accountingApi'
-import { ApiError } from '../../lib/refundApi'
 import AddVatCodeDialog from './AddVatCodeDialog'
+
+const POST = 'POST /v1/entities/welld_ch/vat-codes'
+const never = (): Promise<FakeAnswer> => new Promise(() => {})
+const serve = (handler: FakeHandler) => apiFetch.mockImplementation(fakeApi({ [POST]: handler }))
+const posts = () => apiFetch.mock.calls.filter(([, init]) => init?.method === 'POST')
+const sent = () => JSON.parse(String(posts()[0]![1]!.body))
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
 })
 
-const vatCode = (overrides: Partial<VatCode> = {}): VatCode => ({
-  id: 'v1',
+const vat = (overrides: Partial<VatCode> = {}): VatCode => ({
   code: 'IMP81',
-  label: 'Imposta piena',
-  rateBasisPoints: 810,
+  label: 'Imposta 8.1%',
   ratePercent: '8.1',
   active: true,
-  createdAt: '2026-03-01T09:00:00Z',
-  createdByEmail: 'admin@welld.ch',
-  history: [],
   ...overrides,
 })
 
-const problem = (status: number, code?: string) => new ApiError({ type: 't', title: 'x', status, code })
-
 const setup = (vatCodes: VatCode[] = []) => {
-  const onAdded = vi.fn()
-  const onCancel = vi.fn()
-  render(<AddVatCodeDialog vatCodes={vatCodes} onAdded={onAdded} onCancel={onCancel} />)
-  return { onAdded, onCancel }
+  const handlers = { onAdded: vi.fn(), onCancel: vi.fn(), onStale: vi.fn(), onForbidden: vi.fn(), onGone: vi.fn() }
+  const view = render(<AddVatCodeDialog entity="welld_ch" vatCodes={vatCodes} {...handlers} />)
+  return { ...handlers, ...view }
 }
-
-const input = (name: 'code' | 'label' | 'rate') => screen.getByTestId(`add-vat-code-${name}`) as HTMLInputElement
 
 const fill = (code: string, label: string, rate: string) => {
-  fireEvent.change(input('code'), { target: { value: code } })
-  fireEvent.change(input('label'), { target: { value: label } })
-  fireEvent.change(input('rate'), { target: { value: rate } })
+  fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: code } })
+  fireEvent.change(screen.getByTestId('accounting-vat-label'), { target: { value: label } })
+  fireEvent.change(screen.getByTestId('accounting-vat-rate'), { target: { value: rate } })
 }
-
-const submit = () => fireEvent.click(screen.getByTestId('add-vat-code-submit'))
+const submit = () => fireEvent.click(screen.getByTestId('accounting-vat-dialog-submit'))
+const err = (field: 'code' | 'label' | 'rate') => screen.getByTestId(`accounting-vat-${field}-error`).textContent
 
 describe('AddVatCodeDialog', () => {
-  it('says the rate cannot be changed later (AC-1.5) and offers no way to edit one', () => {
+  it('names the entity in its title and says the rate cannot be changed later (AC-1.7)', () => {
     setup()
-    expect(screen.getByRole('dialog', { name: 'Add VAT code' })).not.toBeNull()
+    const dialog = screen.getByRole('dialog', { name: 'Add VAT code — WellD CH' })
+    expect(dialog.getAttribute('aria-describedby')).toBeTruthy()
     expect(screen.getByText('The rate cannot be changed later: a new rate needs a new code.')).not.toBeNull()
     expect(screen.getByText('Letters, digits, - and _ (up to 16). Saved in capitals.')).not.toBeNull()
     expect(screen.getByText('Between 0 and 100, up to 2 decimals.')).not.toBeNull()
+    expect(screen.getByLabelText(/VAT rate \(%\)/)).not.toBeNull()
   })
 
-  it('upper-cases the code when the field loses focus', () => {
+  it('focuses the code on open and keeps Save disabled until all three fields have text', () => {
     setup()
-    fireEvent.change(input('code'), { target: { value: ' imp81 ' } })
-    fireEvent.blur(input('code'))
-    expect(input('code').value).toBe('IMP81')
-  })
-
-  it('keeps Save disabled until all three fields have text', () => {
-    setup()
-    const save = screen.getByTestId('add-vat-code-submit') as HTMLButtonElement
-    fireEvent.change(input('code'), { target: { value: 'IMP81' } })
-    fireEvent.change(input('label'), { target: { value: 'Imposta' } })
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-code'))
+    const save = screen.getByTestId('accounting-vat-dialog-submit') as HTMLButtonElement
     expect(save.disabled).toBe(true)
-    fireEvent.change(input('rate'), { target: { value: '8.1' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'IMP81' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-label'), { target: { value: 'Imposta' } })
+    expect(save.disabled).toBe(true)
+    fireEvent.change(screen.getByTestId('accounting-vat-rate'), { target: { value: '8,1' } })
     expect(save.disabled).toBe(false)
+  })
+
+  it('upper-cases the code on blur and sends it in capitals with trimmed values (AC-1.5)', async () => {
+    serve(() => ({ status: 201, body: vat({ code: 'IMP81' }) }))
+    const { onAdded } = setup()
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: ' imp81 ' } })
+    fireEvent.blur(screen.getByTestId('accounting-vat-code'))
+    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe('IMP81')
+    fireEvent.change(screen.getByTestId('accounting-vat-label'), { target: { value: '  Imposta 8.1%  ' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-rate'), { target: { value: '8.1' } })
+    submit()
+    await waitFor(() => expect(onAdded).toHaveBeenCalled())
+    expect(String(posts()[0]![0])).toBe('http://accounting-api.test/v1/entities/welld_ch/vat-codes')
+    expect(sent()).toEqual({ code: 'IMP81', label: 'Imposta 8.1%', ratePercent: '8.1' })
+  })
+
+  it('upper-cases a code that was never blurred, on submit', async () => {
+    serve(() => ({ status: 201, body: vat() }))
+    setup()
+    fill('imp81', 'Imposta', '8.1')
+    submit()
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(sent().code).toBe('IMP81')
   })
 
   it.each([
     ['8.1', '8.1'],
     ['8,1', '8.1'],
-    ['8.10', '8.1'],
-    ['8', '8'],
+    ['8,10', '8.1'],
     ['8.00', '8'],
     ['0', '0'],
-    ['0.05', '0.05'],
-    ['00.5', '0.5'],
+    ['0,05', '0.05'],
     ['100', '100'],
     ['100.00', '100'],
-    ['7.70', '7.7'],
-    [' 2.6 ', '2.6'],
-  ])('sends the rate %j as the canonical string %j', async (typed, sent) => {
-    vi.mocked(accountingApi.createVatCode).mockResolvedValue(vatCode())
+    [' 7.7 ', '7.7'],
+  ])('accepts the rate %j and sends it as %j (text, never through a float)', async (typed, canonical) => {
+    serve(() => ({ status: 201, body: vat() }))
     setup()
-    fill('imp81', 'Imposta', typed)
+    fill('IMP81', 'Imposta', typed)
     submit()
-    await waitFor(() => expect(accountingApi.createVatCode).toHaveBeenCalled())
-    expect(accountingApi.createVatCode).toHaveBeenCalledWith({ code: 'IMP81', label: 'Imposta', ratePercent: sent })
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(sent().ratePercent).toBe(canonical)
   })
 
-  it.each(['100.01', '101', '-1', '8.123', '8.', '.5', 'abc', '8,1,2', '1e2', '999'])(
-    'refuses the rate %j without calling the API, and focuses the field',
-    async (rate) => {
+  it.each(['100.01', '101', '1000', '8.123', '-1', 'abc', '8..1', '8,1,2', '8%', '.5'])(
+    'refuses the rate %j without a request, names the limit and focuses the field',
+    async (typed) => {
       setup()
-      fill('IMP81', 'Imposta', rate)
+      fill('IMP81', 'Imposta', typed)
       submit()
-      expect(screen.getByTestId('add-vat-code-rate-error').textContent).toBe(
-        'Enter a rate between 0 and 100, with up to 2 decimals.',
-      )
-      await waitFor(() => expect(document.activeElement).toBe(input('rate')))
-      expect(accountingApi.createVatCode).not.toHaveBeenCalled()
+      expect(err('rate')).toBe('Enter a rate between 0 and 100, with up to 2 decimals.')
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-rate')))
+      expect(screen.getByTestId('accounting-vat-rate').getAttribute('aria-invalid')).toBe('true')
+      expect(posts()).toHaveLength(0)
     },
   )
 
-  it.each(['IMP 81', 'IMP.81', 'ÄÖ', 'A'.repeat(17), 'imp/81'])('refuses the code %j', (code) => {
+  it.each([
+    ['a b', 'Use letters, digits, - or _ only.'],
+    ['IMP.81', 'Use letters, digits, - or _ only.'],
+    ['IMPÔ', 'Use letters, digits, - or _ only.'],
+    ['X'.repeat(17), 'The code can have up to 16 characters.'],
+  ])('refuses the code %j for its own reason', (value, sentence) => {
     setup()
-    fireEvent.change(input('code'), { target: { value: code } })
-    fireEvent.change(input('label'), { target: { value: 'x' } })
-    fireEvent.change(input('rate'), { target: { value: '8' } })
-    fireEvent.submit(input('code').closest('form') as HTMLFormElement)
-    expect(screen.getByTestId('add-vat-code-code-error').textContent).toBe(
-      'Enter a code of letters, digits, - or _ (up to 16).',
-    )
-    expect(accountingApi.createVatCode).not.toHaveBeenCalled()
+    fill(value, 'Imposta', '8.1')
+    submit()
+    expect(err('code')).toBe(sentence)
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-code'))
+    expect(posts()).toHaveLength(0)
   })
 
   it('accepts a code of 16 characters with - and _', async () => {
-    vi.mocked(accountingApi.createVatCode).mockResolvedValue(vatCode())
+    serve(() => ({ status: 201, body: vat() }))
     setup()
-    fill('a-b_c' + '1'.repeat(11), 'x', '8')
+    fill('A-1_' + 'B'.repeat(12), 'Imposta', '8.1')
     submit()
-    await waitFor(() => expect(accountingApi.createVatCode).toHaveBeenCalled())
+    await waitFor(() => expect(posts()).toHaveLength(1))
   })
 
-  it('refuses a label of more than 80 characters, and one of 80 passes', async () => {
-    vi.mocked(accountingApi.createVatCode).mockResolvedValue(vatCode())
+  it('refuses a label longer than 80 characters, and 80 passes', async () => {
+    serve(() => ({ status: 201, body: vat() }))
     setup()
-    fill('IMP81', 'x'.repeat(81), '8')
+    fill('IMP81', 'x'.repeat(81), '8.1')
     submit()
-    expect(screen.getByTestId('add-vat-code-label-error').textContent).toBe('Enter a label of up to 80 characters.')
-    expect(document.activeElement).toBe(input('label'))
-    fill('IMP81', 'x'.repeat(80), '8')
+    expect(err('label')).toBe('The label can have up to 80 characters.')
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-label'))
+    fill('IMP81', 'x'.repeat(80), '8.1')
     submit()
-    await waitFor(() => expect(accountingApi.createVatCode).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(posts()).toHaveLength(1))
   })
 
-  it('names a duplicate code on blur, whatever its case, and says so for a deactivated one', () => {
-    setup([vatCode({ code: 'IMP81' }), vatCode({ id: 'v2', code: 'OLD', active: false })])
-    fireEvent.change(input('code'), { target: { value: 'imp81' } })
-    fireEvent.blur(input('code'))
-    expect(screen.getByTestId('add-vat-code-code-error').textContent).toBe('VAT code IMP81 already exists.')
-
-    fireEvent.change(input('code'), { target: { value: 'old' } })
-    fireEvent.blur(input('code'))
-    expect(screen.getByTestId('add-vat-code-code-error').textContent).toBe(
-      'VAT code OLD already exists but is deactivated. Reactivate it from the list.',
-    )
-  })
-
-  it('shows a server 409 duplicate on the code field and keeps every typed value', async () => {
-    vi.mocked(accountingApi.createVatCode).mockRejectedValue(problem(409, 'vat_code_duplicate'))
-    const { onAdded } = setup()
-    fill('imp81', 'Imposta', '8,1')
+  it('focuses the FIRST refused field, and shows one alert per refused field, no ErrorSummary (UX-6)', () => {
+    setup()
+    fill('a b', 'y'.repeat(81), 'abc')
     submit()
-
-    await waitFor(() =>
-      expect(screen.getByTestId('add-vat-code-code-error').textContent).toBe('VAT code IMP81 already exists.'),
-    )
-    expect(input('code').value).toBe('IMP81')
-    expect(input('label').value).toBe('Imposta')
-    expect(input('rate').value).toBe('8,1')
-    await waitFor(() => expect(document.activeElement).toBe(input('code')))
-    expect(onAdded).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-code'))
+    expect(screen.getAllByRole('alert')).toHaveLength(3)
   })
 
-  it('reports the created code, and shows 403 and other failures as general errors', async () => {
-    const created = vatCode({ id: 'v7' })
-    vi.mocked(accountingApi.createVatCode).mockResolvedValueOnce(created)
-    const { onAdded } = setup()
+  it('names a case-insensitive duplicate on blur and submit, before any request (AC-1.6)', () => {
+    setup([vat({ code: 'IMP81' })])
+    fill('imp81', 'Imposta', '8.1')
+    fireEvent.blur(screen.getByTestId('accounting-vat-code'))
+    expect(err('code')).toBe('VAT code IMP81 already exists in WellD CH.')
+    submit()
+    expect(err('code')).toBe('VAT code IMP81 already exists in WellD CH.')
+    expect(posts()).toHaveLength(0)
+  })
+
+  it('points to Reactivate when the existing code is deactivated', () => {
+    setup([vat({ code: 'IMP81', active: false })])
+    fill('Imp81', 'Imposta', '8.1')
+    fireEvent.blur(screen.getByTestId('accounting-vat-code'))
+    expect(err('code')).toBe('VAT code IMP81 already exists but is deactivated. Reactivate it from the list.')
+  })
+
+  it('clears a field’s error as soon as its value changes', () => {
+    setup()
+    fill('a b', 'Imposta', '8.1')
+    submit()
+    expect(screen.getByTestId('accounting-vat-code-error')).not.toBeNull()
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'AB' } })
+    expect(screen.queryByTestId('accounting-vat-code-error')).toBeNull()
+  })
+
+  describe('a 409 from the server (G9)', () => {
+    it.each([
+      [{ reactivate: false }, 'VAT code IMP81 already exists in WellD CH.'],
+      [{ reactivate: true }, 'VAT code IMP81 already exists but is deactivated. Reactivate it from the list.'],
+    ])('with %j the sentence follows the flag, keeps the values, focuses the code and asks the card to reload', async (extras, sentence) => {
+      serve(() => problem(409, 'vat_code_duplicate', { vatCode: 'IMP81', ...extras }))
+      const { onAdded, onStale } = setup()
+      fill('imp81', 'Imposta', '8.1')
+      submit()
+      await waitFor(() => expect(err('code')).toBe(sentence))
+      expect((screen.getByTestId('accounting-vat-label') as HTMLInputElement).value).toBe('Imposta')
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-code')))
+      expect(onAdded).not.toHaveBeenCalled()
+      expect(onStale).toHaveBeenCalledTimes(1)
+    })
+
+    it('an ACTIVE duplicate never gets the reactivation pointer, even if the list is stale and says deactivated', async () => {
+      serve(() => problem(409, 'vat_code_duplicate', { vatCode: 'IMP77', reactivate: false }))
+      setup([vat({ code: 'IMP77', active: false })])
+      fill('IMP78', 'Imposta', '7.7')
+      submit()
+      await waitFor(() => expect(err('code')).toBe('VAT code IMP77 already exists in WellD CH.'))
+    })
+  })
+
+  describe('a 422 from the server maps fields[] to the same sentences (UX-6)', () => {
+    it.each([
+      ['code', 'empty', 'code', 'Enter a code.'],
+      ['code', 'format', 'code', 'Use letters, digits, - or _ only.'],
+      ['code', 'too_long', 'code', 'The code can have up to 16 characters.'],
+      ['label', 'empty', 'label', 'Enter a label.'],
+      ['label', 'too_long', 'label', 'The label can have up to 80 characters.'],
+      ['ratePercent', 'format', 'rate', 'Enter a rate between 0 and 100, with up to 2 decimals.'],
+      ['ratePercent', 'range', 'rate', 'Enter a rate between 0 and 100, with up to 2 decimals.'],
+    ] as const)('%s %s → the %s field says %j and takes focus', async (field, reason, shown, sentence) => {
+      serve(() => problem(422, 'invalid_vat_code', { fields: [{ field, reason }] }))
+      setup()
+      fill('IMP81', 'Imposta', '8.1')
+      submit()
+      await waitFor(() => expect(err(shown)).toBe(sentence))
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId(`accounting-vat-${shown}`)))
+    })
+
+    it('several refused fields: all show, the first in form order takes focus', async () => {
+      serve(() =>
+        problem(422, 'invalid_vat_code', {
+          fields: [
+            { field: 'ratePercent', reason: 'format' },
+            { field: 'label', reason: 'empty' },
+          ],
+        }),
+      )
+      setup()
+      fill('IMP81', 'Imposta', '8.1')
+      submit()
+      await waitFor(() => expect(err('rate')).not.toBeNull())
+      expect(err('label')).toBe('Enter a label.')
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-label')))
+    })
+
+    it('a 422 naming no field of this dialog is a general error, never a blank one', async () => {
+      serve(() => problem(422, 'invalid_vat_code', { fields: [] }))
+      setup()
+      fill('IMP81', 'Imposta', '8.1')
+      submit()
+      await waitFor(() => expect(screen.getByTestId('accounting-vat-dialog-error').textContent).toBe('Could not save. Try again.'))
+    })
+  })
+
+  it('a 403 is a permission message, tells the frame and keeps the values; a network failure is a retry message; a 404 tells the frame', async () => {
+    const answers: Array<FakeAnswer | 'offline'> = [problem(403, 'accounting_manage_required'), 'offline', problem(404, 'not_found')]
+    apiFetch.mockImplementation(async () => {
+      const next = answers.shift()!
+      if (next === 'offline') throw new TypeError('offline')
+      return new Response(JSON.stringify(next.body), { status: next.status })
+    })
+    const { onForbidden, onGone } = setup()
     fill('IMP81', 'Imposta', '8.1')
     submit()
-    await waitFor(() => expect(onAdded).toHaveBeenCalledWith(created))
+    await waitFor(() =>
+      expect(screen.getByTestId('accounting-vat-dialog-error').textContent).toBe("You don't have permission to do this."),
+    )
+    expect(onForbidden).toHaveBeenCalledTimes(1)
+    submit()
+    await waitFor(() => expect(screen.getByTestId('accounting-vat-dialog-error').textContent).toBe('Could not save. Try again.'))
+    submit()
+    await waitFor(() => expect(onGone).toHaveBeenCalledTimes(1))
+    expect((screen.getByTestId('accounting-vat-rate') as HTMLInputElement).value).toBe('8.1')
+  })
 
-    cleanup()
-    vi.mocked(accountingApi.createVatCode).mockRejectedValueOnce(problem(403))
+  it('is busy while saving: "Adding…", fields disabled, and a second submit sends nothing', async () => {
+    serve(never)
     setup()
     fill('IMP81', 'Imposta', '8.1')
     submit()
-    await waitFor(() =>
-      expect(screen.getByTestId('add-vat-code-error').textContent).toBe("You don't have permission to do this."),
-    )
-    vi.mocked(accountingApi.createVatCode).mockRejectedValueOnce(problem(500))
+    await waitFor(() => expect(screen.getByTestId('accounting-vat-dialog-submit').textContent).toBe('Adding…'))
+    expect(screen.getByTestId('accounting-vat-rate').matches(':disabled')).toBe(true)
     submit()
-    await waitFor(() => expect(screen.getByTestId('add-vat-code-error').textContent).toBe('Could not save. Try again.'))
+    expect(posts()).toHaveLength(1)
+  })
+
+  it('Cancel and Escape cancel', () => {
+    const { onCancel } = setup()
+    fireEvent.click(screen.getByTestId('accounting-vat-dialog-cancel'))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledTimes(2)
   })
 })
 
-// T44: automated axe checks (test-support/axe.ts) on every state of the dialog.
 describe('AddVatCodeDialog: accessibility (axe)', () => {
-  it('has no violations: empty, filled, and with each field error', async () => {
-    setup([vatCode({ code: 'OLD', active: false })])
+  it('has no violations: idle, filled, each field refused, a duplicate on blur', async () => {
+    setup([vat({ code: 'IMP81', active: false })])
     await expectNoAxeViolations()
-    fill('IMP81', 'Imposta', '8,1')
+    fill('IMP77', 'Imposta', '7.7')
     await expectNoAxeViolations()
-    fireEvent.change(input('code'), { target: { value: 'old' } })
-    fireEvent.blur(input('code'))
-    await screen.findByTestId('add-vat-code-code-error')
+    fill('IMP81', 'Imposta', '7.7')
+    fireEvent.blur(screen.getByTestId('accounting-vat-code'))
+    await screen.findByTestId('accounting-vat-code-error')
     await expectNoAxeViolations()
     cleanup()
 
     setup()
-    fill('IMP81', 'x'.repeat(81), 'abc')
+    fill('a b', 'x'.repeat(81), 'abc')
     submit()
-    await screen.findByTestId('add-vat-code-label-error')
-    await expectNoAxeViolations()
-    fill('IMP81', 'Imposta', 'abc')
-    submit()
-    await screen.findByTestId('add-vat-code-rate-error')
+    await screen.findByTestId('accounting-vat-rate-error')
     await expectNoAxeViolations()
   })
 
   it('has no violations: a server duplicate, a general failure, and while saving', async () => {
-    vi.mocked(accountingApi.createVatCode).mockRejectedValueOnce(problem(409, 'vat_code_duplicate'))
-    setup()
-    fill('imp81', 'Imposta', '8,1')
-    submit()
-    await screen.findByTestId('add-vat-code-code-error')
-    await expectNoAxeViolations()
-    cleanup()
-
-    vi.mocked(accountingApi.createVatCode).mockRejectedValueOnce(problem(500))
+    const answers: FakeAnswer[] = [problem(409, 'vat_code_duplicate', { vatCode: 'IMP81', reactivate: true }), problem(500)]
+    serve(() => answers.shift() ?? never())
     setup()
     fill('IMP81', 'Imposta', '8.1')
     submit()
-    await screen.findByTestId('add-vat-code-error')
+    await screen.findByTestId('accounting-vat-code-error')
     await expectNoAxeViolations()
-    cleanup()
 
-    vi.mocked(accountingApi.createVatCode).mockReturnValue(new Promise(() => {}))
-    setup()
-    fill('IMP81', 'Imposta', '8.1')
+    fill('IMP82', 'Imposta', '8.1')
     submit()
-    await waitFor(() => expect(screen.getByTestId('add-vat-code-submit').textContent).toBe('Adding…'))
+    await screen.findByTestId('accounting-vat-dialog-error')
+    await expectNoAxeViolations()
+
+    submit()
+    await waitFor(() => expect(screen.getByTestId('accounting-vat-dialog-submit').textContent).toBe('Adding…'))
     await expectNoAxeViolations()
   })
 })

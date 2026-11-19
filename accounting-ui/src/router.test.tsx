@@ -32,10 +32,12 @@ beforeEach(() => {
     fakeApi({
       'GET /v1/me': () => meAnswer(meEntity(), meItalia()),
       ...Object.fromEntries(
-        ['welld_ch', 'welld_it'].map((entity) => [
-          `GET /v1/entities/${entity}/ledger-accounts`,
-          () => ({ status: 200, body: { entity, items: [] } }),
-        ]),
+        ['welld_ch', 'welld_it'].flatMap((entity) =>
+          ['ledger-accounts', 'vat-codes'].map((resource) => [
+            `GET /v1/entities/${entity}/${resource}`,
+            () => ({ status: 200, body: { entity, items: [] } }),
+          ]),
+        ),
       ),
     }),
   )
@@ -83,7 +85,7 @@ describe('createAppRouter', () => {
     renderAt('/accounting/vat-codes')
     expect(await screen.findByRole('heading', { level: 2, name: 'VAT codes' })).not.toBeNull()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
-    expect(screen.getByTestId('accounting-vat-entity').textContent).toBe('WellD CH')
+    expect(await screen.findByRole('heading', { level: 3, name: 'VAT codes — WellD CH' })).not.toBeNull()
 
     cleanup()
     renderAt('/accounting/exchange-rates')
@@ -127,7 +129,7 @@ describe('the TabNav (design UX-1)', () => {
     await user.click(tab('VAT codes'))
     expect(await screen.findByTestId('accounting-vat-page')).not.toBeNull()
     expect(window.location.search).toBe('?entity=welld_it')
-    expect(screen.getByTestId('accounting-vat-entity').textContent).toBe('WellD Italia')
+    expect(await screen.findByRole('heading', { level: 3, name: 'VAT codes — WellD Italia' })).not.toBeNull()
     expect(tab('VAT codes').getAttribute('aria-current')).toBe('page')
 
     // Back walks the views (each tab is a page with its own URL).
