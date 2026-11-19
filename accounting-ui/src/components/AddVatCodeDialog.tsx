@@ -4,7 +4,7 @@
  * `POST`, names the entity in its title, checks with `lib/limits.ts` (the server's limits) and leaves the server the authority.
  *
  *   - Code: capital letters, digits, `-` and `_`, 1 to 16, saved in capitals (it is upper-cased when the field loses focus and
- *     again on submit, AC-1.5); compared with the loaded list on blur, case-insensitively (`imp81` when `IMP81` exists).
+ *     again on submit, AC-1.5); compared with the loaded list on blur, case-insensitively (`ipm81` when `IPM81` exists).
  *   - Label: 1 to 80 characters.
  *   - Rate in percent: dot or comma, 0 to 100, at most 2 decimals. Validated as text (`checkVatRatePercent`, no float) and sent
  *     as the canonical string the API expects (`8.1`, never `8,10`). The description states that the rate cannot be changed

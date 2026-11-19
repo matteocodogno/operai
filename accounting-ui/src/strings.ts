@@ -193,7 +193,7 @@ export const en = {
     },
     source: {
       term: 'Source',
-      bazg: 'Official monthly average of the Swiss Federal Office for Customs and Border Security (BAZG)',
+      bazg: 'Monthly average rates for VAT of the Swiss Federal Tax Administration (AFC/ESTV), served by the BAZG',
     },
     loading: 'Loading exchange rates…',
     loadError: 'Could not load the exchange rates.',
@@ -429,7 +429,7 @@ export const it: typeof en = {
     },
     source: {
       term: 'Fonte',
-      bazg: 'Media mensile ufficiale dell’Ufficio federale della dogana e della sicurezza dei confini (UDSC)',
+      bazg: 'Corsi medi mensili IVA dell’Amministrazione federale delle contribuzioni (AFC), forniti dall’UDSC',
     },
     loading: 'Caricamento dei tassi di cambio…',
     loadError: 'Impossibile caricare i tassi di cambio.',

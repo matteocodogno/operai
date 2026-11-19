@@ -31,7 +31,7 @@ afterEach(() => {
 })
 
 const vat = (overrides: Partial<VatCode> = {}): VatCode => ({
-  code: 'IMP81',
+  code: 'IPM81',
   label: 'Imposta 8.1%',
   ratePercent: '8.1',
   active: true,
@@ -68,7 +68,7 @@ describe('AddVatCodeDialog', () => {
     expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-code'))
     const save = screen.getByTestId('accounting-vat-dialog-submit') as HTMLButtonElement
     expect(save.disabled).toBe(true)
-    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'IMP81' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'IPM81' } })
     fireEvent.change(screen.getByTestId('accounting-vat-label'), { target: { value: 'Imposta' } })
     expect(save.disabled).toBe(true)
     fireEvent.change(screen.getByTestId('accounting-vat-rate'), { target: { value: '8,1' } })
@@ -76,26 +76,26 @@ describe('AddVatCodeDialog', () => {
   })
 
   it('upper-cases the code on blur and sends it in capitals with trimmed values (AC-1.5)', async () => {
-    serve(() => ({ status: 201, body: vat({ code: 'IMP81' }) }))
+    serve(() => ({ status: 201, body: vat({ code: 'IPM81' }) }))
     const { onAdded } = setup()
-    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: ' imp81 ' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: ' ipm81 ' } })
     fireEvent.blur(screen.getByTestId('accounting-vat-code'))
-    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe('IMP81')
+    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe('IPM81')
     fireEvent.change(screen.getByTestId('accounting-vat-label'), { target: { value: '  Imposta 8.1%  ' } })
     fireEvent.change(screen.getByTestId('accounting-vat-rate'), { target: { value: '8.1' } })
     submit()
     await waitFor(() => expect(onAdded).toHaveBeenCalled())
     expect(String(posts()[0]![0])).toBe('http://accounting-api.test/v1/entities/welld_ch/vat-codes')
-    expect(sent()).toEqual({ code: 'IMP81', label: 'Imposta 8.1%', ratePercent: '8.1' })
+    expect(sent()).toEqual({ code: 'IPM81', label: 'Imposta 8.1%', ratePercent: '8.1' })
   })
 
   it('upper-cases a code that was never blurred, on submit', async () => {
     serve(() => ({ status: 201, body: vat() }))
     setup()
-    fill('imp81', 'Imposta', '8.1')
+    fill('ipm81', 'Imposta', '8.1')
     submit()
     await waitFor(() => expect(posts()).toHaveLength(1))
-    expect(sent().code).toBe('IMP81')
+    expect(sent().code).toBe('IPM81')
   })
 
   it.each([
@@ -111,7 +111,7 @@ describe('AddVatCodeDialog', () => {
   ])('accepts the rate %j and sends it as %j (text, never through a float)', async (typed, canonical) => {
     serve(() => ({ status: 201, body: vat() }))
     setup()
-    fill('IMP81', 'Imposta', typed)
+    fill('IPM81', 'Imposta', typed)
     submit()
     await waitFor(() => expect(posts()).toHaveLength(1))
     expect(sent().ratePercent).toBe(canonical)
@@ -121,7 +121,7 @@ describe('AddVatCodeDialog', () => {
     'refuses the rate %j without a request, names the limit and focuses the field',
     async (typed) => {
       setup()
-      fill('IMP81', 'Imposta', typed)
+      fill('IPM81', 'Imposta', typed)
       submit()
       expect(err('rate')).toBe('Enter a rate between 0 and 100, with up to 2 decimals.')
       await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-rate')))
@@ -132,8 +132,8 @@ describe('AddVatCodeDialog', () => {
 
   it.each([
     ['a b', 'Use letters, digits, - or _ only.'],
-    ['IMP.81', 'Use letters, digits, - or _ only.'],
-    ['IMPÔ', 'Use letters, digits, - or _ only.'],
+    ['IPM.81', 'Use letters, digits, - or _ only.'],
+    ['IPMÔ', 'Use letters, digits, - or _ only.'],
     ['X'.repeat(17), 'The code can have up to 16 characters.'],
   ])('refuses the code %j for its own reason', (value, sentence) => {
     setup()
@@ -155,11 +155,11 @@ describe('AddVatCodeDialog', () => {
   it('refuses a label longer than 80 characters, and 80 passes', async () => {
     serve(() => ({ status: 201, body: vat() }))
     setup()
-    fill('IMP81', 'x'.repeat(81), '8.1')
+    fill('IPM81', 'x'.repeat(81), '8.1')
     submit()
     expect(err('label')).toBe('The label can have up to 80 characters.')
     expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-label'))
-    fill('IMP81', 'x'.repeat(80), '8.1')
+    fill('IPM81', 'x'.repeat(80), '8.1')
     submit()
     await waitFor(() => expect(posts()).toHaveLength(1))
   })
@@ -173,20 +173,20 @@ describe('AddVatCodeDialog', () => {
   })
 
   it('names a case-insensitive duplicate on blur and submit, before any request (AC-1.6)', () => {
-    setup([vat({ code: 'IMP81' })])
-    fill('imp81', 'Imposta', '8.1')
+    setup([vat({ code: 'IPM81' })])
+    fill('ipm81', 'Imposta', '8.1')
     fireEvent.blur(screen.getByTestId('accounting-vat-code'))
-    expect(err('code')).toBe('VAT code IMP81 already exists in WellD CH.')
+    expect(err('code')).toBe('VAT code IPM81 already exists in WellD CH.')
     submit()
-    expect(err('code')).toBe('VAT code IMP81 already exists in WellD CH.')
+    expect(err('code')).toBe('VAT code IPM81 already exists in WellD CH.')
     expect(posts()).toHaveLength(0)
   })
 
   it('points to Reactivate when the existing code is deactivated', () => {
-    setup([vat({ code: 'IMP81', active: false })])
-    fill('Imp81', 'Imposta', '8.1')
+    setup([vat({ code: 'IPM81', active: false })])
+    fill('Ipm81', 'Imposta', '8.1')
     fireEvent.blur(screen.getByTestId('accounting-vat-code'))
-    expect(err('code')).toBe('VAT code IMP81 already exists but is deactivated. Reactivate it from the list.')
+    expect(err('code')).toBe('VAT code IPM81 already exists but is deactivated. Reactivate it from the list.')
   })
 
   it('clears a field’s error as soon as its value changes', () => {
@@ -200,12 +200,12 @@ describe('AddVatCodeDialog', () => {
 
   describe('a 409 from the server (G9)', () => {
     it.each([
-      [{ reactivate: false }, 'VAT code IMP81 already exists in WellD CH.'],
-      [{ reactivate: true }, 'VAT code IMP81 already exists but is deactivated. Reactivate it from the list.'],
+      [{ reactivate: false }, 'VAT code IPM81 already exists in WellD CH.'],
+      [{ reactivate: true }, 'VAT code IPM81 already exists but is deactivated. Reactivate it from the list.'],
     ])('with %j the sentence follows the flag, keeps the values, focuses the code and asks the card to reload', async (extras, sentence) => {
-      serve(() => problem(409, 'vat_code_duplicate', { vatCode: 'IMP81', ...extras }))
+      serve(() => problem(409, 'vat_code_duplicate', { vatCode: 'IPM81', ...extras }))
       const { onAdded, onStale } = setup()
-      fill('imp81', 'Imposta', '8.1')
+      fill('ipm81', 'Imposta', '8.1')
       submit()
       await waitFor(() => expect(err('code')).toBe(sentence))
       expect((screen.getByTestId('accounting-vat-label') as HTMLInputElement).value).toBe('Imposta')
@@ -215,11 +215,11 @@ describe('AddVatCodeDialog', () => {
     })
 
     it('an ACTIVE duplicate never gets the reactivation pointer, even if the list is stale and says deactivated', async () => {
-      serve(() => problem(409, 'vat_code_duplicate', { vatCode: 'IMP77', reactivate: false }))
-      setup([vat({ code: 'IMP77', active: false })])
-      fill('IMP78', 'Imposta', '7.7')
+      serve(() => problem(409, 'vat_code_duplicate', { vatCode: 'IPM77', reactivate: false }))
+      setup([vat({ code: 'IPM77', active: false })])
+      fill('IPM78', 'Imposta', '7.7')
       submit()
-      await waitFor(() => expect(err('code')).toBe('VAT code IMP77 already exists in WellD CH.'))
+      await waitFor(() => expect(err('code')).toBe('VAT code IPM77 already exists in WellD CH.'))
     })
   })
 
@@ -235,7 +235,7 @@ describe('AddVatCodeDialog', () => {
     ] as const)('%s %s → the %s field says %j and takes focus', async (field, reason, shown, sentence) => {
       serve(() => problem(422, 'invalid_vat_code', { fields: [{ field, reason }] }))
       setup()
-      fill('IMP81', 'Imposta', '8.1')
+      fill('IPM81', 'Imposta', '8.1')
       submit()
       await waitFor(() => expect(err(shown)).toBe(sentence))
       await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId(`accounting-vat-${shown}`)))
@@ -251,7 +251,7 @@ describe('AddVatCodeDialog', () => {
         }),
       )
       setup()
-      fill('IMP81', 'Imposta', '8.1')
+      fill('IPM81', 'Imposta', '8.1')
       submit()
       await waitFor(() => expect(err('rate')).not.toBeNull())
       expect(err('label')).toBe('Enter a label.')
@@ -261,7 +261,7 @@ describe('AddVatCodeDialog', () => {
     it('a 422 naming no field of this dialog is a general error, never a blank one', async () => {
       serve(() => problem(422, 'invalid_vat_code', { fields: [] }))
       setup()
-      fill('IMP81', 'Imposta', '8.1')
+      fill('IPM81', 'Imposta', '8.1')
       submit()
       await waitFor(() => expect(screen.getByTestId('accounting-vat-dialog-error').textContent).toBe('Could not save. Try again.'))
     })
@@ -275,7 +275,7 @@ describe('AddVatCodeDialog', () => {
       return new Response(JSON.stringify(next.body), { status: next.status })
     })
     const { onForbidden, onGone } = setup()
-    fill('IMP81', 'Imposta', '8.1')
+    fill('IPM81', 'Imposta', '8.1')
     submit()
     await waitFor(() =>
       expect(screen.getByTestId('accounting-vat-dialog-error').textContent).toBe("You don't have permission to do this."),
@@ -291,7 +291,7 @@ describe('AddVatCodeDialog', () => {
   it('is busy while saving: "Adding…", fields disabled, and a second submit sends nothing', async () => {
     serve(never)
     setup()
-    fill('IMP81', 'Imposta', '8.1')
+    fill('IPM81', 'Imposta', '8.1')
     submit()
     await waitFor(() => expect(screen.getByTestId('accounting-vat-dialog-submit').textContent).toBe('Adding…'))
     expect(screen.getByTestId('accounting-vat-rate').matches(':disabled')).toBe(true)
@@ -309,11 +309,11 @@ describe('AddVatCodeDialog', () => {
 
 describe('AddVatCodeDialog: accessibility (axe)', () => {
   it('has no violations: idle, filled, each field refused, a duplicate on blur', async () => {
-    setup([vat({ code: 'IMP81', active: false })])
+    setup([vat({ code: 'IPM81', active: false })])
     await expectNoAxeViolations()
-    fill('IMP77', 'Imposta', '7.7')
+    fill('IPM77', 'Imposta', '7.7')
     await expectNoAxeViolations()
-    fill('IMP81', 'Imposta', '7.7')
+    fill('IPM81', 'Imposta', '7.7')
     fireEvent.blur(screen.getByTestId('accounting-vat-code'))
     await screen.findByTestId('accounting-vat-code-error')
     await expectNoAxeViolations()
@@ -327,15 +327,15 @@ describe('AddVatCodeDialog: accessibility (axe)', () => {
   })
 
   it('has no violations: a server duplicate, a general failure, and while saving', async () => {
-    const answers: FakeAnswer[] = [problem(409, 'vat_code_duplicate', { vatCode: 'IMP81', reactivate: true }), problem(500)]
+    const answers: FakeAnswer[] = [problem(409, 'vat_code_duplicate', { vatCode: 'IPM81', reactivate: true }), problem(500)]
     serve(() => answers.shift() ?? never())
     setup()
-    fill('IMP81', 'Imposta', '8.1')
+    fill('IPM81', 'Imposta', '8.1')
     submit()
     await screen.findByTestId('accounting-vat-code-error')
     await expectNoAxeViolations()
 
-    fill('IMP82', 'Imposta', '8.1')
+    fill('IPM82', 'Imposta', '8.1')
     submit()
     await screen.findByTestId('accounting-vat-dialog-error')
     await expectNoAxeViolations()
@@ -356,7 +356,7 @@ describe('AddVatCodeDialog: blank and invisible labels, characters not units (T5
   ])('a label of only %s is "Enter a label.", focused, with no request', (_what, blank) => {
     serve(() => ({ status: 201, body: vat() }))
     setup()
-    fill('IMP81', blank, '8.1')
+    fill('IPM81', blank, '8.1')
     submit()
     expect(err('label')).toBe('Enter a label.')
     expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-label'))
@@ -366,14 +366,14 @@ describe('AddVatCodeDialog: blank and invisible labels, characters not units (T5
 
   it('names the blank on blur, before submit', () => {
     setup()
-    fill('IMP81', '\u200B', '8.1')
+    fill('IPM81', '\u200B', '8.1')
     fireEvent.blur(screen.getByTestId('accounting-vat-label'))
     expect(err('label')).toBe('Enter a label.')
   })
 
   it('a label with a control character is refused for its format, not as empty', () => {
     setup()
-    fill('IMP81', 'a\u0007b', '8.1')
+    fill('IPM81', 'a\u0007b', '8.1')
     submit()
     expect(err('label')).toBe('The label cannot contain control characters.')
     expect(posts()).toHaveLength(0)
@@ -383,12 +383,12 @@ describe('AddVatCodeDialog: blank and invisible labels, characters not units (T5
     serve(() => ({ status: 201, body: vat() }))
     setup()
     const emoji = '\u{1F600}'
-    fill('IMP81', emoji.repeat(81), '8.1')
+    fill('IPM81', emoji.repeat(81), '8.1')
     submit()
     expect(err('label')).toBe('The label can have up to 80 characters.')
     expect(posts()).toHaveLength(0)
 
-    fill('IMP81', ` ${emoji.repeat(80)} `, '8.1')
+    fill('IPM81', ` ${emoji.repeat(80)} `, '8.1')
     submit()
     await waitFor(() => expect(posts()).toHaveLength(1))
     expect(sent().label).toBe(emoji.repeat(80))
@@ -397,7 +397,7 @@ describe('AddVatCodeDialog: blank and invisible labels, characters not units (T5
   it('maps a server `format` of the label to its own sentence, never "Enter a label."', async () => {
     serve(() => problem(422, 'invalid_vat_code', { fields: [{ field: 'label', reason: 'format' }] }))
     setup()
-    fill('IMP81', 'Imposta', '8.1')
+    fill('IPM81', 'Imposta', '8.1')
     submit()
     await waitFor(() => expect(err('label')).toBe('The label cannot contain control characters.'))
   })
@@ -409,7 +409,7 @@ describe('AddVatCodeDialog: 409 catalog_full (T53, T56; F-01)', () => {
   it('says the entity holds the most it may, names the limit, says nothing was added, and keeps the typed values', async () => {
     serve(() => problem(409, 'catalog_full', { limit: 50 }))
     const { onAdded, onStale, onForbidden, onGone } = setup()
-    fill('IMP81', 'Imposta 8.1%', '8,1')
+    fill('IPM81', 'Imposta 8.1%', '8,1')
     submit()
 
     await waitFor(() =>
@@ -418,7 +418,7 @@ describe('AddVatCodeDialog: 409 catalog_full (T53, T56; F-01)', () => {
       ),
     )
     expect(generalError().getAttribute('role')).toBe('alert')
-    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe('IMP81')
+    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe('IPM81')
     expect((screen.getByTestId('accounting-vat-label') as HTMLInputElement).value).toBe('Imposta 8.1%')
     expect((screen.getByTestId('accounting-vat-rate') as HTMLInputElement).value).toBe('8,1')
     for (const field of ['code', 'label', 'rate']) expect(screen.queryByTestId(`accounting-vat-${field}-error`)).toBeNull()
@@ -433,7 +433,7 @@ describe('AddVatCodeDialog: 409 catalog_full (T53, T56; F-01)', () => {
   it('names the limit the server sent, whatever it is', async () => {
     serve(() => problem(409, 'catalog_full', { limit: 77 }))
     setup()
-    fill('IMP81', 'Imposta', '8.1')
+    fill('IPM81', 'Imposta', '8.1')
     submit()
     await waitFor(() => expect(generalError().textContent).toContain('(77, deactivated ones included)'))
   })
@@ -441,7 +441,7 @@ describe('AddVatCodeDialog: 409 catalog_full (T53, T56; F-01)', () => {
   it.each([undefined, 0, '50', null, 2.5])('falls back to the mirrored cap of 50 when `limit` is %j', async (limit) => {
     serve(() => problem(409, 'catalog_full', limit === undefined ? {} : { limit }))
     setup()
-    fill('IMP81', 'Imposta', '8.1')
+    fill('IPM81', 'Imposta', '8.1')
     submit()
     await waitFor(() => expect(generalError().textContent).toContain('(50, deactivated ones included)'))
     expect(generalError().textContent).not.toContain('undefined')
@@ -451,7 +451,7 @@ describe('AddVatCodeDialog: 409 catalog_full (T53, T56; F-01)', () => {
     const answers: FakeAnswer[] = [problem(409, 'catalog_full', { limit: 50 }), { status: 201, body: vat() }]
     serve(() => answers.shift()!)
     const { onAdded } = setup()
-    fill('IMP81', 'Imposta', '8.1')
+    fill('IPM81', 'Imposta', '8.1')
     screen.getByTestId('accounting-vat-dialog-submit').focus()
     submit()
     await screen.findByTestId('accounting-vat-dialog-error')
@@ -466,7 +466,7 @@ describe('AddVatCodeDialog: 409 catalog_full (T53, T56; F-01)', () => {
   it('has no axe violations with the message shown', async () => {
     serve(() => problem(409, 'catalog_full', { limit: 50 }))
     setup()
-    fill('IMP81', 'Imposta', '8.1')
+    fill('IPM81', 'Imposta', '8.1')
     submit()
     await screen.findByTestId('accounting-vat-dialog-error')
     await expectNoAxeViolations()
@@ -474,7 +474,7 @@ describe('AddVatCodeDialog: 409 catalog_full (T53, T56; F-01)', () => {
 
   it('has no axe violations with a blank-label refusal shown', async () => {
     setup()
-    fill('IMP81', '\u200B', '8.1')
+    fill('IPM81', '\u200B', '8.1')
     submit()
     await screen.findByTestId('accounting-vat-label-error')
     await expectNoAxeViolations()
@@ -504,8 +504,8 @@ describe('AddVatCodeDialog: the code is upper-cased a to z only (T53 upperCaseCo
 
   it('a to z is converted on blur', () => {
     setup()
-    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'imp-8_1' } })
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'ipm-8_1' } })
     fireEvent.blur(screen.getByTestId('accounting-vat-code'))
-    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe('IMP-8_1')
+    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe('IPM-8_1')
   })
 })

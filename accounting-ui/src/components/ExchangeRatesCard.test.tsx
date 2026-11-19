@@ -169,12 +169,12 @@ describe('ExchangeRatesCard: the table (AS5)', () => {
     expect(screen.queryByText(/@/)).toBeNull()
   })
 
-  it('states Source (BAZG) and the last fetch with its outcome in words (UX-9)', async () => {
+  it('states Source (AFC/ESTV, served by the BAZG) and the last fetch with its outcome in words (UX-9)', async () => {
     await renderCard()
     const facts = screen.getByTestId('accounting-fx-facts')
     expect(within(facts).getByText('Source')).not.toBeNull()
     expect(
-      within(facts).getByText('Official monthly average of the Swiss Federal Office for Customs and Border Security (BAZG)'),
+      within(facts).getByText('Monthly average rates for VAT of the Swiss Federal Tax Administration (AFC/ESTV), served by the BAZG'),
     ).not.toBeNull()
     expect(within(facts).getByText('Last fetch')).not.toBeNull()
     expect(facts.textContent).toMatch(/18\.11\.2026.*succeeded/)
