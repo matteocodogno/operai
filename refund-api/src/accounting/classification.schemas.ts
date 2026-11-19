@@ -1,51 +1,62 @@
 /**
- * Zod schemas of the line-classification surface (T13, specs/20261118-refund-
- * accounting-export, plan § API contracts "Accounting (classification)"; AC-1.3,
- * AC-1.6, AC-2.7, AC-3.1, AC-3.2, AC-3.8, AC-3.9, AC-3.10, AC-4.6).
+ * Zod schemas of the line-classification surface (T13, specs/20261118-refund-accounting-export, plan § API contracts
+ * "Accounting (classification)"; reworked by T19, specs/20261119-accounting: copies by natural key, Accounting states,
+ * `rateStatus`; AC-4.1, AC-4.3, AC-4.9, AC-5.2, AC-5.6, AC-6.5, AC-7.3).
  *
- * The line object is the ONE shape of an accounting line: the view returns an
- * array of it and the classification PUT (T14) returns a single one. Amounts are
- * integer cents, rates both as `rateMicros` and as a display string, and none of
- * it is ever computed by the browser.
+ * The line object is the ONE shape of an accounting line: the view returns an array of it and the classification PUT
+ * returns a single one. Amounts are integer cents, rates both as `rateMicros` and as a display string, and none of it is
+ * ever computed by the browser.
  */
 
 import { z } from "@hono/zod-openapi";
+import { ReferenceStateSchema } from "./defaults.schemas";
 
 const CURRENCIES = ["CHF", "EUR", "USD", "GBP"] as const;
 const ENTITIES = ["welld_it", "welld_ch"] as const;
 
-export const AccountRefSchema = z.object({
-  id: z.string(),
+/** An account as a line shows it: the copy (or the default) and Accounting's present state of the entry (UX-18). */
+export const AccountShownSchema = z.object({
   number: z.string(),
   name: z.string(),
-  /** `false` for a stored value whose entry was deactivated since (AC-1.3, AC-1.6). */
-  active: z.boolean(),
+  state: ReferenceStateSchema,
 });
 
-export const VatCodeRefSchema = z.object({
-  id: z.string(),
+/** `label` is Accounting's, or the recorded one of a default; `null` when neither is known (a copy on an entry that is gone). */
+export const VatCodeShownSchema = z.object({
   code: z.string(),
-  label: z.string(),
+  label: z.string().nullable(),
   ratePercent: z.string(),
-  active: z.boolean(),
+  state: ReferenceStateSchema,
 });
 
+/**
+ * An unusable default (deactivated, not found, unverified) is returned WITH its state and `*IsDefault: true`, never as
+ * `null` (G8a): `null` means "no default set". Approval still refuses it server-side (AC-6.3).
+ */
 export const LineClassificationSchema = z.object({
-  account: AccountRefSchema.nullable(),
+  account: AccountShownSchema.nullable(),
   accountIsDefault: z.boolean(),
-  vatCode: VatCodeRefSchema.nullable(),
+  vatCode: VatCodeShownSchema.nullable(),
   vatCodeIsDefault: z.boolean(),
 });
 
+export const RATE_STATUSES = ["copied", "in_effect", "missing", "pending", "unavailable", "not_applicable"] as const;
+
 export const LineChfSchema = z.object({
-  /** CHF cents: the line's own amount for CHF, converted at the rate in effect otherwise, `null` without a rate. */
+  /** CHF cents: the line's own amount for CHF, converted at the copied or in-effect rate otherwise, `null` without one. */
   amountCents: z.number().int().nullable(),
   rateMicros: z.number().int().nullable(),
   /** `"0.9246"` */
   rate: z.string().nullable(),
-  /** The month of the line's date, `"2026-03"`, set for a foreign-currency line of WellD CH. */
+  /** The month of the rate, `"2026-03"`: the expense month, set for a foreign-currency line of WellD CH. */
   rateMonth: z.string().nullable(),
-  rateMissing: z.boolean(),
+  /**
+   * `copied`: the line holds its own copy of the rate (AC-5.3). `in_effect`: a line under review, the rate in
+   * Accounting now (it is copied at approval). `missing`: Accounting has none for the month yet. `pending`: approved
+   * with no rate to copy; copied at the first export (AC-5.6): no CHF and no VAT amount. `unavailable`: Accounting could
+   * not be read (AC-6.5). `not_applicable`: a CHF line, or a line with no classification.
+   */
+  rateStatus: z.enum(RATE_STATUSES),
 });
 
 export const AccountingLineSchema = z.object({
@@ -66,11 +77,11 @@ export const AccountingLineSchema = z.object({
    * `vatAmountCents` are `null`.
    */
   inScope: z.boolean(),
-  /** `null` for a WellD Italia line (AC-3.9), a rejected line, a line out of scope, and a request that is not classifiable (draft, rejected). */
+  /** `null` for a WellD Italia line (AC-4.9), a rejected line, a line out of scope, and a request that is not classifiable (draft, rejected). */
   classification: LineClassificationSchema.nullable(),
   /** `null` for a line out of scope (SR-1); otherwise an object, with null members when no CHF figure applies. */
   chf: LineChfSchema.nullable(),
-  /** `null` when the CHF amount is unknown or there is no VAT code (AC-3.8): unknown is never 0. Also `null` out of scope. */
+  /** `null` when the CHF amount is unknown or no VAT code is bookable (AC-5.6): unknown is never 0. Also `null` out of scope. */
   vatAmountCents: z.number().int().nullable(),
 });
 export type AccountingLine = z.infer<typeof AccountingLineSchema>;
@@ -93,13 +104,25 @@ export const RequestAccountingSchema = z.object({
    * PUT answers 403 `self_approval_forbidden`. Always `false` for a paid, draft or rejected request: nothing can change there.
    */
   selfRestricted: z.boolean(),
+  /**
+   * `unavailable`: Accounting could not be read for this view (AC-6.5). The view is still 200: each line shows what it
+   * holds, a default shows Refund's recorded copy with state `unverified`, and no rate is shown. `available` also when
+   * the view needed no Accounting at all (no line to classify, a paid request).
+   */
+  accounting: z.enum(["available", "unavailable"]),
+  /** AC-7.3, D17: may the caller open Accounting's exchange rates of WellD CH (link), decided server-side from their permissions. */
+  viewer: z.object({ canOpenAccountingRates: z.boolean() }),
   lines: z.array(AccountingLineSchema),
 });
 export type RequestAccounting = z.infer<typeof RequestAccountingSchema>;
 
+/**
+ * The active WellD CH entries of Accounting, by natural key, and nothing else of Accounting: no `active` flag, no history,
+ * no who-added, no rates (AC-4.1).
+ */
 export const AccountingOptionsSchema = z.object({
-  ledgerAccounts: z.array(z.object({ id: z.string(), number: z.string(), name: z.string() })),
-  vatCodes: z.array(z.object({ id: z.string(), code: z.string(), label: z.string(), ratePercent: z.string() })),
+  ledgerAccounts: z.array(z.object({ number: z.string(), name: z.string() })),
+  vatCodes: z.array(z.object({ code: z.string(), label: z.string(), ratePercent: z.string(), rateBasisPoints: z.number().int() })),
 });
 export type AccountingOptions = z.infer<typeof AccountingOptionsSchema>;
 
@@ -115,17 +138,18 @@ export const ClassificationProblemSchema = z.object({
 
 // ─── PUT …/lines/{lineId}/classification ─────────────────────────────────────
 
-const IdSchema = z.string().min(1).max(64);
+/** Accounting's natural keys are short (20 and 16 characters, AC-1.2, AC-1.5); the cap only bounds what is looked up. */
+const KeySchema = z.string().trim().min(1).max(32);
 
 /**
- * At least one of the two ids, and ids ONLY: there is no `null` and so no "back to the default" (G8). A line
- * that follows a default keeps following it until accounting picks a value, and a picked value stays picked.
- * Unknown keys are refused rather than ignored, so a typo cannot read as success.
+ * At least one of the two natural keys, and keys ONLY: there is no `null` and so no "back to the default" (G8). A line
+ * that follows a default keeps following it until accounting picks a value, and a picked value stays picked. Unknown
+ * keys are refused rather than ignored, so a typo, or the old `ledgerAccountId` body, cannot read as success.
  */
 export const ClassifyBodySchema = z
-  .object({ ledgerAccountId: IdSchema.optional(), vatCodeId: IdSchema.optional() })
+  .object({ accountNumber: KeySchema.optional(), vatCode: KeySchema.optional() })
   .strict()
-  .refine((body) => body.ledgerAccountId !== undefined || body.vatCodeId !== undefined, {
-    message: "give ledgerAccountId, vatCodeId, or both",
+  .refine((body) => body.accountNumber !== undefined || body.vatCode !== undefined, {
+    message: "give accountNumber, vatCode, or both",
   });
 export type ClassifyBody = z.infer<typeof ClassifyBodySchema>;

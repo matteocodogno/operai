@@ -1,12 +1,16 @@
 /**
  * Line classification endpoints (T13, specs/20261118-refund-accounting-export,
- * plan § API contracts "Accounting (classification)"; AC-1.3, AC-1.6, AC-2.7,
- * AC-3.1, AC-3.2, AC-3.8, AC-3.9, AC-3.10, AC-4.6).
+ * plan § API contracts "Accounting (classification)"; reworked by T19, specs/20261119-accounting; AC-4.1, AC-4.2,
+ * AC-4.3, AC-4.9, AC-5.2, AC-5.7, AC-6.5, AC-6.10, AC-7.3, AC-1.4, AC-1.8, AC-3.9).
  *
  *   GET /review/requests/{id}/accounting   request:review + entity scope (request level, then line level: SR-1)
- *   GET /accounting/options                request:review with a scope that covers welld_ch (SR-1)
+ *   GET /accounting/options                request:review with a scope that covers welld_ch (SR-1) OR settings:manage (D16)
  *   PUT /review/requests/{id}/lines/{lineId}/classification
  *                                          set-approved-total while submitted, reclassify once approved (T14)
+ *
+ * Reference data comes from Accounting, live, read through the `AccountingPort` (one operation per request, no cache).
+ * Accounting unreachable: the view is still 200 (`accounting: "unavailable"`), the options and the PUT are 503
+ * `accounting_unavailable` with `Retry-After`, and nothing is written (AC-6.5).
  *
  * Accounting data reaches a browser ONLY through the first route. It answers
  * 404 to everyone who is not an in-scope reviewer of the request, the owner
@@ -18,6 +22,7 @@
  */
 
 import { createRoute, OpenAPIHono, type z } from "@hono/zod-openapi";
+import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { authzMiddleware, type AuthzContext, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
@@ -29,8 +34,14 @@ import {
   hasCapability,
   requestInScope,
 } from "../authz/conditions";
+import { canOpenAccountingRates } from "../authz/accountingViewer";
 import { LineIdParamSchema, RequestIdParamSchema } from "../requests/requests.schemas";
 import { scopeForReviewAction } from "../review/review.service";
+import {
+  accountingPort,
+  ACCOUNTING_RETRY_AFTER_SECONDS,
+  accountingUnavailableProblem,
+} from "./accountingClient";
 import {
   buildAccountingView,
   classificationSelfRestricted,
@@ -93,6 +104,12 @@ for (const path of [
   classificationRouter.use(path, authzMiddleware);
 }
 
+/** 503 `accounting_unavailable` with `Retry-After`: nothing was written (D15). `instance` is the route pattern, with no ids (AC-6.10). */
+const unavailable = (c: Context) => {
+  c.header("Retry-After", String(ACCOUNTING_RETRY_AFTER_SECONDS));
+  return c.json(accountingUnavailableProblem(c.req.routePath), 503);
+};
+
 const json = <T extends z.ZodType>(schema: T, description: string) => ({
   content: { "application/json": { schema } },
   description,
@@ -105,25 +122,32 @@ const optionsRoute = createRoute({
   method: "get",
   path: "/accounting/options",
   tags: ["Accounting"],
-  summary: "The accounts and VAT codes a line can be classified with",
+  summary: "The accounts and VAT codes a line, a default or the foreign-currency designation can use",
   description:
-    "Active entries only (AC-1.3, AC-1.6, AC-2.4). A deactivated entry is absent here, and a line that already " +
-    "carries one keeps it and shows it with `active: false` in its accounting view. Needs `request:review` with a " +
-    "scope that covers WellD CH (global, or entity `welld_ch`): these are WellD CH's books (SR-1).",
+    "Accounting's active WellD CH entries only, by natural key, read live (AC-4.1, AC-4.4): no deactivated entry, no " +
+    "history, no who-added, no rates, and no Accounting capability needed. Needs `request:review` with a scope that " +
+    "covers WellD CH (global, or entity `welld_ch`: these are WellD CH's books, SR-1, AC-4.2), or `settings:manage` " +
+    "(a Refund admin choosing a default, D16). 503 `accounting_unavailable` (with `Retry-After`) when Accounting cannot be read.",
   security: [{ Bearer: [] }],
   responses: {
     200: json(AccountingOptionsSchema, "Active accounts by number, active VAT codes by code"),
-    403: problemResponse("Caller lacks `request:review`, or `accounting_out_of_scope`"),
+    403: problemResponse("Caller lacks both `request:review` and `settings:manage`, or `accounting_out_of_scope`"),
+    503: problemResponse("`accounting_unavailable`: Accounting could not be read"),
   },
 });
 
 classificationRouter.openapi(optionsRoute, async (c) => {
-  const scope = scopeForReviewAction(c.get("authz"), "review");
-  if (scope === undefined) {
-    return c.json(problem(403, "Forbidden", c.req.path, "You do not have permission to review refund requests"), 403);
-  }
+  const authz = c.get("authz");
+  const scope = scopeForReviewAction(authz, "review");
+  // D16: a Refund admin who chooses defaults needs the options too, with no review grant and no Accounting grant. They
+  // see only what a reviewer of WellD CH sees: the active WellD CH entries.
+  const mayChooseDefaults = hasCapability(authz.permissions, "settings", "manage");
   // `null` is a conditioned grant with no entity on the caller: it covers nothing (SR-1, as the export).
-  if (scope !== GLOBAL_ENTITY_SCOPE && scope !== "welld_ch") {
+  const reviewsWelldCh = scope === GLOBAL_ENTITY_SCOPE || scope === "welld_ch";
+  if (!reviewsWelldCh && !mayChooseDefaults) {
+    if (scope === undefined) {
+      return c.json(problem(403, "Forbidden", c.req.path, "You do not have permission to review refund requests"), 403);
+    }
     return c.json(
       problem(
         403,
@@ -135,7 +159,9 @@ classificationRouter.openapi(optionsRoute, async (c) => {
       403,
     );
   }
-  return c.json(await loadAccountingOptions(), 200);
+  const options = await loadAccountingOptions(accountingPort().begin("options"));
+  if (options === null) return unavailable(c);
+  return c.json(options, 200);
 });
 
 // ─── GET /review/requests/{id}/accounting ────────────────────────────────────
@@ -147,13 +173,18 @@ const viewRoute = createRoute({
   summary: "A request's lines with their account, VAT code, CHF amount and VAT amount",
   description:
     "While the request is `submitted`, a line with nothing stored shows the live default of its expense type " +
-    "(the foreign-currency VAT code for a line not in CHF) marked as a default (AC-3.1, AC-3.2). Once approved, " +
-    "only what is stored on the line is shown. WellD Italia and rejected lines carry `classification: null` " +
-    "(AC-3.9). `amountCents` is `approvedTotalCents ?? requestedAmountCents`. `chf` and `vatAmountCents` are " +
-    "derived on read; a month with no rate is `rateMissing: true` and a `null` CHF and VAT amount, never 0 " +
-    "(AC-3.8). 404 for anyone who is not an in-scope reviewer of the request, its owner included (AC-3.10). " +
-    "The scope also applies per line (SR-1): a line whose entity the caller's scope does not cover has `inScope: false` " +
-    "and no classification, CHF or VAT figure. `selfRestricted` says the caller owns the request and may not classify it (SR-2).",
+    "(the foreign-currency VAT code for a line not in CHF) marked as a default (AC-3.1, AC-3.2 of 20261118), with " +
+    "Accounting's present state of the entry (`active`, `deactivated`, `not_found`, `unverified`); an unusable default " +
+    "is returned WITH its state and `isDefault: true`, never as `null` (G8a). Once approved, only what is stored on the " +
+    "line is shown, as copied. WellD Italia and rejected lines carry `classification: null` (AC-4.9). `amountCents` is " +
+    "`approvedTotalCents ?? requestedAmountCents`. `chf` and `vatAmountCents` are derived on read from the line's copied " +
+    "rate (`rateStatus: copied`), or under review from the rate in effect (`in_effect`, `missing`, `unavailable`); an " +
+    "approved foreign-currency line with no rate is `pending` with a `null` CHF and VAT amount, never 0 (AC-5.6). " +
+    "Accounting unreachable is still a 200: `accounting: \"unavailable\"`, each line shows what it holds (AC-6.5). " +
+    "`viewer.canOpenAccountingRates` says whether the caller may open Accounting's rates (AC-7.3). 404 for anyone who is " +
+    "not an in-scope reviewer of the request, its owner included (AC-3.10 of 20261118). The scope also applies per line " +
+    "(SR-1): a line whose entity the caller's scope does not cover has `inScope: false` and no classification, CHF or VAT " +
+    "figure. `selfRestricted` says the caller owns the request and may not classify it (SR-2).",
   security: [{ Bearer: [] }],
   request: { params: RequestIdParamSchema },
   responses: {
@@ -173,7 +204,15 @@ classificationRouter.openapi(viewRoute, async (c) => {
 
   const authz = c.get("authz");
   const selfRestricted = classificationSelfRestricted(row, selfRestrictionOf(authz, c.get("userId")));
-  return c.json(await buildAccountingView(row, { scope, selfRestricted }), 200);
+  return c.json(
+    await buildAccountingView(row, {
+      scope,
+      selfRestricted,
+      operation: accountingPort().begin("view"),
+      canOpenAccountingRates: canOpenAccountingRates(authz.permissions, authz),
+    }),
+    200,
+  );
 });
 
 // ─── PUT /review/requests/{id}/lines/{lineId}/classification ─────────────────
@@ -212,13 +251,16 @@ const classifyRoute = createRoute({
   tags: ["Accounting"],
   summary: "Set the account and/or the VAT code of one WellD CH line",
   description:
-    "Body: `ledgerAccountId`, `vatCodeId`, or both; ids only, never null (there is no \"back to the default\"). " +
+    "Body: `accountNumber`, `vatCode`, or both; Accounting's natural keys only, never null (there is no \"back to the default\"). " +
     "While the request is `submitted` it needs `request:set-approved-total`; once `approved` (not paid) it needs " +
     "`request:reclassify`; a `paid` request is refused (AC-3.7), and so is a database trigger. The status is " +
     "decided on the locked request row, so a change racing the approval or the payment is either before it or " +
     "refused. Only the named value changes: the approved total, the status and the decision are never touched " +
-    "(AC-3.6). An inactive or unknown entry is a 422 (AC-1.3, AC-1.6); a value the line already stores is a no-op. " +
-    "Every change writes one `line_classified` audit row (cause `review` or `post_approval`). " +
+    "(AC-5.7). A deactivated, unknown or non-WellD CH entry is a 422, checked live (AC-4.3, AC-1.4, AC-1.8); " +
+    "Accounting unreachable is a 503 with the line unchanged (AC-6.5); a value the line already stores is a no-op. " +
+    "The line keeps its own copy of the entry: its number and name, or its code and rate, as Accounting holds them at " +
+    "this moment (AC-5.2); the exchange rate copy is never touched. " +
+    "Every change writes one `line_classified` audit row (detail v2; cause `review` or `post_approval`). " +
     "Answers with the line, as in the accounting view. Two rules from the security review: the line's entity must be " +
     "covered by the scope of the grant the status needs, else 404 as for a stranger (SR-1); and the owner of a request " +
     "who may not approve it (`self-approval: deny` on `approve`, or on `reclassify` once approved) may not change its " +
@@ -232,10 +274,11 @@ const classifyRoute = createRoute({
     200: json(AccountingLineSchema, "The line after the change"),
     403: problemResponse("The grant the request's current status needs is missing, or `self_approval_forbidden` (SR-2)"),
     404: problemResponse("No such request or line, or the request or the line is out of the caller's entity scope (SR-1)"),
-    409: problemResponse("`classification_locked` (paid), `not_classifiable_status` (draft, rejected), `line_rejected`"),
+    409: problemResponse("`classification_locked` (paid), `not_classifiable_status` (draft, rejected), `line_rejected`, `classification_conflict`"),
     422: problemResponse(
-      "`line_not_welld_ch`, `ledger_account_inactive`, `vat_code_inactive`, `unknown_ledger_account`, `unknown_vat_code`, `invalid_classification`",
+      "`line_not_welld_ch`, `ledger_account_inactive`, `vat_code_inactive`, `ledger_account_not_found`, `vat_code_not_found`, `invalid_classification`",
     ),
+    503: problemResponse("`accounting_unavailable`: Accounting could not be read; the line is unchanged (AC-6.5)"),
   },
 });
 
@@ -252,6 +295,7 @@ classificationRouter.openapi(classifyRoute, async (c) => {
     reclassify: scopeOf(authz, "reclassify"),
     approveSelfRestricted: restriction.approveSelfRestricted,
     reclassifySelfRestricted: restriction.reclassifySelfRestricted,
+    canOpenAccountingRates: canOpenAccountingRates(authz.permissions, authz),
   });
 
   switch (outcome.kind) {
@@ -288,13 +332,21 @@ classificationRouter.openapi(classifyRoute, async (c) => {
     case "not_welld_ch":
       return c.json(problem(422, "Unprocessable Entity", c.req.path, "Only a WellD CH line has an account and a VAT code", "line_not_welld_ch"), 422);
     case "refused": {
+      // Generic: no number, code, name or id is echoed back (AC-6.10).
       const detail: Record<typeof outcome.code, string> = {
-        ledger_account_inactive: "That ledger account is deactivated and cannot be chosen",
-        vat_code_inactive: "That VAT code is deactivated and cannot be chosen",
-        unknown_ledger_account: "No such ledger account",
-        unknown_vat_code: "No such VAT code",
+        ledger_account_inactive: "That ledger account is deactivated in Accounting and cannot be chosen",
+        vat_code_inactive: "That VAT code is deactivated in Accounting and cannot be chosen",
+        ledger_account_not_found: "That ledger account was not found in Accounting for WellD CH",
+        vat_code_not_found: "That VAT code was not found in Accounting for WellD CH",
       };
-      return c.json(problem(422, "Unprocessable Entity", c.req.path, detail[outcome.code], outcome.code), 422);
+      return c.json(problem(422, "Unprocessable Entity", c.req.routePath, detail[outcome.code], outcome.code), 422);
     }
+    case "unavailable":
+      return unavailable(c);
+    case "conflict":
+      return c.json(
+        problem(409, "Conflict", c.req.path, "The line changed while it was being classified: try again", "classification_conflict"),
+        409,
+      );
   }
 });

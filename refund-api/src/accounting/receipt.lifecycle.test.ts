@@ -64,6 +64,7 @@ const { classificationRouter } = (await import("./classification.routes?qe-recei
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { notifyTransport } = await import("../lib/notifyPost");
+const { createStandardFakeAccounting, useFakeAccounting, restoreAccounting } = await import("../test-support/fakeAccounting");
 
 const realTokens = notifyTransport.tokens;
 notifyTransport.tokens = { async getToken() { return "stub-service-jwt"; }, invalidate() {} };
@@ -105,8 +106,10 @@ beforeEach(async () => {
   train = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "5901", name: "Treno", ...by } });
   imp81 = await db.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...by } });
   await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "office_material", ledgerAccountId: office.id, vatCodeId: imp81.id, ...by } });
+  useFakeAccounting(createStandardFakeAccounting()); // T19: the reclassification below reads Accounting, by natural key
 });
 afterAll(async () => {
+  restoreAccounting();
   await truncateRefundTables();
   notifyTransport.tokens = realTokens;
   globalThis.fetch = originalFetch;
@@ -144,8 +147,8 @@ const approve = (requestId: string) => call(decideRouter, `/review/requests/${re
 const compile = () => call(batchesRouter, "/batches", { method: "POST", body: JSON.stringify({}) });
 const discard = (batchId: string) => call(batchDecideRouter, `/batches/${batchId}/discard`, { method: "POST" });
 const markPaid = (batchId: string) => call(batchDecideRouter, `/batches/${batchId}/mark-paid`, { method: "POST" });
-const reclassify = (requestId: string, lineId: string, ledgerAccountId: string) =>
-  call(classificationRouter, `/review/requests/${requestId}/lines/${lineId}/classification`, { method: "PUT", body: JSON.stringify({ ledgerAccountId }) });
+const reclassify = (requestId: string, lineId: string, accountNumber: string) =>
+  call(classificationRouter, `/review/requests/${requestId}/lines/${lineId}/classification`, { method: "PUT", body: JSON.stringify({ accountNumber }) });
 
 /** The numbers of a set of lines, as stored. */
 async function numbersOf(lineIds: string[]) {
@@ -169,9 +172,9 @@ describe("AC-4.7: a number issued stays, through the whole lifecycle", () => {
     expect(await counter()).toBe(3);
 
     // 2. The classification changes after approval (AC-3.6): the number does not.
-    const re = await reclassify(first.requestId, l02, train.id);
+    const re = await reclassify(first.requestId, l02, "5901");
     expect(re.status).toBe(200);
-    expect((await db.refundLine.findUniqueOrThrow({ where: { id: l02 } })).ledgerAccountId).toBe(train.id);
+    expect((await db.refundLine.findUniqueOrThrow({ where: { id: l02 } })).accountNumber).toBe("5901");
     expect(await numbersOf([l02, lIt, l10])).toEqual(issued);
 
     // 3. Compiled into a batch.

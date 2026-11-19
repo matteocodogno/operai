@@ -117,10 +117,10 @@ const json = <T extends z.ZodType>(schema: T, description: string) => ({
 });
 const problemResponse = (description: string) => json(DefaultsProblemSchema, description);
 
-/** 503 `accounting_unavailable` with `Retry-After`: nothing was written (D15). */
+/** 503 `accounting_unavailable` with `Retry-After`: nothing was written (D15). `instance` is the route pattern, with no ids (AC-6.10). */
 const unavailable = (c: Context) => {
   c.header("Retry-After", String(ACCOUNTING_RETRY_AFTER_SECONDS));
-  return c.json(accountingUnavailableProblem(c.req.path), 503);
+  return c.json(accountingUnavailableProblem(c.req.routePath), 503);
 };
 
 const getDefaultsRoute = createRoute({
@@ -179,7 +179,7 @@ defaultsRouter.openapi(putTypeRoute, async (c) => {
   if (snapshot === null) return unavailable(c);
   const outcome = await setTypeDefault(type, c.req.valid("json"), actorOf(c), snapshot);
   if (outcome.kind === "refused") {
-    return c.json(problem(422, "Unprocessable Entity", c.req.path, outcome.detail, outcome.code), 422);
+    return c.json(problem(422, "Unprocessable Entity", c.req.routePath, outcome.detail, outcome.code), 422);
   }
   return c.json(outcome.value, 200);
 });
@@ -208,7 +208,7 @@ defaultsRouter.openapi(putDesignationRoute, async (c) => {
   if (snapshot === null) return unavailable(c);
   const outcome = await setForeignCurrencyVatCode(c.req.valid("json").vatCode, actorOf(c), snapshot);
   if (outcome.kind === "refused") {
-    return c.json(problem(422, "Unprocessable Entity", c.req.path, outcome.detail, outcome.code), 422);
+    return c.json(problem(422, "Unprocessable Entity", c.req.routePath, outcome.detail, outcome.code), 422);
   }
   return c.json(outcome.value, 200);
 });

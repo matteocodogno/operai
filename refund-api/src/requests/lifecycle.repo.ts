@@ -35,7 +35,7 @@ import {
   ValidationError,
 } from "../lib/errors";
 import { isLineComplete } from "./lines.schemas";
-import { writeAuditEntry } from "./audit";
+import { writeAuditEntry, type LineClassifiedDetail } from "./audit";
 import { entityDateKey, fetchEffectiveRatesForPairs } from "../rates/repo";
 import { computeMileageAmountCents } from "../rates/computeMileageAmountCents";
 import type { EntityValue } from "./requests.schemas";
@@ -345,55 +345,68 @@ export function withdrawRequest(
                   approvedTotalCents: null,
                 },
               });
-              // specs/20261118-refund-accounting-export (T14, plan D12) — accounting's classification
-              // OVERRIDES do not survive withdraw-to-draft either: the employee may now change the line's
-              // expense type, and an override picked for the old type would silently stay on the new one.
-              // The line goes back to following the live defaults; one `line_classified` row per cleared
-              // line (cause `withdrawn`) keeps what was set. Nothing is numbered before approval, so the
-              // receipt columns are untouched and the database guard has nothing to refuse.
+              // specs/20261118-refund-accounting-export (T14, plan D12), specs/20261119-accounting (A3 point 7, D34) —
+              // accounting's hand-made COPIES do not survive withdraw-to-draft either: the employee may now change the
+              // line's expense type, and an account picked for the old type would silently stay on the new one. The line
+              // goes back to following the live defaults; one `line_classified` row per cleared line (cause `withdrawn`,
+              // detail v2) keeps what was set. Nothing is numbered before approval, so the receipt columns are untouched
+              // and the database guard has nothing to refuse; and a line under review never holds an exchange-rate copy
+              // (that is written at approval or at the first export), which is why the fx columns are not in this clear.
               const overridden = await tx.refundLine.findMany({
-                where: { requestId, OR: [{ ledgerAccountId: { not: null } }, { vatCodeId: { not: null } }] },
+                where: { requestId, OR: [{ accountNumber: { not: null } }, { vatCodeCopy: { not: null } }] },
                 orderBy: [{ createdAt: "asc" }, { id: "asc" }],
                 select: {
                   id: true,
+                  accountNumber: true,
+                  accountName: true,
                   ledgerAccountIsDefault: true,
+                  vatCodeCopy: true,
+                  vatRateBasisPoints: true,
                   vatCodeIsDefault: true,
-                  ledgerAccount: { select: { id: true, number: true } },
-                  vatCode: { select: { id: true, code: true, rateBasisPoints: true } },
                 },
               });
               if (overridden.length > 0) {
                 await tx.refundLine.updateMany({
                   where: { id: { in: overridden.map((l) => l.id) } },
                   data: {
-                    ledgerAccountId: null,
+                    accountNumber: null,
+                    accountName: null,
                     ledgerAccountIsDefault: null,
-                    vatCodeId: null,
+                    vatCodeCopy: null,
+                    vatRateBasisPoints: null,
                     vatCodeIsDefault: null,
                   },
                 });
                 for (const line of overridden) {
+                  const detail: LineClassifiedDetail = {
+                    v: 2,
+                    cause: "withdrawn",
+                    account: {
+                      from:
+                        line.accountNumber !== null && line.accountName !== null
+                          ? { number: line.accountNumber, name: line.accountName }
+                          : null,
+                      to: null,
+                      fromDefault: line.accountNumber === null ? true : line.ledgerAccountIsDefault === true,
+                      toDefault: true,
+                    },
+                    vatCode: {
+                      from:
+                        line.vatCodeCopy !== null && line.vatRateBasisPoints !== null
+                          ? { code: line.vatCodeCopy, rateBasisPoints: line.vatRateBasisPoints }
+                          : null,
+                      to: null,
+                      fromDefault: line.vatCodeCopy === null ? true : line.vatCodeIsDefault === true,
+                      toDefault: true,
+                    },
+                  };
                   await writeAuditEntry(tx, {
                     requestId,
                     lineId: line.id,
                     actorUserId: ownerUserId,
                     actorEmail,
                     action: "line_classified",
-                    detail: {
-                      cause: "withdrawn",
-                      account: {
-                        from: line.ledgerAccount,
-                        to: null,
-                        fromDefault: line.ledgerAccount === null ? true : line.ledgerAccountIsDefault === true,
-                        toDefault: true,
-                      },
-                      vatCode: {
-                        from: line.vatCode,
-                        to: null,
-                        fromDefault: line.vatCode === null ? true : line.vatCodeIsDefault === true,
-                        toDefault: true,
-                      },
-                    },
+                    detail: detail as unknown as Record<string, unknown>,
                   });
                 }
               }

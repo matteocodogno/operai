@@ -246,3 +246,9 @@ export function formatRate(rateMicros: number): string {
   while (fraction.length > 4 && fraction.endsWith("0")) fraction = fraction.slice(0, -1);
   return `${whole}.${fraction}`;
 }
+
+/** `"2026-03"`: the month of a `@db.Date` value (UTC midnight), which is the expense month of a line. */
+export const monthOf = (date: Date): string => date.toISOString().slice(0, 7);
+
+/** The first day of a `YYYY-MM` month, as a `@db.Date` value. */
+export const monthStart = (month: string): Date => new Date(`${month}-01T00:00:00.000Z`);

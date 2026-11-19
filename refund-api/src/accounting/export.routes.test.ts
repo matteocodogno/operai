@@ -686,13 +686,15 @@ describe("blockers (AC-6.5, AC-7.2, G10, G11)", () => {
     expect(csv.status).toBe(409);
     expect(json(csv.text)["blockers"]["unclassifiedLines"]).toHaveLength(3);
 
-    // Accounting classifies them (PUT classification with `request:reclassify`, AC-3.6): the export opens.
-    as(RECLASSIFIER);
-    const put = (lineId: string, requestId: string, body: object) =>
-      call(classificationRouter, `/review/requests/${requestId}/lines/${lineId}/classification`, { method: "PUT", body: JSON.stringify(body) });
-    expect((await put(lineIds[0]!, requestIds[0]!, { ledgerAccountId: office.id })).status).toBe(200);
-    expect((await put(lineIds[1]!, requestIds[0]!, { vatCodeId: imp81.id })).status).toBe(200);
-    expect((await put(lineIds[2]!, requestIds[0]!, { ledgerAccountId: office.id, vatCodeId: novat.id })).status).toBe(200);
+    // Accounting classifies them: the export opens. (T19, specs/20261119-accounting: the PUT now writes COPIES by natural
+    // key, which the export reads only from T21 on; until then this test classifies the legacy lines the way the export still
+    // reads them, on the foreign-key columns.)
+    await db.refundLine.update({ where: { id: lineIds[0]! }, data: { ledgerAccountId: office.id, ledgerAccountIsDefault: false } });
+    await db.refundLine.update({ where: { id: lineIds[1]! }, data: { vatCodeId: imp81.id, vatCodeIsDefault: false } });
+    await db.refundLine.update({
+      where: { id: lineIds[2]! },
+      data: { ledgerAccountId: office.id, ledgerAccountIsDefault: false, vatCodeId: novat.id, vatCodeIsDefault: false },
+    });
     as(GLOBAL_REVIEWER);
     expect((await summaryOf(batchId)).body).toMatchObject({ exportable: true, rowCount: 4 });
     expect((await csvOf(batchId)).status).toBe(200);
