@@ -5,6 +5,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import type { Context } from "hono";
+import { catalogRouter } from "./catalog/catalog.routes";
 import { healthRouter } from "./health/health.routes";
 import { requestLogger } from "./lib/logger";
 import { meRouter } from "./me/me.routes";
@@ -50,6 +51,7 @@ app.use(
 
 app.route("/", healthRouter);
 app.route("/", meRouter);
+app.route("/", catalogRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 

@@ -1,71 +1,47 @@
 /**
- * Integration tests for the catalog management endpoints (T6,
- * specs/20261118-refund-accounting-export, plan § API contracts).
+ * Integration tests of the ledger-account routes (T8, specs/20261119-accounting; moved from refund-api's catalog
+ * route tests and adapted): the REAL assembled app (`../index`), a fake `auth GET /authz/resolve` through the shared
+ * harness, and the real `accounting` Postgres database.
  *
- * Real Postgres, jwt/authz mocked through test-support/testAuth.ts (this file
- * owns `catalog.routes` as its router specifier).
- *
- * AC coverage: 1.1 add, 1.2 duplicate account (also deactivated, also racing),
- * 1.4 VAT code and rate in basis points, 1.5 no PUT/PATCH, 1.7 capability
- * gates (incl. reactivate), 1.8 history before -> after, 1.9 / 1.10
- * reactivation, 1.11 already active writes nothing. The deactivated-entry
- * rules for options and classification (AC-1.3, AC-1.6) belong to T7/T13/T14.
+ * AC coverage (plan § Test strategy, accounts): 1.1 add and list, 1.2 limits and trimming, 1.3 duplicate (also
+ * deactivated, other entity, racing), 1.4 deactivate stays listed, 1.9 reactivate, 1.11 already in the state and the
+ * races, 1.12 no PUT/PATCH/DELETE, 1.13 who, when, entity and before/after on the status rows, 3.4 a reader writes
+ * nothing, 3.5 an uncovered entity is not found, 3.6 no grant gets no data, 8.3 an empty entity is an empty list.
+ * The system read of the same entries (AC-1.1, AC-1.4, AC-1.9 "also in the system read") is proved with the system
+ * routes (T13); the VAT codes with T9.
  */
 
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
-import type { ResolveResponse } from "../authz/resolveClient";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { fakeResolve, PERSONAS, type Persona } from "../test-support/fakeResolve";
+import { truncateAccountingTables } from "../test-support/dbCleanup";
 import { setupTestAuth } from "../test-support/testAuth";
-import { truncateRefundTables } from "../test-support/dbCleanup";
-
-process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
-process.env["AUTH_JWKS_URL"] = "http://localhost:3001/auth/jwks";
-process.env["AUTH_ISSUER"] = "http://localhost:3001";
-process.env["AUTH_BASE_URL"] = "http://localhost:3001";
-process.env["AUTH_AUDIENCE"] = "operai-suite";
-process.env["NODE_ENV"] = "test";
-process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
-process.env["SERVICE_CLIENT_ID"] = "refund-api";
-process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
-process.env["REFUND_S3_ENDPOINT"] = "https://test.s3.railway-eu-amsterdam.example.com";
-process.env["REFUND_S3_REGION"] = "auto";
-process.env["REFUND_S3_EU_ENDPOINT_HOSTS"] = "s3.railway-eu-amsterdam.example.com";
-process.env["REFUND_S3_BUCKET"] = "test-bucket";
-process.env["REFUND_S3_ACCESS_KEY_ID"] = "test-key";
-process.env["REFUND_S3_SECRET_ACCESS_KEY"] = "test-secret";
-process.env["REFUND_APP_BASE_URL"] = "http://localhost:5173";
 
 const harness = setupTestAuth();
 await harness.init();
 
-const { catalogRouter } = await import("./catalog.routes");
-const { percentToBasisPoints, basisPointsToPercent } = await import("./catalog.repo");
+const { app } = await import("../index");
 const { db } = await import("../lib/db");
-const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
+const { __resetAuthzCacheForTests } = await import("../authz/authz.middleware");
+const { percentToBasisPoints, basisPointsToPercent, compareAccountNumbers } = await import("./catalog.repo");
 
-const grants = (...actions: ("read" | "manage")[]): ResolveResponse => ({
-  sub: "",
-  epoch: 1,
-  permissions: actions.map((action) => ({ resource: "settings", action, conditions: null })),
-  entity: null,
-  jobTitle: null,
-});
-const NONE = grants();
-const READ = grants("read");
-const MANAGE = grants("manage");
-const BOTH = grants("read", "manage");
+interface CallOptions {
+  readonly body?: unknown;
+  readonly raw?: string;
+  readonly as?: Persona;
+  readonly sub?: string;
+  readonly email?: string;
+  readonly token?: boolean;
+}
 
-async function call(
-  method: string,
-  path: string,
-  opts: { body?: unknown; raw?: string; as?: ResolveResponse; sub?: string; email?: string; token?: boolean } = {},
-) {
+async function call(method: string, path: string, opts: CallOptions = {}) {
   __resetAuthzCacheForTests(); // the middleware caches per (sub, epoch): every call resolves afresh
-  harness.setResolve(async () => opts.as ?? BOTH);
+  harness.setResolve(fakeResolve(opts.as ?? PERSONAS.accountingCh));
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (opts.token !== false) {
-    headers["Authorization"] = `Bearer ${await harness.signToken({ sub: opts.sub ?? "admin-1", email: opts.email ?? "admin@welld.ch" })}`;
+    const as = opts.as ?? PERSONAS.accountingCh;
+    headers["Authorization"] = `Bearer ${await harness.signToken({ sub: opts.sub ?? as.sub, email: opts.email ?? `${as.sub}@welld.ch` })}`;
   }
-  const res = await catalogRouter.request(path, {
+  const res = await app.request(path, {
     method,
     headers,
     ...(opts.raw !== undefined ? { body: opts.raw } : opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
@@ -75,25 +51,39 @@ async function call(
   try {
     body = text ? (JSON.parse(text) as Record<string, any>) : {};
   } catch {
-    body = { text }; // the router's own 404 for a method with no route is plain text
+    body = { text };
   }
   return { status: res.status, body };
 }
 
-const addAccount = (number = "5905", name = "Spese rimborsi chilometrici") =>
-  call("POST", "/accounting/ledger-accounts", { body: { number, name } });
-const addVat = (code = "IMP81", ratePercent = "8.1", label = "IVA 8.1%") =>
-  call("POST", "/accounting/vat-codes", { body: { code, label, ratePercent } });
+const ACCOUNTS = (entity = "welld_ch") => `/v1/entities/${entity}/ledger-accounts`;
+const addAccount = (number = "5905", name = "Spese rimborsi chilometrici", opts: CallOptions & { entity?: string } = {}) =>
+  call("POST", ACCOUNTS(opts.entity), { ...opts, body: { number, name } });
+const deactivate = (number: string, opts: CallOptions & { entity?: string } = {}) =>
+  call("POST", `${ACCOUNTS(opts.entity)}/${encodeURIComponent(number)}/deactivate`, opts);
+const reactivate = (number: string, opts: CallOptions & { entity?: string } = {}) =>
+  call("POST", `${ACCOUNTS(opts.entity)}/${encodeURIComponent(number)}/reactivate`, opts);
+const numbers = (res: { body: Record<string, any> }) => (res.body["items"] as { number: string }[]).map((i) => i.number);
 
+beforeAll(async () => {
+  await truncateAccountingTables();
+});
 beforeEach(async () => {
-  await truncateRefundTables();
+  await truncateAccountingTables();
   __resetAuthzCacheForTests();
 });
 afterAll(async () => {
-  await truncateRefundTables();
+  await truncateAccountingTables();
 });
 
-describe("percent and basis-point conversion", () => {
+describe("the harness reaches the real app (the T6 issue)", () => {
+  it("answers 401 without a token and 200 with one, through ../index, in a full run as alone", async () => {
+    expect((await call("GET", ACCOUNTS(), { token: false })).status).toBe(401);
+    expect((await call("GET", ACCOUNTS())).status).toBe(200);
+  });
+});
+
+describe("percent and basis-point conversion (kept for the VAT codes of T9)", () => {
   it("is exact, with no float", () => {
     expect(percentToBasisPoints("8.1")).toBe(810);
     expect(percentToBasisPoints("8")).toBe(800);
@@ -112,264 +102,484 @@ describe("percent and basis-point conversion", () => {
   });
 });
 
-describe("ledger accounts", () => {
-  it("(AC-1.1, AC-1.8) adds an account, active, with the actor from the JWT and a creation step in its history", async () => {
-    const res = await call("POST", "/accounting/ledger-accounts", {
-      body: { number: " 5905 ", name: "  Spese  ", createdByEmail: "attacker@x.com", createdByUserId: "x" },
-      sub: "admin-7",
+describe("the order of account numbers", () => {
+  it("compares segment by segment as whole numbers, parent before its children, at any length", () => {
+    const sorted = ["5905", "2620.10", "599", "2620.9", "2620", "2620.1", "1.2.3", "1.10", "1.2", "05", "5", "0"].sort(
+      compareAccountNumbers,
+    );
+    expect(sorted).toEqual(["0", "1.2", "1.2.3", "1.10", "05", "5", "599", "2620", "2620.1", "2620.9", "2620.10", "5905"]);
+  });
+
+  it("does not lose the digits of a 20-digit segment to a float", () => {
+    const a = "12345678901234567890";
+    const b = "12345678901234567891";
+    expect(compareAccountNumbers(a, b)).toBeLessThan(0);
+    expect(compareAccountNumbers(b, a)).toBeGreaterThan(0);
+    expect(compareAccountNumbers(a, a)).toBe(0);
+  });
+});
+
+describe("(AC-1.1, AC-1.13) adding an account", () => {
+  it("answers 201 with number, name and active only, and lists it", async () => {
+    const res = await addAccount(" 5905 ", "  Spese  ", { sub: "manager-7", email: "carla@welld.ch" });
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ number: "5905", name: "Spese", active: true }); // no id, no who-added, no history (D18)
+
+    const list = await call("GET", ACCOUNTS());
+    expect(list.status).toBe(200);
+    expect(list.body).toEqual({ entity: "welld_ch", items: [{ number: "5905", name: "Spese", active: true }] });
+  });
+
+  it("records the actor from the JWT, never from the body, and the entity from the path", async () => {
+    const res = await call("POST", ACCOUNTS(), {
+      body: { number: "5905", name: "Spese", createdByEmail: "attacker@x.com", createdByUserId: "x", entity: "welld_it", id: "mine" },
+      sub: "manager-7",
       email: "carla@welld.ch",
     });
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ number: "5905", name: "Spese", active: true, createdByEmail: "carla@welld.ch" });
-    expect(res.body["history"]).toEqual([{ active: true, at: res.body["createdAt"], byEmail: "carla@welld.ch" }]);
-    const row = await db.ledgerAccount.findUniqueOrThrow({ where: { id: res.body["id"] } });
-    expect(row.createdByUserId).toBe("admin-7");
-    expect(row.entity).toBe("welld_ch");
-
-    const list = await call("GET", "/accounting/ledger-accounts");
-    expect(list.status).toBe(200);
-    expect((list.body["items"] as { number: string }[]).map((i) => i.number)).toEqual(["5905"]);
+    const row = await db.ledgerAccount.findFirstOrThrow();
+    expect(row).toMatchObject({ number: "5905", entity: "welld_ch", createdByUserId: "manager-7", createdByEmail: "carla@welld.ch" });
+    expect(row.id).not.toBe("mine");
   });
 
-  it("lists by number, numerically, with decimals after their parent", async () => {
-    for (const number of ["5905", "599", "2620.1", "2620"]) await addAccount(number, `Account ${number}`);
-    const list = await call("GET", "/accounting/ledger-accounts");
-    expect((list.body["items"] as { number: string }[]).map((i) => i.number)).toEqual(["599", "2620", "2620.1", "5905"]);
+  it("lists by number, segment by segment, with a child after its parent", async () => {
+    for (const number of ["5905", "599", "2620.10", "2620.1", "2620", "2620.9", "1.2.3"]) await addAccount(number, `Account ${number}`);
+    expect(numbers(await call("GET", ACCOUNTS()))).toEqual(["1.2.3", "599", "2620", "2620.1", "2620.9", "2620.10", "5905"]);
   });
 
-  it("(AC-1.2) refuses a second account with the same number, naming it, also when the first is deactivated", async () => {
-    const first = await addAccount();
-    const dup = await addAccount("5905", "Another name");
-    expect(dup.status).toBe(409);
-    expect(dup.body["code"]).toBe("ledger_account_duplicate");
-    expect(dup.body["detail"]).toBe("Account 5905 already exists");
+  it("keeps a name with accents and non-Latin letters as it is", async () => {
+    const name = "Spese di rappresentanza, più IVA — 日本";
+    expect((await addAccount("6101", name)).body["name"]).toBe(name);
+  });
 
-    expect((await call("POST", `/accounting/ledger-accounts/${first.body["id"]}/deactivate`)).status).toBe(200);
-    const again = await addAccount("5905", "Third");
-    expect(again.status).toBe(409);
-    expect(again.body["code"]).toBe("ledger_account_duplicate");
+  it("(AC-8.3) lists an entity with nothing entered as an empty list, not an error", async () => {
+    const res = await call("GET", ACCOUNTS("welld_it"), { as: PERSONAS.accountingIt });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ entity: "welld_it", items: [] });
+  });
+
+  it("(AC-1.3) keeps the two entities apart: an account of one is not in the other's list", async () => {
+    await addAccount("5905", "CH only", { as: PERSONAS.admin });
+    await addAccount("1000", "IT only", { as: PERSONAS.admin, entity: "welld_it" });
+    expect(numbers(await call("GET", ACCOUNTS("welld_ch"), { as: PERSONAS.admin }))).toEqual(["5905"]);
+    expect(numbers(await call("GET", ACCOUNTS("welld_it"), { as: PERSONAS.admin }))).toEqual(["1000"]);
+  });
+});
+
+describe("(AC-1.2) the limits of a number and a name", () => {
+  const refusedNumber = async (number: unknown, reason: string) => {
+    const before = await db.ledgerAccount.count();
+    const res = await call("POST", ACCOUNTS(), { body: { number, name: "x" } });
+    expect(res.status).toBe(422);
+    expect(res.body["code"]).toBe("invalid_ledger_account");
+    expect(res.body["fields"]).toEqual([{ field: "number", reason }]);
+    expect(await db.ledgerAccount.count()).toBe(before);
+  };
+
+  it("accepts 5905, 2620.1, 1.2.3 and a 20-character number, and trims the blanks around it", async () => {
+    for (const number of ["5905", "2620.1", "1.2.3", "1".repeat(20), "0", "007"]) {
+      expect((await addAccount(number, "x")).status).toBe(201);
+    }
+    const trimmed = await addAccount(" \t5906\n ", "x");
+    expect(trimmed.status).toBe(201);
+    expect(trimmed.body["number"]).toBe("5906");
+  });
+
+  it("refuses an empty or blank number as `empty`", async () => {
+    await refusedNumber("", "empty");
+    await refusedNumber("   ", "empty");
+    await refusedNumber(undefined, "empty");
+    await refusedNumber(null, "empty");
+  });
+
+  it("refuses what is not digits separated by single dots as `format`", async () => {
+    for (const bad of ["5905.", ".5", "59..05", "59a", "59 05", "-5", "+5", "5,5", "１２３", "5905.1.", "1e3"]) {
+      await refusedNumber(bad, "format");
+    }
+    await refusedNumber(5905, "format");
+    await refusedNumber(["5905"], "format");
+  });
+
+  it("refuses a number over 20 characters as `too_long`, and a long garbage value as `format`", async () => {
+    await refusedNumber("1".repeat(21), "too_long");
+    await refusedNumber("1.".repeat(10) + "1", "too_long");
+    await refusedNumber("a".repeat(30), "format");
+  });
+
+  it("accepts a name of 120 characters and refuses 121, blanks and a missing name, naming the field", async () => {
+    expect((await addAccount("6001", "n".repeat(120))).status).toBe(201);
+    for (const [name, reason] of [
+      ["n".repeat(121), "too_long"],
+      ["   ", "empty"],
+      ["", "empty"],
+      [undefined, "empty"],
+      [42, "format"],
+    ] as const) {
+      const res = await call("POST", ACCOUNTS(), { body: { number: "6002", name } });
+      expect(res.status).toBe(422);
+      expect(res.body["fields"]).toEqual([{ field: "name", reason }]);
+    }
     expect(await db.ledgerAccount.count()).toBe(1);
   });
 
-  it("(AC-1.2) two concurrent adds of one number: one 201, one 409", async () => {
-    const results = await Promise.all([addAccount("6101", "A"), addAccount("6101", "B"), addAccount("6101", "C")]);
-    expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409]);
-    for (const r of results.filter((r) => r.status === 409)) expect(r.body["code"]).toBe("ledger_account_duplicate");
-    expect(await db.ledgerAccount.count()).toBe(1);
+  it("names every refused field when both are wrong, and writes nothing", async () => {
+    const res = await call("POST", ACCOUNTS(), { body: { number: "59a", name: "" } });
+    expect(res.status).toBe(422);
+    expect(res.body["fields"]).toEqual([
+      { field: "number", reason: "format" },
+      { field: "name", reason: "empty" },
+    ]);
+    expect(await db.ledgerAccount.count()).toBe(0);
   });
 
-  it("refuses malformed input with 422 invalid_ledger_account and writes nothing", async () => {
-    for (const body of [
-      { number: "12", name: "x" },
-      { number: "1234567", name: "x" },
-      { number: "59 05", name: "x" },
-      { number: "5905.1234", name: "x" },
-      { number: "5905", name: "   " },
-      { number: "5905", name: "x".repeat(121) },
-      { number: "5905" },
-    ]) {
-      const res = await call("POST", "/accounting/ledger-accounts", { body });
+  it("refuses a body that is not an object, naming both fields", async () => {
+    for (const raw of ["null", "[]", '"x"', "7"]) {
+      const res = await call("POST", ACCOUNTS(), { raw });
       expect(res.status).toBe(422);
       expect(res.body["code"]).toBe("invalid_ledger_account");
+      expect((res.body["fields"] as { field: string }[]).map((f) => f.field)).toEqual(["number", "name"]);
+    }
+  });
+
+  it("refuses a control character in a name (NUL would be a 500 from the database), as `format`", async () => {
+    for (const name of ["a\u0000b", "tab\there", "line\nbreak"]) {
+      const res = await call("POST", ACCOUNTS(), { body: { number: "6003", name } });
+      expect(res.status).toBe(422);
+      expect(res.body["fields"]).toEqual([{ field: "name", reason: "format" }]);
     }
     expect(await db.ledgerAccount.count()).toBe(0);
   });
 
-  it("accepts the decimal form 2620.1 and a 120-character name", async () => {
-    expect((await addAccount("2620.1", "n".repeat(120))).status).toBe(201);
+  it("never echoes the refused value or anything of the system in the problem", async () => {
+    const res = await call("POST", ACCOUNTS(), { body: { number: "SECRET-VALUE", name: "ok" } });
+    expect(JSON.stringify(res.body)).not.toContain("SECRET-VALUE");
+    expect(`${res.body["detail"]} ${JSON.stringify(res.body["fields"])}`).not.toMatch(/https?:|localhost|prisma|postgres|\bid\b/i);
   });
 
-  it("(AC-1.8, AC-1.9) deactivate then reactivate: same number and name, history before -> after with actors", async () => {
-    const created = await addAccount();
-    const id = created.body["id"] as string;
-    const off = await call("POST", `/accounting/ledger-accounts/${id}/deactivate`, { email: "off@welld.ch" });
+  it("answers a malformed JSON body with a client error and a body over 4 KiB with 413, saving nothing", async () => {
+    const malformed = await call("POST", ACCOUNTS(), { raw: "{not json" });
+    expect(malformed.status).toBeGreaterThanOrEqual(400);
+    expect(malformed.status).toBeLessThan(500);
+    expect((await call("POST", ACCOUNTS(), { raw: JSON.stringify({ number: "5905", name: "x".repeat(5000) }) })).status).toBe(413);
+    expect(await db.ledgerAccount.count()).toBe(0);
+  });
+});
+
+describe("(AC-1.3) the same number twice", () => {
+  it("is a 409 naming the number, also when the first is deactivated, with `reactivate` telling which", async () => {
+    await addAccount();
+    const active = await addAccount("5905", "Another name");
+    expect(active.status).toBe(409);
+    expect(active.body).toMatchObject({ code: "ledger_account_duplicate", number: "5905", reactivate: false });
+    expect(active.body["detail"]).toBe("Account 5905 already exists");
+
+    expect((await deactivate("5905")).status).toBe(200);
+    const inactive = await addAccount("5905", "Third");
+    expect(inactive.status).toBe(409);
+    expect(inactive.body).toMatchObject({ code: "ledger_account_duplicate", number: "5905", reactivate: true }); // G9
+    expect(await db.ledgerAccount.count()).toBe(1);
+    expect((await db.ledgerAccount.findFirstOrThrow()).name).toBe("Spese rimborsi chilometrici");
+  });
+
+  it("names the TRIMMED number when the duplicate was typed with blanks around it", async () => {
+    await addAccount("5905");
+    const dup = await addAccount("  5905 ");
+    expect(dup.status).toBe(409);
+    expect(dup.body["number"]).toBe("5905");
+  });
+
+  it("is accepted in the other entity", async () => {
+    expect((await addAccount("5905", "CH", { as: PERSONAS.admin })).status).toBe(201);
+    expect((await addAccount("5905", "IT", { as: PERSONAS.admin, entity: "welld_it" })).status).toBe(201);
+    expect(await db.ledgerAccount.count()).toBe(2);
+  });
+
+  it("two concurrent adds of one number, 20 times over: exactly one 201 and one 409 each time", async () => {
+    for (let i = 0; i < 20; i++) {
+      const number = String(6100 + i);
+      const results = await Promise.all([addAccount(number, "A"), addAccount(number, "B")]);
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+      const loser = results.find((r) => r.status === 409)!;
+      expect(loser.body).toMatchObject({ code: "ledger_account_duplicate", number, reactivate: false });
+    }
+    expect(await db.ledgerAccount.count()).toBe(20);
+  });
+
+  it("twenty concurrent adds of one number: one 201, nineteen 409", async () => {
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => addAccount("7001", `Name ${i}`)));
+    expect(results.filter((r) => r.status === 201)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 409)).toHaveLength(19);
+    expect(results.every((r) => r.status === 201 || r.status === 409)).toBe(true);
+    expect(await db.ledgerAccount.count()).toBe(1);
+  });
+});
+
+describe("(AC-1.4, AC-1.9, AC-1.13) deactivating and reactivating", () => {
+  it("a deactivated account stays in the list marked inactive; reactivated, it is the same account", async () => {
+    await addAccount("5905", "Spese");
+    const off = await deactivate("5905", { email: "off@welld.ch" });
     expect(off.status).toBe(200);
-    expect(off.body["active"]).toBe(false);
-    const on = await call("POST", `/accounting/ledger-accounts/${id}/reactivate`, { email: "on@welld.ch" });
+    expect(off.body).toEqual({ number: "5905", name: "Spese", active: false });
+    expect((await call("GET", ACCOUNTS())).body["items"]).toEqual([{ number: "5905", name: "Spese", active: false }]);
+
+    const on = await reactivate("5905", { email: "on@welld.ch" });
     expect(on.status).toBe(200);
-    expect(on.body).toMatchObject({ active: true, number: "5905", name: "Spese rimborsi chilometrici", id });
-    const history = on.body["history"] as { active: boolean; at: string; byEmail: string }[];
-    expect(history.map((h) => [h.active, h.byEmail])).toEqual([
-      [true, "admin@welld.ch"],
-      [false, "off@welld.ch"],
-      [true, "on@welld.ch"],
+    expect(on.body).toEqual({ number: "5905", name: "Spese", active: true });
+    expect((await call("GET", ACCOUNTS())).body["items"]).toEqual([{ number: "5905", name: "Spese", active: true }]);
+  });
+
+  it("writes one status row per change with actor, time, entity and the after-state, each the opposite of the one before", async () => {
+    await addAccount("5905", "Spese", { sub: "adder", email: "adder@welld.ch" });
+    await deactivate("5905", { sub: "u-off", email: "off@welld.ch" });
+    await reactivate("5905", { sub: "u-on", email: "on@welld.ch" });
+    await deactivate("5905", { sub: "u-off2", email: "off2@welld.ch" });
+    const rows = await db.catalogStatusChange.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+    expect(rows.map((r) => [r.active, r.createdByUserId, r.createdByEmail, r.entity])).toEqual([
+      [false, "u-off", "off@welld.ch", "welld_ch"],
+      [true, "u-on", "on@welld.ch", "welld_ch"],
+      [false, "u-off2", "off2@welld.ch", "welld_ch"],
     ]);
-    const times = history.map((h) => Date.parse(h.at));
+    const times = rows.map((r) => r.createdAt.getTime());
+    expect(new Set(times).size).toBe(3); // strictly ordered
     expect([...times].sort((a, b) => a - b)).toEqual(times);
-    expect(new Set(times).size).toBe(3);
-    expect(await db.accountingCatalogStatus.count()).toBe(2);
+    const account = await db.ledgerAccount.findFirstOrThrow();
+    expect(rows.every((r) => r.ledgerAccountId === account.id && r.vatCodeId === null)).toBe(true);
+    expect(account.createdAt.getTime()).toBeLessThanOrEqual(times[0]!);
   });
 
-  it("(AC-1.9) a classified line keeps its account through deactivate and reactivate", async () => {
-    const created = await addAccount();
-    const id = created.body["id"] as string;
-    const request = await db.refundRequest.create({ data: { ownerUserId: "o", ownerEmail: "o@welld.ch", status: "submitted" } });
-    const line = await db.refundLine.create({
-      data: {
-        requestId: request.id, date: new Date("2026-03-02"), type: "travel_train", motivo: "m", entity: "welld_ch",
-        currency: "CHF", requestedAmountCents: 100, ledgerAccountId: id, ledgerAccountIsDefault: false,
-      },
-    });
-    await call("POST", `/accounting/ledger-accounts/${id}/deactivate`);
-    await call("POST", `/accounting/ledger-accounts/${id}/reactivate`);
-    expect((await db.refundLine.findUniqueOrThrow({ where: { id: line.id } })).ledgerAccountId).toBe(id);
+  it("records the entity of the entry on the row when the other entity is the one changed", async () => {
+    await addAccount("1000", "IT", { as: PERSONAS.accountingIt, entity: "welld_it" });
+    await deactivate("1000", { as: PERSONAS.accountingIt, entity: "welld_it" });
+    expect((await db.catalogStatusChange.findFirstOrThrow()).entity).toBe("welld_it");
   });
 
-  it("(AC-1.11) reactivating an active account, or deactivating an inactive one, is a 409 that writes no row", async () => {
-    const id = (await addAccount()).body["id"] as string;
-    const again = await call("POST", `/accounting/ledger-accounts/${id}/reactivate`);
+  it("changes only the number asked for, and only in the entity asked for", async () => {
+    await addAccount("5905", "CH", { as: PERSONAS.admin });
+    await addAccount("5905", "IT", { as: PERSONAS.admin, entity: "welld_it" });
+    await addAccount("5906", "CH2", { as: PERSONAS.admin });
+    await deactivate("5905", { as: PERSONAS.admin });
+    const ch = await call("GET", ACCOUNTS("welld_ch"), { as: PERSONAS.admin });
+    const it = await call("GET", ACCOUNTS("welld_it"), { as: PERSONAS.admin });
+    expect(ch.body["items"]).toEqual([
+      { number: "5905", name: "CH", active: false },
+      { number: "5906", name: "CH2", active: true },
+    ]);
+    expect(it.body["items"]).toEqual([{ number: "5905", name: "IT", active: true }]);
+  });
+
+  it("finds a number with a dot, and an unknown one is a 404 `not_found` that writes nothing", async () => {
+    await addAccount("2620.1", "Dotted");
+    expect((await deactivate("2620.1")).status).toBe(200);
+    const unknown = await deactivate("9999");
+    expect(unknown.status).toBe(404);
+    expect(unknown.body["code"]).toBe("not_found");
+    expect((await reactivate("9999")).status).toBe(404);
+    expect(await db.catalogStatusChange.count()).toBe(1);
+  });
+});
+
+describe("(AC-1.11) an entry already in the state asked for", () => {
+  it("reactivating an active account, or deactivating an inactive one, is a 409 with its message that writes no row", async () => {
+    await addAccount();
+    const again = await reactivate("5905");
     expect(again.status).toBe(409);
     expect(again.body["code"]).toBe("already_active");
     expect(again.body["detail"]).toBe("Account 5905 is already active");
-    expect(await db.accountingCatalogStatus.count()).toBe(0);
+    expect(await db.catalogStatusChange.count()).toBe(0);
 
-    await call("POST", `/accounting/ledger-accounts/${id}/deactivate`);
-    const twice = await call("POST", `/accounting/ledger-accounts/${id}/deactivate`);
+    await deactivate("5905");
+    const twice = await deactivate("5905");
     expect(twice.status).toBe(409);
     expect(twice.body["code"]).toBe("already_inactive");
-    expect(await db.accountingCatalogStatus.count()).toBe(1);
+    expect(twice.body["detail"]).toBe("Account 5905 is already inactive");
+    expect(await db.catalogStatusChange.count()).toBe(1);
   });
 
-  it("(AC-1.11) concurrent reactivations of an inactive account: exactly one wins", async () => {
-    const id = (await addAccount()).body["id"] as string;
-    await call("POST", `/accounting/ledger-accounts/${id}/deactivate`);
-    const results = await Promise.all(
-      [1, 2, 3, 4].map(() => call("POST", `/accounting/ledger-accounts/${id}/reactivate`)),
-    );
-    expect(results.map((r) => r.status).sort()).toEqual([200, 409, 409, 409]);
-    expect(await db.accountingCatalogStatus.count()).toBe(2);
+  it("twenty concurrent deactivations: exactly one 200, nineteen 409, one status row", async () => {
+    await addAccount();
+    const results = await Promise.all(Array.from({ length: 20 }, () => deactivate("5905")));
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 409)).toHaveLength(19);
+    expect(results.filter((r) => r.status === 409).every((r) => r.body["code"] === "already_inactive")).toBe(true);
+    expect(await db.catalogStatusChange.count()).toBe(1);
   });
 
-  it("404 for an unknown account, and for a VAT code id on the account route", async () => {
-    expect((await call("POST", "/accounting/ledger-accounts/nope/deactivate")).status).toBe(404);
-    const vatId = (await addVat()).body["id"] as string;
-    expect((await call("POST", `/accounting/ledger-accounts/${vatId}/deactivate`)).status).toBe(404);
-    expect((await call("POST", `/accounting/vat-codes/nope/reactivate`)).status).toBe(404);
-  });
-});
-
-describe("VAT codes", () => {
-  it("(AC-1.4) adds a code, upper-cased, with the rate in basis points", async () => {
-    const res = await addVat("imp81", "8.1");
-    expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ code: "IMP81", rateBasisPoints: 810, ratePercent: "8.1", active: true, label: "IVA 8.1%" });
-    const list = await call("GET", "/accounting/vat-codes");
-    expect((list.body["items"] as unknown[]).length).toBe(1);
+  it("twenty concurrent reactivations of an inactive account: exactly one wins", async () => {
+    await addAccount();
+    await deactivate("5905");
+    const results = await Promise.all(Array.from({ length: 20 }, () => reactivate("5905")));
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 409)).toHaveLength(19);
+    expect(await db.catalogStatusChange.count()).toBe(2);
+    expect((await call("GET", ACCOUNTS())).body["items"][0].active).toBe(true);
   });
 
-  it("(AC-1.4) accepts 0 and 100, refuses -1, 100.01, 8.123 and non-numbers with 422 invalid_vat_code", async () => {
-    expect((await addVat("ZERO", "0")).body["rateBasisPoints"]).toBe(0);
-    expect((await addVat("FULL", "100")).body["rateBasisPoints"]).toBe(10000);
-    expect((await addVat("SEVEN", "7.70")).body["rateBasisPoints"]).toBe(770);
-    for (const ratePercent of ["-1", "100.01", "8.123", "abc", "", "1e2", " ", "1000", ".5"]) {
-      const res = await addVat("BAD", ratePercent);
-      expect(res.status).toBe(422);
-      expect(res.body["code"]).toBe("invalid_vat_code");
-    }
-    for (const code of ["", "has space", "WAY_TOO_LONG_CODE_X", "ü"]) {
-      expect((await addVat(code, "8")).status).toBe(422);
-    }
-    expect((await call("POST", "/accounting/vat-codes", { body: { code: "X", label: "l" } })).status).toBe(422);
-    expect(await db.vatCode.count()).toBe(3);
-  });
-
-  it("(AC-1.4) a duplicate code is a 409 naming it, also when the code differs only in case or is deactivated", async () => {
-    const first = await addVat("IMP81");
-    const dup = await addVat("imp81", "7.7");
-    expect(dup.status).toBe(409);
-    expect(dup.body["code"]).toBe("vat_code_duplicate");
-    expect(dup.body["detail"]).toBe("VAT code IMP81 already exists");
-    await call("POST", `/accounting/vat-codes/${first.body["id"]}/deactivate`);
-    expect((await addVat("IMP81")).status).toBe(409);
-    expect(await db.vatCode.count()).toBe(1);
-  });
-
-  it("(AC-1.4) concurrent adds of one code: one 201, the rest 409", async () => {
-    const results = await Promise.all([addVat("RACE"), addVat("RACE"), addVat("RACE")]);
-    expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409]);
-  });
-
-  it("(AC-1.10) deactivate then reactivate keeps code, label and rate; history is before -> after", async () => {
-    const id = (await addVat("IMP81", "8.1", "IVA 8.1%")).body["id"] as string;
-    await call("POST", `/accounting/vat-codes/${id}/deactivate`);
-    const on = await call("POST", `/accounting/vat-codes/${id}/reactivate`, { email: "back@welld.ch" });
-    expect(on.status).toBe(200);
-    expect(on.body).toMatchObject({ active: true, code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810 });
-    expect((on.body["history"] as { active: boolean }[]).map((h) => h.active)).toEqual([true, false, true]);
-  });
-
-  it("(AC-1.11) reactivating an active code is a 409 with its message and no new row", async () => {
-    const id = (await addVat()).body["id"] as string;
-    const res = await call("POST", `/accounting/vat-codes/${id}/reactivate`);
-    expect(res.status).toBe(409);
-    expect(res.body["code"]).toBe("already_active");
-    expect(res.body["detail"]).toBe("VAT code IMP81 is already active");
-    expect(await db.accountingCatalogStatus.count()).toBe(0);
+  it("alternating deactivate and reactivate from several callers at once keeps the history consistent", async () => {
+    await addAccount();
+    const calls = Array.from({ length: 12 }, (_, i) => (i % 2 === 0 ? deactivate("5905") : reactivate("5905")));
+    await Promise.all(calls);
+    const rows = await db.catalogStatusChange.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+    // Whatever order the lock gave them, every row flips the state before it: no two in a row alike.
+    rows.forEach((row, i) => expect(row.active).toBe(i % 2 === 0 ? false : true));
+    const current = (await call("GET", ACCOUNTS())).body["items"][0].active as boolean;
+    expect(current).toBe(rows.length === 0 ? true : rows[rows.length - 1]!.active);
   });
 });
 
-describe("(AC-1.5) there is no way to change an entry", () => {
-  it("PUT, PATCH and DELETE on an account or a VAT code answer 404", async () => {
-    const acc = (await addAccount()).body["id"] as string;
-    const vat = (await addVat()).body["id"] as string;
+describe("(AC-1.12) there is no way to change or delete an entry", () => {
+  it("the OpenAPI document lists the four account routes and no write method but POST", async () => {
+    const res = await app.request("/openapi.json");
+    expect(res.status).toBe(200);
+    const paths = ((await res.json()) as { paths: Record<string, Record<string, unknown>> }).paths;
+    const catalog = Object.entries(paths).filter(([path]) => path.includes("/ledger-accounts"));
+    expect(catalog.map(([path]) => path).sort()).toEqual([
+      "/v1/entities/{entity}/ledger-accounts",
+      "/v1/entities/{entity}/ledger-accounts/{number}/deactivate",
+      "/v1/entities/{entity}/ledger-accounts/{number}/reactivate",
+    ]);
+    const methods = catalog.flatMap(([, ops]) => Object.keys(ops));
+    expect(methods.sort()).toEqual(["get", "post", "post", "post"]);
+  });
+
+  it("PUT, PATCH and DELETE answer 404 on the list, an entry and its actions, for a manager", async () => {
+    await addAccount();
     for (const method of ["PUT", "PATCH", "DELETE"]) {
-      for (const path of [
-        `/accounting/ledger-accounts/${acc}`,
-        `/accounting/vat-codes/${vat}`,
-        "/accounting/vat-codes",
-        "/accounting/ledger-accounts",
-      ]) {
-        const res = await call(method, path, { body: { ratePercent: "9", name: "x" } });
+      for (const path of [ACCOUNTS(), `${ACCOUNTS()}/5905`, `${ACCOUNTS()}/5905/deactivate`, `${ACCOUNTS()}/5905/reactivate`]) {
+        const res = await call(method, path, { body: { name: "renamed", number: "1" } });
         expect(res.status).toBe(404);
       }
     }
-    const row = await db.vatCode.findUniqueOrThrow({ where: { id: vat } });
-    expect(row.rateBasisPoints).toBe(810);
+    const row = await db.ledgerAccount.findFirstOrThrow();
+    expect(row).toMatchObject({ number: "5905", name: "Spese rimborsi chilometrici" });
+    expect(await db.catalogStatusChange.count()).toBe(0);
+  });
+
+  it("a method with no route is not a way to learn anything: a reader and an outsider get the same 404", async () => {
+    await addAccount();
+    for (const as of [PERSONAS.readerCh, PERSONAS.outsider]) {
+      expect((await call("DELETE", `${ACCOUNTS()}/5905`, { as })).status).toBe(404);
+      expect((await call("PUT", ACCOUNTS(), { as, body: {} })).status).toBe(404);
+    }
+    expect((await call("DELETE", `${ACCOUNTS()}/5905`, { token: false })).status).toBe(401);
   });
 });
 
-describe("(AC-1.7) capability gates", () => {
-  it("no token is 401 on every path, the base path included", async () => {
+describe("(AC-3.4) a reader writes nothing", () => {
+  it("add, deactivate and reactivate are 403 `accounting_manage_required`, before the body is looked at", async () => {
+    await addAccount();
+    for (const as of [PERSONAS.readerCh]) {
+      for (const res of [
+        await call("POST", ACCOUNTS(), { as, body: { number: "6101", name: "x" } }),
+        await call("POST", ACCOUNTS(), { as, body: {} }),
+        await call("POST", ACCOUNTS(), { as, raw: "{not json" }),
+        await deactivate("5905", { as }),
+        await reactivate("5905", { as }),
+        await deactivate("9999", { as }), // a reader does not even learn whether an entry exists
+      ]) {
+        expect(res.status).toBe(403);
+        expect(res.body["code"]).toBe("accounting_manage_required");
+      }
+    }
+    expect(await db.ledgerAccount.count()).toBe(1);
+    expect(await db.catalogStatusChange.count()).toBe(0);
+  });
+
+  it("a reader can list, and so can a holder of manage alone (manage covers read, AC-3.2)", async () => {
+    await addAccount();
+    for (const as of [PERSONAS.readerCh, PERSONAS.managerOnlyCh]) {
+      const res = await call("GET", ACCOUNTS(), { as });
+      expect(res.status).toBe(200);
+      expect(numbers(res)).toEqual(["5905"]);
+    }
+  });
+
+  it("a holder of manage alone can write", async () => {
+    expect((await addAccount("6101", "x", { as: PERSONAS.managerOnlyCh })).status).toBe(201);
+    expect((await deactivate("6101", { as: PERSONAS.managerOnlyCh })).status).toBe(200);
+  });
+
+  it("no token is 401 on every route", async () => {
     for (const [method, path] of [
-      ["GET", "/accounting/ledger-accounts"],
-      ["POST", "/accounting/ledger-accounts"],
-      ["GET", "/accounting/vat-codes"],
-      ["POST", "/accounting/vat-codes/x/reactivate"],
+      ["GET", ACCOUNTS()],
+      ["POST", ACCOUNTS()],
+      ["POST", `${ACCOUNTS()}/5905/deactivate`],
+      ["POST", `${ACCOUNTS()}/5905/reactivate`],
     ] as const) {
       expect((await call(method, path, { token: false, body: {} })).status).toBe(401);
     }
   });
+});
 
-  it("without settings:read every GET is 403, even for a holder of manage", async () => {
-    for (const as of [NONE, MANAGE]) {
-      expect((await call("GET", "/accounting/ledger-accounts", { as })).status).toBe(403);
-      expect((await call("GET", "/accounting/vat-codes", { as })).status).toBe(403);
-    }
-  });
+describe("(AC-3.5) an entity outside the caller's coverage is not found", () => {
+  const stripInstance = (body: Record<string, any>) => {
+    const { instance: _instance, ...rest } = body;
+    return rest;
+  };
 
-  it("without settings:manage add, deactivate and reactivate are 403 before the body is looked at", async () => {
-    const acc = (await addAccount()).body["id"] as string;
-    const vat = (await addVat()).body["id"] as string;
-    for (const as of [NONE, READ]) {
-      expect((await call("POST", "/accounting/ledger-accounts", { as, body: { number: "6101", name: "x" } })).status).toBe(403);
-      expect((await call("POST", "/accounting/ledger-accounts", { as, body: {} })).status).toBe(403);
-      expect((await call("POST", "/accounting/vat-codes", { as, body: { code: "X", label: "l", ratePercent: "1" } })).status).toBe(403);
-      expect((await call("POST", `/accounting/ledger-accounts/${acc}/deactivate`, { as })).status).toBe(403);
-      expect((await call("POST", `/accounting/ledger-accounts/${acc}/reactivate`, { as })).status).toBe(403);
-      expect((await call("POST", `/accounting/vat-codes/${vat}/deactivate`, { as })).status).toBe(403);
-      expect((await call("POST", `/accounting/vat-codes/${vat}/reactivate`, { as })).status).toBe(403);
+  it("every route of welld_it answers a welld_ch user 404, with the body of an entity that does not exist, and touches nothing", async () => {
+    const it = await db.ledgerAccount.create({
+      data: { entity: "welld_it", number: "1000", name: "IT", createdByUserId: "seed", createdByEmail: "seed@welld.ch" },
+    });
+    const unknownEntity = await call("GET", ACCOUNTS("xyz"));
+    expect(unknownEntity.status).toBe(404);
+    for (const [method, path, body] of [
+      ["GET", ACCOUNTS("welld_it"), undefined],
+      ["POST", ACCOUNTS("welld_it"), { number: "2000", name: "new" }],
+      ["POST", `${ACCOUNTS("welld_it")}/1000/deactivate`, undefined],
+      ["POST", `${ACCOUNTS("welld_it")}/1000/reactivate`, undefined],
+      ["POST", `${ACCOUNTS("welld_it")}/9999/deactivate`, undefined],
+    ] as const) {
+      const res = await call(method, path, body === undefined ? {} : { body });
+      expect(res.status).toBe(404);
+      expect(stripInstance(res.body)).toEqual(stripInstance(unknownEntity.body));
     }
-    expect(await db.accountingCatalogStatus.count()).toBe(0);
     expect(await db.ledgerAccount.count()).toBe(1);
+    expect(await db.catalogStatusChange.count()).toBe(0);
+    expect(it.id).toBeTruthy();
   });
 
-  it("a holder of read alone can list", async () => {
-    expect((await call("GET", "/accounting/ledger-accounts", { as: READ })).status).toBe(200);
-    expect((await call("GET", "/accounting/vat-codes", { as: READ })).status).toBe(200);
+  it("an unknown entity is the same 404 for every method that has a route, and nothing of its list leaks", async () => {
+    for (const entity of ["xyz", "WELLD_CH", "welld_ch ", "__proto__", "constructor"]) {
+      const res = await call("GET", ACCOUNTS(encodeURIComponent(entity)));
+      expect(res.status).toBe(404);
+      expect(res.body["code"]).toBe("not_found");
+      expect(res.body["items"]).toBeUndefined();
+    }
   });
 
-  it("a body over 4 KiB is a 413", async () => {
-    const res = await call("POST", "/accounting/ledger-accounts", { raw: JSON.stringify({ number: "5905", name: "x".repeat(5000) }) });
-    expect(res.status).toBe(413);
+  it("an admin, whose grants are unconditioned, covers both entities", async () => {
+    expect((await call("GET", ACCOUNTS("welld_ch"), { as: PERSONAS.admin })).status).toBe(200);
+    expect((await call("GET", ACCOUNTS("welld_it"), { as: PERSONAS.admin })).status).toBe(200);
+  });
+
+  it("a welld_it user reads and manages welld_it and is refused welld_ch the same way", async () => {
+    expect((await addAccount("1000", "IT", { as: PERSONAS.accountingIt, entity: "welld_it" })).status).toBe(201);
+    expect((await call("GET", ACCOUNTS("welld_ch"), { as: PERSONAS.accountingIt })).status).toBe(404);
+  });
+});
+
+describe("(AC-3.6) a caller with no Accounting grant gets no data", () => {
+  it("is 403 `accounting_forbidden` on every route, whatever the entity, with nothing of the lists in the body", async () => {
+    await addAccount("5905", "VISIBLE-NAME", { as: PERSONAS.admin });
+    for (const as of [PERSONAS.outsider, PERSONAS.noEntity, PERSONAS.unknownCondition]) {
+      for (const [method, path, body] of [
+        ["GET", ACCOUNTS("welld_ch"), undefined],
+        ["GET", ACCOUNTS("welld_it"), undefined],
+        ["GET", ACCOUNTS("xyz"), undefined],
+        ["POST", ACCOUNTS("welld_ch"), { number: "6101", name: "x" }],
+        ["POST", `${ACCOUNTS("welld_ch")}/5905/deactivate`, undefined],
+        ["POST", `${ACCOUNTS("welld_ch")}/5905/reactivate`, undefined],
+      ] as const) {
+        const res = await call(method, path, { as, ...(body ? { body } : {}) });
+        expect(res.status).toBe(403);
+        expect(res.body["code"]).toBe("accounting_forbidden");
+        const { instance: _instance, ...data } = res.body; // `instance` echoes the path asked
+        expect(JSON.stringify(data)).not.toContain("VISIBLE-NAME");
+        expect(JSON.stringify(data)).not.toContain("5905");
+        expect(data["items"]).toBeUndefined();
+      }
+    }
+    expect(await db.ledgerAccount.count()).toBe(1);
+    expect(await db.catalogStatusChange.count()).toBe(0);
   });
 });

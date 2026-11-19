@@ -1,45 +1,33 @@
 /**
- * Data access for the accounting catalog: ledger accounts and VAT codes
- * (T6, specs/20261118-refund-accounting-export; AC-1.1 to AC-1.11; ADR
- * 20260716-immutable-financial-audit-trail-refund, plan § Data model).
+ * Data access for the ledger accounts and VAT codes of each legal entity (T8, specs/20261119-accounting; moved from
+ * refund-api's `src/accounting/catalog.repo.ts`, where it served WellD CH alone; AC-1.1 to AC-1.4, AC-1.9, AC-1.11 to
+ * AC-1.13; ADR 20260716-immutable-financial-audit-trail-refund, plan § Data model).
  *
  * Shape of the data
- * - An entry (`ledger_account`, `vat_code`) is INSERT-ONLY: number, name, code,
- *   label and rate never change (database trigger, AC-1.5), and it is never
- *   deleted.
- * - Whether it can be chosen is the append-only `accounting_catalog_status`
- *   history. No row means active since creation; the CURRENT state is the
- *   LATEST row. Deactivation and reactivation each append one row with the
- *   actor and the time (AC-1.8), so there is one write path and one audit
- *   trail, not a mutable flag plus a log.
+ * - An entry (`ledger_account`, `vat_code`) is INSERT-ONLY: number, name, code, label, rate and entity never change
+ *   (database trigger, AC-1.12), and it is never deleted. Its identity is `(entity, number)` or `(entity, code)`; the
+ *   internal `id` never leaves this module.
+ * - Whether it can be chosen is the append-only `catalog_status_change` history. No row means active since creation;
+ *   the CURRENT state is the LATEST row. Deactivation and reactivation each append one row with the actor, the time
+ *   and the entity (AC-1.13), so there is one write path and one audit trail, not a mutable flag plus a log.
  *
  * Concurrency
- * - A status change locks the entry row (`FOR NO KEY UPDATE`, which does not
- *   block concurrent inserts of lines that reference it) and decides on the
- *   locked state, so two reactivations cannot both succeed (AC-1.11).
- * - "Latest" is ordered by `createdAt` then `id`. A status row's `createdAt` is
- *   set here, after the lock is held, and never earlier than the previous
- *   row's, so lock order IS history order whatever the clocks of two
- *   transactions say.
- * - A concurrent duplicate insert hits the unique index and is reported as the
- *   same `duplicate` outcome as the pre-check (AC-1.2, AC-1.4).
+ * - A status change locks the entry row (`FOR UPDATE`) and decides on the locked state, so two deactivations cannot
+ *   both write (AC-1.11): exactly one row is appended, the other caller gets `unchanged`.
+ * - "Latest" is ordered by `createdAt` then `id`. A status row's `createdAt` is set here, after the lock is held, and
+ *   is never at or before the previous row's, so lock order IS history order whatever the clocks of two transactions
+ *   say.
+ * - A concurrent duplicate insert hits the unique index and is reported as the same `duplicate` outcome as the
+ *   pre-check (AC-1.3), with the same `reactivate` answer.
  *
- * Outcomes that are part of the contract (duplicate, already active, not found)
- * are returned as values; a database failure throws and ends as a 500.
+ * Outcomes that are part of the contract (duplicate, already in the state, not found) are returned as values; a
+ * database failure throws and ends as a 500.
  */
 
 import type { Prisma } from "../lib/generated/prisma/client";
 import { db } from "../lib/db";
-import type {
-  CatalogHistoryEntry,
-  LedgerAccountItem,
-  VatCodeItem,
-} from "./catalog.schemas";
-
-/** Both catalogs are WellD CH's: the API accepts no other entity in this spec. */
-export const CATALOG_ENTITY = "welld_ch" as const;
-
-export type CatalogKind = "ledger_account" | "vat_code";
+import type { Entity } from "../entities";
+import type { LedgerAccountItem } from "./catalog.schemas";
 
 export interface Actor {
   readonly userId: string;
@@ -74,167 +62,90 @@ export function basisPointsToPercent(basisPoints: number): string {
   return fraction === "" ? String(whole) : `${whole}.${fraction}`;
 }
 
-interface StatusRow {
-  readonly active: boolean;
-  readonly createdAt: Date;
-  readonly createdByEmail: string;
+/** One digit run without leading zeros (a lone `0` stays), so that two runs compare by length, then by text. */
+const stripZeros = (segment: string): string => segment.replace(/^0+(?=\d)/, "");
+
+/**
+ * Orders account numbers by their dot-separated segments, each compared as a whole number of any length (a
+ * segment can hold 20 digits, more than a double keeps): `599` before `2620` before `2620.1` before `2620.9` before
+ * `2620.10`, `1.2.3` before `1.10`. A number that is a prefix of another comes first. Two numbers that read the
+ * same (`05`, `5`) are ordered by their text, so the order is total and stable.
+ */
+export function compareAccountNumbers(a: string, b: string): number {
+  const left = a.split(".");
+  const right = b.split(".");
+  for (let i = 0; i < Math.min(left.length, right.length); i++) {
+    const x = stripZeros(left[i]!);
+    const y = stripZeros(right[i]!);
+    if (x.length !== y.length) return x.length - y.length;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  if (left.length !== right.length) return left.length - right.length;
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Current state from an entry's status rows, oldest first: no row means active since creation. */
-export function isActiveFromStatus(rows: readonly Pick<StatusRow, "active">[]): boolean {
-  return rows.length === 0 ? true : rows[rows.length - 1]!.active;
-}
+/** The newest status row of an entry decides: no row means active since creation. */
+const latestStatus = {
+  statusChanges: {
+    select: { active: true, createdAt: true },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: 1,
+  },
+} as const satisfies Prisma.LedgerAccountInclude;
 
-function buildHistory(
-  created: { createdAt: Date; createdByEmail: string },
-  rows: readonly StatusRow[],
-): CatalogHistoryEntry[] {
-  return [
-    { active: true, at: created.createdAt.toISOString(), byEmail: created.createdByEmail },
-    ...rows.map((row) => ({ active: row.active, at: row.createdAt.toISOString(), byEmail: row.createdByEmail })),
-  ];
-}
+type LedgerAccountRow = Prisma.LedgerAccountGetPayload<{ include: typeof latestStatus }>;
 
-const statusOrder = [{ createdAt: "asc" }, { id: "asc" }] as const satisfies Prisma.AccountingCatalogStatusOrderByWithRelationInput[];
+const isActive = (row: { statusChanges: readonly { active: boolean }[] }): boolean => row.statusChanges[0]?.active ?? true;
 
-const statusSelect = { active: true, createdAt: true, createdByEmail: true } as const;
-
-type LedgerAccountRow = Prisma.LedgerAccountGetPayload<{
-  include: { statusChanges: { select: typeof statusSelect } };
-}>;
-type VatCodeRow = Prisma.VatCodeGetPayload<{
-  include: { statusChanges: { select: typeof statusSelect } };
-}>;
-
-export function mapLedgerAccount(row: LedgerAccountRow): LedgerAccountItem {
-  return {
-    id: row.id,
-    number: row.number,
-    name: row.name,
-    active: isActiveFromStatus(row.statusChanges),
-    createdAt: row.createdAt.toISOString(),
-    createdByEmail: row.createdByEmail,
-    history: buildHistory(row, row.statusChanges),
-  };
-}
-
-export function mapVatCode(row: VatCodeRow): VatCodeItem {
-  return {
-    id: row.id,
-    code: row.code,
-    label: row.label,
-    rateBasisPoints: row.rateBasisPoints,
-    ratePercent: basisPointsToPercent(row.rateBasisPoints),
-    active: isActiveFromStatus(row.statusChanges),
-    createdAt: row.createdAt.toISOString(),
-    createdByEmail: row.createdByEmail,
-    history: buildHistory(row, row.statusChanges),
-  };
-}
-
-const withStatus = { statusChanges: { select: statusSelect, orderBy: statusOrder } } as const;
-
-/** Account numbers compare as numbers first (`2620.1` after `2620`, `599` before `5905`), then as text. */
-function compareNumbers(a: string, b: string): number {
-  return Number(a) - Number(b) || (a < b ? -1 : a > b ? 1 : 0);
+/** The wire projection of an entry (D18): number, name, active. No id, no who-added, no history. */
+export function toLedgerAccountItem(row: LedgerAccountRow): LedgerAccountItem {
+  return { number: row.number, name: row.name, active: isActive(row) };
 }
 
 // ─── Reads ───────────────────────────────────────────────────────────────────
 
-export async function listLedgerAccounts(client: Client = db): Promise<LedgerAccountItem[]> {
-  const rows = await client.ledgerAccount.findMany({ where: { entity: CATALOG_ENTITY }, include: withStatus });
-  return rows.map(mapLedgerAccount).sort((a, b) => compareNumbers(a.number, b.number));
-}
-
-export async function listVatCodes(client: Client = db): Promise<VatCodeItem[]> {
-  const rows = await client.vatCode.findMany({ where: { entity: CATALOG_ENTITY }, include: withStatus });
-  return rows.map(mapVatCode).sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
-}
-
-/**
- * The current `active` flag of the given entries, by id. An id that does not
- * exist is absent from the map. The one read behind "is this entry usable now"
- * for the defaults, the classification view, the approval freeze and the
- * release script, so they all derive it the same way.
- */
-export async function loadActiveFlags(
-  client: Client,
-  kind: CatalogKind,
-  ids: readonly string[],
-): Promise<Map<string, boolean>> {
-  const unique = [...new Set(ids)];
-  const flags = new Map<string, boolean>();
-  if (unique.length === 0) return flags;
-  const rows =
-    kind === "ledger_account"
-      ? await client.ledgerAccount.findMany({ where: { id: { in: unique } }, include: withStatus })
-      : await client.vatCode.findMany({ where: { id: { in: unique } }, include: withStatus });
-  for (const row of rows) flags.set(row.id, isActiveFromStatus(row.statusChanges));
-  return flags;
+/** Every account of the entity, active and deactivated, ordered by number segments. An entity with none lists none. */
+export async function listLedgerAccounts(entity: Entity, client: Client = db): Promise<LedgerAccountItem[]> {
+  const rows = await client.ledgerAccount.findMany({ where: { entity }, include: latestStatus });
+  return rows.map(toLedgerAccountItem).sort((a, b) => compareAccountNumbers(a.number, b.number));
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────────
 
 export type CreateOutcome<T> =
   | { readonly kind: "created"; readonly item: T }
-  | { readonly kind: "duplicate" };
+  /** `reactivate`: the number exists and is deactivated, so the way forward is to reactivate it (G9). */
+  | { readonly kind: "duplicate"; readonly reactivate: boolean };
 
+/** A unique violation, however the driver reports it: Prisma's `P2002`, or the raw SQLSTATE 23505 behind it. */
 function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002";
+  if (typeof error !== "object" || error === null) return false;
+  const e = error as { code?: unknown; meta?: { driverAdapterError?: { cause?: { originalCode?: unknown } } } };
+  return e.code === "P2002" || e.meta?.driverAdapterError?.cause?.originalCode === "23505";
+}
+
+async function findLedgerAccount(entity: Entity, number: string): Promise<LedgerAccountRow | null> {
+  return db.ledgerAccount.findUnique({ where: { entity_number: { entity, number } }, include: latestStatus });
 }
 
 export async function createLedgerAccount(
-  input: { number: string; name: string },
+  entity: Entity,
+  input: { readonly number: string; readonly name: string },
   actor: Actor,
 ): Promise<CreateOutcome<LedgerAccountItem>> {
-  const existing = await db.ledgerAccount.findUnique({
-    where: { entity_number: { entity: CATALOG_ENTITY, number: input.number } },
-    select: { id: true },
-  });
-  if (existing) return { kind: "duplicate" };
+  const existing = await findLedgerAccount(entity, input.number);
+  if (existing) return { kind: "duplicate", reactivate: !isActive(existing) };
   try {
     const row = await db.ledgerAccount.create({
-      data: {
-        entity: CATALOG_ENTITY,
-        number: input.number,
-        name: input.name,
-        createdByUserId: actor.userId,
-        createdByEmail: actor.email,
-      },
-      include: withStatus,
+      data: { entity, number: input.number, name: input.name, createdByUserId: actor.userId, createdByEmail: actor.email },
+      include: latestStatus,
     });
-    return { kind: "created", item: mapLedgerAccount(row) };
+    return { kind: "created", item: toLedgerAccountItem(row) };
   } catch (error) {
-    if (isUniqueViolation(error)) return { kind: "duplicate" };
-    throw error;
-  }
-}
-
-export async function createVatCode(
-  input: { code: string; label: string; rateBasisPoints: number },
-  actor: Actor,
-): Promise<CreateOutcome<VatCodeItem>> {
-  const existing = await db.vatCode.findUnique({
-    where: { entity_code: { entity: CATALOG_ENTITY, code: input.code } },
-    select: { id: true },
-  });
-  if (existing) return { kind: "duplicate" };
-  try {
-    const row = await db.vatCode.create({
-      data: {
-        entity: CATALOG_ENTITY,
-        code: input.code,
-        label: input.label,
-        rateBasisPoints: input.rateBasisPoints,
-        createdByUserId: actor.userId,
-        createdByEmail: actor.email,
-      },
-      include: withStatus,
-    });
-    return { kind: "created", item: mapVatCode(row) };
-  } catch (error) {
-    if (isUniqueViolation(error)) return { kind: "duplicate" };
-    throw error;
+    if (!isUniqueViolation(error)) throw error;
+    // Lost the race: the winner's row is there now, so the loser is told what the pre-check would have told it.
+    const winner = await findLedgerAccount(entity, input.number);
+    return { kind: "duplicate", reactivate: winner !== null && !isActive(winner) };
   }
 }
 
@@ -245,78 +156,42 @@ export type StatusOutcome<T> =
   | { readonly kind: "not_found" }
   | { readonly kind: "unchanged"; readonly item: T; readonly active: boolean };
 
+/** Now, but never at or before `previous`: keeps an entry's status history strictly ordered by lock order. */
+function strictlyAfter(previous: Date | undefined): Date {
+  const now = Date.now();
+  return new Date(previous !== undefined && previous.getTime() >= now ? previous.getTime() + 1 : now);
+}
+
 /**
- * `target` is the state asked for. When the entry is already in it the outcome
- * is `unchanged` and NOTHING is written (AC-1.11, and its mirror for
- * deactivation), which is why the check and the insert share one locked
- * transaction.
+ * `target` is the state asked for. When the entry is already in it the outcome is `unchanged` and NOTHING is written
+ * (AC-1.11), which is why the check and the insert share one locked transaction. The status row carries the entry's
+ * entity (AC-1.13), which the database checks against the entry's own.
  */
 export async function setLedgerAccountActive(
-  id: string,
+  entity: Entity,
+  number: string,
   target: boolean,
   actor: Actor,
 ): Promise<StatusOutcome<LedgerAccountItem>> {
   return db.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ id: string }[]>`
-      SELECT "id" FROM "ledger_account" WHERE "id" = ${id} AND "entity" = ${CATALOG_ENTITY}::"Entity" FOR NO KEY UPDATE`;
-    if (locked.length === 0) return { kind: "not_found" } as const;
-    const current = await tx.accountingCatalogStatus.findMany({
-      where: { ledgerAccountId: id },
-      orderBy: [...statusOrder],
-      select: statusSelect,
-    });
-    if (isActiveFromStatus(current) === target) {
-      const row = await tx.ledgerAccount.findUniqueOrThrow({ where: { id }, include: withStatus });
-      return { kind: "unchanged", item: mapLedgerAccount(row), active: target } as const;
-    }
-    await tx.accountingCatalogStatus.create({
+      SELECT "id" FROM "ledger_account"
+      WHERE "entity" = ${entity}::"Entity" AND "number" = ${number} FOR UPDATE`;
+    const id = locked[0]?.id;
+    if (id === undefined) return { kind: "not_found" } as const;
+    const before = await tx.ledgerAccount.findUniqueOrThrow({ where: { id }, include: latestStatus });
+    if (isActive(before) === target) return { kind: "unchanged", item: toLedgerAccountItem(before), active: target } as const;
+    await tx.catalogStatusChange.create({
       data: {
+        entity,
         ledgerAccountId: id,
         active: target,
-        createdAt: strictlyAfter(current[current.length - 1]?.createdAt),
+        createdAt: strictlyAfter(before.statusChanges[0]?.createdAt),
         createdByUserId: actor.userId,
         createdByEmail: actor.email,
       },
     });
-    const row = await tx.ledgerAccount.findUniqueOrThrow({ where: { id }, include: withStatus });
-    return { kind: "changed", item: mapLedgerAccount(row) } as const;
+    const after = await tx.ledgerAccount.findUniqueOrThrow({ where: { id }, include: latestStatus });
+    return { kind: "changed", item: toLedgerAccountItem(after) } as const;
   });
-}
-
-export async function setVatCodeActive(
-  id: string,
-  target: boolean,
-  actor: Actor,
-): Promise<StatusOutcome<VatCodeItem>> {
-  return db.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ id: string }[]>`
-      SELECT "id" FROM "vat_code" WHERE "id" = ${id} AND "entity" = ${CATALOG_ENTITY}::"Entity" FOR NO KEY UPDATE`;
-    if (locked.length === 0) return { kind: "not_found" } as const;
-    const current = await tx.accountingCatalogStatus.findMany({
-      where: { vatCodeId: id },
-      orderBy: [...statusOrder],
-      select: statusSelect,
-    });
-    if (isActiveFromStatus(current) === target) {
-      const row = await tx.vatCode.findUniqueOrThrow({ where: { id }, include: withStatus });
-      return { kind: "unchanged", item: mapVatCode(row), active: target } as const;
-    }
-    await tx.accountingCatalogStatus.create({
-      data: {
-        vatCodeId: id,
-        active: target,
-        createdAt: strictlyAfter(current[current.length - 1]?.createdAt),
-        createdByUserId: actor.userId,
-        createdByEmail: actor.email,
-      },
-    });
-    const row = await tx.vatCode.findUniqueOrThrow({ where: { id }, include: withStatus });
-    return { kind: "changed", item: mapVatCode(row) } as const;
-  });
-}
-
-/** Now, but never at or before `previous`: keeps an entry's status history strictly ordered by lock order. */
-function strictlyAfter(previous: Date | undefined): Date {
-  const now = Date.now();
-  return new Date(previous !== undefined && previous.getTime() >= now ? previous.getTime() + 1 : now);
 }
