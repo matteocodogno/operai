@@ -1014,6 +1014,7 @@ in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 | `SERVICE_CLIENT_SECRET` | **specs/20261013-notify-service-credentials (ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired).** `${{shared.REFUND_SERVICE_CLIENT_SECRET}}` — byte-identical to that entry's `secret`; 32–256 chars. **Required.** For the decision push (`/system/notifications`) and the batch email (`/system/emails`). | **yes** |
 | `REFUND_S3_ENDPOINT` / `REFUND_S3_REGION` / `REFUND_S3_BUCKET` / `REFUND_S3_ACCESS_KEY_ID` / `REFUND_S3_SECRET_ACCESS_KEY` | EU-region S3-compatible object storage for receipt attachments (ADR 20260716-eu-object-storage-refund-attachments) — `REFUND_S3_REGION` validated against an EU allowlist at startup once T9 lands. **NOT YET PROVISIONED as of T19** — no bucket exists, no 1Password item exists. See this task's final report / § "Object storage — provisioning" below before T9. | **yes** |
 | `REFUND_APP_BASE_URL` | **NEW (T14, specs/20260719-refund-monthly-processing, ADR 20260719-refund-batch-signed-link-email-delivery).** Absolute base URL of the shell-hosted app — **the shell's own public origin**, e.g. `https://operai.welld.io`, same value as `refund-api.ALLOWED_ORIGINS`/every other backend's shell-origin row — **not** `<REFUND_API_URL>`. Used to build the compiled-batch email's in-app deep link `${REFUND_APP_BASE_URL}/refund/batches/:id`; the email never carries a raw presigned S3 URL. | no |
+| `REFUND_FX_SOURCE` | **specs/20261118-refund-accounting-export (T9, ADR 20261118-monthly-exchange-rates-are-fetched-on-demand-...).** Where the monthly CHF exchange rates come from: `bazg` (default) fetches them ON DEMAND (an admin's Fetch now, the Settings exchange-rates view, an export that finds a rate missing) from the federal source, never by a scheduler; `off` makes no outbound call, every attempt is recorded as `disabled` and rates are typed by hand in Settings (offline and e2e). Optional; any other value stops the service at startup. The host (`www.backend-rates.bazg.admin.ch`, HTTPS) is a constant in `src/fx/bazgSource.ts`, NOT a variable: with `bazg` the service needs outbound HTTPS to it (§ Release runbook). | no |
 | `NODE_ENV` | `production` | no |
 
 **`REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` — REMOVED (specs/20260722-refund-settings,
@@ -1072,6 +1073,61 @@ There is no cron/scheduled version of this script and none should ever be
 added (ADR 20260714-invitation-lifecycle-derived-expiry-state posture, mirrors the mileage-rate/settings "derived-on-read,
 never scheduled" lineage) — it is a single deliberate command run by a human
 at cutover time, never a recurring job.
+
+**Release runbook — refund accounting export (specs/20261118-refund-accounting-export; the release itself is task T40).**
+The feature adds a migration, a permission, a shell formatter and one operator-run script. Do these in order; each step
+names the check that lets the next one start.
+
+*Before anything:* T39 (the owner's task, the accounting sign-off) gates T40. It settles what a release would otherwise
+freeze: the seed in `refund-api/scripts/data/accounting-seed.welld-ch.json` (six account names are marked `(to confirm)`;
+the type defaults, the VAT codes `IMP81`/`IMP77` and the name of the placeholder VAT code `NOVAT`, which is the
+foreign-currency VAT code until accounting names the real one, are drafts read off the 2026 register), the CSV dialect (`refund-api/src/accounting/exportFormat.ts`:
+separator, decimal mark, encoding; a change bumps `FORMAT_VERSION` and the golden file `src/accounting/fixtures/accounting-export.golden.csv`),
+the source of the exchange rates, and the per-employee sequence offsets (a CSV `email,year,lastIssuedSeq`, prepared for
+the run and never committed: it names people). The seed is applied only where nothing exists, a receipt number is
+never reissued, and the classification of a numbered line of a paid request can never change, so a wrong seed is
+corrected in Settings afterwards for new approvals and for unpaid lines, not for those paid ones.
+
+1. **auth.** Its `preDeploy` (`db:release`) migrates and seeds the permission catalog, so `request:reclassify` exists
+   (granted to the holders of `request:approve`). Check: `auth` is live on the new version. If refund-api goes first,
+   changing a classification after approval answers 403 until auth is live; nothing else breaks.
+2. **The shell** (Vercel), which carries `formatMonth` from `@operai/ui`. Check: `curl -s https://operai.welld.io/version.json`
+   shows the new version. refund-ui shows months as `YYYY-MM` until it is live.
+3. **refund-api** (Railway). `preDeploy` runs `bun run db:deploy`, which applies the accounting migration
+   (`refund-api/prisma/migrations/20261119090000_accounting_export`). Check: `GET /health` reports the new version. From now
+   on every approval answers 409 `accounting_release_pending`, and the UI says so, until step 5.
+4. **refund-ui** (Vercel).
+5. **Run the release script, once**, from a checkout at the released commit, against the production refund database. **The
+   refund-api Docker image does not contain `scripts/`** (its Dockerfile copies `src` and `prisma` only), so this cannot be run
+   inside the Railway service: like `settings:seed` above, it runs from a checkout (`bun install` and `bun run db:generate` in
+   `refund-api/` first: the Prisma client is generated, not committed) with only `DATABASE_URL` set (the `refund` database, as
+   the service uses it):
+
+   ```bash
+   cd refund-api
+   export DATABASE_URL=<production refund DATABASE_URL>     # not committed, not echoed
+   bun run accounting:release --dry-run                       # writes nothing; prints what the real run would do
+   bun run accounting:release --dry-run --offsets <file.csv>  # the same with the offsets, only if T39 supplies a file
+   # accounting reads the report: numbers per employee and year, lines left unclassified, Italian lines left alone
+   bun run accounting:release [--offsets <file.csv>]          # the real run, one transaction, with the same arguments as the dry run
+   ```
+
+   - `--dry-run` runs everything and rolls it back; the report is the exact result of the real run. Read the
+     "left unclassified" list: those legacy lines get a number and keep what resolved, but their export stays blocked
+     until accounting sets the missing value (a holder of `request:reclassify`), and a line of an already paid request cannot be
+     reclassified at all. Set the type defaults first if that is not acceptable.
+   - `--offsets` is refused for an employee and year that already has a number, so it only works on the run that writes
+     the first numbers. Do not run the real script without it first and add it later.
+   - A second run changes nothing (no second marker). A failure anywhere rolls the whole run back
+     (`accounting:release failed, nothing was changed: …`, exit code 1).
+   - File the report. Check afterwards: an approval no longer answers 409 `accounting_release_pending`, and a compiled batch's
+     export card says how many rows it will export.
+
+**Outbound HTTPS to `www.backend-rates.bazg.admin.ch`.** With `REFUND_FX_SOURCE=bazg` (the default) refund-api calls that host, on demand only, 5 s at most per call, to read the monthly average rates. `.railway/railway.ts` declares no egress rule, so nothing is to be configured; if egress is ever restricted, this host must be allowed or `REFUND_FX_SOURCE=off` set and the rates typed in Settings. A failed fetch is never an error page: the month is a "missing rate" in Settings and blocks the export of a batch that needs it.
+
+Pushing `main` starts every deploy at once (RELEASING.md): when the order above matters, let each step finish before
+the next is allowed to start, or accept the fallbacks named in steps 1 and 2. The e2e suite runs the script itself
+(AGENTS.md § Running locally, `E2E_SKIP_REFUND_ACCOUNTING_RELEASE`); production never does.
 
 **Object storage — provisioning (DONE).** ADR 20260716-eu-object-storage-refund-attachments named AWS S3 `eu-south-1`
 (Milan) or Scaleway `fr-par` as primary candidates, leaving "the exact vendor

@@ -577,7 +577,7 @@ Reading the list:
     `refund-accounting-export.md`) and @operai/ui 0.6.0 (from T20's `ui-format-month.md`, checked).
     `mise run changeset:check` passes.
 
-- [ ] T34: Docs — AGENTS.md, README.md, infra/README.md runbook, refund-api/.env.example — refs: none (docs) — deps: T9, T11, T18, T26
+- [x] T34: Docs — AGENTS.md, README.md, infra/README.md runbook, refund-api/.env.example — refs: none (docs) — deps: T9, T11, T18, T26
   - touch: `AGENTS.md`, `README.md`, `infra/README.md`, `refund-api/.env.example`
   - agent: orchestrator · release
   - Details:
@@ -596,6 +596,18 @@ Reading the list:
     - `.env.example`: `REFUND_FX_SOURCE`.
   - done when: `mise run env:doctor` is green and every path and command named in the new text
     exists (checked by hand in review).
+  - Status (2026-11-19, unattended run): done.
+    - `refund-api/.env.example` already carries `REFUND_FX_SOURCE` (written by T9); nothing to add.
+    - AGENTS.md also says the paid-lock of the classification ADR (entry of 20261118, "A fact settled at one
+      moment…") applies "once numbered" (plan IS-1), and the `<built-in function id>` text left in that entry
+      by an earlier generation step is now `{id}`.
+    - infra/README.md: the `REFUND_FX_SOURCE` row, the outbound host, and a release runbook (deploy order, the
+      script run from a checkout because refund-api's image has no `scripts/`, `--dry-run`, `--offsets`, T39
+      gating T40). AGENTS.md and README.md: the e2e global-setup dependency
+      (`E2E_SKIP_REFUND_ACCOUNTING_RELEASE`).
+    - Checked: `bun tools/env-doctor/index.ts` (what `mise run env:doctor` runs; the task itself failed
+      with `bun: command not found` outside `mise exec bun@latest`) passes for the ten services; every
+      path and package script named in the new text was tested to exist.
 
 ## QE, security, eval
 

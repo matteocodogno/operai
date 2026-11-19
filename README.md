@@ -8,7 +8,7 @@ Module-Federation shell that hosts each tool as a runtime remote.
 |---|---|
 | `shell/` | Suite host — shared chrome (header/sidebar/footer) + single session; mounts each tool as a federated remote |
 | `estimai-ui/` | EstimAI, as a federated remote |
-| `refund-ui/` | Reimbursement tool (federated remote) — expense requests + accounting review/decision (specs/20260716-refund-service) |
+| `refund-ui/` | Reimbursement tool (federated remote) — expense requests + accounting review/decision (specs/20260716-refund-service); WellD CH accounting: ledger accounts, VAT codes, default classification and monthly exchange rates in Settings, a classification panel on the review page, receipt numbers, and the accounting CSV export on the batch page (specs/20261118-refund-accounting-export) |
 | `admin-ui/` | Admin tool (federated remote) — roles, departments, users & fine-grained permissions (specs/20260713-auth-roles-permissions); user invitations, resend/revoke & soft-delete (specs/20260713-user-invitations, admin-only) |
 | `inventory-ui/` | Hardware inventory (federated remote) — asset register, assignments, depreciation ledger and year close; plus the ungated "My devices" screen at `/devices` (specs/20261006-hardware-inventory, ADR 20261006-ungated-second-federated-entry-of-a-gated-remote) |
 | `projects-ui/` | Projects (federated remote) — the delivery work wellD runs: projects with their type, state, project manager and team, and their contracts' delivery terms and Bexio order id; no money (specs/20261103-projects, ADR 20261103-projects-tool-shape-and-authorization) |
@@ -16,7 +16,7 @@ Module-Federation shell that hosts each tool as a runtime remote.
 | `auth/` | Bun + Hono auth service — OAuth, sessions, RS256 JWT + JWKS, hosted sign-in; + authorization (roles/departments/permissions, admin API, ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims); user invitations + soft-delete + hosted invite landing (specs/20260713-user-invitations) |
 | `estimai-api/` | Estimate-persistence backend (Bun + Hono) |
 | `notify-api/` | Notification backend (Bun + Hono) — persistence + SSE push, ticket-authed stream (specs/20260713-notification-center, ADR 20260713-sse-stream-auth-short-lived-ticket/0009); + email delivery via Resend, internal `/system/emails` (specs/20260713-user-invitations, ADR 20260714-notify-api-email-channel-service-trust); + internal `/system/notifications` for cross-user push (specs/20260716-refund-service, ADR 20260716-system-notifications-cross-user-trigger) |
-| `refund-api/` | Reimbursement backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for receipt attachments (specs/20260716-refund-service, ADR 20260716-refund-api-authorization-enforcing-resource-server/0015/0016) |
+| `refund-api/` | Reimbursement backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for receipt attachments (specs/20260716-refund-service, ADR 20260716-refund-api-authorization-enforcing-resource-server/0015/0016); WellD CH accounting export: classification, receipt numbers, monthly CHF rates from the federal source (`REFUND_FX_SOURCE`) and the batch CSV (specs/20261118-refund-accounting-export); the one-off `bun run accounting:release` is run by hand after a deploy (`infra/README.md` § Release runbook) |
 | `inventory-api/` | Hardware-inventory backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for invoices, depreciation derived on read with immutable year closes; pushes notifications to notify-api with a scoped service JWT (specs/20261006-hardware-inventory, ADR 20261006-scoped-service-jwt-fourth-notify-caller/0046/0047) |
 | `projects-api/` | Projects backend (Bun + Hono) — authorization-enforcing resource server, entity-scoped writes with optimistic concurrency; reads CRM company names from crm-api with a scoped service credential (specs/20261103-projects, ADR 20261103-projects-tool-shape-and-authorization/0080) |
 | `activities-api/` | Activities backend (Bun + Hono) — the activities, tasks and blockers of the CRM (pre-sales) and Projects (operational); no UI and no permission catalog of its own: every access decision is asked of the host as the caller, failing closed (specs/20261110-activities, ADR 20261110-activities-service-access-delegated-to-host/0082/0083) |
@@ -253,7 +253,9 @@ pnpm --dir refund-ui build
 
 The cross-app end-to-end suite lives in `shell/e2e/` (`pnpm --dir shell e2e`) and drives
 the real assembled suite with a seeded session — it uses **build + preview** (not `dev`)
-for determinism; see `shell/playwright.config.ts`.
+for determinism; see `shell/playwright.config.ts`. Its global setup also runs refund-api's
+`accounting:release` once (idempotent), because refund-api refuses approvals until it has run;
+`E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1` skips it (AGENTS.md § Running locally).
 
 ## Working on the codebase
 
