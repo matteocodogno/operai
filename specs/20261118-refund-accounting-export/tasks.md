@@ -852,6 +852,12 @@ T38. The frontend finishes by B5, so it has slack and can absorb review rework.
   - done when: component tests for each item (focus target, live text, summary row count) pass; refund-ui tsc -b, lint, tests, build green.
   - not in scope (follow-ups in design.md): A-4 (pre-existing ApproveDialog focus), A-5 (`@operai/ui` disabled button contrast), A-6 (pre-existing batch link name), A-9..A-11 (nits).
 
+## Follow-up (2026-11-19, requested by the owner) — automated accessibility checks
+
+- [ ] T44: refund-ui — axe-core in the vitest suite, following operai-ui's existing use (`axe-core` ^4.14.0 as a devDependency, same version as operai-ui): a shared test helper that runs axe on a rendered container and fails on any violation (with a readable report), applied to every state of the components this feature added or changed (Settings views and cards, dialogs, ChangeHistoryDrawer, LineClassificationPanel incl. self-restricted and out-of-scope, the review page ErrorSummary, AccountingExportCard incl. blocked, ExchangeRatesCard, receipt numbers in rows) — refs: design.md a11y requirements, eval-report.md "Test quality" — deps: T43
+  - touch: `refund-ui/package.json`, `refund-ui/pnpm-lock.yaml`, `refund-ui/src/test-support/*`, `refund-ui/src/**/*.test.tsx`
+  - done when: the helper fails on a deliberately broken fixture (unlabelled input) and passes on the real components; refund-ui tsc -b, lint, tests, build green; `pnpm audit --audit-level=critical` clean; `mise run react:skew` green.
+
 ## Implementation notes (reconciled 2026-11-19)
 
 Files touched outside a task's `touch:` list, reported by the dev agents (all new or additive; no
