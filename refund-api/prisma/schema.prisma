@@ -120,15 +120,6 @@ enum AuditAction {
   line_rate_copied
 }
 
-// Origin of one exchange-rate row (specs/20261118-refund-accounting-export):
-// `fetched` is read from the federal source and recorded once, `corrected` is
-// an admin's append-only correction. The rate in effect is the latest
-// `corrected` row, else the `fetched` one.
-enum ExchangeRateOrigin {
-  fetched
-  corrected
-}
-
 // Two-phase presigned upload (ADR 20260716-eu-object-storage-refund-attachments, wired by T9): `pending` until the
 // browser's direct-to-bucket upload is confirmed via HEAD, then `stored`.
 // Only `stored` attachments are ever surfaced by refund-api's own routes.
@@ -334,31 +325,28 @@ model RefundLine {
 
   // ─── specs/20261118-refund-accounting-export: accounting classification ───────────────────
   // WellD CH lines only. Before approval: null = follow the live default,
-  // non-null = an accounting override. Frozen (both ids and both flags set)
-  // at approval for every non-rejected WellD CH line. Immutable once the
-  // parent request is `paid` (trigger refund_line_accounting_guard, AC-3.7).
-  // onDelete: Restrict, an account or VAT code a line references can never
-  // be deleted (and catalog rows are never deleted anyway).
-  ledgerAccountId        String?
-  ledgerAccount          LedgerAccount? @relation(fields: [ledgerAccountId], references: [id], onDelete: Restrict)
+  // non-null = an accounting override. Frozen (account, VAT code and both
+  // flags set) at approval for every non-rejected WellD CH line. Immutable once
+  // the parent request is `paid` (trigger refund_line_accounting_guard, AC-3.7).
+  // What the line books is held as copies by natural key (next block); the two
+  // "is default" flags say whether the copy came from the default.
   ledgerAccountIsDefault Boolean?
-  vatCodeId              String?
-  vatCode                VatCode?       @relation(fields: [vatCodeId], references: [id], onDelete: Restrict)
   vatCodeIsDefault       Boolean?
 
-  // ─── specs/20261119-accounting (T16): the copy columns ──────────────────────────────────
+  // ─── specs/20261119-accounting (T16, T24): the copy columns ─────────────────────────────
   // What this line BOOKS, copied by natural key from Accounting at the moment it
   // is booked (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-...).
-  // WellD CH lines only (CHECK refund_line_classification_ch_only). The FK
-  // columns above stay until T24 drops them; nothing new reads them.
+  // WellD CH lines only (CHECK refund_line_classification_ch_only). The old
+  // foreign keys into Refund's own catalog were dropped by T24
+  // (20261119130000_accounting_reference_moved_out).
   //   account : both or neither (CHECK)
   //   VAT     : both or neither (CHECK), rate 0..10000
   //   fx      : all three or none (CHECK), non-CHF lines only, the expense
   //             month's rate, WRITE-ONCE (trigger): null -> set at approval or at
   //             the first export, never changed afterwards, whatever the status.
-  // `vatCodeCopy` maps the column "vatCode": the Prisma field `vatCode` above is
-  // still the relation to the old catalog (dropped by T24), and a field name
-  // cannot be used twice.
+  // `vatCodeCopy` maps the column "vatCode". The field keeps the `Copy` suffix
+  // (decision of T24): it said "the copy, not the relation" while both existed,
+  // and it is the name the repos, the classification domain and the tests use.
   accountNumber      String?
   accountName        String?
   vatCodeCopy        String?   @map("vatCode")
@@ -385,8 +373,6 @@ model RefundLine {
   updatedAt DateTime @updatedAt
 
   @@unique([receiptOwnerUserId, receiptYear, receiptSeq]) // AC-4.3/4.10 backstop
-  @@index([ledgerAccountId])
-  @@index([vatCodeId])
   @@index([requestId])
   @@index([requestId, entity]) // backs the per-request "at least one line matches" entity-scope predicate (ADR 20260716-entity-scoped-abac-refund-api)
   @@index([appliedRateEntryId]) // FK lookup / provenance queries
@@ -470,89 +456,17 @@ model RefundSetting {
 // Every model below except ReceiptCounter is APPEND-ONLY, enforced by a
 // raising BEFORE UPDATE/DELETE trigger in the same migration (the pattern of
 // `mileage_rate` / `refund_setting`, ADR 20260716-immutable-financial-audit-trail-refund).
-// The catalog entries, the defaults history, the rates and the export log are
-// their own audit trail. Never add an update/delete route for them.
-
-// A ledger account of the books. Immutable once inserted; the number is never
-// reused per entity. Activation lives in AccountingCatalogStatus.
-model LedgerAccount {
-  id              String                    @id @default(cuid())
-  entity          Entity // only welld_ch is accepted at the API in this spec
-  number          String // ^[0-9]{3,6}(\.[0-9]{1,3})?$ (allows "2620.1")
-  name            String // 1..120 chars, trimmed
-  createdByUserId String
-  createdByEmail  String
-  createdAt       DateTime                  @default(now())
-  statusChanges   AccountingCatalogStatus[]
-  lines           RefundLine[]
-  defaults        ExpenseTypeDefault[]
-
-  @@unique([entity, number]) // AC-1.2 backstop (P2002 -> 409)
-  @@map("ledger_account")
-}
-
-// A VAT code. Immutable once inserted: the rate can never change (AC-1.5),
-// enforced by the trigger.
-model VatCode {
-  id              String                    @id @default(cuid())
-  entity          Entity
-  code            String // ^[A-Z0-9_-]{1,16}$, upper-cased on input
-  label           String // 1..80 chars
-  rateBasisPoints Int // hundredths of a percent: 8.1 % = 810; CHECK 0..10000
-  createdByUserId String
-  createdByEmail  String
-  createdAt       DateTime                  @default(now())
-  statusChanges   AccountingCatalogStatus[]
-  lines           RefundLine[]
-  defaults        ExpenseTypeDefault[]
-
-  @@unique([entity, code]) // AC-1.4 backstop
-  @@map("vat_code")
-}
-
-// Append-only activation history of an account or a VAT code. No row = active
-// since creation; the current state is the latest row.
-// CHECK: exactly one of ledgerAccountId / vatCodeId is set.
-model AccountingCatalogStatus {
-  id              String         @id @default(cuid())
-  ledgerAccountId String?
-  ledgerAccount   LedgerAccount? @relation(fields: [ledgerAccountId], references: [id], onDelete: Restrict)
-  vatCodeId       String?
-  vatCode         VatCode?       @relation(fields: [vatCodeId], references: [id], onDelete: Restrict)
-  active          Boolean
-  createdByUserId String
-  createdByEmail  String
-  createdAt       DateTime       @default(now())
-
-  @@index([ledgerAccountId, createdAt])
-  @@index([vatCodeId, createdAt])
-  @@map("accounting_catalog_status")
-}
-
-// Append-only default classification per (entity, expense type); the current
-// value is the latest row (AC-2.1 history). null = "no default" for that half.
-model ExpenseTypeDefault {
-  id              String         @id @default(cuid())
-  entity          Entity
-  type            ExpenseType
-  ledgerAccountId String?
-  ledgerAccount   LedgerAccount? @relation(fields: [ledgerAccountId], references: [id], onDelete: Restrict)
-  vatCodeId       String?
-  vatCode         VatCode?       @relation(fields: [vatCodeId], references: [id], onDelete: Restrict)
-  createdByUserId String
-  createdByEmail  String
-  createdAt       DateTime       @default(now())
-
-  @@index([entity, type, createdAt])
-  @@map("expense_type_default")
-}
+// The defaults history, the designation history and the export log are their
+// own audit trail. Never add an update/delete route for them. The catalog, its
+// status history and the exchange rates moved to accounting-api (T24 dropped
+// them here).
 
 // specs/20261119-accounting (T16): the default classification per (entity,
 // expense type) holds COPIES by natural key of what Accounting listed when the
 // default was saved, no foreign key into Accounting (ADR
 // 20261119-accounting-reference-data-belongs-to-accounting-api-...). Append-only
 // (accounting_history_immutable() trigger); the current value is the latest row.
-// Replaces ExpenseTypeDefault, which T24 drops. CHECKs: entity = welld_ch,
+// Replaced ExpenseTypeDefault (dropped by T24). CHECKs: entity = welld_ch,
 // number and name both or neither (null = "no default"), VAT code, label and
 // rate all or none.
 model ExpenseTypeAccountingDefault {
@@ -605,44 +519,6 @@ model ReceiptCounter {
 
   @@id([ownerUserId, year])
   @@map("receipt_counter")
-}
-
-// Append-only monthly exchange rates. Effective = latest `corrected` row, else
-// the `fetched` row. CHECKs: currency <> CHF, rate > 0, month = first day.
-// Partial unique index exchange_rate_fetched_once (raw SQL, in the migration)
-// on (currency, month) WHERE origin = 'fetched': fetched once, never overwritten.
-model ExchangeRateEntry {
-  id              String             @id @default(cuid())
-  currency        Currency // EUR | USD | GBP (CHF refused by CHECK)
-  month           DateTime           @db.Date
-  rateMicros      Int // CHF per 1 unit x 1e6 (0.9246 -> 924600)
-  origin          ExchangeRateOrigin
-  sourceUrl       String? // fetched: the exact URL read
-  sourceMonth     String? // fetched: the <monat> echo, e.g. "2026-03"
-  fetchedAt       DateTime? // fetched
-  createdByUserId String // "system:fx-fetch" | admin sub
-  createdByEmail  String
-  createdAt       DateTime           @default(now())
-
-  @@index([currency, month, createdAt])
-  @@map("exchange_rate_entry")
-}
-
-// Append-only log of every fetch attempt (AC-5.6 "last fetch failed, and when").
-model ExchangeRateFetchAttempt {
-  id            String   @id @default(cuid())
-  month         DateTime @db.Date
-  trigger       String // admin | settings_view | export
-  outcome       String // ok | failed | not_fetchable | disabled
-  errorCode     String? // timeout | http_<status> | parse | month_mismatch | currency_missing
-  recorded      Json? // { EUR: 924600, ... } newly recorded
-  discrepancies Json? // { EUR: { inEffect, sourceNow } } source differs from the fetched row
-  actorUserId   String
-  createdAt     DateTime @default(now())
-
-  @@index([month, createdAt])
-  @@index([createdAt])
-  @@map("exchange_rate_fetch_attempt")
 }
 
 // Append-only accounting-export log (AC-6.10): one row per CSV download.

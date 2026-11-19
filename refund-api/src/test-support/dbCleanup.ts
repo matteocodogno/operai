@@ -9,15 +9,15 @@
  * under test elsewhere in the suite (mirrors `src/lib/db.audit-immutability.
  * test.ts`'s own `afterAll`).
  *
- * specs/20261118-refund-accounting-export (T1): the eight accounting tables
- * (catalog, status history, type defaults, receipt counter, exchange rates,
- * fetch attempts, export log) are listed for the same reason; the triggers on
- * them are likewise not fired by TRUNCATE.
+ * specs/20261118-refund-accounting-export (T1): the accounting tables are
+ * listed for the same reason; the triggers on them are likewise not fired by
+ * TRUNCATE.
  *
- * specs/20261119-accounting (T16): the two append-only tables of copies
+ * specs/20261119-accounting (T16, T24): the two append-only tables of copies
  * (`expense_type_accounting_default`, `foreign_currency_vat_designation`) are
- * listed for the same reason. The old catalog tables stay in the list until T24
- * drops them.
+ * listed for the same reason. The catalog, its status history, the type
+ * defaults, the exchange rates and the fetch attempts moved to accounting-api
+ * and their tables were dropped by T24, so they are no longer listed.
  *
  * specs/20261118-refund-accounting-export (T12): the cleanup puts the accounting
  * release marker back (see `accountingRelease.ts`), because approving is refused
@@ -49,7 +49,7 @@ export interface TruncateOptions {
 
 export async function truncateRefundTables(options: TruncateOptions = {}): Promise<void> {
   await db.$executeRawUnsafe(
-    'TRUNCATE TABLE "refund_audit_entry", "attachment", "refund_line", "refund_batch_item", "refund_request", "refund_batch", "mileage_rate", "refund_setting", "ledger_account", "vat_code", "accounting_catalog_status", "expense_type_default", "receipt_counter", "exchange_rate_entry", "exchange_rate_fetch_attempt", "refund_batch_export", "expense_type_accounting_default", "foreign_currency_vat_designation" RESTART IDENTITY CASCADE',
+    'TRUNCATE TABLE "refund_audit_entry", "attachment", "refund_line", "refund_batch_item", "refund_request", "refund_batch", "mileage_rate", "refund_setting", "receipt_counter", "refund_batch_export", "expense_type_accounting_default", "foreign_currency_vat_designation" RESTART IDENTITY CASCADE',
   );
   if (options.released !== false) await markAccountingReleased();
 }

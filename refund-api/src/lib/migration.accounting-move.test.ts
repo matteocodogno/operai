@@ -11,7 +11,14 @@
  * Each scratch database is dropped at the end.
  *
  * The old tables, FK columns and the ExchangeRateOrigin type must SURVIVE this
- * migration (their drops are T24). T24 extends this file for its own migration.
+ * migration (their drops are T24's).
+ *
+ * T24 (`20261119130000_accounting_reference_moved_out`): the second describe
+ * block brings a scratch database from the 20261118 state through BOTH
+ * migrations back to back (as production runs them), and asserts the drops, that
+ * what stays is untouched, and that the guard no longer references a dropped
+ * column; the last blocks prove a fresh database ends in the same structure and
+ * that the migration refuses, whole, to drop what the copies do not hold.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -22,6 +29,7 @@ import { join } from "node:path";
 const MIGRATIONS_DIR = join(import.meta.dir, "../../prisma/migrations");
 const BASE = "20261119090000_accounting_export";
 const THIS = "20261119120000_accounting_copies";
+const NEXT = "20261119130000_accounting_reference_moved_out";
 
 const baseUrl = new URL(process.env["DATABASE_URL"]!);
 const urlOf = (database: string) => {
@@ -530,6 +538,277 @@ describe("20261119120000_accounting_copies fails loudly, and whole, on odd rows 
       }),
     );
     await expectAtomicFailure(sql, /expense_type_accounting_default_ch_only/);
+    await sql.close();
+  }, 60_000);
+});
+
+
+// ─── T24: the drops ──────────────────────────────────────────────────────────
+
+const MOVED_TABLES = [
+  "ledger_account",
+  "vat_code",
+  "accounting_catalog_status",
+  "expense_type_default",
+  "exchange_rate_entry",
+  "exchange_rate_fetch_attempt",
+];
+
+/** Everything about the structure that a migration can change, in a form two databases can be compared on. */
+async function catalog(s: SQL) {
+  return {
+    columns: await rows(
+      s,
+      `SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name <> '_prisma_migrations' ORDER BY table_name, column_name`,
+    ),
+    constraints: await rows(s, `SELECT conrelid::regclass::text AS tbl, conname, pg_get_constraintdef(oid) AS def, convalidated FROM pg_constraint ORDER BY 1, 2`),
+    indexes: await rows(s, `SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' ORDER BY 1, 2`),
+    triggers: await rows(s, `SELECT tgrelid::regclass::text AS tbl, tgname, pg_get_triggerdef(oid) AS def FROM pg_trigger WHERE NOT tgisinternal ORDER BY 1, 2`),
+    functions: await rows(s, `SELECT proname, pg_get_functiondef(oid) AS def FROM pg_proc WHERE pronamespace = 'public'::regnamespace ORDER BY 1`),
+    types: await rows(
+      s,
+      `SELECT t.typname, string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder) AS labels FROM pg_type t LEFT JOIN pg_enum e ON e.enumtypid = t.oid
+       WHERE t.typnamespace = 'public'::regnamespace AND t.typtype = 'e' GROUP BY t.typname ORDER BY 1`,
+    ),
+  };
+}
+
+const COPY_COLUMNS = [
+  "id",
+  "updatedAt",
+  "entity",
+  "currency",
+  "ledgerAccountIsDefault",
+  "vatCodeIsDefault",
+  "accountNumber",
+  "accountName",
+  "vatCode",
+  "vatRateBasisPoints",
+  "fxRateMicros",
+  "fxRateMonth",
+  "fxRateCopiedAt",
+  "receiptNumber",
+  "receiptOwnerUserId",
+  "receiptYear",
+  "receiptSeq",
+  "numberedAt",
+  "approvedTotalCents",
+  "rejectionReason",
+];
+const lineSnapshot = (s: SQL) => rows(s, `SELECT ${COPY_COLUMNS.map((c) => `"${c}"`).join(", ")} FROM refund_line ORDER BY id`);
+
+describe("20261119130000_accounting_reference_moved_out, from a 20261118 database through both migrations", () => {
+  let sql: SQL;
+  let linesAtCopies: Row[];
+  let catalogAtCopies: Awaited<ReturnType<typeof catalog>>;
+  let counts: Record<string, number>;
+
+  const TABLES_KEPT = [
+    "refund_line",
+    "refund_request",
+    "refund_setting",
+    "refund_audit_entry",
+    "receipt_counter",
+    "refund_batch_export",
+    "expense_type_accounting_default",
+    "foreign_currency_vat_designation",
+  ];
+  const countsOf = async (s: SQL) =>
+    Object.fromEntries(await Promise.all(TABLES_KEPT.map(async (t) => [t, (await rows(s, `SELECT count(*)::int AS n FROM "${t}"`))[0]!.n as number])));
+
+  beforeAll(async () => {
+    sql = await scratch("refund_mig_t24");
+    await apply(sql, BASE);
+    await fixtures(sql);
+    // Realistic odds and ends of the kept tables, so that "untouched" means something
+    await insert(sql, "receipt_counter", { ownerUserId: "owner-1", year: 2026, lastSeq: 8, startAfter: 3, startAfterSetBy: "system:accounting-release", updatedAt: "2026-04-01T00:00:00.000" });
+    await insert(sql, "refund_batch", { id: "b-1", cutoff: "2026-04-01T00:00:00.000", createdByUserId: "acct-1", createdByEmail: "acct-1@welld.ch", pdfObjectKey: "refund/batches/b-1/compiled.pdf", updatedAt: "2026-04-01T00:00:00.000" });
+    await insert(sql, "refund_batch_export", { id: "exp-1", batchId: "b-1", actorUserId: "acct-1", actorEmail: "acct-1@welld.ch", rowCount: 3, excludedLineCount: 1, contentSha256: "a".repeat(64), formatVersion: 1 });
+    await apply(sql, THIS, THIS);
+    linesAtCopies = await lineSnapshot(sql);
+    catalogAtCopies = await catalog(sql);
+    counts = await countsOf(sql);
+    await apply(sql, NEXT, NEXT);
+  }, 60_000);
+
+  it("is the migration that follows 20261119120000, back to back", () => {
+    expect(migrationNames.indexOf(NEXT)).toBe(migrationNames.indexOf(THIS) + 1);
+    expect(migrationNames[migrationNames.length - 1]).toBe(NEXT);
+    expect(counts["refund_line"]).toBe(18);
+    expect(counts["expense_type_accounting_default"]).toBe(5);
+  });
+
+  it("drops the six moved tables, the two old FK columns, their foreign keys and indexes, and the rate enum", async () => {
+    const tables = (await rows(sql, `SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)).map((t) => t.tablename);
+    for (const t of MOVED_TABLES) expect(tables).not.toContain(t);
+    const cols = (await rows(sql, `SELECT column_name FROM information_schema.columns WHERE table_name = 'refund_line'`)).map((c) => c.column_name);
+    expect(cols).not.toContain("ledgerAccountId");
+    expect(cols).not.toContain("vatCodeId");
+    const fks = (await rows(sql, `SELECT conname FROM pg_constraint WHERE contype = 'f'`)).map((c) => c.conname);
+    expect(fks.filter((n) => /ledgerAccountId|vatCodeId/.test(n))).toEqual([]);
+    const indexes = (await rows(sql, `SELECT indexname FROM pg_indexes WHERE schemaname = 'public'`)).map((i) => i.indexname);
+    expect(indexes.filter((n) => /ledgerAccountId|vatCodeId|exchange_rate|ledger_account|vat_code|accounting_catalog|expense_type_default/.test(n))).toEqual([]);
+    expect((await rows(sql, `SELECT count(*)::int AS n FROM pg_type WHERE typname = 'ExchangeRateOrigin'`))[0]!.n).toBe(0);
+    // nothing of the dropped tables is left behind: no trigger, no CHECK named after them
+    const left = await rows(
+      sql,
+      `SELECT conname AS name FROM pg_constraint WHERE conname ~ '^(ledger_account|vat_code|accounting_catalog_status|expense_type_default|exchange_rate_)'
+       UNION ALL SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgname ~ '^(ledger_account|vat_code|accounting_catalog_status|expense_type_default|exchange_rate_)'`,
+    );
+    expect(left).toEqual([]);
+  });
+
+  it("keeps what stays: every row of the kept tables, and for every line each copy, flag, number and time as before", async () => {
+    expect(await countsOf(sql)).toEqual(counts);
+    expect(await lineSnapshot(sql)).toEqual(linesAtCopies);
+    // the carried history is intact, with its ids and actors
+    const defaults = await rows(sql, `SELECT id, "createdByUserId", "accountNumber", "vatCode" FROM expense_type_accounting_default ORDER BY id`);
+    expect(defaults.map((d) => [d.id, d.createdByUserId, d.accountNumber, d.vatCode])).toEqual([
+      ["def-1", "admin-7", "5901", "IMP81"],
+      ["def-2", "admin-7", "6101", "NOVAT"],
+      ["def-3", "admin-8", "5901", "NOVAT"],
+      ["def-4", "admin-7", "6101", null],
+      ["def-5", "admin-7", null, "IMP81"],
+    ]);
+    // the immutable old designation rows stay in refund_setting, unread
+    expect((await rows(sql, `SELECT count(*)::int AS n FROM refund_setting WHERE key = 'accounting.welld_ch.foreign-currency-vat-code'`))[0]!.n).toBe(4);
+    // and the carried rate copies are the ones the rates dropped here produced
+    const fx = await rows(sql, `SELECT id, "fxRateMicros" FROM refund_line WHERE "fxRateMicros" IS NOT NULL ORDER BY id`);
+    expect(fx.map((l) => [l.id, l.fxRateMicros])).toEqual([
+      ["L-eur", 931000],
+      ["L-eur-feb28", 910000],
+      ["L-eur-mar", 931000],
+      ["L-eur-mar31", 931000],
+      ["L-gbp", 1100000],
+      ["L-usd", 870000],
+    ]);
+  });
+
+  it("changes nothing else in the database: constraints, indexes, triggers and functions of the kept tables are as after 20261119120000", async () => {
+    const now = await catalog(sql);
+    const goneTable = (tbl: string) => MOVED_TABLES.includes(tbl.replace(/"/g, ""));
+    const keep = <T extends Record<string, any>>(xs: T[], key: string) => xs.filter((x) => !goneTable(x[key]));
+    expect(now.constraints).toEqual(keep(catalogAtCopies.constraints, "tbl").filter((c) => !/ledgerAccountId|vatCodeId/.test(c.conname)));
+    expect(now.triggers).toEqual(keep(catalogAtCopies.triggers, "tbl"));
+    expect(now.indexes).toEqual(keep(catalogAtCopies.indexes, "tablename").filter((i) => !/ledgerAccountId|vatCodeId/.test(i.indexname)));
+    expect(now.functions).toEqual(catalogAtCopies.functions); // the guard and the raising function are not replaced
+    expect(now.types).toEqual(catalogAtCopies.types.filter((t) => t.typname !== "ExchangeRateOrigin"));
+    expect(now.columns).toEqual(
+      keep(catalogAtCopies.columns, "table_name").filter((c) => !(c.table_name === "refund_line" && ["ledgerAccountId", "vatCodeId"].includes(c.column_name))),
+    );
+  });
+
+  it("every CHECK on the kept tables is still there and validated; the raising function still serves the kept history tables", async () => {
+    expect(await rows(sql, `SELECT conname FROM pg_constraint WHERE contype = 'c' AND NOT convalidated`)).toEqual([]);
+    const checks = (await rows(sql, `SELECT conname FROM pg_constraint WHERE contype = 'c' AND conrelid = 'refund_line'::regclass`)).map((c) => c.conname);
+    expect(checks).toEqual(
+      expect.arrayContaining([
+        "refund_line_account_copy_pair",
+        "refund_line_vat_copy_pair",
+        "refund_line_fx_all_or_none",
+        "refund_line_classification_ch_only",
+        "refund_line_receipt_all_or_none",
+      ]),
+    );
+    await expect(sql.unsafe(`UPDATE expense_type_accounting_default SET "accountNumber" = '1' WHERE id = 'def-1'`)).rejects.toThrow(/append-only/);
+    await expect(sql.unsafe(`DELETE FROM refund_batch_export WHERE id = 'exp-1'`)).rejects.toThrow(/append-only/);
+  });
+
+  it("the guard no longer references a dropped column: a non-accounting column of a paid numbered line can be updated", async () => {
+    const [paid] = await rows(sql, `SELECT l."receiptNumber", q.status FROM refund_line l JOIN refund_request q ON q.id = l."requestId" WHERE l.id = 'L-chf'`);
+    expect([paid!.status, paid!.receiptNumber]).toEqual(["paid", "MC26/001"]); // a paid, numbered line with copies
+    const def = (await rows(sql, `SELECT pg_get_functiondef('refund_line_accounting_guard'::regproc) AS def`))[0]!.def as string;
+    expect(def).not.toMatch(/ledgerAccountId|vatCodeId/);
+    await sql.unsafe(`UPDATE refund_line SET "motivo" = 'edited after paid', "km" = 7 WHERE id = 'L-chf'`);
+    expect((await rows(sql, `SELECT motivo FROM refund_line WHERE id = 'L-chf'`))[0]!.motivo).toBe("edited after paid");
+    // ... while the guard still refuses what it is for
+    await expect(sql.unsafe(`UPDATE refund_line SET "accountNumber" = '9999', "accountName" = 'x' WHERE id = 'L-chf'`)).rejects.toThrow(/locked/);
+    await expect(sql.unsafe(`UPDATE refund_line SET "vatCodeIsDefault" = NOT "vatCodeIsDefault" WHERE id = 'L-chf'`)).rejects.toThrow(/locked/);
+    await expect(sql.unsafe(`UPDATE refund_line SET "receiptSeq" = 99 WHERE id = 'L-chf'`)).rejects.toThrow(/immutable/);
+    await expect(sql.unsafe(`UPDATE refund_line SET "fxRateMicros" = 1 WHERE id = 'L-eur'`)).rejects.toThrow(/write-once/);
+    await expect(sql.unsafe(`DELETE FROM refund_line WHERE id = 'L-chf'`)).rejects.toThrow(/cannot be deleted/);
+    // an unnumbered line is still freely classifiable and deletable, and a pending rate is still copied once
+    await sql.unsafe(`UPDATE refund_line SET "accountNumber" = '6101', "accountName" = 'Spese materiale ufficio' WHERE id = 'L-legacy-eur'`);
+    await sql.unsafe(`UPDATE refund_line SET "fxRateMicros" = 940000, "fxRateMonth" = '2026-04-01', "fxRateCopiedAt" = now() WHERE id = 'L-eur-pending-paid'`);
+    await sql.unsafe(`DELETE FROM refund_line WHERE id = 'L-draft'`);
+  });
+
+  it("an old table can no longer be written to or referenced by a new line", async () => {
+    await expect(sql.unsafe(`INSERT INTO ledger_account (id) VALUES ('x')`)).rejects.toThrow(/ledger_account/);
+    await expect(sql.unsafe(`UPDATE refund_line SET "ledgerAccountId" = 'acc-office' WHERE id = 'L-sub-hand'`)).rejects.toThrow(/ledgerAccountId/);
+  });
+
+  it("a fresh database applies every migration and ends with exactly the structure of the migrated one", async () => {
+    const fresh = await scratch("refund_mig_t24_zero");
+    await apply(fresh, NEXT);
+    expect(await catalog(fresh)).toEqual(await catalog(sql));
+    await fresh.close();
+  }, 60_000);
+
+  it("a migration run twice is refused by its own first statements, not half applied (it is one-way)", async () => {
+    await expect(apply(sql, NEXT, NEXT)).rejects.toThrow();
+  });
+});
+
+describe("20261119130000_accounting_reference_moved_out refuses, whole, to drop what the copies do not hold", () => {
+  /** A database at 20261119120000 with the fixture, mutated the way an OLDER build would after that migration. */
+  async function behind(name: string, mutate: (sql: SQL) => Promise<unknown>) {
+    const sql = await scratch(name);
+    await apply(sql, BASE);
+    await fixtures(sql);
+    await apply(sql, THIS, THIS);
+    await mutate(sql);
+    return sql;
+  }
+
+  async function expectNothingDropped(sql: SQL, message: RegExp) {
+    await expect(apply(sql, NEXT, NEXT)).rejects.toThrow(message);
+    const tables = (await rows(sql, `SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)).map((t) => t.tablename);
+    for (const t of MOVED_TABLES) expect(tables).toContain(t);
+    const cols = (await rows(sql, `SELECT column_name FROM information_schema.columns WHERE table_name = 'refund_line'`)).map((c) => c.column_name);
+    expect(cols).toEqual(expect.arrayContaining(["ledgerAccountId", "vatCodeId"]));
+    expect((await rows(sql, `SELECT count(*)::int AS n FROM pg_type WHERE typname = 'ExchangeRateOrigin'`))[0]!.n).toBe(1);
+  }
+
+  it("a line an older build classified after the copies migration, with no copy, is named", async () => {
+    const sql = await behind("refund_mig_t24_odd1", (s) =>
+      s.unsafe(`UPDATE refund_line SET "ledgerAccountId" = 'acc-office', "ledgerAccountIsDefault" = false WHERE id = 'L-sub-eur'`),
+    );
+    await expectNothingDropped(sql, /refund_line rows L-sub-eur reference the old catalog/);
+    await sql.close();
+  }, 60_000);
+
+  it("a line with an old VAT code and no copy of it is named", async () => {
+    const sql = await behind("refund_mig_t24_odd2", (s) =>
+      s.unsafe(`UPDATE refund_line SET "vatCodeId" = 'vat-imp81', "vatCodeIsDefault" = false WHERE id = 'L-draft'`),
+    );
+    await expectNothingDropped(sql, /refund_line rows L-draft reference the old catalog/);
+    await sql.close();
+  }, 60_000);
+
+  it("a default saved by an older build after the copies migration is named", async () => {
+    const sql = await behind("refund_mig_t24_odd3", (s) =>
+      insert(s, "expense_type_default", {
+        id: "def-late",
+        entity: "welld_ch",
+        type: "postal",
+        ledgerAccountId: "acc-office",
+        vatCodeId: null,
+        ...by(),
+        createdAt: "2026-06-01T00:00:00.000",
+      }),
+    );
+    await expectNothingDropped(sql, /expense_type_default rows def-late were not carried/);
+    await sql.close();
+  }, 60_000);
+
+  it("a database that is only behind on copies the lines already hold is not refused (the check names only what would be lost)", async () => {
+    const sql = await behind("refund_mig_t24_ok", (s) =>
+      s.unsafe(`UPDATE refund_line SET "ledgerAccountId" = 'acc-train' WHERE id = 'L-sub-hand'`), // already has accountNumber 5901
+    );
+    await apply(sql, NEXT, NEXT);
+    expect((await rows(sql, `SELECT "accountNumber" FROM refund_line WHERE id = 'L-sub-hand'`))[0]!.accountNumber).toBe("5901");
     await sql.close();
   }, 60_000);
 });

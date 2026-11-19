@@ -972,20 +972,23 @@ describe("GET /requests/:id — receiptNumber, and nothing else of the accountin
     "type",
   ];
 
-  async function accountingFixtures() {
-    const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
-    const account = await db.ledgerAccount.create({ data: { entity: "welld_ch", number: "6101", name: "Ufficio", ...by } });
-    const vat = await db.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...by } });
-    return { account, vat };
-  }
-
   /** A request in `status` with a classified, numbered line, a classified line with no number, and a rejected line. */
   async function fixtureRequest(status: "draft" | "submitted" | "approved" | "rejected" | "paid", numbered: boolean) {
-    const { account, vat } = await accountingFixtures();
     const request = await db.refundRequest.create({
       data: { ownerUserId: "emp-1", ownerEmail: "emp1@x.com", ownerName: "Matteo Codogno", status },
     });
-    const stored = { ledgerAccountId: account.id, ledgerAccountIsDefault: true, vatCodeId: vat.id, vatCodeIsDefault: true };
+    // what a booked line holds (T24): the copies by natural key, and a rate copy, so there is a CHF figure that could leak
+    const stored = {
+      accountNumber: "6101",
+      accountName: "Ufficio",
+      ledgerAccountIsDefault: true,
+      vatCodeCopy: "IMP81",
+      vatRateBasisPoints: 810,
+      vatCodeIsDefault: true,
+      fxRateMicros: 924_600,
+      fxRateMonth: new Date("2026-03-01T00:00:00.000Z"),
+      fxRateCopiedAt: new Date(),
+    };
     const base = {
       requestId: request.id,
       date: new Date("2026-03-02T00:00:00.000Z"),
@@ -1006,10 +1009,6 @@ describe("GET /requests/:id — receiptNumber, and nothing else of the accountin
     const second = await db.refundLine.create({ data: { ...base, ...stored } });
     const rejected = await db.refundLine.create({
       data: { ...base, approvedTotalCents: 0, rejectionReason: "no", rejectedAt: new Date(), rejectedByUserId: "a", rejectedByEmail: "a@x" },
-    });
-    // a rate in effect, so there is a CHF figure that could leak
-    await db.exchangeRateEntry.create({
-      data: { currency: "EUR", month: new Date("2026-03-01T00:00:00.000Z"), rateMicros: 924_600, origin: "fetched", createdByUserId: "system:fx-fetch", createdByEmail: "x@welld.ch", sourceUrl: "https://example.test", sourceMonth: "2026-03", fetchedAt: new Date() },
     });
     return { request, first, second, rejected };
   }

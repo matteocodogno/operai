@@ -283,7 +283,7 @@ describe("classification copy", () => {
       vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: true,
       fxRateMicros: null, fxRateMonth: null, fxRateCopiedAt: null,
     });
-    expect([line.ledgerAccountId, line.vatCodeId]).toEqual([null, null]); // the old foreign keys are never written
+    expect(Object.keys(line).filter((key) => /ledgerAccountId|vatCodeId/.test(key))).toEqual([]); // the old foreign keys are gone (T24)
     const audit = await db.refundAuditEntry.findMany({ where: { lineId: "l1" }, orderBy: { createdAt: "asc" } });
     const classified = audit.find((a) => a.action === "line_classified")!;
     expect(classified).toMatchObject({ actorUserId: "acc-1", actorEmail: "acc@welld.ch", requestId: r.request.id });

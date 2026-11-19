@@ -588,10 +588,10 @@ describe("no id of Accounting is in Refund (D1)", () => {
     for (const text of answers) expect(text).not.toContain(ID_PREFIX);
     expect(await refundRowsAsText()).not.toContain(ID_PREFIX);
 
-    // The old foreign keys are never written, and the new tables have no column that could hold an id of Accounting.
+    // The old foreign keys are gone (T24: no column of a line can hold an id of Accounting), and neither can the new tables.
     for (const id of r.lineIds) {
-      const line = await lineOf(id);
-      expect([line.ledgerAccountId, line.vatCodeId]).toEqual([null, null]);
+      const line = (await lineOf(id)) as Record<string, unknown>;
+      expect(Object.keys(line).filter((key) => /accountingId|ledgerAccountId|vatCodeId|externalId/i.test(key))).toEqual([]);
     }
     const row = (await db.expenseTypeAccountingDefault.findFirstOrThrow()) as Record<string, unknown>;
     expect(Object.keys(row).filter((key) => /accountingId|ledgerAccountId|vatCodeId|externalId/i.test(key))).toEqual([]);

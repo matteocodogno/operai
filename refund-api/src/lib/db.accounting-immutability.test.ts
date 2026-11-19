@@ -1,13 +1,20 @@
 /**
- * Accounting history tables: immutability, CHECKs and the fetched-once index
- * (T1, specs/20261118-refund-accounting-export; AC-1.5, AC-1.8, AC-2.1, AC-5.3,
- * AC-6.10; ADR 20260716-immutable-financial-audit-trail-refund).
+ * Accounting history tables that stay in refund-api: immutability and the
+ * constraints around them (T1, specs/20261118-refund-accounting-export, AC-6.10;
+ * T24, specs/20261119-accounting; ADR 20260716-immutable-financial-audit-trail-refund).
  *
  * Strategy: real Postgres, no mocking. These tests exercise the raw SQL of the
- * `20261119090000_accounting_export` migration, not application code (there is
- * none yet). A raw UPDATE/DELETE must raise on each of the seven history
- * tables, and the row must be provably untouched afterwards. Cleanup uses
- * TRUNCATE (via `truncateRefundTables`), which does not fire row triggers.
+ * `20261119090000_accounting_export` and `20261119120000_accounting_copies`
+ * migrations, not application code. A raw UPDATE/DELETE must raise on each of
+ * the three history tables that remain (the export log and the two tables of
+ * copies: the defaults and the foreign-currency VAT designation), and the row
+ * must be provably untouched afterwards. Cleanup uses TRUNCATE (via
+ * `truncateRefundTables`), which does not fire row triggers.
+ *
+ * The catalog, its status history, the rates and their attempt log moved to
+ * accounting-api (their counterparts are in accounting-api's db.*.test.ts);
+ * `20261119130000_accounting_reference_moved_out` dropped them here, and the
+ * last test below proves they are gone.
  */
 
 import { describe, it, expect, beforeEach, afterAll } from "bun:test";
@@ -18,19 +25,6 @@ import { truncateRefundTables } from "../test-support/dbCleanup";
 const asPromise = <T>(value: PromiseLike<T>): Promise<T> => Promise.resolve(value);
 
 const actor = { createdByUserId: "admin-1", createdByEmail: "admin@welld.ch" };
-
-let seq = 0;
-async function makeAccount(number = `59${String(10 + seq++).padStart(2, "0")}`) {
-  return db.ledgerAccount.create({
-    data: { entity: "welld_ch", number, name: "Spese rimborsi chilometrici", ...actor },
-  });
-}
-
-async function makeVatCode(code = `C${seq++}`, rateBasisPoints = 810) {
-  return db.vatCode.create({
-    data: { entity: "welld_ch", code, label: "IVA 8.1%", rateBasisPoints, ...actor },
-  });
-}
 
 async function makeBatch() {
   return db.refundBatch.create({
@@ -43,49 +37,24 @@ async function makeBatch() {
   });
 }
 
-function makeRate(overrides: Record<string, unknown> = {}) {
-  return db.exchangeRateEntry.create({
-    data: {
-      currency: "EUR",
-      month: new Date("2026-03-01"),
-      rateMicros: 924600,
-      origin: "fetched",
-      sourceUrl: "https://www.backend-rates.bazg.admin.ch/api/xmlavgmonth?j=2026&m=03",
-      sourceMonth: "2026-03",
-      fetchedAt: new Date(),
-      createdByUserId: "system:fx-fetch",
-      createdByEmail: "system-fx-fetch@welld.ch",
-      ...overrides,
-    },
-  });
-}
-
 /** One factory per history table: returns the new row's id. */
 const factories: Record<string, () => Promise<{ id: string }>> = {
-  ledger_account: () => makeAccount(),
-  vat_code: () => makeVatCode(),
-  accounting_catalog_status: async () => {
-    const account = await makeAccount();
-    return db.accountingCatalogStatus.create({
-      data: { ledgerAccountId: account.id, active: false, ...actor },
-    });
-  },
-  expense_type_default: async () => {
-    const account = await makeAccount();
-    return db.expenseTypeDefault.create({
-      data: { entity: "welld_ch", type: "travel_km", ledgerAccountId: account.id, ...actor },
-    });
-  },
-  exchange_rate_entry: () => makeRate(),
-  exchange_rate_fetch_attempt: () =>
-    db.exchangeRateFetchAttempt.create({
+  expense_type_accounting_default: () =>
+    db.expenseTypeAccountingDefault.create({
       data: {
-        month: new Date("2026-03-01"),
-        trigger: "admin",
-        outcome: "ok",
-        recorded: { EUR: 924600 },
-        actorUserId: "admin-1",
+        entity: "welld_ch",
+        type: "travel_km",
+        accountNumber: "5901",
+        accountName: "Spese rimborsi chilometrici",
+        vatCode: "IMP81",
+        vatLabel: "IVA 8.1%",
+        vatRateBasisPoints: 810,
+        ...actor,
       },
+    }),
+  foreign_currency_vat_designation: () =>
+    db.foreignCurrencyVatDesignation.create({
+      data: { entity: "welld_ch", vatCode: "NOVAT", vatLabel: "Senza IVA", vatRateBasisPoints: 0, ...actor },
     }),
   refund_batch_export: async () => {
     const batch = await makeBatch();
@@ -105,25 +74,17 @@ const factories: Record<string, () => Promise<{ id: string }>> = {
 
 // A column that exists on every table, to give the UPDATE something to change.
 const touchedColumn: Record<string, string> = {
-  ledger_account: '"name"',
-  vat_code: '"label"',
-  accounting_catalog_status: '"active"',
-  expense_type_default: '"createdByEmail"',
-  exchange_rate_entry: '"rateMicros"',
-  exchange_rate_fetch_attempt: '"outcome"',
+  expense_type_accounting_default: '"createdByEmail"',
+  foreign_currency_vat_designation: '"createdByEmail"',
   refund_batch_export: '"rowCount"',
 };
 const touchedValue: Record<string, unknown> = {
-  ledger_account: "changed",
-  vat_code: "changed",
-  accounting_catalog_status: true,
-  expense_type_default: "changed@welld.ch",
-  exchange_rate_entry: 1,
-  exchange_rate_fetch_attempt: "failed",
+  expense_type_accounting_default: "changed@welld.ch",
+  foreign_currency_vat_designation: "changed@welld.ch",
   refund_batch_export: 99,
 };
 
-describe("accounting history tables are append-only at the database (AC-1.8, AC-2.1, AC-5.3, AC-6.10)", () => {
+describe("the accounting history tables of refund-api are append-only at the database (AC-6.10, AC-5.7)", () => {
   beforeEach(async () => {
     await truncateRefundTables();
   });
@@ -171,122 +132,62 @@ describe("accounting history tables are append-only at the database (AC-1.8, AC-
     });
   }
 
-  it("(AC-1.5) vat_code.rateBasisPoints cannot be updated, by SQL or by the Prisma client", async () => {
-    const vat = await makeVatCode("IMP81", 810);
-
-    await expect(
-      asPromise(
-        db.$executeRawUnsafe(`UPDATE "vat_code" SET "rateBasisPoints" = 770 WHERE id = $1`, vat.id),
-      ),
-    ).rejects.toThrow(/append-only/);
-    await expect(
-      asPromise(db.vatCode.update({ where: { id: vat.id }, data: { rateBasisPoints: 770 } })),
-    ).rejects.toThrow();
-
-    expect((await db.vatCode.findUniqueOrThrow({ where: { id: vat.id } })).rateBasisPoints).toBe(810);
-  });
-
-  it("(control) appending to every history table still works", async () => {
+  it("(control) appending to every history table still works, and a second row of the same key is a new row", async () => {
     for (const table of Object.keys(factories)) {
       await expect(asPromise(factories[table]!())).resolves.toBeTruthy();
     }
-    // A catalog status row appended after another is the normal reactivation path.
-    const account = await makeAccount("6101");
-    await db.accountingCatalogStatus.create({ data: { ledgerAccountId: account.id, active: false, ...actor } });
-    await db.accountingCatalogStatus.create({ data: { ledgerAccountId: account.id, active: true, ...actor } });
-    expect(await db.accountingCatalogStatus.count({ where: { ledgerAccountId: account.id } })).toBe(2);
+    await factories["expense_type_accounting_default"]!();
+    expect(await db.expenseTypeAccountingDefault.count()).toBe(2);
   });
 });
 
-describe("accounting CHECK constraints and unique indexes (AC-1.2, AC-1.4, AC-1.5, AC-5.3)", () => {
-  beforeEach(async () => {
-    await truncateRefundTables();
-  });
+describe("what stays, and what the move dropped (T24)", () => {
   afterAll(async () => {
     await truncateRefundTables();
   });
 
-  it("vat_code.rateBasisPoints is limited to 0..10000", async () => {
-    await expect(asPromise(makeVatCode("ZERO", 0))).resolves.toBeTruthy();
-    await expect(asPromise(makeVatCode("FULL", 10000))).resolves.toBeTruthy();
-    await expect(asPromise(makeVatCode("NEG", -1))).rejects.toThrow();
-    await expect(asPromise(makeVatCode("OVER", 10001))).rejects.toThrow();
-  });
-
-  it("a ledger account number is unique per entity, and so is a VAT code (backstops of AC-1.2, AC-1.4)", async () => {
-    await makeAccount("5905");
-    await expect(asPromise(makeAccount("5905"))).rejects.toThrow();
-    await makeVatCode("IMP81");
-    await expect(asPromise(makeVatCode("IMP81"))).rejects.toThrow();
-    // Same number in the other entity is a different account.
-    await expect(
-      asPromise(
-        db.ledgerAccount.create({ data: { entity: "welld_it", number: "5905", name: "x", ...actor } }),
-      ),
-    ).resolves.toBeTruthy();
-  });
-
-  it("an accounting_catalog_status row names exactly one of account / VAT code", async () => {
-    const account = await makeAccount();
-    const vat = await makeVatCode();
-    await expect(
-      asPromise(db.accountingCatalogStatus.create({ data: { active: false, ...actor } })),
-    ).rejects.toThrow();
-    await expect(
-      asPromise(
-        db.accountingCatalogStatus.create({
-          data: { ledgerAccountId: account.id, vatCodeId: vat.id, active: false, ...actor },
-        }),
-      ),
-    ).rejects.toThrow();
-    await expect(
-      asPromise(db.accountingCatalogStatus.create({ data: { vatCodeId: vat.id, active: false, ...actor } })),
-    ).resolves.toBeTruthy();
-  });
-
-  it("exchange_rate_entry refuses CHF, a rate of 0 or less, and a month that is not the first day", async () => {
-    await expect(asPromise(makeRate({ currency: "CHF" }))).rejects.toThrow();
-    await expect(asPromise(makeRate({ rateMicros: 0 }))).rejects.toThrow();
-    await expect(asPromise(makeRate({ rateMicros: -5 }))).rejects.toThrow();
-    await expect(asPromise(makeRate({ month: new Date("2026-03-15") }))).rejects.toThrow();
-    await expect(asPromise(makeRate({ currency: "USD", month: new Date("2026-04-01") }))).resolves.toBeTruthy();
-  });
-
-  it("(extra test) a second fetched row for the same (currency, month) is refused; a second corrected row is accepted", async () => {
-    await makeRate();
-    await expect(asPromise(makeRate({ rateMicros: 925000 }))).rejects.toThrow(/exchange_rate_fetched_once|unique/i);
-
-    // Another currency, or another month, is a different key.
-    await expect(asPromise(makeRate({ currency: "USD" }))).resolves.toBeTruthy();
-    await expect(asPromise(makeRate({ month: new Date("2026-04-01") }))).resolves.toBeTruthy();
-
-    // Corrections are append-only and unlimited.
-    const corrected = { origin: "corrected", sourceUrl: null, sourceMonth: null, fetchedAt: null, createdByUserId: "admin-1", createdByEmail: "admin@welld.ch" };
-    await expect(asPromise(makeRate({ ...corrected, rateMicros: 930000 }))).resolves.toBeTruthy();
-    await expect(asPromise(makeRate({ ...corrected, rateMicros: 931000 }))).resolves.toBeTruthy();
-    expect(await db.exchangeRateEntry.count({ where: { currency: "EUR", month: new Date("2026-03-01") } })).toBe(3);
-  });
-
-  it("the fetched-once index is partial: it holds on origin = 'fetched' only", async () => {
-    const rows = await db.$queryRawUnsafe<{ indexdef: string }[]>(
-      `SELECT indexdef FROM pg_indexes WHERE indexname = 'exchange_rate_fetched_once'`,
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.indexdef).toMatch(/UNIQUE/);
-    expect(rows[0]!.indexdef).toMatch(/WHERE/);
-  });
-
-  it("every new foreign key is ON DELETE RESTRICT (a referenced account, VAT code or batch is physically undeletable)", async () => {
-    // The immutability triggers raise first; the FKs are the second wall.
+  it("the export log's foreign key to the batch is ON DELETE RESTRICT (a batch with an export is physically undeletable)", async () => {
+    // The immutability triggers raise first; the FK is the second wall.
     const rows = await db.$queryRawUnsafe<{ confdeltype: string; conname: string }[]>(
       `SELECT conname::text AS conname, confdeltype::text AS confdeltype FROM pg_constraint
-       WHERE conname IN ('refund_line_ledgerAccountId_fkey','refund_line_vatCodeId_fkey',
-                         'expense_type_default_ledgerAccountId_fkey','expense_type_default_vatCodeId_fkey',
-                         'accounting_catalog_status_ledgerAccountId_fkey','accounting_catalog_status_vatCodeId_fkey',
-                         'refund_batch_export_batchId_fkey')`,
+       WHERE conname IN ('refund_batch_export_batchId_fkey')`,
     );
-    expect(rows).toHaveLength(7);
+    expect(rows).toHaveLength(1);
     // 'r' = RESTRICT
     expect(rows.every((r) => r.confdeltype === "r")).toBe(true);
+  });
+
+  it("the six moved tables, the two old FK columns, the enum of the rates and their index are gone; what the rest uses stays", async () => {
+    const tables = (
+      await db.$queryRawUnsafe<{ tablename: string }[]>(`SELECT tablename::text AS tablename FROM pg_tables WHERE schemaname = 'public'`)
+    ).map((t) => t.tablename);
+    for (const gone of [
+      "ledger_account",
+      "vat_code",
+      "accounting_catalog_status",
+      "expense_type_default",
+      "exchange_rate_entry",
+      "exchange_rate_fetch_attempt",
+    ]) {
+      expect(tables).not.toContain(gone);
+    }
+    for (const kept of ["refund_batch_export", "receipt_counter", "expense_type_accounting_default", "foreign_currency_vat_designation"]) {
+      expect(tables).toContain(kept);
+    }
+    const columns = (
+      await db.$queryRawUnsafe<{ column_name: string }[]>(
+        `SELECT column_name::text AS column_name FROM information_schema.columns WHERE table_name = 'refund_line'`,
+      )
+    ).map((c) => c.column_name);
+    expect(columns).not.toContain("ledgerAccountId");
+    expect(columns).not.toContain("vatCodeId");
+    expect(columns).toEqual(expect.arrayContaining(["ledgerAccountIsDefault", "vatCodeIsDefault", "accountNumber", "vatCode"]));
+    const enumCount = (await db.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM pg_type WHERE typname = 'ExchangeRateOrigin'`))[0]!.n;
+    expect(enumCount).toBe(0);
+    const indexCount = (await db.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM pg_indexes WHERE indexname = 'exchange_rate_fetched_once'`))[0]!.n;
+    expect(indexCount).toBe(0);
+    // the raising function is still there: the three tables above use it
+    const fnCount = (await db.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM pg_proc WHERE proname = 'accounting_history_immutable'`))[0]!.n;
+    expect(fnCount).toBe(1);
   });
 });

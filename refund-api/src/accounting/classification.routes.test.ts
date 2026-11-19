@@ -763,7 +763,7 @@ describe("PUT classification while submitted (AC-5.2)", () => {
 
     const stored = await lineRow(r.lineIds[0]!);
     expect(stored).toMatchObject({ accountNumber: "6101", accountName: "Ufficio", ledgerAccountIsDefault: false, vatCodeCopy: null, vatCodeIsDefault: null });
-    expect([stored.ledgerAccountId, stored.vatCodeId]).toEqual([null, null]); // the old foreign keys are never written
+    expect(Object.keys(stored).filter((key) => /ledgerAccountId|vatCodeId/.test(key))).toEqual([]); // the old foreign keys are gone (T24)
 
     const audit = await auditOf(r.id);
     expect(audit).toHaveLength(1);

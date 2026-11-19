@@ -263,7 +263,7 @@ describe("approve: copies and numbering", () => {
       receiptSeq: 1,
       fxRateMicros: null,
     });
-    expect([line.ledgerAccountId, line.vatCodeId]).toEqual([null, null]); // the old foreign keys are never written
+    expect(Object.keys(line).filter((key) => /ledgerAccountId|vatCodeId/.test(key))).toEqual([]); // the old foreign keys are gone (T24)
     expect(line.numberedAt).not.toBeNull();
 
     const classified = await db.refundAuditEntry.findMany({ where: { requestId: r.id, action: "line_classified" } });
