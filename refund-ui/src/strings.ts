@@ -291,6 +291,8 @@ const en = {
         n === 1
           ? '1 default needs a new choice: its entry is deactivated or no longer in Accounting. Lines of that type get no default until you choose another.'
           : `${n} defaults need a new choice: their entry is deactivated or no longer in Accounting. Lines of those types get no default until you choose another.`,
+      /** The accessible name of the note above: it is a static `role="note"`, so it is named for a screen reader. */
+      needsChoiceLabel: 'Defaults that need a new choice',
       /** Accounting cannot be read (AC-6.9, UX-19). */
       unavailable: {
         title: 'Accounting cannot be read now',
@@ -747,7 +749,9 @@ const en = {
         chooseVatCode: 'Choose a VAT code',
         accountOption: (number: string, name: string) => `${number} — ${name}`,
         vatOption: (code: string, label: string, rate: string) => `${code} — ${label} (${rate})`,
-        inactiveOption: (text: string) => `${text} (inactive)`,
+        /** A VAT code whose copy recorded no label. */
+        vatOptionNoLabel: (code: string, rate: string) => `${code} (${rate})`,
+        inactiveOption: (text: string) => `${text} (deactivated)`,
         defaultMarker: 'Default',
         handMarker: 'Set by hand',
         required: 'Required to approve.',
@@ -1465,6 +1469,7 @@ const it: Strings = {
         n === 1
           ? '1 predefinito richiede una nuova scelta: la sua voce è disattivata o non più presente in Contabilità. Le righe di quel tipo non hanno un predefinito finché non se ne sceglie un altro.'
           : `${n} predefiniti richiedono una nuova scelta: la loro voce è disattivata o non più presente in Contabilità. Le righe di quei tipi non hanno un predefinito finché non se ne sceglie un altro.`,
+      needsChoiceLabel: 'Predefiniti che richiedono una nuova scelta',
       unavailable: {
         title: 'Contabilità non è leggibile in questo momento',
         body: 'I predefiniti sono mostrati come registrati. Non si possono modificare finché Contabilità non è leggibile.',
@@ -1826,6 +1831,7 @@ const it: Strings = {
         chooseVatCode: 'Scegliere un codice IVA',
         accountOption: (number: string, name: string) => `${number} — ${name}`,
         vatOption: (code: string, label: string, rate: string) => `${code} — ${label} (${rate})`,
+        vatOptionNoLabel: (code: string, rate: string) => `${code} (${rate})`,
         inactiveOption: (text: string) => `${text} (disattivato)`,
         defaultMarker: 'Predefinito',
         handMarker: 'Impostato a mano',

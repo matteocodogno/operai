@@ -60,8 +60,8 @@ const SETTINGS_ADMIN = grant(
   ['settings', 'manage'],
 )
 
-const ACCOUNT = { id: 'a1', number: '5901', name: 'Spese viaggi', active: true }
-const VAT = { id: 'v1', code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', active: true }
+const ACCOUNT = { number: '5901', name: 'Spese viaggi', state: 'active' as const }
+const VAT = { code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', state: 'active' as const }
 
 beforeEach(() => {
   vi.mocked(session.usePermissions).mockReturnValue(SETTINGS_ADMIN)
@@ -76,6 +76,7 @@ beforeEach(() => {
   })
   vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue({
     entity: 'welld_ch',
+    accounting: 'available',
     foreignCurrencyVatCode: VAT,
     foreignCurrencyVatCodeUsable: true,
     foreignCurrencyVatCodeHistory: [],

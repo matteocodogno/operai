@@ -5,10 +5,13 @@
  * "None (no default)".
  *
  *   - Save is disabled while nothing differs from what is saved and while a half still reads "Choose…".
- *   - A saved half that points at a deactivated entry starts on "Choose…" (an invalid state) with a hint, so
- *     saving can never silently clear a default; "None" is a choice like any other.
- *   - A 422 `*_inactive` / `unknown_*` (someone deactivated it while this was open) is a field error on that
- *     select, the options reload, and that half goes back to "Choose…".
+ *   - A saved half that points at a deactivated entry, or one no longer in Accounting, starts on "Choose…" (an
+ *     invalid state) with a hint, so saving can never silently clear a default; "None" is a choice like any other.
+ *   - A 422 `*_inactive` / `*_not_found` (someone deactivated or removed it while this was open) is a field error on
+ *     that select, the options reload, and that half goes back to "Choose…".
+ *   - The options come from Accounting through refund-api (T35, RS3): values are numbers and codes. When Accounting
+ *     cannot be read the dialog says so with an alert and a "Try again", offers no options and cannot save (AC-6.9,
+ *     AC-6.10); a save refused with 503 says nothing was saved and keeps the dialog open.
  *   - The description says approved lines keep what they have (AC-2.3): a default applies from now on.
  *
  * Saving appends a permanent history row, which is why this is a deliberate dialog and not twelve live
@@ -16,24 +19,26 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { Field, FormDialog } from '@operai/ui'
+import { Banner, Button, Field, FormDialog } from '@operai/ui'
 import { strings } from '../../strings'
-import { putExpenseTypeDefault } from '../../lib/accountingApi'
-import type { ExpenseTypeDefault } from '../../lib/accountingApi'
+import { entryIsUnusable, isAccountingUnavailable, putExpenseTypeDefault } from '../../lib/accountingApi'
+import type { EntryState, ExpenseTypeDefault } from '../../lib/accountingApi'
 import { CATALOG_NONE, accountText, vatCodeText } from '../../lib/catalogLabels'
 import { ApiError } from '../../lib/refundApi'
 import CatalogSelect from '../CatalogSelect'
 import ErrorBanner from '../ErrorBanner'
-import { useActiveCatalogOptions } from './useActiveCatalogOptions'
+import { optionsUnavailable, useActiveCatalogOptions } from './useActiveCatalogOptions'
 
 const t = strings.settings.defaults
 const tc = strings.settings.catalog
 
-/** The select value for a saved half: its id, or None; "Choose…" (`''`) when the saved entry is deactivated. */
-const initialValue = (saved: { id: string; active: boolean } | null): string =>
-  saved === null ? CATALOG_NONE : saved.active ? saved.id : ''
+type SavedHalf = { value: string; state: EntryState } | null
 
-const savedValue = (saved: { id: string } | null): string => (saved === null ? CATALOG_NONE : saved.id)
+/** The select value for a saved half: its number or code, or None; "Choose…" (`''`) when the entry is deactivated or gone. */
+const initialValue = (saved: SavedHalf): string =>
+  saved === null ? CATALOG_NONE : entryIsUnusable(saved.state) ? '' : saved.value
+
+const savedValue = (saved: SavedHalf): string => (saved === null ? CATALOG_NONE : saved.value)
 
 export type DefaultClassificationDialogProps = {
   row: ExpenseTypeDefault
@@ -50,8 +55,12 @@ export default function DefaultClassificationDialog({
   onSaved,
 }: DefaultClassificationDialogProps) {
   const options = useActiveCatalogOptions()
-  const [account, setAccount] = useState(() => initialValue(row.account))
-  const [vatCode, setVatCode] = useState(() => initialValue(row.vatCode))
+  const [account, setAccount] = useState(() =>
+    initialValue(row.account && { value: row.account.number, state: row.account.state }),
+  )
+  const [vatCode, setVatCode] = useState(() =>
+    initialValue(row.vatCode && { value: row.vatCode.code, state: row.vatCode.state }),
+  )
   const [accountError, setAccountError] = useState<string | null>(null)
   const [vatError, setVatError] = useState<string | null>(null)
   const [generalError, setGeneralError] = useState<string | null>(null)
@@ -70,17 +79,26 @@ export default function DefaultClassificationDialog({
   const accounts = loaded ? options.data.ledgerAccounts : []
   const vatCodes = loaded ? options.data.vatCodes : []
 
-  // An id that is no longer on offer (deactivated since this dialog opened) is no choice at all.
-  const effective = (value: string, offered: readonly { id: string }[]): string =>
-    loaded && value !== '' && value !== CATALOG_NONE && !offered.some((entry) => entry.id === value) ? '' : value
-  const accountValue = effective(account, accounts)
-  const vatValue = effective(vatCode, vatCodes)
+  // A number or code that is no longer on offer (deactivated or removed since this dialog opened) is no choice at all.
+  const effective = (value: string, offered: readonly string[]): string =>
+    loaded && value !== '' && value !== CATALOG_NONE && !offered.includes(value) ? '' : value
+  const accountValue = effective(
+    account,
+    accounts.map((entry) => entry.number),
+  )
+  const vatValue = effective(
+    vatCode,
+    vatCodes.map((entry) => entry.code),
+  )
 
-  const differs = accountValue !== savedValue(row.account) || vatValue !== savedValue(row.vatCode)
+  const savedAccount: SavedHalf = row.account && { value: row.account.number, state: row.account.state }
+  const savedVat: SavedHalf = row.vatCode && { value: row.vatCode.code, state: row.vatCode.state }
+  const differs = accountValue !== savedValue(savedAccount) || vatValue !== savedValue(savedVat)
   const canSave = loaded && accountValue !== '' && vatValue !== '' && differs
 
-  const accountInactive = row.account !== null && !row.account.active
-  const vatInactive = row.vatCode !== null && !row.vatCode.active
+  const accountUnusable = row.account !== null && entryIsUnusable(row.account.state)
+  const vatUnusable = row.vatCode !== null && entryIsUnusable(row.vatCode.state)
+  const unavailable = optionsUnavailable(options)
 
   const handleSubmit = async () => {
     setGeneralError(null)
@@ -90,22 +108,24 @@ export default function DefaultClassificationDialog({
     let saved: ExpenseTypeDefault
     try {
       saved = await putExpenseTypeDefault(row.type, {
-        ledgerAccountId: accountValue === CATALOG_NONE ? null : accountValue,
-        vatCodeId: vatValue === CATALOG_NONE ? null : vatValue,
+        accountNumber: accountValue === CATALOG_NONE ? null : accountValue,
+        vatCode: vatValue === CATALOG_NONE ? null : vatValue,
       })
     } catch (error) {
       setBusy(false)
       const code = error instanceof ApiError ? error.code : undefined
-      if (code === 'ledger_account_inactive' || code === 'unknown_ledger_account') {
-        setAccountError(t.errors.accountInactive)
+      if (code === 'ledger_account_inactive' || code === 'ledger_account_not_found') {
+        setAccountError(code === 'ledger_account_inactive' ? t.errors.accountInactive : t.errors.accountNotFound)
         setAccount('')
         options.reload()
         setFocusRequest({ field: 'account' })
-      } else if (code === 'vat_code_inactive' || code === 'unknown_vat_code') {
-        setVatError(t.errors.vatInactive)
+      } else if (code === 'vat_code_inactive' || code === 'vat_code_not_found') {
+        setVatError(code === 'vat_code_inactive' ? t.errors.vatInactive : t.errors.vatNotFound)
         setVatCode('')
         options.reload()
         setFocusRequest({ field: 'vat' })
+      } else if (isAccountingUnavailable(error)) {
+        setGeneralError(strings.accountingUnavailable.save)
       } else if (error instanceof ApiError && error.status === 403) {
         setGeneralError(tc.forbidden)
       } else {
@@ -134,18 +154,33 @@ export default function DefaultClassificationDialog({
       onCancel={onCancel}
       testIdPrefix="default-classification"
     >
-      {(accountInactive || vatInactive) && (
+      {(accountUnusable || vatUnusable) && (
         <p className="text-sm text-soft" data-testid="default-classification-inactive-note">
           {t.dialog.inactiveSentence}
         </p>
       )}
-      {options.status === 'error' && <ErrorBanner message={t.loadError} onRetry={options.reload} />}
+      {unavailable && (
+        <Banner
+          tone="warning"
+          actions={
+            <Button size="sm" variant="ghost" onClick={options.reload} data-testid="default-classification-try-again">
+              {t.dialog.tryAgain}
+            </Button>
+          }
+          data-testid="default-classification-unavailable"
+        >
+          {strings.accountingUnavailable.options}
+        </Banner>
+      )}
+      {options.status === 'error' && !unavailable && <ErrorBanner message={t.loadError} onRetry={options.reload} />}
 
       <Field
         label={t.dialog.account}
         hint={
-          accountInactive && accountValue === '' && row.account
-            ? t.dialog.inactiveCurrent(accountText(row.account))
+          accountUnusable && accountValue === '' && row.account
+            ? row.account.state === 'not_found'
+              ? t.dialog.notFoundCurrent(accountText(row.account))
+              : t.dialog.inactiveCurrent(accountText(row.account))
             : undefined
         }
         error={accountError && <span data-testid="default-classification-account-error">{accountError}</span>}
@@ -174,7 +209,11 @@ export default function DefaultClassificationDialog({
       <Field
         label={t.dialog.vatCode}
         hint={
-          vatInactive && vatValue === '' && row.vatCode ? t.dialog.inactiveCurrent(vatCodeText(row.vatCode)) : undefined
+          vatUnusable && vatValue === '' && row.vatCode
+            ? row.vatCode.state === 'not_found'
+              ? t.dialog.notFoundCurrent(vatCodeText(row.vatCode))
+              : t.dialog.inactiveCurrent(vatCodeText(row.vatCode))
+            : undefined
         }
         error={vatError && <span data-testid="default-classification-vat-error">{vatError}</span>}
         errorRole="alert"

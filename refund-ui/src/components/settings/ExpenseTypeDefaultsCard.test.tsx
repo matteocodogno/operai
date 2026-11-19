@@ -5,6 +5,11 @@
  * AC-2.6, AC-2.7, AC-2.8): twelve rows with "None" where nothing is set, who changed it and when, the
  * foreign-currency VAT code and the warning when it is deactivated, the history drawer newest first,
  * Change only with `settings:manage`, focus back on the opener.
+ *
+ * T35, specs/20261119-accounting (RS2, UX-18, UX-19, UX-23; AC-4.4, AC-4.5, AC-4.7, AC-6.9, AC-6.10): the entries are
+ * Accounting's, by number and code, with a badge for `deactivated` and for `not_found`, the note counting the
+ * defaults that need a new choice, none of it when Accounting cannot be read (one banner with Retry, Change
+ * `aria-disabled` with its reason, History still open, focus and an announcement after Retry).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,23 +21,29 @@ vi.mock('../../lib/accountingApi', async (importOriginal) => {
   return {
     ...original,
     getExpenseTypeDefaults: vi.fn(),
-    listLedgerAccounts: vi.fn(),
-    listVatCodes: vi.fn(),
+    getAccountingOptions: vi.fn(),
     putExpenseTypeDefault: vi.fn(),
     putForeignCurrencyVatCode: vi.fn(),
   }
 })
 
 import * as accountingApi from '../../lib/accountingApi'
-import type { ExpenseTypeDefault, ExpenseTypeDefaults, LedgerAccount, VatCode } from '../../lib/accountingApi'
+import type { AccountRef, EntryState, ExpenseTypeDefault, ExpenseTypeDefaults, VatCodeRef } from '../../lib/accountingApi'
 import { EXPENSE_TYPES } from '../../lib/expenseTypes'
 import { ApiError } from '../../lib/refundApi'
 import ExpenseTypeDefaultsCard from './ExpenseTypeDefaultsCard'
 
-const ACCOUNT_5901 = { id: 'a1', number: '5901', name: 'Spese viaggi', active: true }
-const ACCOUNT_OLD = { id: 'a3', number: '5999', name: 'Vecchio', active: false }
-const VAT_NOVAT = { id: 'v1', code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', active: true }
-const VAT_IMP81 = { id: 'v2', code: 'IMP81', label: 'Imposta piena', ratePercent: '8.1', active: true }
+const ACCOUNT_5901: AccountRef = { number: '5901', name: 'Spese viaggi', state: 'active' }
+const ACCOUNT_OLD: AccountRef = { number: '5999', name: 'Vecchio', state: 'deactivated' }
+const VAT_NOVAT: VatCodeRef = { code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', state: 'active' }
+const VAT_IMP81: VatCodeRef = { code: 'IMP81', label: 'Imposta piena', ratePercent: '8.1', state: 'active' }
+
+/** What the history records of a copy: no state. */
+const copyOf = <T extends { state: EntryState }>(ref: T): Omit<T, 'state'> => {
+  const copy: Partial<T> = { ...ref }
+  delete copy.state
+  return copy as Omit<T, 'state'>
+}
 
 const blankRow = (type: ExpenseTypeDefault['type']): ExpenseTypeDefault => ({
   type,
@@ -45,6 +56,7 @@ const blankRow = (type: ExpenseTypeDefault['type']): ExpenseTypeDefault => ({
 
 const defaults = (overrides: Partial<ExpenseTypeDefaults> = {}): ExpenseTypeDefaults => ({
   entity: 'welld_ch',
+  accounting: 'available',
   foreignCurrencyVatCode: null,
   foreignCurrencyVatCodeUsable: false,
   foreignCurrencyVatCodeHistory: [],
@@ -58,8 +70,18 @@ const defaults = (overrides: Partial<ExpenseTypeDefaults> = {}): ExpenseTypeDefa
           updatedByEmail: 'admin@welld.ch',
           history: [
             { account: null, vatCode: null, at: '2026-03-01T09:00:00Z', byEmail: 'first@welld.ch' },
-            { account: ACCOUNT_OLD, vatCode: VAT_NOVAT, at: '2026-03-15T09:00:00Z', byEmail: 'second@welld.ch' },
-            { account: ACCOUNT_5901, vatCode: VAT_NOVAT, at: '2026-04-01T09:00:00Z', byEmail: 'admin@welld.ch' },
+            {
+              account: copyOf(ACCOUNT_OLD),
+              vatCode: copyOf(VAT_NOVAT),
+              at: '2026-03-15T09:00:00Z',
+              byEmail: 'second@welld.ch',
+            },
+            {
+              account: copyOf(ACCOUNT_5901),
+              vatCode: copyOf(VAT_NOVAT),
+              at: '2026-04-01T09:00:00Z',
+              byEmail: 'admin@welld.ch',
+            },
           ],
         }
       : blankRow(option.id),
@@ -67,29 +89,28 @@ const defaults = (overrides: Partial<ExpenseTypeDefaults> = {}): ExpenseTypeDefa
   ...overrides,
 })
 
-const account = (a: typeof ACCOUNT_5901): LedgerAccount => ({
-  ...a,
-  createdAt: '2026-03-01T09:00:00Z',
-  createdByEmail: 'admin@welld.ch',
-  history: [],
-})
-const vat = (v: typeof VAT_NOVAT): VatCode => ({
-  ...v,
-  rateBasisPoints: Math.round(Number(v.ratePercent) * 100),
-  createdAt: '2026-03-01T09:00:00Z',
-  createdByEmail: 'admin@welld.ch',
-  history: [],
-})
+const OPTIONS = {
+  ledgerAccounts: [
+    { number: '5901', name: 'Spese viaggi' },
+    { number: '5905', name: 'Spese rimborsi' },
+  ],
+  vatCodes: [
+    { code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', rateBasisPoints: 0 },
+    { code: 'IMP81', label: 'Imposta piena', ratePercent: '8.1', rateBasisPoints: 810 },
+  ],
+}
+
+/** The twelve rows with some types changed. */
+const withTypes = (patch: Partial<Record<ExpenseTypeDefault['type'], Partial<ExpenseTypeDefault>>>): ExpenseTypeDefaults => {
+  const base = defaults()
+  return { ...base, types: base.types.map((row) => ({ ...row, ...patch[row.type] })) }
+}
 
 const problem = (status: number) => new ApiError({ type: 't', title: 'x', status })
 
 beforeEach(() => {
   vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(defaults())
-  vi.mocked(accountingApi.listLedgerAccounts).mockResolvedValue([
-    account(ACCOUNT_5901),
-    account({ ...ACCOUNT_5901, id: 'a2', number: '5905', name: 'Spese rimborsi' }),
-  ])
-  vi.mocked(accountingApi.listVatCodes).mockResolvedValue([vat(VAT_NOVAT), vat(VAT_IMP81)])
+  vi.mocked(accountingApi.getAccountingOptions).mockResolvedValue(OPTIONS)
 })
 
 afterEach(() => {
@@ -142,14 +163,63 @@ describe('ExpenseTypeDefaultsCard: the twelve rows (AC-2.2)', () => {
     expect(within(row).queryByText('None')).toBeNull()
   })
 
-  it('marks a half that points at a deactivated entry with an Inactive badge', async () => {
-    const data = defaults()
-    data.types = data.types.map((row) => (row.type === 'travel_train' ? { ...row, account: ACCOUNT_OLD } : row))
-    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(data)
+  it('marks a half that points at a deactivated entry with a "Deactivated in Accounting" badge (UX-18)', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(withTypes({ travel_train: { account: ACCOUNT_OLD } }))
     await renderCard()
     const row = screen.getByTestId('settings-default-row-travel_train')
     expect(within(row).getByText('5999 — Vecchio')).not.toBeNull()
-    expect(within(row).getByText('Inactive')).not.toBeNull()
+    expect(within(row).getByText('Deactivated in Accounting')).not.toBeNull()
+    expect(within(row).queryByText('Not found in Accounting')).toBeNull()
+  })
+
+  it('marks a half that is no longer in Accounting with a "Not found in Accounting" badge, and the VAT half the same way', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(
+      withTypes({
+        travel_train: { account: { number: '5998', name: 'Sparito', state: 'not_found' } },
+        postal: { vatCode: { ...VAT_IMP81, state: 'not_found' } },
+      }),
+    )
+    await renderCard()
+    expect(
+      within(screen.getByTestId('settings-default-row-travel_train')).getByText('Not found in Accounting'),
+    ).not.toBeNull()
+    const postal = screen.getByTestId('settings-default-row-postal')
+    expect(within(postal).getByText('IMP81 — Imposta piena (8.1%)')).not.toBeNull()
+    expect(within(postal).getByText('Not found in Accounting')).not.toBeNull()
+  })
+
+  it('shows an active entry with no mark at all', async () => {
+    await renderCard()
+    const row = screen.getByTestId('settings-default-row-travel_train')
+    expect(within(row).queryByText(/in Accounting/)).toBeNull()
+    expect(screen.queryByTestId('settings-defaults-needs-choice')).toBeNull()
+  })
+
+  it.each([
+    [1, { travel_train: { account: ACCOUNT_OLD } }, '1 default needs a new choice'],
+    [
+      2,
+      { travel_train: { account: ACCOUNT_OLD, vatCode: { ...VAT_NOVAT, state: 'not_found' as const } }, postal: { vatCode: { ...VAT_IMP81, state: 'deactivated' as const } } },
+      '2 defaults need a new choice',
+    ],
+  ])('counts the types that need a new choice once each, in one static note (%i)', async (_n, patch, text) => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(withTypes(patch))
+    await renderCard()
+    const note = screen.getByTestId('settings-defaults-needs-choice')
+    expect(note.textContent).toContain(text)
+    expect(note.textContent).toMatch(/get no default until you choose another/)
+    expect(note.getAttribute('role')).toBe('note')
+    expect(note.getAttribute('aria-label')).toBe('Defaults that need a new choice')
+  })
+
+  it('counts an unusable foreign-currency designation as one more', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue({
+      ...withTypes({ travel_train: { account: ACCOUNT_OLD } }),
+      foreignCurrencyVatCode: { ...VAT_IMP81, state: 'deactivated' },
+      foreignCurrencyVatCodeUsable: false,
+    })
+    await renderCard()
+    expect(screen.getByTestId('settings-defaults-needs-choice').textContent).toContain('2 defaults need a new choice')
   })
 
   it('explains in the description that accounting must choose per line where there is no default', async () => {
@@ -177,12 +247,23 @@ describe('ExpenseTypeDefaultsCard: the foreign-currency VAT code (AC-2.5, AC-2.7
     expect(screen.queryByTestId('settings-foreign-vat-inactive-warning')).toBeNull()
   })
 
-  it('shows a deactivated designation with an Inactive badge and the warning that foreign lines get no VAT code', async () => {
+  it('shows a designation that is no longer in Accounting with its badge and its own warning', async () => {
     vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(
-      defaults({ foreignCurrencyVatCode: { ...VAT_IMP81, active: false }, foreignCurrencyVatCodeUsable: false }),
+      defaults({ foreignCurrencyVatCode: { ...VAT_IMP81, state: 'not_found' }, foreignCurrencyVatCodeUsable: false }),
     )
     await renderCard()
-    expect(within(screen.getByTestId('settings-foreign-vat-value')).getByText('Inactive')).not.toBeNull()
+    expect(within(screen.getByTestId('settings-foreign-vat-value')).getByText('Not found in Accounting')).not.toBeNull()
+    expect(screen.getByTestId('settings-foreign-vat-inactive-warning').textContent).toContain(
+      'IMP81 is no longer in Accounting, so foreign-currency lines get no VAT code until you designate another.',
+    )
+  })
+
+  it('shows a deactivated designation with its badge and the warning that foreign lines get no VAT code', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(
+      defaults({ foreignCurrencyVatCode: { ...VAT_IMP81, state: 'deactivated' }, foreignCurrencyVatCodeUsable: false }),
+    )
+    await renderCard()
+    expect(within(screen.getByTestId('settings-foreign-vat-value')).getByText('Deactivated in Accounting')).not.toBeNull()
     const warning = screen.getByTestId('settings-foreign-vat-inactive-warning')
     expect(warning.textContent).toContain(
       'IMP81 is deactivated, so foreign-currency lines get no VAT code until you designate another.',
@@ -230,7 +311,7 @@ describe('ExpenseTypeDefaultsCard: Change', () => {
   it('saves, shows the server’s row, confirms by type, and returns focus to the Change button', async () => {
     const saved: ExpenseTypeDefault = {
       ...blankRow('travel_train'),
-      account: { id: 'a2', number: '5905', name: 'Spese rimborsi', active: true },
+      account: { number: '5905', name: 'Spese rimborsi', state: 'active' },
       vatCode: VAT_NOVAT,
       updatedAt: '2026-11-18T10:00:00Z',
       updatedByEmail: 'me@welld.ch',
@@ -242,7 +323,7 @@ describe('ExpenseTypeDefaultsCard: Change', () => {
     await waitFor(() =>
       expect((screen.getByTestId('default-classification-account') as HTMLSelectElement).disabled).toBe(false),
     )
-    fireEvent.change(screen.getByTestId('default-classification-account'), { target: { value: 'a2' } })
+    fireEvent.change(screen.getByTestId('default-classification-account'), { target: { value: '5905' } })
     fireEvent.click(screen.getByTestId('default-classification-submit'))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -259,7 +340,7 @@ describe('ExpenseTypeDefaultsCard: Change', () => {
       foreignCurrencyVatCode: VAT_IMP81,
       foreignCurrencyVatCodeUsable: true,
       foreignCurrencyVatCodeHistory: [
-        { vatCode: { id: 'v2', code: 'IMP81' }, at: '2026-11-18T10:00:00Z', byEmail: 'me@welld.ch' },
+        { vatCode: copyOf(VAT_IMP81), at: '2026-11-18T10:00:00Z', byEmail: 'me@welld.ch' },
       ],
     })
     await renderCard()
@@ -268,7 +349,7 @@ describe('ExpenseTypeDefaultsCard: Change', () => {
     await waitFor(() =>
       expect((screen.getByTestId('foreign-currency-vat-select') as HTMLSelectElement).disabled).toBe(false),
     )
-    fireEvent.change(screen.getByTestId('foreign-currency-vat-select'), { target: { value: 'v2' } })
+    fireEvent.change(screen.getByTestId('foreign-currency-vat-select'), { target: { value: 'IMP81' } })
     fireEvent.click(screen.getByTestId('foreign-currency-vat-submit'))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -281,7 +362,7 @@ describe('ExpenseTypeDefaultsCard: Change', () => {
 
   it('clears the inactive warning once a usable code is designated', async () => {
     vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(
-      defaults({ foreignCurrencyVatCode: { ...VAT_IMP81, active: false }, foreignCurrencyVatCodeUsable: false }),
+      defaults({ foreignCurrencyVatCode: { ...VAT_IMP81, state: 'deactivated' }, foreignCurrencyVatCodeUsable: false }),
     )
     vi.mocked(accountingApi.putForeignCurrencyVatCode).mockResolvedValue({
       foreignCurrencyVatCode: VAT_NOVAT,
@@ -293,7 +374,7 @@ describe('ExpenseTypeDefaultsCard: Change', () => {
     await waitFor(() =>
       expect((screen.getByTestId('foreign-currency-vat-select') as HTMLSelectElement).disabled).toBe(false),
     )
-    fireEvent.change(screen.getByTestId('foreign-currency-vat-select'), { target: { value: 'v1' } })
+    fireEvent.change(screen.getByTestId('foreign-currency-vat-select'), { target: { value: 'NOVAT' } })
     fireEvent.click(screen.getByTestId('foreign-currency-vat-submit'))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(screen.queryByTestId('settings-foreign-vat-inactive-warning')).toBeNull()
@@ -340,9 +421,9 @@ describe('ExpenseTypeDefaultsCard: History (AC-2.1, AC-2.5)', () => {
         foreignCurrencyVatCode: VAT_NOVAT,
         foreignCurrencyVatCodeUsable: true,
         foreignCurrencyVatCodeHistory: [
-          { vatCode: { id: 'v2', code: 'IMP81' }, at: '2026-03-01T09:00:00Z', byEmail: 'a@welld.ch' },
+          { vatCode: copyOf(VAT_IMP81), at: '2026-03-01T09:00:00Z', byEmail: 'a@welld.ch' },
           { vatCode: null, at: '2026-03-10T09:00:00Z', byEmail: 'b@welld.ch' },
-          { vatCode: { id: 'v1', code: 'NOVAT' }, at: '2026-03-20T09:00:00Z', byEmail: 'c@welld.ch' },
+          { vatCode: copyOf(VAT_NOVAT), at: '2026-03-20T09:00:00Z', byEmail: 'c@welld.ch' },
         ],
       }),
     )
@@ -361,6 +442,125 @@ describe('ExpenseTypeDefaultsCard: History (AC-2.1, AC-2.5)', () => {
       ['b@welld.ch', 'None'],
       ['a@welld.ch', 'IMP81'],
     ])
+  })
+})
+
+describe('ExpenseTypeDefaultsCard: Accounting cannot be read (AC-6.9, UX-19, UX-23)', () => {
+  /** Every state is `unverified`: the entries are shown as recorded. */
+  const unavailable = (): ExpenseTypeDefaults => {
+    const unverified = <T extends { state: EntryState }>(ref: T | null): T | null => (ref && { ...ref, state: 'unverified' })
+    const base = defaults({ accounting: 'unavailable', foreignCurrencyVatCode: VAT_IMP81, foreignCurrencyVatCodeUsable: false })
+    return {
+      ...base,
+      foreignCurrencyVatCode: unverified(VAT_IMP81),
+      types: base.types.map((row) => ({ ...row, account: unverified(row.account), vatCode: unverified(row.vatCode) })),
+    }
+  }
+
+  it('shows ONE polite, non-dismissible warning banner with Retry, and the defaults as recorded with no badge', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(unavailable())
+    await renderCard()
+    const banner = screen.getByTestId('settings-defaults-unavailable')
+    expect(banner.getAttribute('role')).toBe('status')
+    expect(banner.textContent).toContain('Accounting cannot be read now')
+    expect(banner.textContent).toContain(
+      'The defaults are shown as recorded. You cannot change them until Accounting can be read.',
+    )
+    expect(within(banner).queryByRole('button', { name: /Dismiss/ })).toBeNull()
+    expect(within(banner).getByRole('button', { name: 'Retry' })).not.toBeNull()
+    expect(screen.getAllByTestId(/^settings-defaults-unavailable$/)).toHaveLength(1)
+    const row = screen.getByTestId('settings-default-row-travel_train')
+    expect(within(row).getByText('5901 — Spese viaggi')).not.toBeNull()
+    expect(within(row).queryByText(/in Accounting/)).toBeNull()
+    expect(screen.queryByTestId('settings-defaults-needs-choice')).toBeNull()
+    expect(screen.queryByTestId('settings-foreign-vat-inactive-warning')).toBeNull()
+  })
+
+  it('shows no state badge even if a stale answer carried one', async () => {
+    const data = unavailable()
+    data.types = data.types.map((row) => (row.type === 'travel_train' ? { ...row, account: ACCOUNT_OLD } : row))
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(data)
+    await renderCard()
+    expect(within(screen.getByTestId('settings-default-row-travel_train')).queryByText(/in Accounting/)).toBeNull()
+  })
+
+  it('keeps every Change aria-disabled and described by its reason, opens nothing, and keeps History working', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(unavailable())
+    await renderCard()
+    const change = screen.getByTestId('settings-default-change-travel_train')
+    expect(change.getAttribute('aria-disabled')).toBe('true')
+    expect((change as HTMLButtonElement).disabled).toBe(false)
+    const reason = document.getElementById(change.getAttribute('aria-describedby') ?? '')
+    expect(reason?.textContent).toBe('Accounting cannot be read now, so defaults cannot be changed.')
+    const foreign = screen.getByTestId('settings-foreign-vat-change')
+    expect(foreign.getAttribute('aria-disabled')).toBe('true')
+    expect(foreign.getAttribute('aria-describedby')).toBe(change.getAttribute('aria-describedby'))
+
+    fireEvent.click(change)
+    fireEvent.click(foreign)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(accountingApi.getAccountingOptions).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('settings-default-history-travel_train'))
+    expect(screen.getByRole('dialog', { name: 'History — Travel — train' })).not.toBeNull()
+  })
+
+  it('a reader sees the banner and no Change at all', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(unavailable())
+    await renderCard(false)
+    expect(screen.getByTestId('settings-defaults-unavailable')).not.toBeNull()
+    expect(screen.queryByTestId('settings-default-change-travel_train')).toBeNull()
+  })
+
+  it('Retry that recovers removes the banner, puts focus on the card heading and announces it', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValueOnce(unavailable())
+    await renderCard()
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValueOnce(defaults())
+    const retry = screen.getByTestId('settings-defaults-retry')
+    retry.focus()
+    fireEvent.click(retry)
+
+    await waitFor(() => expect(screen.queryByTestId('settings-defaults-unavailable')).toBeNull())
+    const heading = screen.getByRole('heading', { name: 'Default classification' })
+    await waitFor(() => expect(heading.contains(document.activeElement)).toBe(true))
+    const result = screen.getByTestId('settings-defaults-retry-result')
+    expect(result.textContent).toBe('Accounting can be read again.')
+    expect(result.getAttribute('aria-live')).toBe('polite')
+    expect(screen.getByTestId('settings-default-change-travel_train').getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('Retry that still fails says so, keeps the banner and its Retry', async () => {
+    // A fresh object per answer, as the network gives.
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockImplementation(() => Promise.resolve(unavailable()))
+    await renderCard()
+    const retry = screen.getByTestId('settings-defaults-retry')
+    retry.focus()
+    fireEvent.click(retry)
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-defaults-retry-result').textContent).toBe('Accounting still cannot be read.'),
+    )
+    expect(screen.getByTestId('settings-defaults-unavailable')).not.toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId('settings-defaults-retry'))
+    expect(accountingApi.getExpenseTypeDefaults).toHaveBeenCalledTimes(2)
+  })
+
+  it('a second Retry announces its own result again, not the first', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockImplementation(() => Promise.resolve(unavailable()))
+    await renderCard()
+    fireEvent.click(screen.getByTestId('settings-defaults-retry'))
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-defaults-retry-result').textContent).toBe('Accounting still cannot be read.'),
+    )
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValueOnce(defaults())
+    fireEvent.click(screen.getByTestId('settings-defaults-retry'))
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-defaults-retry-result').textContent).toBe('Accounting can be read again.'),
+    )
+  })
+
+  it('announces nothing on first load', async () => {
+    await renderCard()
+    expect(screen.getByTestId('settings-defaults-retry-result').textContent).toBe('')
   })
 })
 
@@ -423,10 +623,56 @@ describe('ExpenseTypeDefaultsCard: accessibility (axe)', () => {
     cleanup()
 
     vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(
-      defaults({ foreignCurrencyVatCode: { ...VAT_IMP81, active: false }, foreignCurrencyVatCodeUsable: false }),
+      defaults({ foreignCurrencyVatCode: { ...VAT_IMP81, state: 'deactivated' }, foreignCurrencyVatCodeUsable: false }),
     )
     await renderCard()
     await screen.findByTestId('settings-foreign-vat-inactive-warning')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(
+      defaults({ foreignCurrencyVatCode: { ...VAT_IMP81, state: 'not_found' }, foreignCurrencyVatCodeUsable: false }),
+    )
+    await renderCard()
+    await screen.findByTestId('settings-foreign-vat-inactive-warning')
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: deactivated and not-found defaults with their badges and the needs-a-new-choice note', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(
+      withTypes({
+        travel_train: { account: ACCOUNT_OLD, vatCode: { ...VAT_NOVAT, state: 'not_found' } },
+        postal: { vatCode: { ...VAT_IMP81, state: 'deactivated' } },
+      }),
+    )
+    await renderCard()
+    await screen.findByTestId('settings-defaults-needs-choice')
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: Accounting cannot be read, with and without Change, after Retry fails and after it recovers', async () => {
+    const unavailableData = (): ExpenseTypeDefaults => ({ ...defaults(), accounting: 'unavailable' })
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockImplementation(() => Promise.resolve(unavailableData()))
+    await renderCard()
+    await screen.findByTestId('settings-defaults-unavailable')
+    await expectNoAxeViolations()
+    cleanup()
+
+    await renderCard(false)
+    await expectNoAxeViolations()
+    cleanup()
+
+    await renderCard()
+    fireEvent.click(screen.getByTestId('settings-defaults-retry'))
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-defaults-retry-result').textContent).toBe('Accounting still cannot be read.'),
+    )
+    await expectNoAxeViolations()
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValueOnce(defaults())
+    fireEvent.click(screen.getByTestId('settings-defaults-retry'))
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-defaults-retry-result').textContent).toBe('Accounting can be read again.'),
+    )
     await expectNoAxeViolations()
   })
 
@@ -438,7 +684,7 @@ describe('ExpenseTypeDefaultsCard: accessibility (axe)', () => {
       expect((screen.getByTestId('default-classification-account') as HTMLSelectElement).disabled).toBe(false),
     )
     await expectNoAxeViolations()
-    fireEvent.change(screen.getByTestId('default-classification-account'), { target: { value: 'a2' } })
+    fireEvent.change(screen.getByTestId('default-classification-account'), { target: { value: '5905' } })
     fireEvent.click(screen.getByTestId('default-classification-submit'))
     await screen.findByTestId('default-classification-error')
     await expectNoAxeViolations()
@@ -454,7 +700,7 @@ describe('ExpenseTypeDefaultsCard: accessibility (axe)', () => {
       foreignCurrencyVatCodeUsable: true,
       foreignCurrencyVatCodeHistory: [],
     })
-    fireEvent.change(screen.getByTestId('foreign-currency-vat-select'), { target: { value: 'v2' } })
+    fireEvent.change(screen.getByTestId('foreign-currency-vat-select'), { target: { value: 'IMP81' } })
     fireEvent.click(screen.getByTestId('foreign-currency-vat-submit'))
     await screen.findByTestId('settings-defaults-success')
     await expectNoAxeViolations()

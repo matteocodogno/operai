@@ -29,6 +29,8 @@ import {
   putForeignCurrencyVatCode,
   reactivateLedgerAccount,
   reactivateVatCode,
+  entryIsUnusable,
+  isAccountingUnavailable,
 } from './accountingApi'
 import { ApiError } from './refundApi'
 
@@ -148,44 +150,92 @@ describe('VAT codes', () => {
   })
 })
 
-describe('defaults', () => {
-  it('GETs the defaults', async () => {
+describe('defaults (specs/20261119-accounting: by number and code, with states)', () => {
+  it('GETs the defaults, and says Accounting was readable when the answer does not say otherwise', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { entity: 'welld_ch', types: [] }))
-    await getExpenseTypeDefaults()
+    await expect(getExpenseTypeDefaults()).resolves.toMatchObject({ accounting: 'available' })
     expect(lastCall()).toMatchObject({ url: `${BASE}/accounting/expense-type-defaults`, method: 'GET' })
   })
 
-  it('PUTs both ids, nulls included, to the type', async () => {
+  it('reads accounting: "unavailable" as sent, whatever else it holds', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { entity: 'welld_ch', accounting: 'unavailable', types: [] }))
+    await expect(getExpenseTypeDefaults()).resolves.toMatchObject({ accounting: 'unavailable' })
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { entity: 'welld_ch', accounting: 'weird', types: [] }))
+    await expect(getExpenseTypeDefaults()).resolves.toMatchObject({ accounting: 'available' })
+  })
+
+  it('PUTs the number and the code, nulls included, to the type', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { type: 'travel_train' }))
-    await putExpenseTypeDefault('travel_train', { ledgerAccountId: 'a1', vatCodeId: null })
+    await putExpenseTypeDefault('travel_train', { accountNumber: '5901', vatCode: null })
     expect(lastCall()).toEqual({
       url: `${BASE}/accounting/expense-type-defaults/travel_train`,
       method: 'PUT',
-      body: { ledgerAccountId: 'a1', vatCodeId: null },
+      body: { accountNumber: '5901', vatCode: null },
     })
   })
 
-  it('passes a 422 inactive code through', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(
-      json(422, { title: 'Unprocessable', status: 422, code: 'ledger_account_inactive' }),
-    )
+  it.each([
+    [422, 'ledger_account_inactive'],
+    [422, 'ledger_account_not_found'],
+    [422, 'vat_code_inactive'],
+    [422, 'vat_code_not_found'],
+    [503, 'accounting_unavailable'],
+  ])('passes %i %s through', async (status, code) => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(status, { title: 'x', status, code }))
     await expect(
-      putExpenseTypeDefault('travel_train', { ledgerAccountId: 'a1', vatCodeId: null }),
-    ).rejects.toMatchObject({ status: 422, code: 'ledger_account_inactive' })
+      putExpenseTypeDefault('travel_train', { accountNumber: '5901', vatCode: null }),
+    ).rejects.toMatchObject({ status, code })
   })
 
-  it('PUTs the foreign-currency VAT code, null clearing it', async () => {
+  it('PUTs the foreign-currency VAT code by code, null clearing it', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { foreignCurrencyVatCode: null }))
     await putForeignCurrencyVatCode(null)
     expect(lastCall()).toEqual({
       url: `${BASE}/accounting/foreign-currency-vat-code`,
       method: 'PUT',
-      body: { vatCodeId: null },
+      body: { vatCode: null },
     })
+    vi.mocked(apiFetch).mockReset()
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { foreignCurrencyVatCode: null }))
+    await putForeignCurrencyVatCode('IMP81')
+    expect(lastCall().body).toEqual({ vatCode: 'IMP81' })
+  })
+
+  it('knows a 503 accounting_unavailable from any other failure, and which states are unusable', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(503, { title: 'x', status: 503, code: 'accounting_unavailable' }))
+    const unavailable = await getAccountingOptions().catch((caught: unknown) => caught)
+    expect(isAccountingUnavailable(unavailable)).toBe(true)
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(503, { title: 'x', status: 503, code: 'authz_unavailable' }))
+    expect(isAccountingUnavailable(await getAccountingOptions().catch((caught: unknown) => caught))).toBe(false)
+    expect(isAccountingUnavailable(new Error('x'))).toBe(false)
+
+    expect(entryIsUnusable('deactivated')).toBe(true)
+    expect(entryIsUnusable('not_found')).toBe(true)
+    expect(entryIsUnusable('active')).toBe(false)
+    expect(entryIsUnusable('unverified')).toBe(false)
   })
 })
 
 describe('classification', () => {
+  it('reads the availability and the rates link flag of the review view, failing closed when they are absent', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      json(200, { requestId: 'r1', accounting: 'unavailable', viewer: { canOpenAccountingRates: true }, lines: [] }),
+    )
+    await expect(getRequestAccounting('r1')).resolves.toMatchObject({
+      accounting: 'unavailable',
+      viewer: { canOpenAccountingRates: true },
+    })
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { requestId: 'r1', lines: [] }))
+    await expect(getRequestAccounting('r1')).resolves.toMatchObject({
+      accounting: 'available',
+      viewer: { canOpenAccountingRates: false },
+    })
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      json(200, { requestId: 'r1', viewer: { canOpenAccountingRates: 'yes' }, lines: [] }),
+    )
+    await expect(getRequestAccounting('r1')).resolves.toMatchObject({ viewer: { canOpenAccountingRates: false } })
+  })
+
   it('GETs the options and the accounting view of a request', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { ledgerAccounts: [], vatCodes: [] }))
     await getAccountingOptions()
@@ -200,11 +250,11 @@ describe('classification', () => {
   it('PUTs only the key that changed and returns the line as sent', async () => {
     const line = { lineId: 'l1', vatAmountCents: 156 }
     vi.mocked(apiFetch).mockResolvedValueOnce(json(200, line))
-    await expect(classifyLine('r1', 'l1', { ledgerAccountId: 'a2' })).resolves.toEqual({ ...line, inScope: true })
+    await expect(classifyLine('r1', 'l1', { accountNumber: '5905' })).resolves.toEqual({ ...line, inScope: true })
     expect(lastCall()).toEqual({
       url: `${BASE}/review/requests/r1/lines/l1/classification`,
       method: 'PUT',
-      body: { ledgerAccountId: 'a2' },
+      body: { accountNumber: '5905' },
     })
   })
 
@@ -212,7 +262,7 @@ describe('classification', () => {
     'passes the 409 %s through',
     async (code) => {
       vi.mocked(apiFetch).mockResolvedValueOnce(json(409, { title: 'Conflict', status: 409, code }))
-      await expect(classifyLine('r1', 'l1', { vatCodeId: 'v1' })).rejects.toMatchObject({ status: 409, code })
+      await expect(classifyLine('r1', 'l1', { vatCode: 'NOVAT' })).rejects.toMatchObject({ status: 409, code })
     },
   )
 })
@@ -222,7 +272,7 @@ describe('the accounting view: entity scope and segregation of duties (plan.md S
     lineId: 'l1',
     inScope: true,
     classification: { account: null, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false },
-    chf: { amountCents: 100, rateMicros: null, rate: null, rateMonth: null, rateMissing: false },
+    chf: { amountCents: 100, rateMicros: null, rate: null, rateMonth: null, rateStatus: 'not_applicable' },
     vatAmountCents: 8,
   }
 
@@ -255,7 +305,7 @@ describe('the accounting view: entity scope and segregation of duties (plan.md S
       vatAmountCents: null,
     })
     vi.mocked(apiFetch).mockResolvedValueOnce(json(200, leaky))
-    await expect(classifyLine('r1', 'l1', { vatCodeId: 'v1' })).resolves.toMatchObject({
+    await expect(classifyLine('r1', 'l1', { vatCode: 'NOVAT' })).resolves.toMatchObject({
       inScope: false,
       classification: null,
       chf: null,
@@ -269,7 +319,7 @@ describe('the accounting view: entity scope and segregation of duties (plan.md S
     ['GET options', 403, 'accounting_out_of_scope'],
   ])('passes %s %i %s through as an ApiError', async (which, status, code) => {
     vi.mocked(apiFetch).mockResolvedValueOnce(json(status, { title: 'x', status, code }))
-    const call = which === 'PUT' ? classifyLine('r1', 'l1', { vatCodeId: 'v1' }) : getAccountingOptions()
+    const call = which === 'PUT' ? classifyLine('r1', 'l1', { vatCode: 'NOVAT' }) : getAccountingOptions()
     await expect(call).rejects.toMatchObject({ status, code })
   })
 })

@@ -43,3 +43,14 @@ export const CATALOG_STATUS_MEANING: Record<CatalogStatus, StatusMeaning> = {
 
 /** A month with no exchange rate: someone has to act, nothing has failed (the dictionary's `attention`). */
 export const RATE_MISSING_MEANING: StatusMeaning = 'attention'
+
+/**
+ * The state of an Accounting entry a stored copy points to, wherever it is shown in Refund (specs/20261119-accounting
+ * UX-18): `deactivated` is the reversible "no longer offered" (`voided`), `not_found` needs someone but nothing
+ * failed (`attention`). `active` has no mark, and `unverified` (Accounting cannot be read) has none either: the value
+ * is not wrong, it is unchecked, so a badge would cry wolf.
+ */
+export const ENTRY_STATE_MEANING = { deactivated: 'voided', not_found: 'attention' } as const satisfies Record<
+  'deactivated' | 'not_found',
+  StatusMeaning
+>

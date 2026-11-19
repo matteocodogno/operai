@@ -53,7 +53,7 @@ const t = strings.pages.reviewDetail.classification
 type FieldName = 'account' | 'vatCode'
 
 /** What an in-scope line without CHF data shows: "—" everywhere, never a figure of our own. */
-const NO_CHF: LineChf = { amountCents: null, rateMicros: null, rate: null, rateMonth: null, rateMissing: false }
+const NO_CHF: LineChf = { amountCents: null, rateMicros: null, rate: null, rateMonth: null, rateStatus: 'not_applicable' }
 
 export type LineClassificationPanelProps = {
   /** The server's view of the line. `classification` is non-null: the page renders no panel otherwise. */
@@ -133,13 +133,13 @@ export default function LineClassificationPanel({
 
   const handleChange = async (field: FieldName, value: string) => {
     if (pending !== null || value === '') return
-    const current = field === 'account' ? classification.account?.id : classification.vatCode?.id
+    const current = field === 'account' ? classification.account?.number : classification.vatCode?.code
     if (value === current) return
     setPending({ field, value })
     setErrorMessage(null)
     setSavedMessage(null)
     try {
-      const saved = await onClassify(field === 'account' ? { ledgerAccountId: value } : { vatCodeId: value })
+      const saved = await onClassify(field === 'account' ? { accountNumber: value } : { vatCode: value })
       const savedClassification = saved.classification
       if (field === 'account' && savedClassification?.account) {
         setSavedMessage(t.savedAccount(accountText(savedClassification.account)))
@@ -150,11 +150,11 @@ export default function LineClassificationPanel({
       const code = error instanceof ApiError ? error.code : undefined
       if (error instanceof ApiError && error.status === 409) {
         onConflict(error)
-      } else if (code === 'ledger_account_inactive' || code === 'unknown_ledger_account') {
-        setErrorMessage({ field: 'account', text: t.accountInactive })
+      } else if (code === 'ledger_account_inactive' || code === 'ledger_account_not_found') {
+        setErrorMessage({ field: 'account', text: code === 'ledger_account_inactive' ? t.accountInactive : t.accountUnknown })
         onOptionsStale()
-      } else if (code === 'vat_code_inactive' || code === 'unknown_vat_code') {
-        setErrorMessage({ field: 'vatCode', text: t.vatInactive })
+      } else if (code === 'vat_code_inactive' || code === 'vat_code_not_found') {
+        setErrorMessage({ field: 'vatCode', text: code === 'vat_code_inactive' ? t.vatInactive : t.vatUnknown })
         onOptionsStale()
       } else if (code === 'self_approval_forbidden') {
         // Not an error under the select: the whole panel turns read-only and says why. The select reverts by itself.
@@ -189,7 +189,7 @@ export default function LineClassificationPanel({
     facts.push({
       id: 'rate',
       term: t.rate,
-      value: chf.rateMissing ? (
+      value: chf.rateStatus === 'missing' || chf.rateStatus === 'pending' ? (
         <span className="flex flex-col items-start gap-1" data-testid={`classification-${line.lineId}-rate-missing`}>
           <StatusBadge status={RATE_MISSING_MEANING}>{t.rateMissing}</StatusBadge>
           <span className="text-xs text-soft">
@@ -272,7 +272,7 @@ export default function LineClassificationPanel({
               value: valueText(
                 classification.account ? accountText(classification.account) : null,
                 classification.accountIsDefault,
-                classification.account?.active === false,
+                classification.account?.state === 'deactivated',
               ),
             },
             {
@@ -281,7 +281,7 @@ export default function LineClassificationPanel({
               value: valueText(
                 classification.vatCode ? vatCodeText(classification.vatCode) : null,
                 classification.vatCodeIsDefault,
-                classification.vatCode?.active === false,
+                classification.vatCode?.state === 'deactivated',
               ),
             },
           ]}
@@ -311,13 +311,8 @@ export default function LineClassificationPanel({
 
   const accountRef = classification.account
   const vatRef = classification.vatCode
-  // An active value that the (older) options do not list is still on offer, so the select can show it.
   const accountOptions = options?.ledgerAccounts ?? []
   const vatOptions = options?.vatCodes ?? []
-  const withCurrent = <E extends { id: string }>(offered: readonly E[], current: (E & { active: boolean }) | null) =>
-    current !== null && current.active && !offered.some((entry) => entry.id === current.id)
-      ? [current, ...offered]
-      : offered
 
   const fieldHint = (field: FieldName) => {
     const reference = field === 'account' ? accountRef : vatRef
@@ -326,8 +321,11 @@ export default function LineClassificationPanel({
     return (
       <span className="inline-flex flex-wrap items-center gap-1.5">
         {marker(field === 'account' ? classification.accountIsDefault : classification.vatCodeIsDefault)}
-        {!reference.active && (
+        {reference.state === 'deactivated' && (
           <span>{field === 'account' ? t.inactiveCurrentAccount : t.inactiveCurrentVat}</span>
+        )}
+        {reference.state === 'not_found' && (
+          <span>{field === 'account' ? t.notFoundCurrentAccount : t.notFoundCurrentVat}</span>
         )}
       </span>
     )
@@ -341,8 +339,8 @@ export default function LineClassificationPanel({
     return undefined
   }
 
-  const accountValue = shown('account', accountRef?.id ?? '')
-  const vatValue = shown('vatCode', vatRef?.id ?? '')
+  const accountValue = shown('account', accountRef?.number ?? '')
+  const vatValue = shown('vatCode', vatRef?.code ?? '')
 
   return (
     <fieldset
@@ -366,7 +364,7 @@ export default function LineClassificationPanel({
             <CatalogSelect
               {...control}
               kind="account"
-              options={withCurrent(accountOptions, accountRef)}
+              options={accountOptions}
               current={accountRef}
               value={accountValue}
               onChange={(value) => void handleChange('account', value)}
@@ -390,7 +388,7 @@ export default function LineClassificationPanel({
             <CatalogSelect
               {...control}
               kind="vatCode"
-              options={withCurrent(vatOptions, vatRef)}
+              options={vatOptions}
               current={vatRef}
               value={vatValue}
               onChange={(value) => void handleChange('vatCode', value)}

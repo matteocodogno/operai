@@ -22,14 +22,19 @@ afterEach(() => {
 
 const problem = (status: number, code?: string) => new ApiError({ type: 't', title: 'x', status, code })
 
-const TRAIN = { id: 'acc-train', number: '5901', name: 'Spese viaggi in treno', active: true }
-const HOTEL = { id: 'acc-hotel', number: '5902', name: 'Spese alberghi', active: true }
-const NOVAT = { id: 'vat-0', code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', active: true }
-const IMP81 = { id: 'vat-81', code: 'IMP81', label: 'Imposta piena', ratePercent: '8.1', active: true }
+const TRAIN = { number: '5901', name: 'Spese viaggi in treno', state: 'active' as const }
+const HOTEL = { number: '5902', name: 'Spese alberghi', state: 'active' as const }
+const NOVAT = { code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', state: 'active' as const }
+const IMP81 = { code: 'IMP81', label: 'Imposta piena', ratePercent: '8.1', state: 'active' as const }
 
 const OPTIONS: AccountingOptions = {
-  ledgerAccounts: [TRAIN, HOTEL].map(({ id, number, name }) => ({ id, number, name })),
-  vatCodes: [NOVAT, IMP81].map(({ id, code, label, ratePercent }) => ({ id, code, label, ratePercent })),
+  ledgerAccounts: [TRAIN, HOTEL].map(({ number, name }) => ({ number, name })),
+  vatCodes: [NOVAT, IMP81].map(({ code, label, ratePercent }) => ({
+    code,
+    label,
+    ratePercent,
+    rateBasisPoints: Math.round(Number(ratePercent) * 100),
+  })),
 }
 
 const eurLine = (overrides: Partial<AccountingLine> = {}): AccountingLine => ({
@@ -44,7 +49,7 @@ const eurLine = (overrides: Partial<AccountingLine> = {}): AccountingLine => ({
   rejected: false,
   inScope: true,
   classification: { account: TRAIN, accountIsDefault: true, vatCode: NOVAT, vatCodeIsDefault: true },
-  chf: { amountCents: 4808, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-03', rateMissing: false },
+  chf: { amountCents: 4808, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-03', rateStatus: 'in_effect' },
   vatAmountCents: 0,
   ...overrides,
 })
@@ -54,7 +59,7 @@ const chfLine = (overrides: Partial<AccountingLine> = {}): AccountingLine =>
     currency: 'CHF',
     amountCents: 2000,
     classification: { account: TRAIN, accountIsDefault: true, vatCode: IMP81, vatCodeIsDefault: true },
-    chf: { amountCents: 2000, rateMicros: null, rate: null, rateMonth: null, rateMissing: false },
+    chf: { amountCents: 2000, rateMicros: null, rate: null, rateMonth: null, rateStatus: 'not_applicable' },
     vatAmountCents: 156,
     ...overrides,
   })
@@ -106,8 +111,8 @@ describe('LineClassificationPanel: editable', () => {
     await renderPanel(eurLine())
     const group = screen.getByRole('group', { name: 'Classification for 19.03.2026 · Milan–Lugano return' })
     expect(group.tagName).toBe('FIELDSET')
-    expect(account().value).toBe('acc-train')
-    expect(vat().value).toBe('vat-0')
+    expect(account().value).toBe('5901')
+    expect(vat().value).toBe('NOVAT')
     expect(Array.from(account().options).map((option) => option.textContent)).toEqual([
       '5901 — Spese viaggi in treno',
       '5902 — Spese alberghi',
@@ -152,7 +157,7 @@ describe('LineClassificationPanel: editable', () => {
   })
 
   it('does not compute: whatever amounts the server sent are the ones shown', async () => {
-    await renderPanel(eurLine({ chf: { amountCents: 1, rateMicros: 1, rate: '0.000001', rateMonth: '2026-03', rateMissing: false }, vatAmountCents: 7 }))
+    await renderPanel(eurLine({ chf: { amountCents: 1, rateMicros: 1, rate: '0.000001', rateMonth: '2026-03', rateStatus: 'in_effect' }, vatAmountCents: 7 }))
     expect(screen.getByTestId('classification-l1-chf').textContent).toBe('CHF 0.01')
     expect(screen.getByTestId('classification-l1-vat-amount').textContent).toBe('CHF 0.07')
   })
@@ -168,7 +173,7 @@ describe('LineClassificationPanel: editable', () => {
   it('a missing rate is a badge with help and "—" for both amounts, never 0', async () => {
     await renderPanel(
       eurLine({
-        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateMissing: true },
+        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'missing' },
         vatAmountCents: null,
       }),
     )
@@ -183,7 +188,7 @@ describe('LineClassificationPanel: editable', () => {
   it('a missing rate without settings:read says who can fix it (A-8)', async () => {
     await renderPanel(
       eurLine({
-        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateMissing: true },
+        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'missing' },
         vatAmountCents: null,
       }),
     )
@@ -193,7 +198,7 @@ describe('LineClassificationPanel: editable', () => {
     cleanup()
     await renderPanel(
       eurLine({
-        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateMissing: true },
+        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'missing' },
         vatAmountCents: null,
       }),
       { canOpenRates: true },
@@ -204,7 +209,7 @@ describe('LineClassificationPanel: editable', () => {
   it('offers "Open exchange rates" to that month only with settings:read', async () => {
     await renderPanel(
       eurLine({
-        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateMissing: true },
+        chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'missing' },
         vatAmountCents: null,
       }),
       { canOpenRates: true },
@@ -251,15 +256,15 @@ describe('LineClassificationPanel: editable', () => {
   })
 
   it('shows an inactive current value as a disabled selected option, with its hint (AC-1.3, AC-1.6)', async () => {
-    const inactive = { ...TRAIN, active: false }
+    const inactive = { ...TRAIN, state: 'deactivated' as const }
     await renderPanel(
       eurLine({ classification: { account: inactive, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
       // The options hold active entries only, so the deactivated one is not among them.
-      { options: { ledgerAccounts: [{ id: HOTEL.id, number: HOTEL.number, name: HOTEL.name }], vatCodes: OPTIONS.vatCodes } },
+      { options: { ledgerAccounts: [{ number: HOTEL.number, name: HOTEL.name }], vatCodes: OPTIONS.vatCodes } },
     )
-    expect(account().value).toBe('acc-train')
+    expect(account().value).toBe('5901')
     const selected = account().selectedOptions[0]
-    expect(selected.textContent).toBe('5901 — Spese viaggi in treno (inactive)')
+    expect(selected.textContent).toBe('5901 — Spese viaggi in treno (deactivated)')
     expect(selected.disabled).toBe(true)
     expect(document.getElementById(account().getAttribute('aria-describedby') ?? '')?.textContent).toContain(
       'This account is deactivated. The line keeps it; choose an active one to change it.',
@@ -267,8 +272,8 @@ describe('LineClassificationPanel: editable', () => {
   })
 
   it('keeps an active value that the options do not list selectable', async () => {
-    await renderPanel(eurLine(), { options: { ledgerAccounts: [HOTEL], vatCodes: OPTIONS.vatCodes } })
-    expect(account().value).toBe('acc-train')
+    await renderPanel(eurLine(), { options: { ledgerAccounts: [{ number: HOTEL.number, name: HOTEL.name }], vatCodes: OPTIONS.vatCodes } })
+    expect(account().value).toBe('5901')
   })
 
   it('waits, disabled, while the options load', async () => {
@@ -284,12 +289,12 @@ describe('LineClassificationPanel: changing a value (UX-4, UX-14)', () => {
     onClassify.mockResolvedValue(
       eurLine({ classification: { account: HOTEL, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
     )
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
-    await waitFor(() => expect(onClassify).toHaveBeenCalledWith({ ledgerAccountId: 'acc-hotel' }))
+    fireEvent.change(account(), { target: { value: '5902' } })
+    await waitFor(() => expect(onClassify).toHaveBeenCalledWith({ accountNumber: '5902' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    fireEvent.change(vat(), { target: { value: 'vat-81' } })
-    await waitFor(() => expect(onClassify).toHaveBeenCalledWith({ vatCodeId: 'vat-81' }))
+    fireEvent.change(vat(), { target: { value: 'IMP81' } })
+    await waitFor(() => expect(onClassify).toHaveBeenCalledWith({ vatCode: 'IMP81' }))
   })
 
   it('shows Saving… and the chosen value while it saves, ignores another change, keeps focus, then confirms politely', async () => {
@@ -297,14 +302,14 @@ describe('LineClassificationPanel: changing a value (UX-4, UX-14)', () => {
     let resolve!: (line: AccountingLine) => void
     onClassify.mockReturnValue(new Promise((r) => (resolve = r)))
     account().focus()
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
 
     await waitFor(() => expect(account().getAttribute('aria-busy')).toBe('true'))
-    expect(account().value).toBe('acc-hotel')
+    expect(account().value).toBe('5902')
     expect(account().disabled).toBe(false)
     expect(document.activeElement).toBe(account())
     expect(document.getElementById(account().getAttribute('aria-describedby') ?? '')?.textContent).toBe('Saving…')
-    fireEvent.change(account(), { target: { value: 'acc-train' } })
+    fireEvent.change(account(), { target: { value: '5901' } })
     expect(onClassify).toHaveBeenCalledTimes(1)
 
     resolve(
@@ -321,7 +326,7 @@ describe('LineClassificationPanel: changing a value (UX-4, UX-14)', () => {
     onClassify.mockResolvedValue(
       eurLine({ classification: { account: TRAIN, accountIsDefault: true, vatCode: IMP81, vatCodeIsDefault: false } }),
     )
-    fireEvent.change(vat(), { target: { value: 'vat-81' } })
+    fireEvent.change(vat(), { target: { value: 'IMP81' } })
     await waitFor(() =>
       expect(screen.getByTestId('classification-l1-saved').textContent).toBe(
         'VAT code set to IMP81 — Imposta piena (8.1%)',
@@ -331,26 +336,26 @@ describe('LineClassificationPanel: changing a value (UX-4, UX-14)', () => {
 
   it('does not save when the same value is chosen again', async () => {
     const { onClassify } = await renderPanel(eurLine())
-    fireEvent.change(account(), { target: { value: 'acc-train' } })
+    fireEvent.change(account(), { target: { value: '5901' } })
     expect(onClassify).not.toHaveBeenCalled()
   })
 
   it('reverts to the last saved value and says why on a 422 for a deactivated account, asking for fresh options', async () => {
     const { onClassify, onOptionsStale } = await renderPanel(eurLine())
     onClassify.mockRejectedValue(problem(422, 'ledger_account_inactive'))
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
     const alert = await screen.findByText('That account was deactivated. Choose another.')
     expect(alert.getAttribute('role')).toBe('alert')
-    expect(account().value).toBe('acc-train')
+    expect(account().value).toBe('5901')
     expect(onOptionsStale).toHaveBeenCalledTimes(1)
   })
 
   it('says so for a deactivated VAT code', async () => {
     const { onClassify, onOptionsStale } = await renderPanel(eurLine())
     onClassify.mockRejectedValue(problem(422, 'vat_code_inactive'))
-    fireEvent.change(vat(), { target: { value: 'vat-81' } })
+    fireEvent.change(vat(), { target: { value: 'IMP81' } })
     expect(await screen.findByText('That VAT code was deactivated. Choose another.')).not.toBeNull()
-    expect(vat().value).toBe('vat-0')
+    expect(vat().value).toBe('NOVAT')
     expect(onOptionsStale).toHaveBeenCalled()
   })
 
@@ -360,9 +365,9 @@ describe('LineClassificationPanel: changing a value (UX-4, UX-14)', () => {
   ])('a %i reverts and shows its own alert under the select', async (status, message) => {
     const { onClassify, onConflict } = await renderPanel(eurLine())
     onClassify.mockRejectedValue(problem(status))
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
     expect((await screen.findByText(message)).getAttribute('role')).toBe('alert')
-    expect(account().value).toBe('acc-train')
+    expect(account().value).toBe('5901')
     expect(account().getAttribute('aria-invalid')).toBe('true')
     expect(onConflict).not.toHaveBeenCalled()
   })
@@ -371,9 +376,9 @@ describe('LineClassificationPanel: changing a value (UX-4, UX-14)', () => {
     const { onClassify, onConflict } = await renderPanel(eurLine())
     const conflict = problem(409, 'classification_locked')
     onClassify.mockRejectedValue(conflict)
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
     await waitFor(() => expect(onConflict).toHaveBeenCalledWith(conflict))
-    expect(account().value).toBe('acc-train')
+    expect(account().value).toBe('5901')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 })
@@ -407,16 +412,16 @@ describe('LineClassificationPanel: read-only', () => {
     expect(why.querySelector('svg')).not.toBeNull()
   })
 
-  it('shows "—" for a value that is not set, and "(inactive)" for a deactivated one', async () => {
+  it('shows "—" for a value that is not set, and "(deactivated)" for a deactivated one', async () => {
     await renderPanel(
       eurLine({
-        classification: { account: { ...TRAIN, active: false }, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false },
+        classification: { account: { ...TRAIN, state: 'deactivated' as const }, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false },
         vatAmountCents: null,
       }),
       { state: 'locked' },
     )
     const values = screen.getByTestId('classification-l1-values')
-    expect(values.textContent).toContain('5901 — Spese viaggi in treno (inactive)')
+    expect(values.textContent).toContain('5901 — Spese viaggi in treno (deactivated)')
     expect(values.textContent).toContain('—')
   })
 })
@@ -471,7 +476,7 @@ describe('LineClassificationPanel: segregation of duties and entity scope (plan.
     const onSelfRestricted = vi.fn()
     const { onClassify, onConflict } = await renderPanel(eurLine(), { onSelfRestricted })
     onClassify.mockRejectedValue(problem(403, 'self_approval_forbidden'))
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
 
     expect(await screen.findByTestId('classification-l1-why')).not.toBeNull()
     expect(screen.getByTestId('classification-l1-why').textContent).toBe(SELF_NOTE)
@@ -489,7 +494,7 @@ describe('LineClassificationPanel: segregation of duties and entity scope (plan.
     const { onClassify } = await renderPanel(eurLine())
     onClassify.mockRejectedValue(problem(403, 'self_approval_forbidden'))
     account().focus()
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
 
     const why = await screen.findByTestId('classification-l1-why')
     await waitFor(() => expect(document.activeElement).toBe(why))
@@ -506,7 +511,7 @@ describe('LineClassificationPanel: segregation of duties and entity scope (plan.
   it('the same 403 on the VAT select does the same', async () => {
     const { onClassify } = await renderPanel(eurLine())
     onClassify.mockRejectedValue(problem(403, 'self_approval_forbidden'))
-    fireEvent.change(vat(), { target: { value: 'vat-81' } })
+    fireEvent.change(vat(), { target: { value: 'IMP81' } })
     expect((await screen.findByTestId('classification-l1-why')).textContent).toBe(SELF_NOTE)
     expect(screen.getByTestId('classification-l1-values').textContent).toContain('NOVAT')
   })
@@ -515,10 +520,10 @@ describe('LineClassificationPanel: segregation of duties and entity scope (plan.
     const onOutOfScope = vi.fn()
     const { onClassify } = await renderPanel(eurLine(), { onOutOfScope })
     onClassify.mockRejectedValue(problem(404, 'not_found'))
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
     const alert = await screen.findByText("This line is outside your entity scope, so you can't change it.")
     expect(alert.getAttribute('role')).toBe('alert')
-    expect(account().value).toBe('acc-train')
+    expect(account().value).toBe('5901')
     expect(onOutOfScope).toHaveBeenCalledTimes(1)
   })
 
@@ -559,7 +564,7 @@ describe('LineClassificationPanel: segregation of duties and entity scope (plan.
 describe('LineClassificationPanel: accessibility (axe)', () => {
   const missingRate = () =>
     eurLine({
-      chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateMissing: true },
+      chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateStatus: 'missing' },
       vatAmountCents: null,
     })
 
@@ -585,8 +590,8 @@ describe('LineClassificationPanel: accessibility (axe)', () => {
     ],
     [
       'an inactive current value',
-      () => eurLine({ classification: { account: { ...TRAIN, active: false }, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
-      { options: { ledgerAccounts: [{ id: HOTEL.id, number: HOTEL.number, name: HOTEL.name }], vatCodes: OPTIONS.vatCodes } },
+      () => eurLine({ classification: { account: { ...TRAIN, state: 'deactivated' as const }, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
+      { options: { ledgerAccounts: [{ number: HOTEL.number, name: HOTEL.name }], vatCodes: OPTIONS.vatCodes } },
     ],
     ['rate missing, without settings:read', missingRate, {}],
     ['rate missing, with the link to the rates', missingRate, { canOpenRates: true }],
@@ -608,7 +613,7 @@ describe('LineClassificationPanel: accessibility (axe)', () => {
   it('has no violations: saving, saved, and each refusal of a change', async () => {
     const { onClassify } = await renderPanel(eurLine())
     onClassify.mockReturnValueOnce(new Promise(() => {}))
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
     await waitFor(() => expect(account().getAttribute('aria-busy')).toBe('true'))
     await expectNoAxeViolations()
     cleanup()
@@ -617,7 +622,7 @@ describe('LineClassificationPanel: accessibility (axe)', () => {
     saved.onClassify.mockResolvedValue(
       eurLine({ classification: { account: HOTEL, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
     )
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
     await screen.findByTestId('classification-l1-saved')
     await expectNoAxeViolations()
     cleanup()
@@ -630,7 +635,7 @@ describe('LineClassificationPanel: accessibility (axe)', () => {
     ] as const) {
       const { onClassify: classify } = await renderPanel(eurLine())
       classify.mockRejectedValue(error)
-      fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+      fireEvent.change(account(), { target: { value: '5902' } })
       await screen.findByText(expected)
       await expectNoAxeViolations()
       cleanup()
@@ -640,7 +645,7 @@ describe('LineClassificationPanel: accessibility (axe)', () => {
   it('has no violations: the panel after a 403 self_approval_forbidden turned it read-only', async () => {
     const { onClassify } = await renderPanel(eurLine())
     onClassify.mockRejectedValue(problem(403, 'self_approval_forbidden'))
-    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    fireEvent.change(account(), { target: { value: '5902' } })
     await screen.findByTestId('classification-l1-why')
     await expectNoAxeViolations()
   })

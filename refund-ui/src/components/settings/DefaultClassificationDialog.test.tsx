@@ -4,6 +4,11 @@
  * DefaultClassificationDialog (T25, specs/20261118-refund-accounting-export, design S6c, F4, UX-2; AC-2.1, AC-2.3, AC-2.4):
  * only active options, an explicit None, Save disabled until something differs, a deactivated saved value
  * starting on "Choose…", and a 422 inactive as a field error with the options reloaded.
+ *
+ * T35, specs/20261119-accounting (RS3; AC-4.4, AC-4.5, AC-6.9, AC-6.10): the options are Accounting's, read through
+ * `GET /accounting/options` and keyed by number and code; a saved entry that is deactivated or no longer in
+ * Accounting starts on "Choose…"; a 422 `*_not_found` is a field error too; Accounting unreadable shows the
+ * AC-6.10 message with no options, and a "Try again"; a save refused with 503 says nothing was saved.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,50 +17,29 @@ import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
-  return { ...original, listLedgerAccounts: vi.fn(), listVatCodes: vi.fn(), putExpenseTypeDefault: vi.fn() }
+  return { ...original, getAccountingOptions: vi.fn(), putExpenseTypeDefault: vi.fn() }
 })
 
 import * as accountingApi from '../../lib/accountingApi'
-import type { ExpenseTypeDefault, LedgerAccount, VatCode } from '../../lib/accountingApi'
+import type { AccountingOptions, ExpenseTypeDefault } from '../../lib/accountingApi'
 import { ApiError } from '../../lib/refundApi'
 import DefaultClassificationDialog from './DefaultClassificationDialog'
 
-const account = (id: string, number: string, name: string, active = true): LedgerAccount => ({
-  id,
-  number,
-  name,
-  active,
-  createdAt: '2026-03-01T09:00:00Z',
-  createdByEmail: 'admin@welld.ch',
-  history: [],
-})
-const vat = (id: string, code: string, label: string, ratePercent: string, active = true): VatCode => ({
-  id,
-  code,
-  label,
-  rateBasisPoints: Math.round(Number(ratePercent) * 100),
-  ratePercent,
-  active,
-  createdAt: '2026-03-01T09:00:00Z',
-  createdByEmail: 'admin@welld.ch',
-  history: [],
-})
-
-const ACCOUNTS = [
-  account('a1', '5901', 'Spese viaggi'),
-  account('a2', '5905', 'Spese rimborsi'),
-  account('a3', '5999', 'Vecchio', false),
-]
-const VAT_CODES = [
-  vat('v1', 'NOVAT', 'Senza IVA', '0'),
-  vat('v2', 'IMP81', 'Imposta piena', '8.1'),
-  vat('v3', 'OLD', 'Vecchia', '7.7', false),
-]
+const OPTIONS: AccountingOptions = {
+  ledgerAccounts: [
+    { number: '5901', name: 'Spese viaggi' },
+    { number: '5905', name: 'Spese rimborsi' },
+  ],
+  vatCodes: [
+    { code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', rateBasisPoints: 0 },
+    { code: 'IMP81', label: 'Imposta piena', ratePercent: '8.1', rateBasisPoints: 810 },
+  ],
+}
 
 const row = (overrides: Partial<ExpenseTypeDefault> = {}): ExpenseTypeDefault => ({
   type: 'travel_train',
-  account: { id: 'a1', number: '5901', name: 'Spese viaggi', active: true },
-  vatCode: { id: 'v1', code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', active: true },
+  account: { number: '5901', name: 'Spese viaggi', state: 'active' },
+  vatCode: { code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', state: 'active' },
   updatedAt: '2026-04-01T09:00:00Z',
   updatedByEmail: 'admin@welld.ch',
   history: [],
@@ -80,8 +64,7 @@ const save = () => screen.getByTestId('default-classification-submit') as HTMLBu
 const texts = (select: HTMLSelectElement) => Array.from(select.options).map((option) => option.textContent)
 
 beforeEach(() => {
-  vi.mocked(accountingApi.listLedgerAccounts).mockResolvedValue(ACCOUNTS)
-  vi.mocked(accountingApi.listVatCodes).mockResolvedValue(VAT_CODES)
+  vi.mocked(accountingApi.getAccountingOptions).mockResolvedValue(OPTIONS)
 })
 
 afterEach(() => {
@@ -96,18 +79,23 @@ describe('DefaultClassificationDialog', () => {
     expect(
       screen.getByText('Applies to lines reviewed from now on. Lines already approved keep what they have.'),
     ).not.toBeNull()
-    expect(accountSelect().value).toBe('a1')
-    expect(vatSelect().value).toBe('v1')
+    expect(accountSelect().value).toBe('5901')
+    expect(vatSelect().value).toBe('NOVAT')
   })
 
-  it('offers only ACTIVE entries, number first, behind an explicit None (AC-2.4)', async () => {
+  it('reads the options live from Accounting through refund-api, whatever the administrator may do there (AC-4.4)', async () => {
+    await setup()
+    expect(accountingApi.getAccountingOptions).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers only the ACTIVE entries Accounting returns, number first, behind an explicit None (AC-2.4, AC-4.4)', async () => {
     await setup()
     expect(texts(accountSelect())).toEqual(['None (no default)', '5901 — Spese viaggi', '5905 — Spese rimborsi'])
     expect(texts(vatSelect())).toEqual(['None (no default)', 'NOVAT — Senza IVA (0%)', 'IMP81 — Imposta piena (8.1%)'])
   })
 
   it('has its selects disabled and busy while the options load, and Save disabled', () => {
-    vi.mocked(accountingApi.listLedgerAccounts).mockReturnValue(new Promise(() => {}))
+    vi.mocked(accountingApi.getAccountingOptions).mockReturnValue(new Promise(() => {}))
     render(<DefaultClassificationDialog row={row()} typeLabel="Travel — train" onSaved={vi.fn()} onCancel={vi.fn()} />)
     expect(accountSelect().disabled).toBe(true)
     expect(accountSelect().getAttribute('aria-busy')).toBe('true')
@@ -115,7 +103,7 @@ describe('DefaultClassificationDialog', () => {
   })
 
   it('shows a retryable error when the options cannot be loaded, and Save stays disabled', async () => {
-    vi.mocked(accountingApi.listVatCodes).mockRejectedValueOnce(problem(500))
+    vi.mocked(accountingApi.getAccountingOptions).mockRejectedValueOnce(problem(500))
     render(<DefaultClassificationDialog row={row()} typeLabel="Travel — train" onSaved={vi.fn()} onCancel={vi.fn()} />)
     expect((await screen.findByTestId('error-banner')).textContent).toContain(
       'Could not load the default classification.',
@@ -129,24 +117,24 @@ describe('DefaultClassificationDialog', () => {
   it('keeps Save disabled until something differs from what is saved, and again when it is put back', async () => {
     await setup()
     expect(save().disabled).toBe(true)
-    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
     expect(save().disabled).toBe(false)
-    fireEvent.change(accountSelect(), { target: { value: 'a1' } })
+    fireEvent.change(accountSelect(), { target: { value: '5901' } })
     expect(save().disabled).toBe(true)
   })
 
-  it('saves both halves by id and hands the server’s row to the card', async () => {
-    const saved = row({ account: { id: 'a2', number: '5905', name: 'Spese rimborsi', active: true } })
+  it('saves both halves by number and code and hands the server’s row to the card', async () => {
+    const saved = row({ account: { number: '5905', name: 'Spese rimborsi', state: 'active' } })
     vi.mocked(accountingApi.putExpenseTypeDefault).mockResolvedValue(saved)
     const { onSaved } = await setup()
 
-    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
     fireEvent.click(save())
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved))
     expect(accountingApi.putExpenseTypeDefault).toHaveBeenCalledWith('travel_train', {
-      ledgerAccountId: 'a2',
-      vatCodeId: 'v1',
+      accountNumber: '5905',
+      vatCode: 'NOVAT',
     })
   })
 
@@ -159,8 +147,8 @@ describe('DefaultClassificationDialog', () => {
     fireEvent.click(save())
     await waitFor(() => expect(accountingApi.putExpenseTypeDefault).toHaveBeenCalled())
     expect(accountingApi.putExpenseTypeDefault).toHaveBeenCalledWith('travel_train', {
-      ledgerAccountId: null,
-      vatCodeId: null,
+      accountNumber: null,
+      vatCode: null,
     })
   })
 
@@ -172,7 +160,7 @@ describe('DefaultClassificationDialog', () => {
   })
 
   it('starts a deactivated saved account on "Choose…" with a hint, Save disabled, so saving cannot silently clear it', async () => {
-    await setup(row({ account: { id: 'a3', number: '5999', name: 'Vecchio', active: false } }))
+    await setup(row({ account: { number: '5999', name: 'Vecchio', state: 'deactivated' } }))
     expect(accountSelect().value).toBe('')
     expect(accountSelect().selectedOptions[0].textContent).toBe('Choose…')
     expect(screen.getByText('The current 5999 — Vecchio is deactivated. Choose another, or none.')).not.toBeNull()
@@ -182,30 +170,30 @@ describe('DefaultClassificationDialog', () => {
     expect(save().disabled).toBe(true)
 
     // the other half did not change, but choosing for this one unlocks Save
-    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
     expect(save().disabled).toBe(false)
     expect(screen.queryByText(/is deactivated\. Choose another, or none\./)).toBeNull()
   })
 
   it('lets a deactivated saved value be replaced by None', async () => {
     vi.mocked(accountingApi.putExpenseTypeDefault).mockResolvedValue(row({ vatCode: null }))
-    await setup(row({ vatCode: { id: 'v3', code: 'OLD', label: 'Vecchia', ratePercent: '7.7', active: false } }))
+    await setup(row({ vatCode: { code: 'OLD', label: 'Vecchia', ratePercent: '7.7', state: 'deactivated' } }))
     expect(vatSelect().value).toBe('')
     expect(save().disabled).toBe(true)
     fireEvent.change(vatSelect(), { target: { value: '__none__' } })
     fireEvent.click(save())
     await waitFor(() => expect(accountingApi.putExpenseTypeDefault).toHaveBeenCalled())
     expect(accountingApi.putExpenseTypeDefault).toHaveBeenCalledWith('travel_train', {
-      ledgerAccountId: 'a1',
-      vatCodeId: null,
+      accountNumber: '5901',
+      vatCode: null,
     })
   })
 
   it('treats a saved entry that was deactivated since the card loaded as unchosen', async () => {
-    vi.mocked(accountingApi.listLedgerAccounts).mockResolvedValue([
-      account('a1', '5901', 'Spese viaggi', false),
-      ACCOUNTS[1],
-    ])
+    vi.mocked(accountingApi.getAccountingOptions).mockResolvedValue({
+      ...OPTIONS,
+      ledgerAccounts: [OPTIONS.ledgerAccounts[1]],
+    })
     await setup()
     expect(accountSelect().value).toBe('')
     expect(save().disabled).toBe(true)
@@ -214,11 +202,11 @@ describe('DefaultClassificationDialog', () => {
   it('shows a 422 inactive account as a field error, reloads the options and puts that half back on "Choose…"', async () => {
     vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(422, 'ledger_account_inactive'))
     const { onSaved } = await setup()
-    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
-    vi.mocked(accountingApi.listLedgerAccounts).mockResolvedValue([
-      ACCOUNTS[0],
-      account('a2', '5905', 'Spese rimborsi', false),
-    ])
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
+    vi.mocked(accountingApi.getAccountingOptions).mockResolvedValue({
+      ...OPTIONS,
+      ledgerAccounts: [OPTIONS.ledgerAccounts[0]],
+    })
     fireEvent.click(save())
 
     await waitFor(() =>
@@ -226,7 +214,7 @@ describe('DefaultClassificationDialog', () => {
         'That account has been deactivated. Choose another.',
       ),
     )
-    await waitFor(() => expect(accountingApi.listLedgerAccounts).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(accountingApi.getAccountingOptions).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(texts(accountSelect())).not.toContain('5905 — Spese rimborsi'))
     expect(accountSelect().value).toBe('')
     expect(accountSelect().getAttribute('aria-invalid')).toBe('true')
@@ -235,14 +223,98 @@ describe('DefaultClassificationDialog', () => {
     expect(onSaved).not.toHaveBeenCalled()
 
     // choosing again clears the error
-    fireEvent.change(accountSelect(), { target: { value: 'a1' } })
+    fireEvent.change(accountSelect(), { target: { value: '5901' } })
     expect(screen.queryByTestId('default-classification-account-error')).toBeNull()
+  })
+
+  it('shows a 422 not-found account (removed from Accounting while open) as its own field error, and reloads', async () => {
+    vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(422, 'ledger_account_not_found'))
+    await setup()
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
+    fireEvent.click(save())
+    await waitFor(() =>
+      expect(screen.getByTestId('default-classification-account-error').textContent).toBe(
+        'That account is no longer in Accounting. Choose another.',
+      ),
+    )
+    await waitFor(() => expect(accountingApi.getAccountingOptions).toHaveBeenCalledTimes(2))
+    expect(accountSelect().value).toBe('')
+    await waitFor(() => expect(document.activeElement).toBe(accountSelect()))
+  })
+
+  it('shows a 422 not-found VAT code on the VAT select', async () => {
+    vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(422, 'vat_code_not_found'))
+    await setup()
+    fireEvent.change(vatSelect(), { target: { value: 'IMP81' } })
+    fireEvent.click(save())
+    await waitFor(() =>
+      expect(screen.getByTestId('default-classification-vat-error').textContent).toBe(
+        'That VAT code is no longer in Accounting. Choose another.',
+      ),
+    )
+    expect(vatSelect().value).toBe('')
+  })
+
+  it('a saved account that is no longer in Accounting starts on "Choose…" with its own hint and the same sentence about the lines', async () => {
+    await setup(row({ account: { number: '5999', name: 'Sparito', state: 'not_found' } }))
+    expect(accountSelect().value).toBe('')
+    expect(
+      screen.getByText('The current 5999 — Sparito is no longer in Accounting. Choose another, or none.'),
+    ).not.toBeNull()
+    expect(screen.getByTestId('default-classification-inactive-note')).not.toBeNull()
+    expect(save().disabled).toBe(true)
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
+    expect(save().disabled).toBe(false)
+  })
+
+  it('a saved VAT code that is no longer in Accounting does the same', async () => {
+    await setup(row({ vatCode: { code: 'GONE', label: 'Sparito', ratePercent: '2.6', state: 'not_found' } }))
+    expect(vatSelect().value).toBe('')
+    expect(
+      screen.getByText('The current GONE — Sparito (2.6%) is no longer in Accounting. Choose another, or none.'),
+    ).not.toBeNull()
+  })
+
+  it('Accounting cannot be read: the AC-6.10 message in an alert, no options, Save disabled, and Try again reads again', async () => {
+    vi.mocked(accountingApi.getAccountingOptions).mockRejectedValueOnce(problem(503, 'accounting_unavailable'))
+    render(<DefaultClassificationDialog row={row()} typeLabel="Travel — train" onSaved={vi.fn()} onCancel={vi.fn()} />)
+
+    const alert = await screen.findByTestId('default-classification-unavailable')
+    expect(alert.getAttribute('role')).toBe('alert')
+    expect(alert.textContent).toContain(
+      "Accounting's reference data cannot be read right now, so there is nothing to choose from. Try again in a few minutes.",
+    )
+    expect(alert.textContent).not.toMatch(/https?:|\/|@/)
+    expect(screen.queryByTestId('error-banner')).toBeNull()
+    expect(accountSelect().disabled).toBe(true)
+    expect(Array.from(accountSelect().options).map((option) => option.value)).not.toContain('5905')
+    expect(save().disabled).toBe(true)
+
+    fireEvent.click(screen.getByTestId('default-classification-try-again'))
+    await waitFor(() => expect(accountSelect().disabled).toBe(false))
+    expect(screen.queryByTestId('default-classification-unavailable')).toBeNull()
+    expect(accountingApi.getAccountingOptions).toHaveBeenCalledTimes(2)
+  })
+
+  it('a save refused with 503 says nothing was saved, keeps the dialog open and the choices', async () => {
+    vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(503, 'accounting_unavailable'))
+    const { onSaved } = await setup()
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
+    fireEvent.click(save())
+    await waitFor(() =>
+      expect(screen.getByTestId('default-classification-error').textContent).toBe(
+        "Accounting's reference data cannot be read right now. Nothing was saved. Try again in a few minutes.",
+      ),
+    )
+    expect(accountSelect().value).toBe('5905')
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).not.toBeNull()
   })
 
   it('shows a 422 inactive VAT code on the VAT select, and an unknown one the same way', async () => {
     vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValueOnce(problem(422, 'vat_code_inactive'))
     await setup()
-    fireEvent.change(vatSelect(), { target: { value: 'v2' } })
+    fireEvent.change(vatSelect(), { target: { value: 'IMP81' } })
     fireEvent.click(save())
     await waitFor(() =>
       expect(screen.getByTestId('default-classification-vat-error').textContent).toBe(
@@ -258,7 +330,7 @@ describe('DefaultClassificationDialog', () => {
       .mockRejectedValueOnce(problem(403))
       .mockRejectedValueOnce(problem(500))
     await setup()
-    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
     fireEvent.click(save())
     await waitFor(() =>
       expect(screen.getByTestId('default-classification-error').textContent).toBe(
@@ -269,13 +341,13 @@ describe('DefaultClassificationDialog', () => {
     await waitFor(() =>
       expect(screen.getByTestId('default-classification-error').textContent).toBe('Could not save. Try again.'),
     )
-    expect(accountSelect().value).toBe('a2')
+    expect(accountSelect().value).toBe('5905')
   })
 
   it('is busy while saving, and a second press sends nothing', async () => {
     vi.mocked(accountingApi.putExpenseTypeDefault).mockReturnValue(new Promise(() => {}))
     await setup()
-    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
     fireEvent.click(save())
     await waitFor(() => expect(save().textContent).toBe('Saving…'))
     expect(accountSelect().matches(':disabled')).toBe(true)
@@ -310,12 +382,12 @@ describe('DefaultClassificationDialog', () => {
 // T44: automated axe checks (test-support/axe.ts) on every state of the dialog.
 describe('DefaultClassificationDialog: accessibility (axe)', () => {
   it('has no violations: options loading, options failed, and loaded on the saved values', async () => {
-    vi.mocked(accountingApi.listLedgerAccounts).mockReturnValueOnce(new Promise(() => {}))
+    vi.mocked(accountingApi.getAccountingOptions).mockReturnValueOnce(new Promise(() => {}))
     render(<DefaultClassificationDialog row={row()} typeLabel="Travel — train" onSaved={vi.fn()} onCancel={vi.fn()} />)
     await expectNoAxeViolations()
     cleanup()
 
-    vi.mocked(accountingApi.listVatCodes).mockRejectedValueOnce(problem(500))
+    vi.mocked(accountingApi.getAccountingOptions).mockRejectedValueOnce(problem(500))
     render(<DefaultClassificationDialog row={row()} typeLabel="Travel — train" onSaved={vi.fn()} onCancel={vi.fn()} />)
     await screen.findByTestId('error-banner')
     await expectNoAxeViolations()
@@ -330,14 +402,41 @@ describe('DefaultClassificationDialog: accessibility (axe)', () => {
     await expectNoAxeViolations()
     cleanup()
 
-    await setup(row({ account: { id: 'a3', number: '5999', name: 'Vecchio', active: false } }))
+    await setup(row({ account: { number: '5999', name: 'Vecchio', state: 'deactivated' } }))
     await screen.findByTestId('default-classification-inactive-note')
+    await expectNoAxeViolations()
+    cleanup()
+
+    await setup(row({ account: { number: '5999', name: 'Sparito', state: 'not_found' } }))
+    await screen.findByTestId('default-classification-inactive-note')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.getAccountingOptions).mockRejectedValueOnce(problem(503, 'accounting_unavailable'))
+    render(<DefaultClassificationDialog row={row()} typeLabel="Travel — train" onSaved={vi.fn()} onCancel={vi.fn()} />)
+    await screen.findByTestId('default-classification-unavailable')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(503, 'accounting_unavailable'))
+    await setup()
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
+    fireEvent.click(save())
+    await screen.findByTestId('default-classification-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(422, 'ledger_account_not_found'))
+    await setup()
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
+    fireEvent.click(save())
+    await screen.findByTestId('default-classification-account-error')
     await expectNoAxeViolations()
     cleanup()
 
     vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(422, 'ledger_account_inactive'))
     await setup()
-    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
     fireEvent.click(save())
     await screen.findByTestId('default-classification-account-error')
     await expectNoAxeViolations()
@@ -345,7 +444,7 @@ describe('DefaultClassificationDialog: accessibility (axe)', () => {
 
     vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(500))
     await setup()
-    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
     fireEvent.click(save())
     await screen.findByTestId('default-classification-error')
     await expectNoAxeViolations()
@@ -353,7 +452,7 @@ describe('DefaultClassificationDialog: accessibility (axe)', () => {
 
     vi.mocked(accountingApi.putExpenseTypeDefault).mockReturnValue(new Promise(() => {}))
     await setup()
-    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.change(accountSelect(), { target: { value: '5905' } })
     fireEvent.click(save())
     await expectNoAxeViolations()
   })

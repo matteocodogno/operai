@@ -730,12 +730,12 @@ describe('ReviewDetailPage — line rejection (specs/20260716-refund-service ame
 describe('ReviewDetailPage — line classification panels', () => {
   const problem = (status: number, code?: string) => new ApiError({ type: 't', title: 'x', status, code })
 
-  const TRAIN = { id: 'acc-train', number: '5901', name: 'Spese viaggi in treno', active: true }
-  const HOTEL = { id: 'acc-hotel', number: '5902', name: 'Spese alberghi', active: true }
-  const NOVAT = { id: 'vat-0', code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', active: true }
+  const TRAIN = { number: '5901', name: 'Spese viaggi in treno', state: 'active' as const }
+  const HOTEL = { number: '5902', name: 'Spese alberghi', state: 'active' as const }
+  const NOVAT = { code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', state: 'active' as const }
   const OPTIONS = {
-    ledgerAccounts: [TRAIN, HOTEL].map(({ id, number, name }) => ({ id, number, name })),
-    vatCodes: [{ id: 'vat-0', code: 'NOVAT', label: 'Senza IVA', ratePercent: '0' }],
+    ledgerAccounts: [TRAIN, HOTEL].map(({ number, name }) => ({ number, name })),
+    vatCodes: [{ code: 'NOVAT', label: 'Senza IVA', ratePercent: '0', rateBasisPoints: 0 }],
   }
 
   const chLine = (id: string, overrides: Partial<RefundRequestDetail['lines'][number]> = {}) => ({
@@ -758,7 +758,7 @@ describe('ReviewDetailPage — line classification panels', () => {
     rejected: false,
     inScope: true,
     classification: { account: TRAIN, accountIsDefault: true, vatCode: NOVAT, vatCodeIsDefault: true },
-    chf: { amountCents: 924, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-07', rateMissing: false },
+    chf: { amountCents: 924, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-07', rateStatus: 'in_effect' },
     vatAmountCents: 0,
     ...overrides,
   })
@@ -772,6 +772,8 @@ describe('ReviewDetailPage — line classification panels', () => {
     requestId: 'req-1',
     status,
     batch: null,
+    accounting: 'available',
+    viewer: { canOpenAccountingRates: false },
     classificationState,
     selfRestricted,
     lines,
@@ -830,7 +832,7 @@ describe('ReviewDetailPage — line classification panels', () => {
 
     const c1 = await screen.findByTestId('classification-c1')
     expect(screen.getByTestId('expense-line-row-c1').contains(c1)).toBe(true)
-    expect((screen.getByTestId('classification-c1-account') as HTMLSelectElement).value).toBe('acc-train')
+    expect((screen.getByTestId('classification-c1-account') as HTMLSelectElement).value).toBe('5901')
     expect(c1.textContent).toContain('Default')
     expect(panel('it1')).toBeNull()
     expect(panel('c2')).toBeNull()
@@ -896,18 +898,18 @@ describe('ReviewDetailPage — line classification panels', () => {
     vi.mocked(accountingApi.classifyLine).mockResolvedValue(
       accLine('c1', {
         classification: { account: HOTEL, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true },
-        chf: { amountCents: 999, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-07', rateMissing: false },
+        chf: { amountCents: 999, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-07', rateStatus: 'in_effect' },
       }),
     )
     renderReviewDetailPage()
 
     const select = await readySelect('classification-c1-account')
-    fireEvent.change(select, { target: { value: 'acc-hotel' } })
+    fireEvent.change(select, { target: { value: '5902' } })
 
-    await waitFor(() => expect(accountingApi.classifyLine).toHaveBeenCalledWith('req-1', 'c1', { ledgerAccountId: 'acc-hotel' }))
+    await waitFor(() => expect(accountingApi.classifyLine).toHaveBeenCalledWith('req-1', 'c1', { accountNumber: '5902' }))
     await waitFor(() => expect(screen.getByTestId('classification-c1-chf').textContent).toBe('CHF 9.99'))
     expect(screen.getByTestId('classification-c1').textContent).toContain('Set by hand')
-    expect((screen.getByTestId('classification-c1-account') as HTMLSelectElement).value).toBe('acc-hotel')
+    expect((screen.getByTestId('classification-c1-account') as HTMLSelectElement).value).toBe('5902')
     // The options were loaded once and not again.
     expect(accountingApi.getAccountingOptions).toHaveBeenCalledTimes(1)
     // A save merges the answer: it does not reload the view.
@@ -964,14 +966,14 @@ describe('ReviewDetailPage — line classification panels', () => {
     renderReviewDetailPage()
 
     const select = await readySelect('classification-c1-account')
-    fireEvent.change(select, { target: { value: 'acc-hotel' } })
+    fireEvent.change(select, { target: { value: '5902' } })
 
     const dialog = await screen.findByTestId('guardrail-dialog')
     expect(dialog.textContent).toContain('This line is locked')
     expect(dialog.textContent).toContain('Its batch has been paid, so the classification can no longer change.')
     await waitFor(() => expect(accountingApi.getRequestAccounting).toHaveBeenCalledTimes(2))
     expect(requestsApi.get).toHaveBeenCalledTimes(2)
-    expect((screen.getByTestId('classification-c1-account') as HTMLSelectElement).value).toBe('acc-train')
+    expect((screen.getByTestId('classification-c1-account') as HTMLSelectElement).value).toBe('5901')
   })
 
   it('any other 409 on a classification shows the existing "already decided" guardrail', async () => {
@@ -980,7 +982,7 @@ describe('ReviewDetailPage — line classification panels', () => {
     vi.mocked(accountingApi.classifyLine).mockRejectedValue(problem(409, 'not_classifiable_status'))
     renderReviewDetailPage()
 
-    fireEvent.change(await readySelect('classification-c1-account'), { target: { value: 'acc-hotel' } })
+    fireEvent.change(await readySelect('classification-c1-account'), { target: { value: '5902' } })
     const dialog = await screen.findByTestId('guardrail-dialog')
     expect(dialog.textContent).toContain(strings.pages.reviewDetail.guardrail.title)
   })
@@ -991,7 +993,7 @@ describe('ReviewDetailPage — line classification panels', () => {
     vi.mocked(accountingApi.classifyLine).mockRejectedValue(problem(422, 'ledger_account_inactive'))
     renderReviewDetailPage()
 
-    fireEvent.change(await readySelect('classification-c1-account'), { target: { value: 'acc-hotel' } })
+    fireEvent.change(await readySelect('classification-c1-account'), { target: { value: '5902' } })
     await screen.findByText('That account was deactivated. Choose another.')
     await waitFor(() => expect(accountingApi.getAccountingOptions).toHaveBeenCalledTimes(2))
   })
@@ -1076,7 +1078,7 @@ describe('ReviewDetailPage — line classification panels', () => {
       await approve()
       await screen.findByTestId('classification-missing-summary')
 
-      fireEvent.change(select, { target: { value: 'acc-train' } })
+      fireEvent.change(select, { target: { value: '5901' } })
       await waitFor(() =>
         expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
           'Nothing was approved. 2 values need your attention.',
@@ -1174,7 +1176,7 @@ describe('ReviewDetailPage — line classification panels', () => {
         await approve()
         await screen.findByTestId('classification-missing-summary')
 
-        fireEvent.change(select, { target: { value: 'acc-train' } })
+        fireEvent.change(select, { target: { value: '5901' } })
         await waitFor(() =>
           expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
             'Nothing was approved. 1 value needs your attention.',
@@ -1399,7 +1401,7 @@ describe('ReviewDetailPage — line classification panels', () => {
       renderReviewDetailPage()
 
       const select = await readySelect('classification-c1-account')
-      fireEvent.change(select, { target: { value: 'acc-hotel' } })
+      fireEvent.change(select, { target: { value: '5902' } })
 
       await waitFor(() => expect(screen.getByTestId('classification-c1-why').textContent).toBe(SELF_NOTE))
       expect(screen.getByTestId('classification-c2-why').textContent).toBe(SELF_NOTE)
@@ -1418,7 +1420,7 @@ describe('ReviewDetailPage — line classification panels', () => {
       vi.mocked(accountingApi.classifyLine).mockRejectedValue(problem(404, 'not_found'))
       renderReviewDetailPage()
 
-      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: 'acc-hotel' } })
+      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: '5902' } })
 
       await waitFor(() => expect(accountingApi.getRequestAccounting).toHaveBeenCalledTimes(2))
       expect(await screen.findByTestId('classification-c1-out-of-scope')).not.toBeNull()
@@ -1499,7 +1501,7 @@ describe('ReviewDetailPage — line classification panels', () => {
       vi.mocked(requestsApi.get).mockResolvedValue(withCh({ lines: [chLine('c1'), chLine('c2'), chLine('c3')] }))
       vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(
         view([
-          accLine('c1', { chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-07', rateMissing: true }, vatAmountCents: null }),
+          accLine('c1', { chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-07', rateStatus: 'missing' }, vatAmountCents: null }),
           accLine('c2', { classification: { account: HOTEL, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: false } }),
           accLine('c3', missingBoth),
         ]),
@@ -1514,21 +1516,21 @@ describe('ReviewDetailPage — line classification panels', () => {
       vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(view([accLine('c1'), accLine('c2')]))
       vi.mocked(accountingApi.classifyLine).mockReturnValue(pendingPromise())
       renderReviewDetailPage()
-      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: 'acc-hotel' } })
+      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: '5902' } })
       await waitFor(() => expect(screen.getByTestId('classification-c1-account').getAttribute('aria-busy')).toBe('true'))
       await expectNoAxeViolations()
       cleanup()
 
       vi.mocked(accountingApi.classifyLine).mockRejectedValue(problem(500))
       renderReviewDetailPage()
-      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: 'acc-hotel' } })
+      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: '5902' } })
       await screen.findByText('Could not change the classification. Try again.')
       await expectNoAxeViolations()
       cleanup()
 
       vi.mocked(accountingApi.classifyLine).mockRejectedValue(problem(403, 'self_approval_forbidden'))
       renderReviewDetailPage()
-      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: 'acc-hotel' } })
+      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: '5902' } })
       await waitFor(() => expect(screen.getByTestId('classification-c1-why')).not.toBeNull())
       await expectNoAxeViolations()
     })
@@ -1659,7 +1661,7 @@ describe('ReviewDetailPage — line classification panels', () => {
       vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(view([accLine('c1')]))
       vi.mocked(accountingApi.classifyLine).mockRejectedValue(problem(409, 'classification_locked'))
       renderReviewDetailPage()
-      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: 'acc-hotel' } })
+      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: '5902' } })
       await screen.findByTestId('guardrail-dialog')
       await expectNoAxeViolations()
     })

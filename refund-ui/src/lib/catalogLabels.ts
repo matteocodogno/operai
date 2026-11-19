@@ -10,7 +10,7 @@
 import { formatNumber } from '@operai/ui'
 import { strings } from '../strings'
 
-/** The `value` of a select's explicit "None" option. An id can never equal it (ids are server-generated). */
+/** The `value` of a select's explicit "None" option. A number or a code can never equal it (digits and dots; letters, digits, - and _ in capitals). */
 export const CATALOG_NONE = '__none__'
 
 const t = strings.pages.reviewDetail.classification
@@ -26,5 +26,8 @@ export const formatVatRate = (ratePercent: string): string => {
 export const accountText = (account: { number: string; name: string }): string =>
   t.accountOption(account.number, account.name)
 
-export const vatCodeText = (vatCode: { code: string; label: string; ratePercent: string }): string =>
-  t.vatOption(vatCode.code, vatCode.label, formatVatRate(vatCode.ratePercent))
+/** `label` is `null` for a copy that recorded none: the code and its rate stand alone. */
+export const vatCodeText = (vatCode: { code: string; label: string | null; ratePercent: string }): string =>
+  vatCode.label === null
+    ? t.vatOptionNoLabel(vatCode.code, formatVatRate(vatCode.ratePercent))
+    : t.vatOption(vatCode.code, vatCode.label, formatVatRate(vatCode.ratePercent))
