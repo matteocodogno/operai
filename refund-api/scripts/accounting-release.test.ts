@@ -49,6 +49,8 @@ const { __resetAuthzCacheForTests } = await import("../src/auth/authz.middleware
 const { decideRouter } = (await import("../src/review/decide.routes?release-script")) as typeof import("../src/review/decide.routes");
 const {
   ACCOUNTING_UNREADABLE_MESSAGE,
+  BASELINE_MISSING_MESSAGE,
+  BaselineMissingError,
   chunkByMonths,
   DEFAULT_DEFAULTS_PATH,
   formatReport,
@@ -151,8 +153,9 @@ async function request(owner: string, lines: L[], opts: { status?: "draft" | "su
   return r;
 }
 
+/** A release run. The list of hand-issued numbers is REQUIRED (T63): by default the explicit empty list; a test passes `offsets: undefined` for "no list". */
 const run = (over: Parameters<typeof runAccountingRelease>[0] = {}) =>
-  runAccountingRelease({ now: () => NOW, accounting: { begin: (name) => fake.begin(name) }, ...over });
+  runAccountingRelease({ now: () => NOW, accounting: { begin: (name) => fake.begin(name) }, offsets: [], ...over });
 const line = (id: string) => db.refundLine.findUniqueOrThrow({ where: { id } });
 
 /** Everything a release writes, counted: nothing of it may exist after a run that stopped (AC-7.4). */
@@ -161,6 +164,7 @@ async function snapshot() {
     typeDefaults: await db.expenseTypeAccountingDefault.count(),
     settings: await db.refundSetting.count(),
     counters: JSON.stringify(await db.receiptCounter.findMany({ orderBy: { year: "asc" } })),
+    baseline: await db.receiptNumberBaseline.count(),
     lines: JSON.stringify(
       await db.refundLine.findMany({
         orderBy: { id: "asc" },
@@ -225,13 +229,32 @@ describe("parseOffsetsCsv", () => {
       { email: "anna@welld.ch", year: 2026, lastIssuedSeq: 12 },
     ]);
     expect(parseOffsetsCsv("a@b.ch,2026,1")).toHaveLength(1);
+    expect(parseOffsetsCsv("\uFEFFemail,year,lastIssuedSeq\r\na@b.ch,2026,7\r\n")).toEqual([{ email: "a@b.ch", year: 2026, lastIssuedSeq: 7 }]);
+  });
+
+  it("(AC-7.4) a file with only the header line is the explicit empty list; a file with nothing in it is refused, not read as 'no employee'", () => {
+    expect(parseOffsetsCsv("email,year,lastIssuedSeq\n")).toEqual([]);
+    expect(parseOffsetsCsv("EMAIL,Year,LastIssuedSeq")).toEqual([]);
+    expect(parseOffsetsCsv("# none of them\nemail,year,lastIssuedSeq\n\n# end\n")).toEqual([]);
+    expect(parseOffsetsCsv("\uFEFFemail,year,lastIssuedSeq\r\n")).toEqual([]);
+    // A truncated or empty file would number from 001 over the paper numbers: it must say it is empty on purpose.
+    for (const bad of ["", "\n\n", "   ", "# only a comment\n", "\uFEFF"]) {
+      expect(() => parseOffsetsCsv(bad)).toThrow(/no header line and no row/);
+    }
   });
 
   it("refuses malformed rows and duplicates, naming the line", () => {
-    for (const bad of ["a@b.ch,2026", "nope,2026,1", "a@b.ch,26,1", "a@b.ch,2026,0", "a@b.ch,2026,x", "a@b.ch,2026,100000", "a@b.ch,2026,1\nA@b.ch,2026,2"]) {
+    for (const bad of ["a@b.ch,2026", "nope,2026,1", "a@b.ch,26,1", "a@b.ch,2026,0", "a@b.ch,2026,x", "a@b.ch,2026,100000", "a@b.ch,2026,1\nA@b.ch,2026,2", " a@b.ch ,2026,1\nA@B.CH,2026,2"]) {
       expect(() => parseOffsetsCsv(bad)).toThrow(ReleaseError);
     }
     expect(() => parseOffsetsCsv("a@b.ch,2026,x")).toThrow(/line 1/);
+  });
+
+  it("(AC-4.12) only 2026 is accepted: a row of 2025, 2027 or any other year is refused, naming the line", () => {
+    for (const year of ["2025", "2027", "2028", "2000"]) {
+      expect(() => parseOffsetsCsv(`email,year,lastIssuedSeq\na@b.ch,${year},5`)).toThrow(/line 2: only 2026 continues the paper register/);
+    }
+    expect(() => parseOffsetsCsv("a@b.ch,2026,5\nc@d.ch,2027,5")).toThrow(/line 2/);
   });
 });
 
@@ -721,25 +744,77 @@ describe("idempotence and dry run", () => {
   });
 });
 
-describe("offsets (D2)", () => {
-  it("numbering starts after the offset, and the counter records it as loaded by the release", async () => {
+describe("the baseline list (T63: SO-13, SO-14 of 20261118; AC-4.11, AC-4.12, AC-4.13, AC-7.4)", () => {
+  const baselineRows = () => db.receiptNumberBaseline.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+  const counterOf = (ownerUserId: string, year: number) => db.receiptCounter.findUnique({ where: { ownerUserId_year: { ownerUserId, year } } });
+
+  it("numbering starts after the baseline (81 gives 082), the table holds the row, and the counter says it started from the baseline", async () => {
     await request("u1", [{ id: "l1", date: "2026-03-02" }, { id: "l2", date: "2026-03-03" }], { email: "matteo.codogno@welld.ch" });
     const report = await run({ offsets: [{ email: "Matteo.Codogno@welld.ch", year: 2026, lastIssuedSeq: 81 }] });
-    expect(report.offsets).toEqual([{ email: "Matteo.Codogno@welld.ch", employeeRef: "MC · u1", year: 2026, lastIssuedSeq: 81, outcome: "applied" }]);
+    expect(report.baseline).toEqual([{ email: "Matteo.Codogno@welld.ch", employeeRef: "MC · u1", year: 2026, lastIssuedSeq: 81, outcome: "applied" }]);
     expect((await line("l1")).receiptNumber).toBe("MC26/082");
     expect((await line("l2")).receiptNumber).toBe("MC26/083");
-    const counter = await db.receiptCounter.findUniqueOrThrow({ where: { ownerUserId_year: { ownerUserId: "u1", year: 2026 } } });
-    expect(counter).toMatchObject({ lastSeq: 83, startAfter: 81, startAfterSetBy: "system:accounting-release" });
+    expect(await counterOf("u1", 2026)).toMatchObject({ lastSeq: 83, startAfter: 81, startAfterSetBy: "baseline" });
+    // The row is keyed by the lower-cased email, and written as the release.
+    expect(await baselineRows()).toMatchObject([
+      { emailKey: "matteo.codogno@welld.ch", year: 2026, lastIssuedSeq: 81, createdByUserId: "system:accounting-release" },
+    ]);
   });
 
-  it("an offset for a year with no lines applies to that year only", async () => {
+  it("an employee in the list with no Refund request at release is accepted, reported as not yet in Refund, and no counter is made for them", async () => {
     await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
-    await run({ offsets: [{ email: "m@welld.ch", year: 2027, lastIssuedSeq: 5 }] });
-    expect((await line("l1")).receiptNumber).toBe("MC26/001");
-    expect((await db.receiptCounter.findUniqueOrThrow({ where: { ownerUserId_year: { ownerUserId: "u1", year: 2027 } } })).lastSeq).toBe(5);
+    const report = await run({
+      offsets: [
+        { email: "m@welld.ch", year: 2026, lastIssuedSeq: 10 },
+        { email: "Newcomer@welld.ch", year: 2026, lastIssuedSeq: 40 },
+      ],
+    });
+    expect(report.baseline.map((b) => [b.employeeRef, b.outcome])).toEqual([
+      ["MC · u1", "applied"],
+      [null, "applied"],
+    ]);
+    expect((await baselineRows()).map((r) => [r.emailKey, r.lastIssuedSeq])).toEqual([
+      ["m@welld.ch", 10],
+      ["newcomer@welld.ch", 40],
+    ]);
+    expect(await db.receiptCounter.count()).toBe(1); // only Matteo's, made by the backfill
+    expect((await line("l1")).receiptNumber).toBe("MC26/011");
+    const text = formatReport(report);
+    expect(text).toContain("not yet in Refund (N***@welld.ch) 2026: numbering continues after 40 (applied)");
+    expect(text).toContain("MC · u1 2026: numbering continues after 10 (applied)");
+    expect(text).not.toContain("Newcomer");
+    expect(formatReport(report, { showEmails: true })).toContain("not yet in Refund (Newcomer@welld.ch) 2026");
   });
 
-  it("is refused for an (employee, year) pair that already has numbers, and then NOTHING is written", async () => {
+  it("the release makes no counter for an employee who has no line to number: the baseline row waits for the counter's creation (receipt.baseline.test.ts)", async () => {
+    await request("u1", [], { email: "late@welld.ch" }); // a request with no line at all
+    await run({ offsets: [{ email: "late@welld.ch", year: 2026, lastIssuedSeq: 7 }] });
+    expect(await db.receiptCounter.count()).toBe(0);
+    expect((await baselineRows()).map((r) => [r.emailKey, r.lastIssuedSeq])).toEqual([["late@welld.ch", 7]]);
+  });
+
+  it("a row for any year but 2026 is refused (AC-4.12), and then NOTHING is written", async () => {
+    await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
+    const before = await snapshot();
+    for (const year of [2025, 2027]) {
+      await expect(run({ offsets: [{ email: "m@welld.ch", year, lastIssuedSeq: 5 }] })).rejects.toThrow(/only 2026 continues the paper register/);
+    }
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it("a sequence outside 1..99999, and the same email twice, are refused whatever the case, and write nothing", async () => {
+    await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
+    const before = await snapshot();
+    for (const lastIssuedSeq of [0, 100_000, -1, 1.5]) {
+      await expect(run({ offsets: [{ email: "m@welld.ch", year: 2026, lastIssuedSeq }] })).rejects.toThrow(/whole number from 1 to 99999/);
+    }
+    await expect(
+      run({ offsets: [{ email: "m@welld.ch", year: 2026, lastIssuedSeq: 5 }, { email: "M@Welld.ch", year: 2026, lastIssuedSeq: 6 }] }),
+    ).rejects.toThrow(/appears twice/);
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it("is refused for an employee whose 2026 counter already exists with another start, and then NOTHING is written", async () => {
     await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
     await run();
     await request("u1", [{ id: "l2", date: "2026-03-09" }], { email: "m@welld.ch" });
@@ -749,26 +824,122 @@ describe("offsets (D2)", () => {
     expect((await line("l2")).receiptNumber).toBeNull();
   });
 
-  it("a refused offset rolls back the seed and the marker too", async () => {
+  it("a refused row rolls back the seed, the earlier rows of the list and the marker too", async () => {
     await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
-    await expect(run({ offsets: [{ email: "nobody@welld.ch", year: 2026, lastIssuedSeq: 5 }] })).rejects.toThrow(/n\*\*\*@welld\.ch/);
+    await request("u2", [], { email: "x@welld.ch" });
+    await request("u3", [], { email: "x@welld.ch" }); // two user ids behind one email, the second row of the list
+    await expect(
+      run({ offsets: [{ email: "m@welld.ch", year: 2026, lastIssuedSeq: 5 }, { email: "x@welld.ch", year: 2026, lastIssuedSeq: 5 }] }),
+    ).rejects.toThrow(/x\*\*\*@welld\.ch.*more than one user id/);
     expect(await db.expenseTypeAccountingDefault.count()).toBe(0);
     expect(await db.refundSetting.count()).toBe(0);
+    expect(await db.receiptNumberBaseline.count()).toBe(0);
     expect((await line("l1")).receiptNumber).toBeNull();
   });
 
-  it("is refused for an email that belongs to two user ids", async () => {
+  it("an email behind two user ids is refused: each would start after it and repeat the other's numbers", async () => {
     await request("u1", [], { email: "m@welld.ch" });
     await request("u2", [], { email: "M@welld.ch" });
     await expect(run({ offsets: [{ email: "m@welld.ch", year: 2026, lastIssuedSeq: 5 }] })).rejects.toThrow(/more than one/);
   });
 
-  it("repeating the very same offset on an untouched counter is already-applied, not an error", async () => {
-    await request("u1", [], { email: "m@welld.ch" });
-    await run({ offsets: [{ email: "m@welld.ch", year: 2027, lastIssuedSeq: 5 }] });
-    const again = await run({ offsets: [{ email: "m@welld.ch", year: 2027, lastIssuedSeq: 5 }] });
-    expect(again.offsets[0]!.outcome).toBe("already-applied");
-    await expect(run({ offsets: [{ email: "m@welld.ch", year: 2027, lastIssuedSeq: 6 }] })).rejects.toThrow(ReleaseError);
+  it("the newest request of the employee must carry the listed email: else the baseline would never apply, and the list is refused", async () => {
+    const r = await request("u1", [], { email: "old@welld.ch" });
+    await db.refundRequest.create({ data: { ownerUserId: "u1", ownerEmail: "new@welld.ch", ownerName: "Matteo Codogno", status: "approved", createdAt: new Date(r.createdAt.getTime() + 60_000) } });
+    await expect(run({ offsets: [{ email: "old@welld.ch", year: 2026, lastIssuedSeq: 5 }] })).rejects.toThrow(/carries another email.*n\*\*\*@welld\.ch/);
+    expect(await db.receiptNumberBaseline.count()).toBe(0);
+    // Listed under the email Refund holds now, it is accepted.
+    const ok = await run({ offsets: [{ email: "new@welld.ch", year: 2026, lastIssuedSeq: 5 }] });
+    expect(ok.baseline[0]).toMatchObject({ employeeRef: "MC · u1", outcome: "applied" });
+  });
+
+  it("a rerun of the very same list changes nothing: already-applied, no second row, no second marker, no second number", async () => {
+    await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
+    const list = [
+      { email: "m@welld.ch", year: 2026, lastIssuedSeq: 81 },
+      { email: "ghost@welld.ch", year: 2026, lastIssuedSeq: 12 },
+    ];
+    expect((await run({ offsets: list })).baseline.map((b) => b.outcome)).toEqual(["applied", "applied"]);
+    const after = await snapshot();
+    const again = await run({ offsets: list });
+    expect(again.baseline.map((b) => b.outcome)).toEqual(["already-applied", "already-applied"]);
+    expect(again.alreadyReleased).toBe(true);
+    expect(again.markerWritten).toBe(false);
+    expect(await snapshot()).toEqual(after);
+    expect(await db.receiptNumberBaseline.count()).toBe(2);
+    expect((await line("l1")).receiptNumber).toBe("MC26/082");
+  });
+
+  it("a corrected value for an employee with no counter yet is appended (the latest row counts); once the counter exists it is refused", async () => {
+    await run({ offsets: [{ email: "ghost@welld.ch", year: 2026, lastIssuedSeq: 12 }] });
+    const fixed = await run({ offsets: [{ email: "ghost@welld.ch", year: 2026, lastIssuedSeq: 14 }] });
+    expect(fixed.baseline[0]!.outcome).toBe("applied");
+    expect((await baselineRows()).map((r) => r.lastIssuedSeq)).toEqual([12, 14]);
+
+    await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
+    await run({ offsets: [{ email: "m@welld.ch", year: 2026, lastIssuedSeq: 81 }] });
+    await expect(run({ offsets: [{ email: "m@welld.ch", year: 2026, lastIssuedSeq: 82 }] })).rejects.toThrow(ReleaseError);
+  });
+
+  it("(AC-7.4) NO LIST: a real run throws BaselineMissingError and writes nothing at all (no default, no baseline row, no number, no counter, no marker, no audit)", async () => {
+    await request("u1", [{ id: "l1", date: "2026-03-02" }, { id: "l2", date: "2026-03-03" }], { email: "m@welld.ch" });
+    const before = await snapshot();
+    const error = await run({ offsets: undefined }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(BaselineMissingError);
+    expect((error as InstanceType<typeof BaselineMissingError>).message).toBe(BASELINE_MISSING_MESSAGE);
+    expect(BASELINE_MISSING_MESSAGE).toMatch(/list of last hand-issued 2026 numbers is missing: nothing was numbered \(AC-7\.4\)/);
+    expect(await snapshot()).toEqual(before);
+    expect(before.typeDefaults + before.settings + before.baseline + before.audit).toBe(0);
+    expect(await isAccountingReleased(db as never)).toBe(false);
+    expect((await line("l1")).receiptNumber).toBeNull();
+    // Approvals stay refused meanwhile, so no number is consumed.
+    // A rerun with the list works.
+    const done = await run({ offsets: [{ email: "m@welld.ch", year: 2026, lastIssuedSeq: 81 }] });
+    expect(done.markerWritten).toBe(true);
+    expect((await line("l1")).receiptNumber).toBe("MC26/082");
+  });
+
+  it("(AC-7.4) an unreadable Accounting still comes first: no list AND Accounting down is the Accounting error, not the list's", async () => {
+    await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
+    fake.failWith("timeout");
+    await expect(run({ offsets: undefined })).rejects.toBeInstanceOf(AccountingUnavailableError);
+    await expect(run({ offsets: undefined, dryRun: true })).rejects.toBeInstanceOf(AccountingUnavailableError);
+  });
+
+  it("(AC-7.4) a DRY RUN with no list reads Accounting, writes nothing, numbers nothing, and reports BLOCKED: list missing", async () => {
+    await request("u1", [{ id: "l1", date: "2026-03-02" }, { id: "l2", date: "2026-03-03", currency: "EUR" }], { email: "m@welld.ch" });
+    await request("u2", [{ id: "l3", date: "2026-03-04", entity: "welld_it" }], { email: "x@welld.ch" });
+    const before = await snapshot();
+    const report = await run({ offsets: undefined, dryRun: true });
+    expect(report.blocked).toBe("baseline_missing");
+    expect(report).toMatchObject({ dryRun: true, markerWritten: false, legacyLinesWaiting: 2, baseline: [], numbered: [], lines: [], itLinesLeftUnnumbered: 1 });
+    expect(await snapshot()).toEqual(before);
+    const text = formatReport(report);
+    expect(text).toContain("BLOCKED: list missing.");
+    expect(text).toContain("exit code 3");
+    expect(text).toContain("Legacy WellD CH lines the real run would number once the list is given: 2");
+    expect(text).toContain("Release marker written: no (blocked: the list is missing)");
+    expect(text).not.toMatch(/MC26\/0|Every line|Numbered legacy/); // no number is shown: it would ignore the paper register
+    expect(text).not.toContain("@");
+  });
+
+  it("(AC-7.4, AC-4.12) the explicit empty list is accepted: the lines are numbered from 001, the report says so, and no baseline row exists", async () => {
+    await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
+    const report = await run({ offsets: [] });
+    expect(report.blocked).toBeNull();
+    expect(report.baseline).toEqual([]);
+    expect((await line("l1")).receiptNumber).toBe("MC26/001");
+    expect(await db.receiptNumberBaseline.count()).toBe(0);
+    expect(await counterOf("u1", 2026)).toMatchObject({ lastSeq: 1, startAfter: 0, startAfterSetBy: null });
+    expect(formatReport(report)).toContain("an empty list: no employee has a hand-issued 2026 number, numbering starts at 001");
+  });
+
+  it("2027 restarts at 001 whatever the baseline and the 2026 sequence (AC-4.13), and 2025 is not continued either", async () => {
+    await request("u1", [{ id: "a", date: "2025-12-30" }, { id: "b", date: "2026-03-02" }, { id: "c", date: "2027-01-05" }], { email: "m@welld.ch" });
+    await run({ offsets: [{ email: "m@welld.ch", year: 2026, lastIssuedSeq: 141 }] });
+    expect([(await line("a")).receiptNumber, (await line("b")).receiptNumber, (await line("c")).receiptNumber]).toEqual(["MC25/001", "MC26/142", "MC27/001"]);
+    expect(await counterOf("u1", 2025)).toMatchObject({ startAfter: 0, startAfterSetBy: null });
+    expect(await counterOf("u1", 2027)).toMatchObject({ startAfter: 0, startAfterSetBy: null });
   });
 });
 
@@ -791,7 +962,7 @@ describe("the report (D-1, SR-4)", () => {
 
   it("SR-4: an employee is `<initials> · <first 8 characters of the user id>`, and no `@` appears anywhere without showEmails", async () => {
     await request("0123456789abcdef", [{ id: "l1", date: "2026-03-02" }], { email: "matteo.codogno@welld.ch", name: "Matteo Codogno" });
-    const report = await run({ dryRun: true, offsets: [{ email: "matteo.codogno@welld.ch", year: 2027, lastIssuedSeq: 4 }] });
+    const report = await run({ dryRun: true, offsets: [{ email: "matteo.codogno@welld.ch", year: 2026, lastIssuedSeq: 4 }] });
     for (const text of [formatReport(report), formatReport(report, { showEmails: false })]) {
       expect(text).not.toContain("@");
       expect(text).toContain("MC · 01234567");

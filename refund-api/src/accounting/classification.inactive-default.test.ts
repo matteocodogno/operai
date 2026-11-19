@@ -154,6 +154,7 @@ async function legacyBatch(types: ("travel_train" | "office_material")[]) {
 const release = () =>
   runAccountingRelease({
     defaults: parseDefaults({ typeDefaults: {} }),
+    offsets: [], // the explicit empty list of hand-issued numbers (T63: the list is required)
     accounting: { begin: (name) => fake.begin(name) },
     now: () => new Date("2026-11-20T08:00:00Z"),
   });

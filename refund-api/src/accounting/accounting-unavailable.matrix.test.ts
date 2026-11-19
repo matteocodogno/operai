@@ -603,6 +603,7 @@ const rows: Row[] = [
         const report = await runAccountingRelease({
           accounting: port,
           defaults: { typeDefaults: { travel_train: { ledgerAccount: "5901" } } },
+          offsets: [], // the explicit empty list of hand-issued numbers (T63: the list is required)
           now: () => new Date("2026-11-20T08:00:00.000Z"),
         });
         return { status: 0, body: report, headers: new Headers() };

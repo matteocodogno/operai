@@ -552,7 +552,7 @@ describe("the release seeds by natural key, whatever Accounting's ids are", () =
         office_material: { ledgerAccount: "6101" },
       },
     };
-    const run = (dryRun: boolean) => runAccountingRelease({ accounting: port, defaults, dryRun, now: () => new Date("2026-11-20T08:00:00.000Z") });
+    const run = (dryRun: boolean) => runAccountingRelease({ accounting: port, defaults, dryRun, offsets: [], now: () => new Date("2026-11-20T08:00:00.000Z") });
 
     const before = await run(true);
     directory.renumber();

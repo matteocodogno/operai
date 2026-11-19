@@ -474,7 +474,7 @@ describe("each listed operation reads Accounting afresh (AC-4.8, D2)", () => {
   it("release: two runs are two reads, and an entry deactivated between them is not seeded by the second", async () => {
     await truncateRefundTables({ released: false });
     const defaults = { typeDefaults: { travel_train: { ledgerAccount: "5901" } } };
-    const run = () => runAccountingRelease({ accounting: port, defaults, dryRun: true });
+    const run = () => runAccountingRelease({ accounting: port, defaults, dryRun: true, offsets: [] });
 
     const first = await measured(run);
     expect(first.value.seeded.typeDefaults).toEqual(["travel_train"]);

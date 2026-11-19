@@ -24,7 +24,11 @@
  *    gets whatever half did resolve, the missing half stays empty and shows up as an export blocker (AC-7.2 of 20261118).
  * 3. Takes the per-(employee, year) counters, years ascending (the lock order that rules out a deadlock between two approvals
  *    of the same employee), each with ONE upsert that adds the number of lines of that year and returns the new `lastSeq`;
- *    the row stays locked until the caller commits (AC-4.10).
+ *    the row stays locked until the caller commits (AC-4.10). WHEN A COUNTER IS CREATED for 2026 (and only 2026), it starts after
+ *    the employee's hand-issued number: the latest row of `receipt_number_baseline` for the owner's email, lower-cased, else 0
+ *    (AC-4.11 to AC-4.13, SO-13 of 20261118). So the first 2026 line of an employee whose paper register ended at 81 is `…26/082`,
+ *    whether it is numbered by the release backfill or by an approval months later, and an employee who had no Refund request at
+ *    release is covered too. A counter that already exists never reads the baseline again, and 2025, 2027 and later years never do.
  * 4. Writes each line in ONE `UPDATE`: the copies, the exchange-rate copy and the receipt columns together. The database
  *    guard `refund_line_accounting_guard` locks the copies of a paid request only once the line has a receipt number, so the
  *    copies must never be written after the number in a separate statement (IS-1): on a legacy line of a paid request that
@@ -122,6 +126,24 @@ export type ClassifyAndNumberResult =
   | { readonly ok: false; readonly reason: "reference_missing" };
 
 const isoDate = (date: Date): string => date.toISOString().slice(0, 10);
+
+/** The one year whose numbering continues the paper register (AC-4.12): 2027 restarts at 001 (AC-4.13), 2025 is not continued. */
+export const BASELINE_YEAR = 2026;
+/** `receipt_counter.startAfterSetBy` of a counter that started from the baseline. */
+export const BASELINE_SET_BY = "baseline";
+
+/** The baseline's key for an employee: the email, trimmed and lower-cased (the table's CHECK says the same). */
+export const baselineKey = (email: string): string => email.trim().toLowerCase();
+
+/** The last hand-issued 2026 sequence of this email: the latest row of the append-only table, else 0 (no baseline). */
+async function baselineSeq(tx: Prisma.TransactionClient, email: string): Promise<number> {
+  const row = await tx.receiptNumberBaseline.findFirst({
+    where: { emailKey: baselineKey(email), year: BASELINE_YEAR },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { lastIssuedSeq: true },
+  });
+  return row?.lastIssuedSeq ?? 0;
+}
 
 const accountSummary = (a: { number: string; name: string } | null) => (a ? { number: a.number, name: a.name } : null);
 const vatSummary = (v: { code: string; rateBasisPoints: number } | null) =>
@@ -221,9 +243,13 @@ export async function classifyAndNumber(
   const nextSeq = new Map<number, number>();
   for (const year of [...perYear.keys()].sort((a, b) => a - b)) {
     const count = perYear.get(year)!;
+    // Read only when the counter may be created here: the conflict branch below ignores the VALUES of an existing counter, so a
+    // baseline never moves a counter that already exists (and `receipt_counter` freezes `startAfter` after insert anyway).
+    const start = year === BASELINE_YEAR ? await baselineSeq(tx, input.owner.email) : 0;
+    const setBy = start > 0 ? BASELINE_SET_BY : null;
     const rows = await tx.$queryRaw<{ lastSeq: number }[]>`
-      INSERT INTO "receipt_counter" ("ownerUserId", "year", "lastSeq", "startAfter", "updatedAt")
-      VALUES (${input.owner.userId}, ${year}::int, ${count}::int, 0, now())
+      INSERT INTO "receipt_counter" ("ownerUserId", "year", "lastSeq", "startAfter", "startAfterSetBy", "updatedAt")
+      VALUES (${input.owner.userId}, ${year}::int, ${start + count}::int, ${start}::int, ${setBy}::text, now())
       ON CONFLICT ("ownerUserId", "year") DO UPDATE
         SET "lastSeq" = "receipt_counter"."lastSeq" + ${count}::int, "updatedAt" = now()
       RETURNING "lastSeq"`;
