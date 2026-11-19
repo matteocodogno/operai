@@ -95,6 +95,9 @@ const TOOL_ICONS: Record<ToolId, ReactNode> = {
   meetings: <Icon name="mic" size={TOOL_ICON_SIZE} className="shrink-0" />,
   projects: <Icon name="calendar" size={TOOL_ICON_SIZE} className="shrink-0" />,
   letterheads: <Icon name="file" size={TOOL_ICON_SIZE} className="shrink-0" />,
+  // specs/20261119-accounting (design UX-14, G1): the library has no ledger or book icon; a numbered list is what a chart of
+  // accounts is. A "book" icon in @operai/ui is follow-up F-A4.
+  accounting: <Icon name="list-ordered" size={TOOL_ICON_SIZE} className="shrink-0" />,
 }
 
 export default function Sidebar() {

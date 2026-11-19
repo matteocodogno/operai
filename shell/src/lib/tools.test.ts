@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   LAST_TOOL_STORAGE_KEY,
+  SETTINGS_TOOL_IDS,
   TOOLS,
   isToolId,
   readLastToolId,
@@ -30,6 +31,7 @@ describe('TOOLS — inventory', () => {
       'meetings',
       'projects',
       'letterheads',
+      'accounting',
     ])
     expect(TOOLS.find((t) => t.id === 'inventory')).toEqual({
       id: 'inventory',
@@ -138,5 +140,42 @@ describe('TOOLS — letterheads', () => {
     expect(visibleFor(['letterheads'])).toEqual(['letterheads'])
     expect(visibleFor(['estimai', 'crm', 'letterheads'])).toEqual(['estimai', 'crm', 'letterheads'])
     expect(visibleFor(['estimai', 'refund', 'admin', 'inventory', 'crm', 'projects'])).not.toContain('letterheads')
+  })
+})
+
+// specs/20261119-accounting (AC-8.1, design UX-14): Accounting is a gated tool, LAST in the list (Letterheads is in the Settings
+// group, so in the sidebar's main list it follows Projects). The id is the auth catalog's app id (`accounting`), which
+// `/authz/me` DERIVES into `apps` for a holder of `accounting:read` or `accounting:manage` over at least one entity (ADR
+// 20261117-an-app-is-reachable-… amendment A6): the shell reads `apps` as for every tool and decides nothing about entities.
+describe('TOOLS — accounting', () => {
+  it('lists Accounting at /accounting, last, and resolves it as a tool id', () => {
+    expect(TOOLS.find((t) => t.id === 'accounting')).toEqual({
+      id: 'accounting',
+      label: 'Accounting',
+      to: '/accounting',
+    })
+    expect(TOOLS[TOOLS.length - 1]?.id).toBe('accounting')
+    expect(isToolId('accounting')).toBe(true)
+    expect(toolPath('accounting')).toBe('/accounting')
+  })
+
+  it('is a main-list tool, not a Settings-group one', () => {
+    expect(SETTINGS_TOOL_IDS).not.toContain('accounting')
+  })
+
+  it('round-trips accounting through the last-tool record', () => {
+    recordLastTool('accounting')
+    expect(readLastToolId()).toBe('accounting')
+    expect(resolveLastToolPath()).toBe('/accounting')
+  })
+
+  it('is offered only to callers whose apps include accounting', () => {
+    const visibleFor = (apps: string[]) => TOOLS.filter((tool) => apps.includes(tool.id)).map((tool) => tool.id)
+    expect(visibleFor(['accounting'])).toEqual(['accounting'])
+    expect(visibleFor(['estimai', 'projects', 'accounting'])).toEqual(['estimai', 'projects', 'accounting'])
+    // No other grant stands in for it, `refund` and `admin` included (AC-3.9, AC-8.1).
+    expect(visibleFor(['estimai', 'refund', 'admin', 'inventory', 'crm', 'projects', 'letterheads'])).not.toContain(
+      'accounting',
+    )
   })
 })

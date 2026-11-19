@@ -38,4 +38,10 @@ interface ImportMetaEnv {
    * not trusted, no Bearer JWT sent.
    */
   readonly VITE_ACTIVITIES_API_URL?: string
+  /**
+   * Public origin of accounting-api (specs/20261119-accounting), e.g.
+   * `https://accounting-api.operai.welld.io`. Optional, like VITE_PROJECTS_API_URL: unset →
+   * not trusted, no Bearer JWT sent; accounting-ui has no copy of its own (it asks the shell).
+   */
+  readonly VITE_ACCOUNTING_API_URL?: string
 }

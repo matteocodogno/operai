@@ -70,6 +70,7 @@ describe('shell chrome in Italian', () => {
       'Riunioni',
       'Progetti',
       'Carte intestate',
+      'Contabilità',
     ])
   })
 })

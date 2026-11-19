@@ -60,6 +60,20 @@ describe('resolveRuntimeRemotes', () => {
     ])
   })
 
+  it('resolves the accounting remote from window.__OPERAI_RUNTIME_CONFIG__ (specs/20261119-accounting)', async () => {
+    window.__OPERAI_RUNTIME_CONFIG__ = { accounting: 'https://accounting.example.test/remoteEntry.js' }
+
+    await expect(resolveRuntimeRemotes()).resolves.toEqual([
+      {
+        name: 'accounting',
+        entry: 'https://accounting.example.test/remoteEntry.js',
+        type: 'module',
+        entryGlobalName: 'accounting',
+        shareScope: 'default',
+      },
+    ])
+  })
+
   it('resolves the inventory remote from a fetched /runtime-config.json', async () => {
     vi.stubGlobal(
       'fetch',

@@ -49,6 +49,8 @@
  *       (specs/20261103-projects).
  *     • The letterhead-api origin (VITE_LETTERHEADS_API_URL), if defined
  *       (specs/20261116-letterhead-service).
+ *     • The accounting-api origin (VITE_ACCOUNTING_API_URL), if defined
+ *       (specs/20261119-accounting).
  *     • The activities-api origin (VITE_ACTIVITIES_API_URL), if defined
  *       (specs/20261110-activities).
  *   Requests to any other origin proceed unauthenticated — no Authorization
@@ -180,6 +182,13 @@ export const getProjectsApiBaseUrl = (): string => import.meta.env.VITE_PROJECTS
  * Lazily read, mirrors `getProjectsApiBaseUrl()`.
  */
 export const getLetterheadsApiBaseUrl = (): string => import.meta.env.VITE_LETTERHEADS_API_URL as string
+
+/**
+ * The accounting-api base URL (`VITE_ACCOUNTING_API_URL`, specs/20261119-accounting), exposed
+ * for the federated `accounting` remote, which ships no `VITE_*` env of its own.
+ * Lazily read, mirrors `getLetterheadsApiBaseUrl()`.
+ */
+export const getAccountingApiBaseUrl = (): string => import.meta.env.VITE_ACCOUNTING_API_URL as string
 
 /**
  * The activities-api base URL (`VITE_ACTIVITIES_API_URL`, specs/20261110-activities), exposed
@@ -326,6 +335,17 @@ const getTrustedOrigins = (): Set<string> => {
   if (letterheadsUrl) {
     try {
       trusted.add(new URL(letterheadsUrl).origin)
+    } catch {
+      /* ignore invalid env value */
+    }
+  }
+
+  // specs/20261119-accounting: accounting-api origin, trusted only when configured (same shape; an unset env never widens
+  // the allowlist, so no Bearer JWT leaves for an accounting-api nobody configured).
+  const accountingUrl = import.meta.env.VITE_ACCOUNTING_API_URL as string | undefined
+  if (accountingUrl) {
+    try {
+      trusted.add(new URL(accountingUrl).origin)
     } catch {
       /* ignore invalid env value */
     }

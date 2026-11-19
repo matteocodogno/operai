@@ -298,6 +298,8 @@ const loadMyMeetings = () => import('meetings/MyMeetings')
 const loadProjectsApp = () => import('projects/App')
 // specs/20261116-letterhead-service: letterheads-ui's gated tool entry (`/letterheads/$`).
 const loadLetterheadsApp = () => import('letterheads/App')
+// specs/20261119-accounting: accounting-ui's gated tool entry (`/accounting/$`).
+const loadAccountingApp = () => import('accounting/App')
 
 // ---------------------------------------------------------------------------
 // App-access guard (T25, US-7, AC-7.3/7.4/7.5) — one factory shared by every
@@ -442,6 +444,17 @@ const letterheadsRoute = createRoute({
   component: () => <RemoteMount loader={loadLetterheadsApp} moduleLabel={strings.tools.letterheads} />,
 })
 
+// specs/20261119-accounting (AC-8.1, AC-3.6): the Accounting module, gated by `apps ∋ accounting`. auth DERIVES that entry from
+// `accounting:read` or `accounting:manage` covering at least one entity (ADR 20261117-an-app-is-reachable-… amendment A6): it is
+// presentation only, accounting-api enforces every route. Someone without it never sees the sidebar entry, and a deep link is
+// refused here, as for every gated tool.
+const accountingRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/accounting/$',
+  beforeLoad: createToolAccessBeforeLoad('accounting'),
+  component: () => <RemoteMount loader={loadAccountingApp} moduleLabel={strings.tools.accounting} />,
+})
+
 // ---------------------------------------------------------------------------
 // `/devices` — "My devices" (specs/20261006-hardware-inventory, T42, US-4 AC-4.1,
 // ADR 20261006-ungated-second-federated-entry-of-a-gated-remote). The second, UNGATED federated entry of the inventory remote:
@@ -556,6 +569,7 @@ export const routeTree = rootRoute.addChildren([
       meetingsRoute,
       projectsRoute,
       letterheadsRoute,
+      accountingRoute,
       notifyRoute,
       accountRoute,
       devicesRoute,

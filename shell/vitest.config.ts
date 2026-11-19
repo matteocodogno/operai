@@ -66,6 +66,11 @@ export default defineConfig({
       'letterheads/version': fileURLToPath(
         new URL('./src/federation/__stubs__/letterheadsVersion.ts', import.meta.url),
       ),
+      // specs/20261119-accounting: the accounting remote's tool entry and version.
+      'accounting/App': fileURLToPath(new URL('./src/federation/__stubs__/accountingApp.tsx', import.meta.url)),
+      'accounting/version': fileURLToPath(
+        new URL('./src/federation/__stubs__/accountingVersion.ts', import.meta.url),
+      ),
     },
   },
   test: {

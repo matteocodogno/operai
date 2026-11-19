@@ -104,7 +104,25 @@ async function renderSidebarAt(path: string) {
     path: '/letterheads/$',
     component: () => <p data-testid="letterheads-content">letterheads</p>,
   })
-  const routeTree = rootRoute.addChildren([indexRoute, estimaiRoute, refundRoute, adminRoute, letterheadsRoute])
+  const projectsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/projects/$',
+    component: () => <p data-testid="projects-content">projects</p>,
+  })
+  const accountingRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/accounting/$',
+    component: () => <p data-testid="accounting-content">accounting</p>,
+  })
+  const routeTree = rootRoute.addChildren([
+    indexRoute,
+    estimaiRoute,
+    refundRoute,
+    adminRoute,
+    letterheadsRoute,
+    projectsRoute,
+    accountingRoute,
+  ])
   const router = createRouter({ routeTree })
   const utils = render(<RouterProvider router={router} />)
   await screen.findByRole('button', { name: /collapse sidebar|expand sidebar/i })
@@ -404,5 +422,55 @@ describe('Sidebar Settings group (rarely used tools pinned above Admin)', () => 
     await user.keyboard('{ArrowDown}{ArrowDown}')
     // EstimAI → Refund → wraps to EstimAI: only the two list tools take part.
     expect(document.activeElement).toBe(estimai)
+  })
+})
+
+// specs/20261119-accounting (AC-8.1, design UX-14, G1): Accounting is an ordinary gated tool, last in the main list, shown
+// only with `apps ∋ accounting` (which `/authz/me` derives from `accounting:read` or `accounting:manage`).
+describe('Sidebar — Accounting (AC-8.1)', () => {
+  it('shows Accounting to a caller whose apps include it, after Projects, linking to /accounting', async () => {
+    usePermissions.mockReturnValue(permissionsWith(['estimai', 'projects', 'accounting']))
+    await renderSidebarAt('/estimai')
+
+    const link = screen.getByRole('link', { name: 'Accounting' })
+    expect(link.getAttribute('href')).toBe('/accounting')
+    const names = screen.getAllByRole('link').map((item) => item.textContent)
+    expect(names).toEqual(['EstimAI', 'Projects', 'Accounting'])
+    // An icon is drawn (every tool has one; the label span carries the accessible name).
+    expect(link.querySelector('svg')).not.toBeNull()
+    expect(link.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('does not show Accounting to a caller without it, whatever else they hold', async () => {
+    usePermissions.mockReturnValue(permissionsWith(['estimai', 'refund', 'admin', 'projects', 'letterheads']))
+    await renderSidebarAt('/estimai')
+
+    expect(screen.queryByRole('link', { name: 'Accounting' })).toBeNull()
+  })
+
+  it('keeps it in the main list (the arrow-key group), not in the Settings group, after Projects and before Admin', async () => {
+    const user = userEvent.setup()
+    usePermissions.mockReturnValue(permissionsWith(['estimai', 'projects', 'accounting', 'admin', 'letterheads']))
+    await renderSidebarAt('/estimai')
+
+    const accounting = screen.getByRole('link', { name: 'Accounting' })
+    const toolList = screen.getByRole('link', { name: 'EstimAI' }).closest('ul')!
+    expect(toolList.contains(accounting)).toBe(true)
+    const projects = screen.getByRole('link', { name: 'Projects' })
+    expect(projects.compareDocumentPosition(accounting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(
+      accounting.compareDocumentPosition(screen.getByRole('link', { name: 'Admin' })) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    screen.getByRole('link', { name: 'EstimAI' }).focus()
+    await user.keyboard('{End}')
+    expect(document.activeElement).toBe(accounting)
+  })
+
+  it('marks Accounting current on any /accounting route', async () => {
+    usePermissions.mockReturnValue(permissionsWith(['estimai', 'accounting']))
+    await renderSidebarAt('/accounting/vat-codes?entity=welld_it')
+
+    expect((await screen.findByRole('link', { name: 'Accounting' })).getAttribute('aria-current')).toBe('page')
   })
 })

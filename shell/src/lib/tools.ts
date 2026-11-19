@@ -15,7 +15,16 @@
 import { strings } from '../strings'
 
 /** Known suite tool ids. Extend this union (and TOOLS below) to add a tool. */
-export type ToolId = 'estimai' | 'refund' | 'admin' | 'inventory' | 'crm' | 'meetings' | 'projects' | 'letterheads'
+export type ToolId =
+  | 'estimai'
+  | 'refund'
+  | 'admin'
+  | 'inventory'
+  | 'crm'
+  | 'meetings'
+  | 'projects'
+  | 'letterheads'
+  | 'accounting'
 
 export interface SuiteTool {
   id: ToolId
@@ -59,6 +68,11 @@ export const TOOLS: readonly SuiteTool[] = [
   // specs/20261116-letterhead-service (AC-8.1): a gated tool, shown to holders of `letterheads:access`. The id is the
   // auth catalog's app id, which is what `/authz/me`'s `apps` carries.
   { id: 'letterheads', label: strings.tools.letterheads, to: '/letterheads' },
+  // specs/20261119-accounting (AC-8.1, design UX-14): a gated tool, last in the sidebar's main list (Letterheads sits in the
+  // Settings group, so it follows Projects and comes before the pinned Admin). Its id is the auth catalog's app id, which is what
+  // `/authz/me`'s `apps` carries; `apps ∋ accounting` is DERIVED there from `accounting:read` or `accounting:manage` covering at
+  // least one entity (ADR 20261117-an-app-is-reachable-… amendment A6), so there is no `accounting:access` permission.
+  { id: 'accounting', label: strings.tools.accounting, to: '/accounting' },
 ]
 
 /**

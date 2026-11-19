@@ -170,3 +170,15 @@ declare module 'letterheads/App' {
 declare module 'letterheads/version' {
   export const REMOTE_VERSION: string
 }
+
+// specs/20261119-accounting: the `accounting` remote — `./App` (the gated tool, `/accounting/*`) and `./version`.
+declare module 'accounting/App' {
+  import type { ComponentType } from 'react'
+
+  const App: ComponentType
+  export default App
+}
+
+declare module 'accounting/version' {
+  export const REMOTE_VERSION: string
+}

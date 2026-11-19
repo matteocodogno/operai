@@ -61,6 +61,7 @@ const {
   getRefundApiBaseUrl,
   getInventoryApiBaseUrl,
   getMeetingsApiBaseUrl,
+  getAccountingApiBaseUrl,
   getLetterheadsApiBaseUrl,
   getProjectsApiBaseUrl,
   getActivitiesApiBaseUrl,
@@ -83,6 +84,7 @@ const MEETINGS_API_URL = 'http://meetings-api.test'
 const PROJECTS_API_URL = 'http://projects-api.test'
 const ACTIVITIES_API_URL = 'http://activities-api.test'
 const LETTERHEADS_API_URL = 'http://letterhead-api.test'
+const ACCOUNTING_API_URL = 'http://accounting-api.test'
 const TARGET_URL = `${API_URL}/estimates`
 const THIRD_PARTY_URL = 'https://evil.example.com/x'
 const SAME_ORIGIN_PATH = '/estimates'
@@ -449,6 +451,48 @@ describe('apiFetch', () => {
       mockFetch.mockResolvedValueOnce(okResponse())
 
       await apiFetch(`${LETTERHEADS_API_URL}/v1/letterheads`)
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      const [, init] = mockFetch.mock.calls[0]
+      const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
+      expect(headers?.['Authorization']).toBeUndefined()
+    })
+
+    // specs/20261119-accounting: accounting-api origin, set via VITE_ACCOUNTING_API_URL, is
+    // trusted so accounting-ui's calls carry the Bearer JWT, and ONLY when set.
+    it('sends Authorization header for a request to the accounting-api origin (VITE_ACCOUNTING_API_URL)', async () => {
+      vi.stubEnv('VITE_ACCOUNTING_API_URL', ACCOUNTING_API_URL)
+      const mockFetch = vi.mocked(fetch)
+
+      mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(okResponse())
+
+      await apiFetch(`${ACCOUNTING_API_URL}/v1/me`)
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      const [, init] = mockFetch.mock.calls[1]
+      expect((init as RequestInit & { headers: Record<string, string> }).headers).toMatchObject({
+        Authorization: `Bearer ${FAKE_JWT}`,
+      })
+    })
+
+    it('does NOT trust the accounting-api origin when VITE_ACCOUNTING_API_URL is unset', async () => {
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse())
+
+      await apiFetch(`${ACCOUNTING_API_URL}/v1/me`)
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      const [, init] = mockFetch.mock.calls[0]
+      const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
+      expect(headers?.['Authorization']).toBeUndefined()
+    })
+
+    it('does NOT send the JWT to the accounting-api origin on a different port or scheme than the configured one', async () => {
+      vi.stubEnv('VITE_ACCOUNTING_API_URL', ACCOUNTING_API_URL)
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse())
+
+      await apiFetch('http://accounting-api.test:9999/v1/me')
 
       expect(mockFetch).toHaveBeenCalledTimes(1)
       const [, init] = mockFetch.mock.calls[0]
@@ -1138,6 +1182,24 @@ describe('getLetterheadsApiBaseUrl', () => {
 
     vi.stubEnv('VITE_LETTERHEADS_API_URL', 'http://second.test')
     expect(getLetterheadsApiBaseUrl()).toBe('http://second.test')
+  })
+})
+
+// getAccountingApiBaseUrl (specs/20261119-accounting) — mirrors getLetterheadsApiBaseUrl(): lazily
+// read, exposed so accounting-ui (a remote with no VITE_* env of its own) sources the API origin from the shell.
+describe('getAccountingApiBaseUrl', () => {
+  it('returns the VITE_ACCOUNTING_API_URL configured on the shell', () => {
+    vi.stubEnv('VITE_ACCOUNTING_API_URL', ACCOUNTING_API_URL)
+
+    expect(getAccountingApiBaseUrl()).toBe(ACCOUNTING_API_URL)
+  })
+
+  it('reads the env lazily, not at module-evaluation time', () => {
+    vi.stubEnv('VITE_ACCOUNTING_API_URL', 'http://first.test')
+    expect(getAccountingApiBaseUrl()).toBe('http://first.test')
+
+    vi.stubEnv('VITE_ACCOUNTING_API_URL', 'http://second.test')
+    expect(getAccountingApiBaseUrl()).toBe('http://second.test')
   })
 })
 

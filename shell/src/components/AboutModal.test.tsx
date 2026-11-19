@@ -50,6 +50,7 @@ function remoteFixture(
     meetings: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
     projects: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
     letterheads: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
+    accounting: () => Promise.resolve({ REMOTE_VERSION: '0.2.0' }),
   }
   return [
     { id: 'estimai', label: 'EstimAI', loader: overrides.estimai ?? defaults.estimai },
@@ -61,6 +62,7 @@ function remoteFixture(
     { id: 'meetings', label: 'Meetings', loader: overrides.meetings ?? defaults.meetings },
     { id: 'projects', label: 'Projects', loader: overrides.projects ?? defaults.projects },
     { id: 'letterheads', label: 'Letterheads', loader: overrides.letterheads ?? defaults.letterheads },
+    { id: 'accounting', label: 'Accounting', loader: overrides.accounting ?? defaults.accounting },
   ]
 }
 

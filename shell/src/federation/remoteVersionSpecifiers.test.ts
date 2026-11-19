@@ -44,6 +44,7 @@ const REMOTE_DIRS: Record<(typeof REMOTE_VERSION_SOURCES)[number]['id'], string>
   meetings: 'meetings-ui',
   projects: 'projects-ui',
   letterheads: 'letterheads-ui',
+  accounting: 'accounting-ui',
 }
 
 const remotesDtsSource = readFileSync(path.join(__dirname, 'remotes.d.ts'), 'utf-8')
@@ -221,5 +222,49 @@ describe('vercel.json CSP — letterheads origins', () => {
       readFileSync(path.resolve(__dirname, '../../public/runtime-config.example.json'), 'utf-8'),
     ) as Record<string, string>
     expect(example['letterheads']).toBe('https://letterheads.operai.welld.io/remoteEntry.js')
+  })
+})
+
+// specs/20261119-accounting: the shell's CSP lets the page load the Accounting remote and reach accounting-api.
+describe('vercel.json CSP — accounting origins', () => {
+  const vercel = JSON.parse(readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf-8')) as {
+    headers: { source: string; headers: { key: string; value: string }[] }[]
+  }
+  const csp =
+    vercel.headers
+      .flatMap((h) => h.headers)
+      .find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
+  const directive = (name: string): string =>
+    csp
+      .split(';')
+      .map((d) => d.trim())
+      .find((d) => d.startsWith(`${name} `)) ?? ''
+
+  it('script-src allows the accounting remote; connect-src the remote and accounting-api', () => {
+    expect(directive('script-src')).toContain('https://accounting.operai.welld.io')
+    expect(directive('connect-src')).toContain('https://accounting.operai.welld.io')
+    expect(directive('connect-src')).toContain('https://accounting-api.operai.welld.io')
+  })
+
+  it('opens no other directive to the accounting origins (the remote is a script, the api is a connection)', () => {
+    expect(directive('script-src')).not.toContain('accounting-api')
+    for (const name of ['default-src', 'style-src', 'font-src', 'img-src', 'media-src', 'frame-ancestors']) {
+      expect(directive(name)).not.toContain('accounting')
+    }
+  })
+
+  it("remotes.d.ts declares 'accounting/App'", () => {
+    expect(remotesDtsSource).toContain("declare module 'accounting/App'")
+  })
+
+  it('runtime-config.example.json lists the accounting remote entry', () => {
+    const example = JSON.parse(
+      readFileSync(path.resolve(__dirname, '../../public/runtime-config.example.json'), 'utf-8'),
+    ) as Record<string, string>
+    expect(example['accounting']).toBe('https://accounting.operai.welld.io/remoteEntry.js')
+  })
+
+  it("the shell's dev default for the remote is accounting-ui's pinned port (5183)", () => {
+    expect(shellViteConfigSource).toContain("'http://localhost:5183/remoteEntry.js'")
   })
 })
