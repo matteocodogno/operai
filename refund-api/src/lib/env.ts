@@ -100,6 +100,17 @@ const envSchema = z
     SERVICE_CLIENT_SECRET: z
       .string()
       .min(32, "SERVICE_CLIENT_SECRET must be at least 32 characters"),
+    // ─── Accounting (T17, specs/20261119-accounting; plan § "How Refund reads Accounting", ADR 20261119-accounting-reference-data-belongs-to-accounting-api-...) ──
+    // accounting-api's base URL for the live, read-only reference-data and rate reads (`/system/v1/*`), authenticated with
+    // refund-api's own service JWT (scope `accounting.reference.read`, via SERVICE_CLIENT_* above). Production (Railway):
+    // accounting-api's PRIVATE-networking address, never its public domain. Required: the service refuses to start
+    // without it. Only http(s) is accepted, and the client never follows a redirect, so the URL is the only place the
+    // service token can go.
+    ACCOUNTING_INTERNAL_URL: z
+      .string()
+      .url("ACCOUNTING_INTERNAL_URL must be a valid absolute URL")
+      .refine((v) => /^https?:\/\//i.test(v), "ACCOUNTING_INTERNAL_URL must be an http(s) URL")
+      .transform((v) => v.replace(/\/+$/, "")),
     // ─── Monthly batch processing (T14, specs/20260719-refund-monthly-processing,
     // ADR 20260719-refund-batch-signed-link-email-delivery) ────────────────────────────────────────────────────────────
     // specs/20260722-refund-settings (AC-4.1, D7, ADR 20260722-batch-email-recipient-live-resolution-amends-0021) — the accounting/
