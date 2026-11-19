@@ -35,7 +35,6 @@
  */
 
 import { db } from "../lib/db";
-import { env } from "../lib/env";
 import { fetchBazgMonth, FX_CALL_TIMEOUT_MS, type FxFetcher } from "./bazgSource";
 import {
   effectiveEntry,
@@ -264,5 +263,5 @@ export function createFxService(deps: FxServiceDeps) {
 
 export type FxService = ReturnType<typeof createFxService>;
 
-/** The service the routes use: real clock, real fetch, the source chosen by `REFUND_FX_SOURCE`. */
-export const fxService: FxService = createFxService({ mode: env.REFUND_FX_SOURCE });
+// T23 (specs/20261119-accounting): the `fxService` singleton, wired from `REFUND_FX_SOURCE`, is gone with the routes that used it.
+// This file moves to accounting-api in T11 (the source switch there is `ACCOUNTING_FX_SOURCE`).

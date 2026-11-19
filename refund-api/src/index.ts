@@ -19,9 +19,7 @@ import { batchDecideRouter } from "./batches/decide.routes";
 import { ratesRouter } from "./rates/routes";
 import { rateEffectiveRouter } from "./rates/effective.routes";
 import { settingsRouter } from "./settings/routes";
-import { catalogRouter } from "./accounting/catalog.routes";
 import { defaultsRouter } from "./accounting/defaults.routes";
-import { fxRouter } from "./fx/fx.routes";
 import { classificationRouter } from "./accounting/classification.routes";
 import { exportRouter } from "./accounting/export.routes";
 import { requestLogger } from "./lib/logger";
@@ -101,15 +99,13 @@ app.route("/", rateEffectiveRouter);
 // settingsRouter: refund-settings management (GET/PUT /settings/:key), gated
 // by the new settings:read/settings:manage capability — specs/20260722-refund-settings (T3).
 app.route("/", settingsRouter);
-// catalogRouter: ledger accounts + VAT codes, add / deactivate / reactivate, gated by
-// settings:read / settings:manage — specs/20261118-refund-accounting-export (T6).
-app.route("/", catalogRouter);
 // defaultsRouter: the default account / VAT code per expense type and the foreign-currency
-// VAT code, specs/20261118-refund-accounting-export (T7).
+// VAT code, specs/20261118-refund-accounting-export (T7), on copies of Accounting's entries since T18 of 20261119.
 app.route("/", defaultsRouter);
-// fxRouter: monthly exchange rates (list, fetch now, admin correction), gated by
-// settings:read / settings:manage — specs/20261118-refund-accounting-export (T10).
-app.route("/", fxRouter);
+// NOT MOUNTED any more (specs/20261119-accounting T23, AC-3.7, AC-4.6): the ledger accounts, the VAT codes and the monthly exchange
+// rates are Accounting's (accounting-api, `/v1/entities/{entity}/...`). `/accounting/ledger-accounts*`, `/accounting/vat-codes*` and
+// `/exchange-rates*` answer 404 here for everyone, a `settings:manage` holder included (`removed-routes.test.ts`). Refund reads
+// Accounting, as itself, through `accounting/accountingClient.ts`.
 // classificationRouter: a request's accounting view and the active classification options, gated by
 // request:review + entity scope — specs/20261118-refund-accounting-export (T13; T14 adds the PUT).
 app.route("/", classificationRouter);

@@ -21,7 +21,7 @@
  * - The capability is checked in a middleware BEFORE the body is validated.
  *
  * `createFxRouter` takes the service and the clock, so tests inject a fake
- * source; `fxRouter` is the one `index.ts` mounts.
+ * source. (`index.ts` no longer mounts it: T23, specs/20261119-accounting.)
  */
 
 import { createRoute, OpenAPIHono, type z } from "@hono/zod-openapi";
@@ -41,7 +41,7 @@ import {
   type RateCurrency,
   type RateEntry,
 } from "./fx.repo";
-import { fxService, type FxService } from "./fx.service";
+import type { FxService } from "./fx.service";
 import {
   FetchRatesBodySchema,
   FetchRatesResponseSchema,
@@ -324,4 +324,5 @@ export function createFxRouter(service: FxService, now: () => Date = () => new D
   return router;
 }
 
-export const fxRouter = createFxRouter(fxService);
+// T23 (specs/20261119-accounting): the mounted `fxRouter` singleton is gone, nothing in refund-api serves exchange rates any more.
+// `createFxRouter` moves to accounting-api in T12.
