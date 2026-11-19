@@ -11,6 +11,8 @@ import { requestLogger } from "./lib/logger";
 import { meRouter } from "./me/me.routes";
 import { handleProblemError, problem, validationHook } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
+import { createRatesRouter } from "./rates/rates.routes";
+import { createRatesService } from "./rates/rates.service";
 
 // Exported so tests (and the route matrix of the later tasks) can read the ASSEMBLED app;
 // Bun serves only the default export below.
@@ -49,9 +51,15 @@ app.use(
 // Each area router is mounted here, once, by the task that owns it (tasks.md § Shared registries:
 // T4 → T6 → T8 → T12 → T13).
 
+// The one rates service of the process: the user routes (manager) and the system routes (consumer) share it, because
+// single flight and the throttle's in-process half are per service instance. ACCOUNTING_FX_SOURCE=off makes every attempt a
+// `disabled` row with no outbound call.
+const ratesService = createRatesService({ mode: env.ACCOUNTING_FX_SOURCE });
+
 app.route("/", healthRouter);
 app.route("/", meRouter);
 app.route("/", catalogRouter);
+app.route("/", createRatesRouter(ratesService));
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 

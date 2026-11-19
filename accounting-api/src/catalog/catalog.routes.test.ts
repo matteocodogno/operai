@@ -443,7 +443,8 @@ describe("(AC-1.12) there is no way to change or delete an entry", () => {
     const res = await app.request("/openapi.json");
     expect(res.status).toBe(200);
     const paths = ((await res.json()) as { paths: Record<string, Record<string, unknown>> }).paths;
-    const catalog = Object.entries(paths).filter(([path]) => path.startsWith("/v1/entities/"));
+    // The exchange-rates routes (T12) are the one entity-scoped surface that has a PUT: their own tests prove them.
+    const catalog = Object.entries(paths).filter(([path]) => path.startsWith("/v1/entities/") && !path.includes("/exchange-rates"));
     expect(catalog.map(([path]) => path).sort()).toEqual([
       "/v1/entities/{entity}/ledger-accounts",
       "/v1/entities/{entity}/ledger-accounts/{number}/deactivate",
