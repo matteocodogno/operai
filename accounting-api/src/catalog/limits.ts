@@ -24,6 +24,24 @@ export const LIMITS = {
   vatRateMaxPercent: 100,
 } as const;
 
+/**
+ * How many entries one entity may hold, deactivated ones included (entries are never deleted, so this is a cap on rows;
+ * security-review F-01, plan sync pending). Separate from `LIMITS` because accounting-ui does not mirror it: it is the server's
+ * protection of a consumer, not a field rule.
+ *
+ * WHY THESE NUMBERS. Refund reads an entity's WHOLE catalog in one body and refuses anything over its own
+ * `ACCOUNTING_MAX_BODY_BYTES` (256 KiB) as `too_large`, which turns every approve, classify and release into a 503. The largest
+ * answer the field limits allow is 538 bytes per account (20-digit number, 120 four-byte characters) and 397 per VAT code (16-character
+ * code, 80 four-byte characters), so 200 accounts and 50 VAT codes come to about 127.8 KB: under HALF of that cap, with the
+ * rest as room for the envelope, a larger limit of the consumer's own, and a limit raised here by mistake (the cross-package
+ * test `catalog.cap.cross-package.test.ts` fails first). A real chart of accounts of a small company is far below it (the WellD CH seed
+ * holds a handful); an accountant who needs more raises it together with that test and with Refund's reading side.
+ */
+export const CATALOG_CAPS = {
+  ledgerAccountsPerEntity: 200,
+  vatCodesPerEntity: 50,
+} as const;
+
 /** Why a value is refused. `range` is a well-formed number outside its bounds (T9: a VAT rate). */
 export type FieldReason = "empty" | "format" | "too_long" | "range";
 
@@ -37,6 +55,21 @@ const LEDGER_NUMBER = /^[0-9]+(\.[0-9]+)*$/;
 
 /** C0 controls and DEL: nothing a person types into a name or a label. */
 const CONTROL = /[\u0000-\u001f\u007f]/;
+
+/**
+ * A string with nothing to see in it: white space and the invisible format characters (Unicode category Cf: zero-width
+ * space and joiners, left-to-right and right-to-left marks, the bidi embeddings and isolates, word joiner, soft hyphen,
+ * byte order mark), plus the three fillers that draw nothing (Hangul fillers, Braille blank). `String.trim()` removes
+ * only White_Space, so a name of U+200B alone survived it (QE D-6, AC-1.2 "only blanks").
+ */
+const BLANK = /^[\p{White_Space}\p{Cf}\u115F\u1160\u3164\uFFA0\u2800]*$/u;
+
+/** Characters as a person counts them: code points, not UTF-16 units (an emoji is one, and the database CHECK counts them so too). */
+const lengthOf = (value: string): number => {
+  let count = 0;
+  for (const _ of value) count++;
+  return count;
+};
 
 /** What a field holds before its check: a string, or the absence of one (missing and `null` read as empty). */
 function trimmed(input: unknown): string | null {
@@ -58,9 +91,9 @@ export function checkLedgerNumber(input: unknown): LimitCheck {
 export function checkText(input: unknown, max: number): LimitCheck {
   const value = trimmed(input);
   if (value === null) return refused("format");
-  if (value === "") return refused("empty");
+  if (value === "" || BLANK.test(value)) return refused("empty");
   if (CONTROL.test(value)) return refused("format");
-  if (value.length > max) return refused("too_long");
+  if (lengthOf(value) > max) return refused("too_long");
   return ok(value);
 }
 
@@ -77,6 +110,16 @@ export const upperCaseCode = (input: string): string => input.replace(/[a-z]/g, 
 
 /** Capital letters, digits, `_` and `-`. Same pattern as the database CHECK (the length is checked apart). */
 const VAT_CODE = /^[A-Z0-9_-]+$/;
+
+/**
+ * The lookup keys of the URL (`{number}`, `{code}`): exactly what an entry can be stored as, no trimming and no repair. A key
+ * that fails is an entry that cannot exist, which the routes answer as 404 without asking the database (a NUL byte there
+ * is a value Postgres cannot even compare: it was a 500, QE D-1).
+ */
+export const isLedgerNumberKey = (key: string): boolean => key.length <= LIMITS.ledgerNumberMax && LEDGER_NUMBER.test(key);
+
+/** `key` is already upper-cased (`upperCaseCode`). */
+export const isVatCodeKey = (key: string): boolean => key.length <= LIMITS.vatCodeMax && VAT_CODE.test(key);
 
 /** A VAT code, trimmed and converted to capital letters (AC-1.5): the form the database stores and every lookup uses. */
 export function checkVatCode(input: unknown): LimitCheck {

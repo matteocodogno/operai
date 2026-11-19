@@ -11,7 +11,10 @@ import {
   checkVatCode,
   checkVatLabel,
   checkVatRatePercent,
+  CATALOG_CAPS,
   describeRefusal,
+  isLedgerNumberKey,
+  isVatCodeKey,
   LIMITS,
   upperCaseCode,
 } from "./limits";
@@ -134,5 +137,73 @@ describe("describeRefusal", () => {
     expect(describeRefusal({ field: "name", reason: "too_long" })).toBe("name is too long");
     expect(describeRefusal({ field: "number", reason: "format" })).toBe("number has an invalid format");
     expect(describeRefusal({ field: "ratePercent", reason: "range" })).toBe("ratePercent is outside the allowed range");
+  });
+});
+
+describe("a blank is nothing to see, and a length is counted in characters (D-6, AC-1.2)", () => {
+  const INVISIBLE = [
+    ["a zero-width space", "\u200B"],
+    ["a zero-width non-joiner and joiner", "\u200C\u200D"],
+    ["a left-to-right and a right-to-left mark", "\u200E\u200F"],
+    ["a bidi embedding and its pop", "\u202A\u202C"],
+    ["a bidi isolate and its pop", "\u2066\u2069"],
+    ["an Arabic letter mark", "\u061C"],
+    ["a word joiner", "\u2060"],
+    ["a byte order mark", "\uFEFF"],
+    ["a soft hyphen", "\u00AD"],
+    ["a no-break space and an ideographic space", "\u00A0\u3000"],
+    ["a Hangul filler", "\u3164"],
+    ["a Braille blank", "\u2800"],
+  ] as const;
+
+  it.each(INVISIBLE)("a name or a label made only of %s is `empty`, however many of them", (_what, chars) => {
+    for (const blank of [chars, chars.repeat(5), ` ${chars} `, `\t${chars}\n`]) {
+      expect(checkLedgerName(blank)).toEqual({ ok: false, reason: "empty" });
+      expect(checkVatLabel(blank)).toEqual({ ok: false, reason: "empty" });
+      expect(checkText(blank, 5)).toEqual({ ok: false, reason: "empty" });
+    }
+  });
+
+  it("a visible character among the invisible ones makes it a name, kept as typed (only the ends are trimmed)", () => {
+    expect(checkLedgerName("\u200Bspese\u200B")).toEqual({ ok: true, value: "\u200Bspese\u200B" });
+    expect(checkLedgerName("a\u200Bb")).toEqual({ ok: true, value: "a\u200Bb" });
+    // an emoji sequence joined by ZWJ is a name, not a blank
+    expect(checkVatLabel("\u{1F468}\u200D\u{1F4BB}")).toEqual({ ok: true, value: "\u{1F468}\u200D\u{1F4BB}" });
+  });
+
+  it("an invisible character with a NUL or another control is still `format`, a NUL alone too (never a 500)", () => {
+    expect(checkLedgerName("\u200B\u0000")).toEqual({ ok: false, reason: "format" });
+    expect(checkLedgerName("\u0000")).toEqual({ ok: false, reason: "format" });
+    expect(checkVatLabel("a\u0007")).toEqual({ ok: false, reason: "format" });
+  });
+
+  it("counts code points: 120 emoji are a name of 120 characters, 121 are `too_long`", () => {
+    const emoji = "\u{1F600}";
+    expect(checkLedgerName(emoji.repeat(120))).toEqual({ ok: true, value: emoji.repeat(120) });
+    expect(checkLedgerName(emoji.repeat(121))).toEqual({ ok: false, reason: "too_long" });
+    expect(checkVatLabel(emoji.repeat(80))).toEqual({ ok: true, value: emoji.repeat(80) });
+    expect(checkVatLabel(emoji.repeat(81))).toEqual({ ok: false, reason: "too_long" });
+    expect(checkLedgerName("a".repeat(120))).toEqual({ ok: true, value: "a".repeat(120) });
+    expect(checkLedgerName("a".repeat(121))).toEqual({ ok: false, reason: "too_long" });
+  });
+});
+
+describe("the key of a URL is exactly what an entry can be stored as (D-1)", () => {
+  it("a ledger number key: digits and single dots, 1 to 20 characters, nothing trimmed or repaired", () => {
+    for (const ok of ["5905", "2620.1", "1.2.3", "0", "1".repeat(20)]) expect(isLedgerNumberKey(ok)).toBe(true);
+    for (const bad of ["", "5905\u0000", "\u00005905", "5905\n", " 5905", "59 05", "5905.", ".5", "59..05", "１２３", "1".repeat(21), "9".repeat(5000)]) {
+      expect(isLedgerNumberKey(bad)).toBe(false);
+    }
+  });
+
+  it("a VAT code key (already in capital letters): capitals, digits, `_` and `-`, 1 to 16 characters", () => {
+    for (const ok of ["IMP81", "A", "A_B-9", "A".repeat(16)]) expect(isVatCodeKey(ok)).toBe(true);
+    for (const bad of ["", "IMP\u0000", "IMP\n", "imp81", "IMP 81", "ß", "A".repeat(17), "A".repeat(5000)]) expect(isVatCodeKey(bad)).toBe(false);
+  });
+});
+
+describe("CATALOG_CAPS", () => {
+  it("pins the caps; the size they allow is asserted against refund-api in `catalog.cap.cross-package.test.ts`", () => {
+    expect(CATALOG_CAPS).toEqual({ ledgerAccountsPerEntity: 200, vatCodesPerEntity: 50 });
   });
 });

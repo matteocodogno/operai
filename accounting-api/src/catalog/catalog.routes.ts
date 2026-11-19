@@ -54,6 +54,7 @@ import {
   VatCodeParamsSchema,
 } from "./catalog.schemas";
 import {
+  CATALOG_CAPS,
   checkLedgerName,
   checkLedgerNumber,
   checkVatCode,
@@ -92,6 +93,18 @@ function bodyFailure(code: string, issues: readonly { path: readonly PropertyKey
   // A body that is not an object at all (`null`, a list, a string): every field is wrong.
   return refusedFields(code, fields.length > 0 ? fields : known.map((field) => ({ field, reason: "format" as const })));
 }
+
+/**
+ * 409 `catalog_full`: the entity holds as many entries as it may (deactivated ones count: nothing is ever deleted), so
+ * nothing was added (security-review F-01). The reader of the catalog, Refund, takes the whole of it in one body.
+ */
+const catalogFull = (what: string, entity: Entity, limit: number): ProblemError =>
+  new ProblemError({
+    status: 409,
+    code: "catalog_full",
+    detail: `Nothing was added: ${entity} already has the most ${what} it can hold (${limit}, deactivated ones included)`,
+    extras: { limit },
+  });
 
 // ─── Router ──────────────────────────────────────────────────────────────────
 
@@ -167,7 +180,8 @@ const addAccountRoute = createRoute({
   description:
     "The number is digits separated by single dots (1 to 20 characters), the name 1 to 120 characters; blanks around " +
     "either are removed first (AC-1.2). The same number in the same entity is refused whether the first is active or " +
-    "deactivated (AC-1.3); the same number in the other entity is accepted.",
+    "deactivated (AC-1.3); the same number in the other entity is accepted. An entity holds at most " +
+    `${CATALOG_CAPS.ledgerAccountsPerEntity} accounts, deactivated ones included (409 \`catalog_full\`).`,
   security: [{ Bearer: [] }],
   request: {
     params: EntityParamsSchema,
@@ -175,7 +189,9 @@ const addAccountRoute = createRoute({
   },
   responses: {
     201: json(LedgerAccountItemSchema, "The new, active account (AC-1.1)"),
-    409: problemResponse("`ledger_account_duplicate` with `number` and `reactivate` (true when the existing entry is deactivated)"),
+    409: problemResponse(
+      "`ledger_account_duplicate` with `number` and `reactivate` (true when the existing entry is deactivated), or `catalog_full` with `limit` (the entity holds the most it may, deactivated ones included)",
+    ),
     422: problemResponse("`invalid_ledger_account` with `fields[{ field, reason }]`"),
     ...COMMON_REFUSALS,
   },
@@ -193,6 +209,7 @@ catalogRouter.openapi(addAccountRoute, async (c) => {
   if (!number.ok || !name.ok) throw refusedFields("invalid_ledger_account", fields);
 
   const outcome = await createLedgerAccount(entity, { number: number.value, name: name.value }, actorOf(c));
+  if (outcome.kind === "full") throw catalogFull("ledger accounts", entity, outcome.limit);
   if (outcome.kind === "duplicate") {
     throw new ProblemError({
       status: 409,
@@ -269,7 +286,8 @@ const addVatCodeRoute = createRoute({
   description:
     "The code is 1 to 16 capital letters, digits, `_` or `-` (lower case is converted first), the label 1 to 80 " +
     "characters, the rate 0 to 100 percent with at most two decimals (AC-1.5). A code equal to an existing one " +
-    "ignoring case, active or deactivated, is refused naming it (AC-1.6); the same code in the other entity is accepted.",
+    "ignoring case, active or deactivated, is refused naming it (AC-1.6); the same code in the other entity is accepted. " +
+    `An entity holds at most ${CATALOG_CAPS.vatCodesPerEntity} codes, deactivated ones included (409 \`catalog_full\`).`,
   security: [{ Bearer: [] }],
   request: {
     params: EntityParamsSchema,
@@ -277,7 +295,9 @@ const addVatCodeRoute = createRoute({
   },
   responses: {
     201: json(VatCodeItemSchema, "The new, active code (AC-1.5)"),
-    409: problemResponse("`vat_code_duplicate` with `vatCode` and `reactivate` (true when the existing code is deactivated)"),
+    409: problemResponse(
+      "`vat_code_duplicate` with `vatCode` and `reactivate` (true when the existing code is deactivated), or `catalog_full` with `limit` (the entity holds the most it may, deactivated ones included)",
+    ),
     422: problemResponse("`invalid_vat_code` with `fields[{ field, reason }]`"),
     ...COMMON_REFUSALS,
   },
@@ -301,6 +321,7 @@ catalogRouter.openapi(addVatCodeRoute, async (c) => {
     { code: code.value, label: label.value, rateBasisPoints: percentToBasisPoints(rate.value) },
     actorOf(c),
   );
+  if (outcome.kind === "full") throw catalogFull("VAT codes", entity, outcome.limit);
   if (outcome.kind === "duplicate") {
     throw new ProblemError({
       status: 409,

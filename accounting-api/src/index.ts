@@ -8,6 +8,7 @@ import type { Context } from "hono";
 import { catalogRouter } from "./catalog/catalog.routes";
 import { healthRouter } from "./health/health.routes";
 import { requestLogger } from "./lib/logger";
+import { userRouteHeaders } from "./lib/userRouteHeaders";
 import { meRouter } from "./me/me.routes";
 import { handleProblemError, problem, validationHook } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
@@ -37,6 +38,9 @@ app.use(
 // Log method / PATH ONLY (no query string) / status / duration — NEVER log bodies or query strings
 // (src/lib/logger.ts).
 app.use("*", requestLogger());
+
+// `no-store` and `nosniff` on every answer of the user routes (F-07); the system routes set `no-store` themselves.
+app.use("/v1/*", userRouteHeaders);
 
 // A global cap on request bodies: the largest legitimate body is a ledger account or a VAT code
 // (a few short fields), so 4 KiB is generous. Refused as a 413 Problem before anything is parsed.

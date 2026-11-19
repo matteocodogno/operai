@@ -28,6 +28,7 @@ import type { Prisma } from "../lib/generated/prisma/client";
 import { db } from "../lib/db";
 import type { Entity } from "../entities";
 import type { LedgerAccountItem, VatCodeItem } from "./catalog.schemas";
+import { CATALOG_CAPS, isLedgerNumberKey, isVatCodeKey } from "./limits";
 
 export interface Actor {
   readonly userId: string;
@@ -133,7 +134,17 @@ export async function listVatCodes(entity: Entity, client: Client = db): Promise
 export type CreateOutcome<T> =
   | { readonly kind: "created"; readonly item: T }
   /** `reactivate`: the number exists and is deactivated, so the way forward is to reactivate it (G9). */
-  | { readonly kind: "duplicate"; readonly reactivate: boolean };
+  | { readonly kind: "duplicate"; readonly reactivate: boolean }
+  /** The entity holds as many entries (deactivated ones included) as `CATALOG_CAPS` allows: nothing was written (F-01). */
+  | { readonly kind: "full"; readonly limit: number };
+
+/**
+ * One creation at a time per entity and kind: the count that decides "full" and the insert that follows it are one step,
+ * so two concurrent creations at the cap minus one cannot both pass. Released with the transaction.
+ */
+async function lockCatalog(tx: Client, kind: "ledger_account" | "vat_code", entity: Entity): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`catalog:${kind}:${entity}`}))`;
+}
 
 /** A unique violation, however the driver reports it: Prisma's `P2002`, or the raw SQLSTATE 23505 behind it. */
 function isUniqueViolation(error: unknown): boolean {
@@ -151,17 +162,24 @@ export async function createLedgerAccount(
   input: { readonly number: string; readonly name: string },
   actor: Actor,
 ): Promise<CreateOutcome<LedgerAccountItem>> {
-  const existing = await findLedgerAccount(entity, input.number);
-  if (existing) return { kind: "duplicate", reactivate: !isActive(existing) };
   try {
-    const row = await db.ledgerAccount.create({
-      data: { entity, number: input.number, name: input.name, createdByUserId: actor.userId, createdByEmail: actor.email },
-      include: latestStatus,
+    return await db.$transaction(async (tx): Promise<CreateOutcome<LedgerAccountItem>> => {
+      await lockCatalog(tx, "ledger_account", entity);
+      // A duplicate is told as a duplicate even at the cap: the way forward (reactivate) is still open to the caller.
+      const existing = await tx.ledgerAccount.findUnique({ where: { entity_number: { entity, number: input.number } }, include: latestStatus });
+      if (existing) return { kind: "duplicate", reactivate: !isActive(existing) };
+      if ((await tx.ledgerAccount.count({ where: { entity } })) >= CATALOG_CAPS.ledgerAccountsPerEntity) {
+        return { kind: "full", limit: CATALOG_CAPS.ledgerAccountsPerEntity };
+      }
+      const row = await tx.ledgerAccount.create({
+        data: { entity, number: input.number, name: input.name, createdByUserId: actor.userId, createdByEmail: actor.email },
+        include: latestStatus,
+      });
+      return { kind: "created", item: toLedgerAccountItem(row) };
     });
-    return { kind: "created", item: toLedgerAccountItem(row) };
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
-    // Lost the race: the winner's row is there now, so the loser is told what the pre-check would have told it.
+    // Another writer got in without the lock (the seed script): the winner's row is there now, so the loser is told what the pre-check would have told it.
     const winner = await findLedgerAccount(entity, input.number);
     return { kind: "duplicate", reactivate: winner !== null && !isActive(winner) };
   }
@@ -177,21 +195,27 @@ export async function createVatCode(
   input: { readonly code: string; readonly label: string; readonly rateBasisPoints: number },
   actor: Actor,
 ): Promise<CreateOutcome<VatCodeItem>> {
-  const existing = await findVatCode(entity, input.code);
-  if (existing) return { kind: "duplicate", reactivate: !isActive(existing) };
   try {
-    const row = await db.vatCode.create({
-      data: {
-        entity,
-        code: input.code,
-        label: input.label,
-        rateBasisPoints: input.rateBasisPoints,
-        createdByUserId: actor.userId,
-        createdByEmail: actor.email,
-      },
-      include: latestStatus,
+    return await db.$transaction(async (tx): Promise<CreateOutcome<VatCodeItem>> => {
+      await lockCatalog(tx, "vat_code", entity);
+      const existing = await tx.vatCode.findUnique({ where: { entity_code: { entity, code: input.code } }, include: latestStatus });
+      if (existing) return { kind: "duplicate", reactivate: !isActive(existing) };
+      if ((await tx.vatCode.count({ where: { entity } })) >= CATALOG_CAPS.vatCodesPerEntity) {
+        return { kind: "full", limit: CATALOG_CAPS.vatCodesPerEntity };
+      }
+      const row = await tx.vatCode.create({
+        data: {
+          entity,
+          code: input.code,
+          label: input.label,
+          rateBasisPoints: input.rateBasisPoints,
+          createdByUserId: actor.userId,
+          createdByEmail: actor.email,
+        },
+        include: latestStatus,
+      });
+      return { kind: "created", item: toVatCodeItem(row) };
     });
-    return { kind: "created", item: toVatCodeItem(row) };
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
     const winner = await findVatCode(entity, input.code);
@@ -223,6 +247,8 @@ export async function setLedgerAccountActive(
   target: boolean,
   actor: Actor,
 ): Promise<StatusOutcome<LedgerAccountItem>> {
+  // A key no entry can have is not found without asking the database (a NUL byte in it would be a 500: QE D-1).
+  if (!isLedgerNumberKey(number)) return { kind: "not_found" };
   return db.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ id: string }[]>`
       SELECT "id" FROM "ledger_account"
@@ -253,6 +279,7 @@ export async function setVatCodeActive(
   target: boolean,
   actor: Actor,
 ): Promise<StatusOutcome<VatCodeItem>> {
+  if (!isVatCodeKey(code)) return { kind: "not_found" };
   return db.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ id: string }[]>`
       SELECT "id" FROM "vat_code"
