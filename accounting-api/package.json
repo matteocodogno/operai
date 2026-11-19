@@ -9,6 +9,7 @@
     "db:migrate": "node node_modules/prisma/build/index.js migrate dev",
     "db:deploy": "node node_modules/prisma/build/index.js migrate deploy 2>&1",
     "db:generate": "node node_modules/prisma/build/index.js generate",
+    "seed:welld-ch": "bun run scripts/seed-welld-ch.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

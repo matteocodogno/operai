@@ -1,5 +1,5 @@
 {
-  "_note": "DRAFT read off accounting's 2026 register (plan D1, D13). Reviewed by accounting before the release (T39): `bun run accounting:release --dry-run` prints what it would do. Applied only where nothing exists yet. Account names are taken verbatim from the WellD CH chart of accounts in the register (2026-11-19).",
+  "_note": "DRAFT read off accounting's 2026 register (plan D1, D13 of 20261118). Reviewed by accounting before the release: `bun run seed:welld-ch --dry-run` prints what it would add. Applied only where nothing exists yet: an account number or a VAT code that is already there is never touched. Account names are taken verbatim from the WellD CH chart of accounts in the register (2026-11-19). The type defaults and the foreign-currency VAT code are Refund's own: refund-api/scripts/data/accounting-defaults.welld-ch.json.",
   "ledgerAccounts": [
     { "number": "5901", "name": "Spese viaggi in treno" },
     { "number": "5904", "name": "Spese viaggi altri mezzi pubblici" },
@@ -21,20 +21,5 @@
     { "code": "IMP81", "label": "IVA 8.1%", "ratePercent": "8.1" },
     { "code": "IMP77", "label": "IVA 7.7%", "ratePercent": "7.7" },
     { "code": "NOVAT", "label": "Senza IVA", "ratePercent": "0" }
-  ],
-  "typeDefaults": {
-    "travel_km": { "ledgerAccount": "5905", "vatCode": "NOVAT" },
-    "travel_train": { "ledgerAccount": "5901", "vatCode": "IMP81" },
-    "travel_other_public_transport": { "ledgerAccount": "5904", "vatCode": "IMP81" },
-    "travel_highway": { "ledgerAccount": "5906", "vatCode": "IMP81" },
-    "travel_parking": { "ledgerAccount": "5907", "vatCode": "IMP81" },
-    "representation_meals": { "ledgerAccount": "6701", "vatCode": "IMP81" },
-    "representation_gifts": { "ledgerAccount": null, "vatCode": "IMP81" },
-    "office_material": { "ledgerAccount": "6101", "vatCode": "IMP81" },
-    "stationery": { "ledgerAccount": "6101", "vatCode": "IMP81" },
-    "company_manuals": { "ledgerAccount": "6101", "vatCode": null },
-    "postal": { "ledgerAccount": "6104", "vatCode": "NOVAT" },
-    "telephone": { "ledgerAccount": "6102", "vatCode": "IMP81" }
-  },
-  "foreignCurrencyVatCode": "NOVAT"
+  ]
 }
