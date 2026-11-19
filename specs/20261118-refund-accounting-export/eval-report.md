@@ -1,9 +1,11 @@
 ---
 spec: 20261118
 evaluated: 2026-11-19
+round: 2
 rubric: default-v2
-score: 73.9
+score: 76.5
 verdict: FAIL
+round1_score: 73.9
 ---
 # Eval report: Refund accounting — ledger accounts, VAT, receipt numbers and the batch export
 
@@ -126,3 +128,121 @@ stays at 2 for this run either way.
   4. Re-run `/wellforge:eval 20261118-refund-accounting-export`.
 - No dev rework of product code is required for the eval. The open security follow-ups are release decisions for T39
   and T40, and the evaluator did not change any code.
+
+---
+
+# Round 2 (2026-11-19, HEAD `58f70e2b`)
+
+The front matter now carries the round-2 result. The round-1 report above is kept unchanged, except that its front
+matter was overwritten. Round 1 scored **73.9**, FAIL, at `19d1f2b5`.
+
+**Range.** `git log 2e40d52b..HEAD` holds six commits:
+
+| Commit | Content |
+|---|---|
+| `1722ef0e` | T31/T32 reopened |
+| `90c47468` | spec "owner to confirm" |
+| `d318707f` | ADR/plan/AGENTS/infra drift |
+| `025dda21` | design.md implementation sync + browser a11y pass + T43 |
+| `58926fee` | T43 refund-ui a11y fixes |
+| `58f70e2b` | run trace |
+
+The only product code that changed is refund-ui: 5 components and pages, plus `strings.ts`. `git diff 2e40d52b HEAD`
+is empty for `refund-api`, `auth`, `shell` and `operai-ui`. So the round-1 runs still hold for those packages:
+
+- refund-api 1426/0 and tsc clean;
+- auth 1416 pass, 36 skip, 0 fail.
+
+**Re-run by me at HEAD.** refund-ui:
+
+- `vitest run`: **1267 pass** (81 files), matching the coordinator's figure;
+- `tsc -b`, `eslint .` and `vite build`: all clean.
+
+## What changed, checked against the round-1 findings
+
+**Spec fidelity**
+
+| Round-1 finding | Status at HEAD | Evidence |
+|---|---|---|
+| (a) Stale classification ADR | **Closed** | Decision 4 now states `supportedConditions: ["entity", "self-approval"]`, seeded like `approve`. It adds the line-level scope, the either-grant rule and the "seed never rewrites" note, and removes `classification_required`. Decision 8 points at the line-level scope. The other four 20261118 ADRs were also synced (the G6 budget, G8 "logged only", IS-6, SR-3/4, G10), as were AGENTS.md and infra/README.md (`d318707f`). |
+| (b) plan.md:1028 misattribution | **Closed** | It now reads "by the product-owner agent, during the unattended run … pending the owner's review". |
+| (c) Amended ACs not marked | **Closed** | Every amended or added AC and the new domain term are tagged "(owner to confirm)". A new open question asks for confirmation of A1/A2 (owner: Matteo Codogno). A word-level diff (tags stripped) confirms **no AC wording changed**: the commit only adds tags, one sentence and one open question. |
+| (d) Minor contract drift | **Open** | `resolveClassification(line, overrides, defaults, foreignVatCodeId)` is still the signature in plan.md:53 and in ADR decision 1, but the code takes `(line, defaults, foreignCurrencyVatCode)`. `invalid_classification`, `invalid_default`, `invalid_month`, `invalid_request` and `export_log_failed` are still named in neither plan.md nor design.md. |
+
+**Design fidelity**
+
+| Round-1 finding | Status at HEAD | Evidence |
+|---|---|---|
+| (a) Never seen in a browser | **Largely closed** | design.md § Browser accessibility pass: an isolated Chrome with axe-core 4.14 on every state, light and dark themes, 320 px reflow, a manual contrast scan, and 61 screenshots. **Limits, stated by the designer:** <br>• refund-ui ran standalone with a stubbed shell and a mocked API, so it is not the shell mount and server behaviour is not tested; <br>• no real screen reader, no Italian locale, no paid-batch state; <br>• the pass was not re-run on the T43 fixes. |
+| (b) Fix-round states undesigned | **Closed** | § Implementation sync adds S7a (self-restricted), S7b (out of scope), S5a (`throttled`/`deferred`/`not_fetchable`), S5b and S8a, and reconciles the built screens with the design. |
+| (c) FR-5 gap | **Closed in code** | A-1 (High) was fixed in T43 (`ReviewDetailPage.tsx`): out-of-scope rows are counted, the summary is focused when no select can take focus, and the out-of-scope note is `tabIndex={-1}` (`LineClassificationPanel.tsx:121`). Tests are at `ReviewDetailPage.test.tsx:1344-1415`. A-2, A-3, A-7 and A-8 were fixed with component tests. |
+| (d) `status: draft` | **Open** | The front matter still says `draft`. The new status note justifies this ("design is ungated in this flow"). |
+| New since T43 | **Open** | The sync predates T43 by 4 minutes and now describes fixed behaviour as current. For example, S8a still says "not designed or fixed … the approval fails silently", and the reconciled table still says "S10 Check again … no live announcement (A-3)". |
+
+**AC satisfaction, test quality and trajectory**
+
+| Round-1 finding | Status at HEAD | Evidence |
+|---|---|---|
+| AC satisfaction: live e2e | **Open** (owner step) | T31/T32 are now honestly `[ ]` (tasks.md:530, :546). The assembled system has still never run. |
+| Test quality: e2e unexecuted, no axe | **Partly closed** | axe ran manually in the browser pass, but nothing automates it in the suites, so a regression would not be caught. The e2e is still unexecuted. |
+| Trajectory: no trace | **A trace now exists, but it is a reconstruction** | See the Trajectory row. |
+| Trajectory: ticks without done-when | **Partly closed** | T31/T32 were reopened. **T35 is still `[x]`** although its done-when includes `cd shell && pnpm e2e refund-` green (tasks.md:617-619). |
+
+## Round-2 score table
+
+| Dimension | Weight | Score (/5) | Floor | Pass vs floor | Weighted | Evidence |
+|---|---|---|---|---|---|---|
+| AC satisfaction | 35 | 4 | 4 | pass (at floor) | 28.0 | Unchanged. 61/61 ACs have green executed evidence, and T43 regressed nothing (refund-ui 1267/0). The A1/A2 wording is now honestly "owner to confirm". **The live e2e (T31/T32) is still not run**, so the shell mount, the browser CSV download through CORS and the global-setup release are unobserved. A 5 needs observed end-to-end behaviour. |
+| Spec fidelity / no drift | 20 | 4 | 3 | pass | 16.0 | Round-1 items (a), (b) and (c) are closed, and well beyond the minimum: five ADRs, AGENTS.md and infra/README.md were synced. Not 5: residual (d), the stale resolver signature (plan.md:53, ADR decision 1) and five emitted codes not in the contracts. Also, A1/A2 still await the owner, so part of the contract is unconfirmed. Small, but it is drift. |
+| Test quality | 20 | 4 | 3 | pass | 16.0 | T43 added focused tests: focus target, live text and summary row count (`ReviewDetailPage.test.tsx`, `LineClassificationPanel.test.tsx`, `AccountingExportCard.test.tsx`, `ExchangeRatesCard.test.tsx`; +15 tests). The browser pass with axe is real verification, but it is a one-off manual run, not a test that would catch a regression. The e2e journeys are still unexecuted. The round-1 strengths stand. |
+| Code quality & conventions | 15 | 4 | 3 | pass | 12.0 | The T43 changes are small and idiomatic, with typed `MissingField`, ref-based focus targets and en/it copy. The round-1 "against" list is unchanged: open low findings S-07, S-08, S-09 and S-10, R-1, and the e2e global-setup release that runs by default. A-1 (FR-5) is now fixed, so it no longer counts against this dimension. |
+| Design fidelity (UI) | 15 | 4 | 3 | pass | 12.0 | **Raised from 3 on new evidence, not for effort.** <br>• design.md now covers every built state (§ Implementation sync). <br>• The screens have been observed in a real browser with axe, contrast and reflow checks. <br>• Its High and Medium findings were fixed and tested. <br>Not 5: <br>• the observation used a mocked API without the shell; <br>• no screen reader or Italian locale was used; <br>• it was not repeated after T43; <br>• the sync is already stale on A-1/A-3; <br>• `status: draft`; <br>• A-4 to A-11 (Low/Info) are open. |
+| Trajectory | 10 | 2 | 2 | pass (at floor) | 4.0 | **Not raised.** <br>• `.forge/runs/2026-11-18T19-40-00Z-orchestrate-20261118-refund-accounting-export.json` was committed at 02:52 on 11-19 (`58f70e2b`), after the round-1 eval. <br>• It is a reconstruction: its `run_id`/`started` say 2026-11-18T19:40Z, its agent rows have no per-agent timestamps, and `finished` and `tokens` are null. <br>• Nothing in it marks it as reconstructed. <br>• It also records the drift event "stale ADR statements and plan attribution corrected" under agent `evaluator`, but the evaluator found them and the architect corrected them. <br>Its content is honest and matches git: QE FAIL then PASS, eval FAIL 73.9, `result: partial`, and env faults including "live e2e … not run; owner step". But it is a summary written to answer the finding, not a record of the run. As stated in round 1, it is not new trajectory evidence. The underlying evidence is still git, which round 1 judged good but with deductions. One deduction is gone (T31/T32 reopened). One remains: T35 is ticked against its done-when. I keep the neutral floor. Scoring it 3 would give 78.3, and the verdict would not change. |
+| **Total** | 115 | | | | **88.0 / 115 = 76.5/100** | |
+
+**Round-2 verdict: FAIL.** The total of 76.5 is below `pass_score` 80. **No dimension is below its floor.** AC
+satisfaction and trajectory sit at their floors. The rise from 73.9 is earned: design fidelity went from 3 to 4 on new
+evidence, the browser pass plus a complete implementation sync.
+
+What still keeps the total below 80 is **the live e2e that no agent can run**. This is a result of the owner-step
+constraint, not of a defect anyone found. No defect is open in the product code against an AC.
+
+## Round-2 findings and owners
+
+- **AC satisfaction (4, at floor). Owner step, then QE.**
+  - Run `cd shell && pnpm e2e refund-accounting` (both journeys) plus every existing `refund-*.spec.ts` against the e2e
+    stack, then record the run in qe-report.md and tick T31/T32.
+  - A green run makes this 5 (+7.0), which gives **95/115 = 82.6, PASS** with every other score unchanged.
+  - A red run makes the failing AC unmet: below the floor, so FAIL.
+- **Design fidelity (4). Owner: design.**
+  - Refresh § Implementation sync for T43: S8a and the "S10 Check again" row now describe fixed behaviour.
+  - Re-run the axe pass on the T43 states (A-1 summary focus, A-2 reason focus, A-3 result announcement).
+  - Decide whether `status: draft` should become `approved`, or whether the flow will always leave design ungated.
+- **Spec fidelity (4). Owner: plan.** Fix the resolver signature in plan.md:53 and in ADR decision 1, and name the
+  five 422/500 codes in the contracts. The owner confirms A1/A2 at T39.
+- **Test quality (4). Owner: QE/dev.** The live e2e, as above. Add axe to the refund-ui Vitest suite (for example
+  vitest-axe on the new cards and panel), so the browser pass becomes a regression gate.
+- **Trajectory (2, at floor). Owner: orchestrator.**
+  - Untick T35, or record an owner-confirmed rewrite of its done-when.
+  - Mark the trace as reconstructed (for example a `note`), and correct the `evaluator` attribution of the drift
+    correction.
+  - Write traces as the run happens in future runs. This run's score cannot be recovered after the fact.
+
+## Recommended next step (round 2)
+
+- **FAIL.** The spec does not move to `done`, T37 stays unchecked, and T38 cannot close.
+- The **most robust gate to PASS is the owner's live e2e run** (T31/T32). After it is green and recorded, re-run
+  `/wellforge:eval 20261118-refund-accounting-export`. That needs no dev rework. The design and plan touch-ups above are
+  worth doing, and the arithmetic matters here.
+  - The total today is 88/115.
+  - **Spec fidelity 4 → 5 alone gives 92/115 = 80.0, exactly `pass_score`.**
+  - Design fidelity 4 → 5 alone gives 91/115 = 79.1, which is not enough.
+
+  A 5 on spec fidelity would need all of the following:
+  - the residual drift (d) fixed;
+  - **A1/A2 confirmed by the owner (T39)**, because an approved contract that partly awaits the owner is not
+    drift-free;
+  - nothing new found on re-eval.
+
+  So a pass through documentation alone also needs an owner action, and it would land on the threshold with no
+  margin. The live e2e (+7.0 → 82.6) is the robust gate.
