@@ -1091,7 +1091,9 @@ corrected in Settings afterwards for new approvals and for unpaid lines, not for
 1. **auth.** Its `preDeploy` (`db:release`) migrates and seeds the permission catalog, so `request:reclassify` exists
    (granted to the holders of `request:approve`, with the same conditions: if a role's approve carries `self-approval:
    deny`, its reclassify does too, and its holders cannot classify the requests they submitted themselves, 403
-   `self_approval_forbidden`). Check: `auth` is live on the new version. If refund-api goes first,
+   `self_approval_forbidden`). The seed never rewrites an existing `reclassify` rule: whenever an admin later adds or
+   removes `self-approval: deny` on a role's `request:approve`, mirror it on that role's `request:reclassify` (refund-api
+   refuses the owner anyway when either grant is self-restricted, so a missed mirror fails closed). Check: `auth` is live on the new version. If refund-api goes first,
    changing a classification after approval answers 403 until auth is live; nothing else breaks.
 2. **The shell** (Vercel), which carries `formatMonth` from `@operai/ui`. Check: `curl -s https://operai.welld.io/version.json`
    shows the new version. refund-ui shows months as `YYYY-MM` until it is live.

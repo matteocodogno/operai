@@ -18,10 +18,10 @@ We will fetch the monthly averages **on demand** in refund-api (`src/fx/`), neve
 
 1. **Triggers, and only these.** The admin's "Fetch now" (`POST /exchange-rates/fetch`), the Settings card's automatic call when `GET /exchange-rates` says `fetchDue` and the user holds `settings:manage`, and an export that finds a rate missing. There is no tick.
 2. **A month is fetchable only when completed plus 5 grace days** (`FX_FETCH_GRACE_DAYS = 5`, Europe/Zurich). The source answers for unfinished months, so "the source returned a value" is not evidence that the value is final.
-3. **The call is fixed and bounded** (`bazgSource.ts`): one constant https host (not an env var), `redirect: "error"`, 5 s timeout, 512 KiB body cap, no input in the URL beyond a validated year and month. The `REFUND_FX_SOURCE` switch only chooses `bazg` or `off`; it never carries a URL.
+3. **The call is fixed and bounded** (`bazgSource.ts`): one constant https host (not an env var), `redirect: "error"`, 5 s timeout per call, the months of one trigger fetched in parallel under a 10 s total budget (`FX_FETCH_BUDGET_MS`, plan G6), 512 KiB body cap, no input in the URL beyond a validated year and month. The `REFUND_FX_SOURCE` switch only chooses `bazg` or `off`; it never carries a URL.
 4. **The answer is checked before it is believed** (`parse.ts`, pure): a document with `<!DOCTYPE` or `<!ENTITY` is refused (no library resolves entities); the `<monat>` echo must equal the requested month; only the `eur`, `usd` and `gbp` entries are read; unit `1` or `100` is normalised to "per 1 unit"; the parsed rate must be greater than 0 and less than 1000.
 5. **Spending is bounded**: no new attempt for a month within 15 minutes of the previous one, single-flight per month in the process, at most 6 months per trigger. One HTTP call covers the three currencies of one month.
-6. **Recorded once.** `exchange_rate_entry` is append-only (trigger) and a partial unique index `(currency, month) WHERE origin = 'fetched'` plus `ON CONFLICT DO NOTHING` means a fetched value is never replaced. When a later fetch sees a different value, nothing changes; the difference is written to the attempt log (`discrepancies`) and shown to the admin, who decides whether to correct.
+6. **Recorded once.** `exchange_rate_entry` is append-only (trigger) and a partial unique index `(currency, month) WHERE origin = 'fetched'` plus `ON CONFLICT DO NOTHING` means a fetched value is never replaced. When a later fetch sees a different value, nothing changes; the difference is written to the attempt log (`discrepancies`) only. No API field or screen shows it yet (plan G8; follow-up FU-S2/F3), so an admin notices it through the log or by comparing with the source.
 7. **Rate in effect** = the latest `corrected` row, else the `fetched` row. A correction is a new row with actor and time; the fetched value stays in the history (AC-5.3). A correction wins over any later fetch (AC-5.4).
 8. **A failure is data, not an error.** Timeout, HTTP error, parse failure, wrong month or a missing currency write a `exchange_rate_fetch_attempt` row (`outcome failed`, an `errorCode`) and leave every rate untouched. `POST /exchange-rates/fetch` answers 200 with the outcome. In the export path a failed fetch becomes an ordinary "missing rate" blocker, never a 5xx (AC-5.6, AC-6.5, R10).
 
@@ -51,7 +51,7 @@ Described above.
 - A failed source degrades to a named blocker the user can resolve by correcting the rate
 
 **Cons:**
-- The first reader of a month pays up to 5 s (bounded, throttled, at most 6 months)
+- The first reader of a month waits up to about 10 s (calls in parallel, 10 s total budget, throttled, at most 6 months)
 - A month nobody triggers stays missing; the card shows it, and the export lists it
 - Depends on one third-party endpoint whose stability we do not control (corrections cover it)
 
@@ -105,7 +105,7 @@ Described above.
 - `FX_FETCH_GRACE_DAYS = 5` is an estimate of when the source is final, to be confirmed with accounting
 
 **Risks:**
-- **The source's meaning of early values is unknown** (plan R2, spec open question 1). Mitigation: completed month plus 5 days, the `<monat>` echo, record once, discrepancies shown, admin correction always available.
+- **The source's meaning of early values is unknown** (plan R2, spec open question 1). Mitigation: completed month plus 5 days, the `<monat>` echo, record once, discrepancies logged, admin correction always available.
 - **The endpoint changes shape or disappears.** Mitigation: the parser fails closed with `parse`, the month stays missing, an admin can correct; the URL and the grace constant are the only things to change.
 - **Wrong Europe/Zurich month boundary** near midnight on the last day of a month. Mitigation: the "completed" test is on the Europe/Zurich calendar date; a unit vector at the month boundary is not in the plan's test table yet and should be added with `fx.service.ts`.
 

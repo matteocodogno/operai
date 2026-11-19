@@ -1025,8 +1025,9 @@ it.
 
 ## Spec amendments applied
 
-Applied by the product owner on 2026-11-18 in commit 6e074318 (spec § Amendments). The plan
-above is synced with them:
+Applied on 2026-11-18 in commit 6e074318 (spec § Amendments) by the product-owner agent, during
+the unattended run under the user's pre-authorisation of 2026-11-18, pending the owner's review.
+The plan above is synced with them:
 
 - **A1, reactivation:** AC-1.9 to AC-1.11; AC-1.2, AC-1.4, AC-1.7 and AC-1.8 adjusted; Non-goal
   "editing or deleting a ledger account or VAT code". Planned as D9 (routes, status rows, UI
