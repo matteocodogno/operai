@@ -992,8 +992,10 @@ const en = {
           reason: 'The export is blocked. See the items above.',
           missingRates: 'Missing exchange rates',
           rateItem: (currency: string, month: string) => `${currency} · ${month}`,
+          /** A missing rate with the reason the answer carries (G7): `reason` is one of `rateReason`. */
+          rateItemReason: (currency: string, month: string, reason: string) => `${currency} · ${month} — ${reason}`,
           askAdmin: 'Ask an administrator to enter or fetch it.',
-          fetchTried: 'Refund just tried to fetch the missing rates from the official source.',
+          fetchTried: 'Accounting just tried to fetch the missing rates from the official source.',
           unclassified: 'Lines without an account or a VAT code',
           unclassifiedItem: (employee: string, receipt: string, missing: string) =>
             `${employee} · ${receipt}: no ${missing}`,
@@ -2042,8 +2044,9 @@ const it: Strings = {
           reason: 'L’esportazione è bloccata. Vedere le voci qui sopra.',
           missingRates: 'Tassi di cambio mancanti',
           rateItem: (currency: string, month: string) => `${currency} · ${month}`,
+          rateItemReason: (currency: string, month: string, reason: string) => `${currency} · ${month} — ${reason}`,
           askAdmin: 'Chiedere a un amministratore di inserirlo o recuperarlo.',
-          fetchTried: 'Rimborsi ha appena provato a recuperare i tassi mancanti dalla fonte ufficiale.',
+          fetchTried: 'Contabilità ha appena provato a recuperare i tassi mancanti dalla fonte ufficiale.',
           unclassified: 'Righe senza conto o senza codice IVA',
           unclassifiedItem: (employee: string, receipt: string, missing: string) =>
             `${employee} · ${receipt}: manca ${missing}`,

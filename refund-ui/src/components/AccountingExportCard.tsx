@@ -1,16 +1,21 @@
 /**
  * AccountingExportCard — the accounting CSV of a batch (specs/20261118-refund-accounting-export, design S10, F9, UX-6, UX-7,
- * UX-9, UX-12; AC-6.1, AC-6.5, AC-6.6, AC-6.7, AC-6.9, AC-6.11, AC-7.2). It sits on the batch page under the summary
+ * UX-9, UX-12; AC-6.1, AC-6.5, AC-6.6, AC-6.7, AC-6.9, AC-6.11, AC-7.2; specs/20261119-accounting RS6, UX-22, T37:
+ * AC-5.6, AC-6.6, AC-6.7, AC-7.3). It sits on the batch page under the summary
  * card and loads on its own: the check may call the official rate source and take several seconds, and the rest
  * of the page never waits for it. The page does not render it at all for a discarded batch (AC-6.9).
  *
  *   - Ready: how many rows will be exported, and how many WellD Italia lines are left out, said only when above zero
  *     (G12). With no rows, the file will hold only its header (AC-6.7), and Download is still offered.
  *   - Blocked: a missing exchange rate (AC-6.5) or a line with no account or VAT code (AC-7.2) is a warning, not an
- *     error (UX-6): the batch can still be paid or discarded, and the card says so. The lists name what is missing and
- *     link to where it is fixed: Settings at that month (only with `settings:read`; otherwise "ask an administrator")
- *     and the request. **Check again** loads the summary again. Download stays on screen, `aria-disabled` with its
- *     reason as its description (UX-7), so it can be reached to learn why.
+ *     error (UX-6): the batch can still be paid or discarded, and the card says so. The lists name what is missing,
+ *     with the reason when the summary carries one, and link to where it is fixed: Accounting at that month (only
+ *     when the summary's `viewer.canOpenAccountingRates` says the person may open it; otherwise "ask an accounting
+ *     manager", AC-7.3) and the request. **Accounting cannot be read** (AC-6.6) is its own heading in the same
+ *     banner, never a missing rate. **Check again** loads the summary again. Download stays on screen, `aria-disabled`
+ *     with its reason as its description (UX-7), so it can be reached to learn why.
+ *   - Ready and Blocked both say how many lines get their exchange rate at this export (AC-5.6), and once a file
+ *     has been downloaded the summary is read again quietly (UX-22): the sentence goes when the rates are copied.
  *   - Out of scope (403): a short info note and no button (AC-6.11); everyone who can open the batch can ask "why can't
  *     I export?".
  *   - Download: the bytes are fetched through the authenticated client and saved from a `Blob` (UX-12), under a
@@ -25,14 +30,13 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Banner, Button, Card, SkeletonRows, VisuallyHidden } from '@operai/ui'
 import { strings } from '../strings'
-import { usePermissions } from 'shell/session'
 import {
   accountingExportFileName,
   blockedSummary,
   downloadAccountingCsv,
   getAccountingExport,
 } from '../lib/accountingExportApi'
-import type { AccountingExportSummary, UnclassifiedLineBlocker } from '../lib/accountingExportApi'
+import type { AccountingExportSummary, MissingRateReason, UnclassifiedLineBlocker } from '../lib/accountingExportApi'
 import { formatDate } from '../lib/dates'
 import { expenseTypeLabel } from '../lib/expenseTypes'
 import type { ExpenseType } from '../lib/expenseTypes'
@@ -43,6 +47,17 @@ import ErrorBanner from './ErrorBanner'
 import SuccessBanner from './SuccessBanner'
 
 const t = strings.pages.batchDetail.accountingExport
+const ratesLabel = strings.pages.reviewDetail.classification
+
+/** The Accounting month view for WellD CH (AC-7.3). A plain `href`: the link leaves this tool (UX-17). */
+const accountingRatesHref = (month: string): string =>
+  `/accounting/exchange-rates?entity=welld_ch&month=${encodeURIComponent(month)}`
+
+const REASON_TEXT: Record<MissingRateReason, string> = {
+  not_published: t.blocked.rateReason.notPublished,
+  fetch_failed: t.blocked.rateReason.fetchFailed,
+  no_source: t.blocked.rateReason.noSource,
+}
 
 export type AccountingExportCardProps = {
   batchId: string
@@ -65,10 +80,6 @@ const missingWhat = (line: UnclassifiedLineBlocker): string =>
     : t.blocked.missingWhat.both
 
 export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded }: AccountingExportCardProps) {
-  const { permissions } = usePermissions()
-  const canOpenSettings = permissions.some(
-    (permission) => permission.resource === 'settings' && permission.action === 'read',
-  )
   const reasonId = useId()
   const resource = useLoadedResource(() => getAccountingExport(batchId))
   const { replace } = resource
@@ -112,7 +123,10 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
       replace(fresh)
       if (announce) {
         const remaining =
-          fresh.blockers.missingRates.length + fresh.blockers.unclassifiedLines.length + fresh.blockers.unnumberedLines.length
+          fresh.blockers.missingRates.length +
+          fresh.blockers.unclassifiedLines.length +
+          fresh.blockers.unnumberedLines.length +
+          (fresh.blockers.accountingUnavailable ? 1 : 0)
         setRecheckResult(
           fresh.exportable
             ? { text: t.blocked.recheckReady(fresh.rowCount), ready: true }
@@ -125,6 +139,19 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
       else setRecheckFailed(true)
     } finally {
       setRechecking(false)
+    }
+  }
+
+  /**
+   * After a download the rates this export copied are frozen, so "N lines get their exchange rate at this export"
+   * would be stale (UX-22). Read the summary again without a spinner, an announcement or an error: a failed
+   * re-read leaves what the card shows as it is.
+   */
+  const rereadQuietly = async () => {
+    try {
+      replace(await getAccountingExport(batchId))
+    } catch {
+      // Quiet by design: the file was produced, and Check again is there for a person who wants a fresh answer.
     }
   }
 
@@ -143,6 +170,7 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
       anchor.download = accountingExportFileName(cutoff, batchId)
       anchor.click()
       setDownloaded(t.downloaded(summary.rowCount))
+      void rereadQuietly()
     } catch (error) {
       const blocked = blockedSummary(error)
       if (blocked !== null) {
@@ -169,6 +197,15 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
   }
 
   const blocked = summary !== null && !summary.exportable
+  const canOpenRates = summary !== null && summary.viewer.canOpenAccountingRates
+  const pendingCount = summary !== null ? summary.ratePendingLineCount : 0
+  // Accounting down and nothing else blocking: its own body already says the batch can be paid or discarded.
+  const onlyUnavailable =
+    summary !== null &&
+    summary.blockers.accountingUnavailable &&
+    summary.blockers.missingRates.length === 0 &&
+    summary.blockers.unclassifiedLines.length === 0 &&
+    summary.blockers.unnumberedLines.length === 0
 
   return (
     <Card title={t.title} data-testid="accounting-export-card">
@@ -224,7 +261,14 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
                 }
                 data-testid="accounting-export-blocked"
               >
-                <p className="m-0">{t.blocked.intro}</p>
+                {!onlyUnavailable && <p className="m-0">{t.blocked.intro}</p>}
+
+                {summary.blockers.accountingUnavailable && (
+                  <section className={onlyUnavailable ? undefined : 'mt-3'} data-testid="accounting-export-unavailable">
+                    <h4 className="m-0 text-sm font-medium">{t.blocked.unavailableTitle}</h4>
+                    <p className="m-0 mt-1 text-sm">{t.blocked.unavailableBody}</p>
+                  </section>
+                )}
 
                 {summary.blockers.missingRates.length > 0 && (
                   <section className="mt-3" data-testid="accounting-export-missing-rates">
@@ -232,21 +276,28 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
                     <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0">
                       {summary.blockers.missingRates.map((rate) => (
                         <li key={`${rate.currency}:${rate.month}`} className="flex flex-wrap items-center gap-x-3">
-                          <span>{t.blocked.rateItem(rate.currency, monthLabel(rate.month))}</span>
-                          {canOpenSettings && (
-                            <Link
-                              to="/settings"
-                              search={{ section: 'exchange-rates', month: rate.month }}
+                          <span>
+                            {rate.reason === null
+                              ? t.blocked.rateItem(rate.currency, monthLabel(rate.month))
+                              : t.blocked.rateItemReason(rate.currency, monthLabel(rate.month), REASON_TEXT[rate.reason])}
+                          </span>
+                          {canOpenRates && (
+                            <a
+                              href={accountingRatesHref(rate.month)}
                               className="link text-sm"
-                              aria-label={`${strings.pages.reviewDetail.classification.openRates}: ${t.blocked.rateItem(rate.currency, monthLabel(rate.month))}`}
+                              aria-label={`${ratesLabel.openRates}: ${t.blocked.rateItem(rate.currency, monthLabel(rate.month))}`}
                             >
-                              {strings.pages.reviewDetail.classification.openRates}
-                            </Link>
+                              {ratesLabel.openRates}
+                            </a>
                           )}
                         </li>
                       ))}
                     </ul>
-                    {!canOpenSettings && <p className="m-0 mt-1 text-sm">{t.blocked.askAdmin}</p>}
+                    {!canOpenRates && (
+                      <p className="m-0 mt-1 text-sm" data-testid="accounting-export-ask-manager">
+                        {ratesLabel.askManager}
+                      </p>
+                    )}
                   </section>
                 )}
 
@@ -297,6 +348,12 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
                 </p>
               )}
             </div>
+          )}
+
+          {pendingCount > 0 && (
+            <p className="m-0 text-sm" data-testid="accounting-export-pending">
+              {t.pending(pendingCount)}
+            </p>
           )}
 
           <SuccessBanner message={downloaded} onDismiss={() => setDownloaded(null)} testId="accounting-export-downloaded" />

@@ -16,7 +16,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expectNoAxeViolations } from '../test-support/axe'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import BatchDetailPage from './BatchDetailPage'
@@ -72,8 +72,10 @@ const exportSummary = (overrides: Partial<AccountingExportSummary> = {}): Accoun
   exportable: true,
   rowCount: 4,
   excludedLineCount: 0,
-  blockers: { missingRates: [], unclassifiedLines: [], unnumberedLines: [] },
+  blockers: { missingRates: [], unclassifiedLines: [], unnumberedLines: [], accountingUnavailable: false },
+  ratePendingLineCount: 0,
   fetchAttempted: false,
+  viewer: { canOpenAccountingRates: true },
   ...overrides,
 })
 
@@ -412,13 +414,80 @@ describe('BatchDetailPage — accounting export card (T30, specs/20261118-refund
     expect(screen.getByTestId('accounting-export-skeleton')).not.toBeNull()
   })
 
+  describe('T37, specs/20261119-accounting (AC-5.6, AC-6.6, AC-6.7, AC-7.3)', () => {
+    const missingMarch = (overrides: Partial<AccountingExportSummary> = {}) =>
+      exportSummary({
+        exportable: false,
+        blockers: {
+          missingRates: [{ currency: 'EUR', month: '2026-03', reason: 'not_published' }],
+          unclassifiedLines: [],
+          unnumberedLines: [],
+          accountingUnavailable: false,
+        },
+        ...overrides,
+      })
+
+    it('Accounting cannot be read: its own heading, not a missing rate, and Mark as paid and Discard still work', async () => {
+      vi.mocked(batchesApi.get).mockResolvedValue(compiledBatch)
+      vi.mocked(exportApi.getAccountingExport).mockResolvedValue(
+        exportSummary({
+          exportable: false,
+          ratePendingLineCount: 2,
+          blockers: { missingRates: [], unclassifiedLines: [], unnumberedLines: [], accountingUnavailable: true },
+        }),
+      )
+      renderBatchDetailPage()
+
+      await screen.findByTestId('accounting-export-blocked')
+      expect(screen.getByRole('heading', { name: 'Accounting cannot be read' })).not.toBeNull()
+      expect(screen.queryByTestId('accounting-export-missing-rates')).toBeNull()
+      expect((screen.getByTestId('batch-detail-mark-paid') as HTMLButtonElement).disabled).toBe(false)
+      expect((screen.getByTestId('batch-detail-discard') as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    it('a not-published rate says so, and links to the month in Accounting only with the viewer flag', async () => {
+      vi.mocked(batchesApi.get).mockResolvedValue(compiledBatch)
+      vi.mocked(exportApi.getAccountingExport).mockResolvedValue(missingMarch())
+      renderBatchDetailPage()
+
+      const list = await screen.findByTestId('accounting-export-missing-rates')
+      expect(list.textContent).toContain('EUR · March 2026 — not published yet')
+      expect(within(list).getByRole('link').getAttribute('href')).toBe(
+        '/accounting/exchange-rates?entity=welld_ch&month=2026-03',
+      )
+      cleanup()
+
+      vi.mocked(exportApi.getAccountingExport).mockResolvedValue(
+        missingMarch({ viewer: { canOpenAccountingRates: false } }),
+      )
+      renderBatchDetailPage()
+      const askList = await screen.findByTestId('accounting-export-missing-rates')
+      expect(within(askList).queryByRole('link')).toBeNull()
+      expect(askList.textContent).toContain('Ask an accounting manager to enter or fetch it.')
+    })
+
+    it('the pending sentence shows on a ready batch', async () => {
+      vi.mocked(batchesApi.get).mockResolvedValue(compiledBatch)
+      vi.mocked(exportApi.getAccountingExport).mockResolvedValue(exportSummary({ ratePendingLineCount: 1 }))
+      renderBatchDetailPage()
+      expect((await screen.findByTestId('accounting-export-pending')).textContent).toBe(
+        '1 line gets its exchange rate at this export.',
+      )
+    })
+  })
+
   it('a blocked export leaves Mark as paid and Discard working (AC-6.5)', async () => {
     vi.mocked(batchesApi.get).mockResolvedValue(compiledBatch)
     vi.mocked(batchesApi.markPaid).mockResolvedValue(paidBatch)
     vi.mocked(exportApi.getAccountingExport).mockResolvedValue(
       exportSummary({
         exportable: false,
-        blockers: { missingRates: [{ currency: 'EUR', month: '2026-03' }], unclassifiedLines: [], unnumberedLines: [] },
+        blockers: {
+          missingRates: [{ currency: 'EUR', month: '2026-03', reason: null }],
+          unclassifiedLines: [],
+          unnumberedLines: [],
+          accountingUnavailable: false,
+        },
       }),
     )
     renderBatchDetailPage()
@@ -464,7 +533,8 @@ describe('BatchDetailPage — accessibility (axe)', () => {
     exportable: false,
     rowCount: 0,
     blockers: {
-      missingRates: [{ currency: 'EUR', month: '2026-03' }],
+      missingRates: [{ currency: 'EUR', month: '2026-03', reason: 'not_published' }],
+      accountingUnavailable: false,
       unclassifiedLines: [
         {
           lineId: 'l1',
@@ -495,6 +565,22 @@ describe('BatchDetailPage — accessibility (axe)', () => {
     ],
     ['compiled, export blocked', withReceipts, blocked, 'accounting-export-blocked'],
     ['paid, export ready', paidBatch, exportSummary({ batchStatus: 'paid' }), 'accounting-export-ready'],
+    [
+      'compiled, export ready with lines that get their rate at the export',
+      withReceipts,
+      exportSummary({ ratePendingLineCount: 2 }),
+      'accounting-export-pending',
+    ],
+    [
+      'compiled, Accounting cannot be read',
+      withReceipts,
+      exportSummary({
+        exportable: false,
+        ratePendingLineCount: 2,
+        blockers: { missingRates: [], unclassifiedLines: [], unnumberedLines: [], accountingUnavailable: true },
+      }),
+      'accounting-export-unavailable',
+    ],
   ])('has no violations: %s', async (_name, batch, summary, settled) => {
     vi.mocked(batchesApi.get).mockResolvedValue(batch)
     vi.mocked(exportApi.getAccountingExport).mockResolvedValue(summary)

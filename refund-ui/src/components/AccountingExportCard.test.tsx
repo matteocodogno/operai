@@ -5,37 +5,36 @@
  * AC-6.6, AC-6.7, AC-6.9, AC-6.11, AC-7.2): the ready, header-only, blocked, out-of-scope, loading and failed
  * states, the blockers and where they link, a Download that is `aria-disabled` with its reason, the Blob download
  * under a client-built filename, a 409 during the download, a failed download and a double press.
+ *
+ * T37, specs/20261119-accounting (RS6, UX-22; AC-5.6, AC-6.6, AC-6.7, AC-7.3): the "Accounting cannot be read"
+ * blocker under its own heading, a missing rate's reason, the pending-lines sentence, the Accounting link that
+ * follows `viewer.canOpenAccountingRates` (not a settings grant), "ask an accounting manager", and the quiet
+ * re-read after a download.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expectNoAxeViolations } from '../test-support/axe'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
-import type { Permission, PermissionsResult } from 'shell/session'
 
 vi.mock('../lib/accountingExportApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/accountingExportApi')>()
   return { ...original, getAccountingExport: vi.fn(), downloadAccountingCsv: vi.fn() }
 })
 
-const { usePermissionsMock } = vi.hoisted(() => ({ usePermissionsMock: vi.fn<() => PermissionsResult>() }))
-vi.mock('shell/session', () => ({ usePermissions: () => usePermissionsMock() }))
-
 import * as exportApi from '../lib/accountingExportApi'
 import type { AccountingExportSummary, ExportBlockers } from '../lib/accountingExportApi'
 import { ApiError } from '../lib/refundApi'
 import AccountingExportCard from './AccountingExportCard'
 
-const permissionsWith = (...permissions: Permission[]): PermissionsResult => ({
-  epoch: 0,
-  apps: ['refund'],
-  roles: [],
-  departments: [],
-  permissions,
-})
-const SETTINGS_READ: Permission = { resource: 'settings', action: 'read' }
-
-const NO_BLOCKERS: ExportBlockers = { missingRates: [], unclassifiedLines: [], unnumberedLines: [] }
+const NO_BLOCKERS: ExportBlockers = {
+  missingRates: [],
+  unclassifiedLines: [],
+  unnumberedLines: [],
+  accountingUnavailable: false,
+}
+const CAN_OPEN_RATES = { canOpenAccountingRates: true }
+const CANNOT_OPEN_RATES = { canOpenAccountingRates: false }
 
 const summary = (overrides: Partial<AccountingExportSummary> = {}): AccountingExportSummary => ({
   batchId: 'batch-1',
@@ -44,7 +43,9 @@ const summary = (overrides: Partial<AccountingExportSummary> = {}): AccountingEx
   rowCount: 12,
   excludedLineCount: 0,
   blockers: NO_BLOCKERS,
+  ratePendingLineCount: 0,
   fetchAttempted: false,
+  viewer: CAN_OPEN_RATES,
   ...overrides,
 })
 
@@ -53,8 +54,8 @@ const BLOCKED = summary({
   rowCount: 0,
   blockers: {
     missingRates: [
-      { currency: 'EUR', month: '2026-03' },
-      { currency: 'USD', month: '2026-03' },
+      { currency: 'EUR', month: '2026-03', reason: null },
+      { currency: 'USD', month: '2026-03', reason: null },
     ],
     unclassifiedLines: [
       {
@@ -68,6 +69,7 @@ const BLOCKED = summary({
       },
     ],
     unnumberedLines: [],
+    accountingUnavailable: false,
   },
 })
 
@@ -80,7 +82,6 @@ const clickSpy = vi.fn()
 let downloadName = ''
 
 beforeEach(() => {
-  usePermissionsMock.mockReturnValue(permissionsWith(SETTINGS_READ))
   vi.mocked(exportApi.getAccountingExport).mockResolvedValue(summary())
   URL.createObjectURL = vi.fn(() => 'blob:csv')
   URL.revokeObjectURL = vi.fn()
@@ -109,17 +110,8 @@ const renderCard = async (onBatchDiscarded = vi.fn(), waitForLoad = true) => {
       <AccountingExportCard batchId="batch-1" cutoff="2026-07-19T00:00:00.000Z" onBatchDiscarded={onBatchDiscarded} />
     ),
   })
-  const settings = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/settings',
-    component: () => null,
-    validateSearch: (search: Record<string, unknown>): { section?: string; month?: string } => ({
-      section: typeof search.section === 'string' ? search.section : undefined,
-      month: typeof search.month === 'string' ? search.month : undefined,
-    }),
-  })
   const review = createRoute({ getParentRoute: () => rootRoute, path: '/review/$id', component: () => null })
-  const router = createRouter({ routeTree: rootRoute.addChildren([index, settings, review]) })
+  const router = createRouter({ routeTree: rootRoute.addChildren([index, review]) })
   render(<RouterProvider router={router} />)
   await screen.findByTestId('accounting-export-card')
   if (waitForLoad) await waitFor(() => expect(screen.queryByTestId('accounting-export-skeleton')).toBeNull())
@@ -220,7 +212,7 @@ describe('AccountingExportCard: blocked (UX-6, UX-7)', () => {
     expect(screen.queryByTestId('accounting-export-ready')).toBeNull()
   })
 
-  it('lists each missing rate with its month in words, linking to that month in Settings with settings:read', async () => {
+  it('lists each missing rate with its month in words, linking to that month in Accounting when the viewer may open it (AC-7.3)', async () => {
     await renderCard()
     const list = screen.getByTestId('accounting-export-missing-rates')
     expect(within(list).getByText('Missing exchange rates')).not.toBeNull()
@@ -228,18 +220,38 @@ describe('AccountingExportCard: blocked (UX-6, UX-7)', () => {
     expect(within(list).getByText('USD · March 2026')).not.toBeNull()
     const links = within(list).getAllByRole('link')
     expect(links).toHaveLength(2)
-    expect(links[0].getAttribute('href')).toBe('/settings?section=exchange-rates&month=2026-03')
+    expect(links[0].getAttribute('href')).toBe('/accounting/exchange-rates?entity=welld_ch&month=2026-03')
+    expect(links[0].className).toContain('link')
     expect(links[0].getAttribute('aria-label')).toBe('Open exchange rates: EUR · March 2026')
-    expect(within(list).queryByText('Ask an administrator to enter or fetch it.')).toBeNull()
+    expect(within(list).queryByText('Ask an accounting manager to enter or fetch it.')).toBeNull()
   })
 
-  it('without settings:read there is no link, and it says to ask an administrator', async () => {
-    usePermissionsMock.mockReturnValue(permissionsWith())
+  it('without viewer.canOpenAccountingRates there is no link, and it says to ask an accounting manager (AC-7.3)', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue({ ...BLOCKED, viewer: CANNOT_OPEN_RATES })
     await renderCard()
     const list = screen.getByTestId('accounting-export-missing-rates')
     expect(within(list).queryByRole('link')).toBeNull()
-    expect(within(list).getByText('Ask an administrator to enter or fetch it.')).not.toBeNull()
+    expect(within(list).getByText('Ask an accounting manager to enter or fetch it.')).not.toBeNull()
     expect(within(list).getByText('EUR · March 2026')).not.toBeNull()
+    expect(screen.queryByText(/administrator to enter/)).toBeNull()
+  })
+
+  it.each([
+    ['not_published', 'EUR · March 2026 — not published yet'],
+    ['fetch_failed', 'EUR · March 2026 — the official source did not answer'],
+    ['no_source', 'EUR · March 2026 — no official source'],
+  ] as const)('says why a rate is missing when the summary carries the reason %s (G7)', async (reason, text) => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(
+      summary({
+        exportable: false,
+        blockers: { ...NO_BLOCKERS, missingRates: [{ currency: 'EUR', month: '2026-03', reason }] },
+      }),
+    )
+    await renderCard()
+    const list = screen.getByTestId('accounting-export-missing-rates')
+    expect(within(list).getByText(text)).not.toBeNull()
+    // The link's own name stays the plain item, with the action first.
+    expect(within(list).getByRole('link').getAttribute('aria-label')).toBe('Open exchange rates: EUR · March 2026')
   })
 
   it('lists a line without an account or VAT code with its employee, receipt and what is missing, and links to the request (AC-7.2)', async () => {
@@ -251,8 +263,8 @@ describe('AccountingExportCard: blocked (UX-6, UX-7)', () => {
     expect(link.getAttribute('aria-label')).toBe('Open request: Matteo Codogno · MC26/014: no VAT code')
   })
 
-  it('links to the request even without settings:read', async () => {
-    usePermissionsMock.mockReturnValue(permissionsWith())
+  it('links to the request whether or not the viewer may open Accounting', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue({ ...BLOCKED, viewer: CANNOT_OPEN_RATES })
     await renderCard()
     expect(
       within(screen.getByTestId('accounting-export-unclassified')).getByRole('link', { name: /Open request/ }),
@@ -296,7 +308,7 @@ describe('AccountingExportCard: blocked (UX-6, UX-7)', () => {
     await renderCard()
     expect(screen.getByTestId('accounting-export-unnumbered').textContent).toContain('Contact an administrator.')
     expect(screen.getByTestId('accounting-export-fetch-tried').textContent).toBe(
-      'Refund just tried to fetch the missing rates from the official source.',
+      'Accounting just tried to fetch the missing rates from the official source.',
     )
     cleanup()
     vi.mocked(exportApi.getAccountingExport).mockResolvedValue(BLOCKED)
@@ -366,7 +378,7 @@ describe('AccountingExportCard: the result of Check again (A-3)', () => {
     vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(
       summary({
         exportable: false,
-        blockers: { ...NO_BLOCKERS, missingRates: [{ currency: 'EUR', month: '2026-03' }] },
+        blockers: { ...NO_BLOCKERS, missingRates: [{ currency: 'EUR', month: '2026-03', reason: null }] },
       }),
     )
     fireEvent.click(screen.getByTestId('accounting-export-check-again'))
@@ -489,6 +501,167 @@ describe('AccountingExportCard: downloading (UX-12)', () => {
   })
 })
 
+const UNAVAILABLE = summary({
+  exportable: false,
+  rowCount: 4,
+  ratePendingLineCount: 2,
+  blockers: { ...NO_BLOCKERS, accountingUnavailable: true },
+})
+
+describe('AccountingExportCard: Accounting cannot be read (AC-6.6, UX-22)', () => {
+  it('shows its own heading inside the warning banner, never a missing-rate list, with Check again', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(UNAVAILABLE)
+    await renderCard()
+
+    const banner = screen.getByTestId('accounting-export-blocked')
+    expect(banner.textContent).toContain('The export is blocked')
+    const section = within(banner).getByTestId('accounting-export-unavailable')
+    expect(within(section).getByRole('heading', { name: 'Accounting cannot be read' })).not.toBeNull()
+    expect(section.textContent).toContain(
+      'The exchange rates of lines with a pending rate cannot be fetched. You can still pay or discard this batch. Check again in a few minutes.',
+    )
+    expect(screen.queryByTestId('accounting-export-missing-rates')).toBeNull()
+    expect(screen.queryByText('Missing exchange rates')).toBeNull()
+    expect(within(banner).queryByRole('link')).toBeNull()
+    expect(screen.getByTestId('accounting-export-check-again')).not.toBeNull()
+  })
+
+  it('does not repeat the generic intro when it is the only blocker, and keeps it when something else blocks too', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(UNAVAILABLE)
+    await renderCard()
+    expect(screen.getByTestId('accounting-export-blocked').textContent).not.toContain('The file cannot be produced')
+    cleanup()
+
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue({
+      ...UNAVAILABLE,
+      blockers: { ...BLOCKED.blockers, missingRates: [], accountingUnavailable: true },
+    })
+    await renderCard()
+    const banner = screen.getByTestId('accounting-export-blocked')
+    expect(banner.textContent).toContain('The file cannot be produced')
+    expect(within(banner).getByTestId('accounting-export-unavailable')).not.toBeNull()
+    expect(within(banner).getByTestId('accounting-export-unclassified')).not.toBeNull()
+  })
+
+  it('keeps Download on screen, aria-disabled with the blocked reason', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(UNAVAILABLE)
+    await renderCard()
+    expect(download().getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(download())
+    expect(exportApi.downloadAccountingCsv).not.toHaveBeenCalled()
+  })
+
+  it('Check again counts the blocker as one item, and the card recovers when Accounting can be read', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(UNAVAILABLE)
+    await renderCard()
+    fireEvent.click(screen.getByTestId('accounting-export-check-again'))
+    await waitFor(() =>
+      expect(screen.getByTestId('accounting-export-recheck-result').textContent).toBe('Still blocked: 1 item.'),
+    )
+
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ rowCount: 4, ratePendingLineCount: 2 }))
+    fireEvent.click(screen.getByTestId('accounting-export-check-again'))
+    await waitFor(() => expect(screen.queryByTestId('accounting-export-unavailable')).toBeNull())
+    expect(screen.getByTestId('accounting-export-recheck-result').textContent).toBe('The export is ready: 4 rows.')
+    expect(document.activeElement).toBe(download())
+  })
+
+  it('a 409 for it during the download blocks the card from the body, with the same heading', async () => {
+    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(
+      problem(409, 'accounting_export_blocked', {
+        batchId: 'batch-1',
+        batchStatus: 'compiled',
+        rowCount: 4,
+        excludedLineCount: 0,
+        ratePendingLineCount: 2,
+        fetchAttempted: false,
+        blockers: { missingRates: [], unclassifiedLines: [], unnumberedLines: [], accountingUnavailable: true },
+        viewer: { canOpenAccountingRates: false },
+      }),
+    )
+    await renderCard()
+    fireEvent.click(download())
+    await screen.findByTestId('accounting-export-turned-blocked')
+    expect(screen.getByTestId('accounting-export-unavailable')).not.toBeNull()
+    expect(screen.getByTestId('accounting-export-pending').textContent).toBe(
+      '2 lines get their exchange rate at this export.',
+    )
+  })
+
+  it('a batch whose lines all hold their rates says nothing about Accounting (AC-5.4)', async () => {
+    await renderCard()
+    const card = screen.getByTestId('accounting-export-card')
+    expect(card.textContent).not.toMatch(/cannot be read|pending|exchange rate/)
+    expect(screen.queryByTestId('accounting-export-unavailable')).toBeNull()
+    expect(screen.queryByTestId('accounting-export-blocked')).toBeNull()
+    expect(download().getAttribute('aria-disabled')).toBeNull()
+  })
+})
+
+describe('AccountingExportCard: lines that get their rate at this export (AC-5.6, UX-22)', () => {
+  it.each([
+    [1, '1 line gets its exchange rate at this export.'],
+    [3, '3 lines get their exchange rate at this export.'],
+  ])('Ready says so for %i pending line(s)', async (count, text) => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(summary({ ratePendingLineCount: count }))
+    await renderCard()
+    expect(screen.getByTestId('accounting-export-pending').textContent).toBe(text)
+    expect(download().getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('Blocked says so too', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue({ ...BLOCKED, ratePendingLineCount: 2 })
+    await renderCard()
+    expect(screen.getByTestId('accounting-export-pending').textContent).toBe(
+      '2 lines get their exchange rate at this export.',
+    )
+  })
+
+  it('says nothing at zero', async () => {
+    await renderCard()
+    expect(screen.queryByTestId('accounting-export-pending')).toBeNull()
+  })
+
+  it('reads the summary again quietly after a download, and the sentence goes once the rates are frozen', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ ratePendingLineCount: 2 }))
+    vi.mocked(exportApi.downloadAccountingCsv).mockResolvedValue(new Blob(['x'], { type: 'text/csv' }))
+    await renderCard()
+    expect(screen.getByTestId('accounting-export-pending')).not.toBeNull()
+
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ ratePendingLineCount: 0 }))
+    fireEvent.click(download())
+
+    await waitFor(() => expect(screen.queryByTestId('accounting-export-pending')).toBeNull())
+    expect(exportApi.getAccountingExport).toHaveBeenCalledTimes(2)
+    // Quiet: no spinner, no announcement, no skeleton; the confirmation stays.
+    expect(screen.queryByTestId('accounting-export-skeleton')).toBeNull()
+    expect(screen.queryByText('Checking the export…')).toBeNull()
+    expect(screen.getByTestId('accounting-export-recheck-result').textContent).toBe('')
+    expect(screen.getByTestId('accounting-export-downloaded').textContent).toBe('Export downloaded: 12 rows')
+  })
+
+  it('a failed quiet re-read changes nothing and shows no error', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ ratePendingLineCount: 2 }))
+    vi.mocked(exportApi.downloadAccountingCsv).mockResolvedValue(new Blob(['x'], { type: 'text/csv' }))
+    await renderCard()
+    vi.mocked(exportApi.getAccountingExport).mockRejectedValueOnce(problem(500))
+    fireEvent.click(download())
+
+    await screen.findByTestId('accounting-export-downloaded')
+    await waitFor(() => expect(exportApi.getAccountingExport).toHaveBeenCalledTimes(2))
+    expect(screen.queryByTestId('error-banner')).toBeNull()
+    expect(screen.getByTestId('accounting-export-pending')).not.toBeNull()
+  })
+
+  it('does not re-read when the download failed', async () => {
+    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(problem(500))
+    await renderCard()
+    fireEvent.click(download())
+    await screen.findByTestId('accounting-export-download-error')
+    expect(exportApi.getAccountingExport).toHaveBeenCalledTimes(1)
+  })
+})
+
 // T44: automated axe checks (test-support/axe.ts) on every state of the card, whole document so nothing is left out.
 describe('AccountingExportCard: accessibility (axe)', () => {
   it('has no violations: loading, a failed check, the out-of-scope note', async () => {
@@ -520,14 +693,61 @@ describe('AccountingExportCard: accessibility (axe)', () => {
     await expectNoAxeViolations()
   })
 
-  it('has no violations: blocked, with missing rates and unclassified lines, with and without settings:read', async () => {
+  it('has no violations: blocked, with missing rates and unclassified lines, with and without the Accounting link', async () => {
     vi.mocked(exportApi.getAccountingExport).mockResolvedValue(BLOCKED)
     await renderCard()
     await expectNoAxeViolations()
     cleanup()
 
-    usePermissionsMock.mockReturnValue(permissionsWith())
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue({ ...BLOCKED, viewer: CANNOT_OPEN_RATES })
     await renderCard()
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: Accounting cannot be read, alone and with other blockers, and with pending lines', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(UNAVAILABLE)
+    await renderCard()
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue({
+      ...UNAVAILABLE,
+      blockers: { ...BLOCKED.blockers, missingRates: [], accountingUnavailable: true },
+    })
+    await renderCard()
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: missing rates with each reason, with the Accounting link and with "ask an accounting manager"', async () => {
+    const withReasons = summary({
+      exportable: false,
+      ratePendingLineCount: 3,
+      blockers: {
+        ...NO_BLOCKERS,
+        missingRates: [
+          { currency: 'EUR', month: '2026-03', reason: 'not_published' },
+          { currency: 'USD', month: '2026-03', reason: 'fetch_failed' },
+          { currency: 'GBP', month: '2026-02', reason: 'no_source' },
+        ],
+      },
+    })
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(withReasons)
+    await renderCard()
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue({ ...withReasons, viewer: CANNOT_OPEN_RATES })
+    await renderCard()
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: ready with the pending-lines sentence, before and after the quiet re-read', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ ratePendingLineCount: 2 }))
+    vi.mocked(exportApi.downloadAccountingCsv).mockResolvedValue(new Blob(['x'], { type: 'text/csv' }))
+    await renderCard()
+    await expectNoAxeViolations()
+    fireEvent.click(download())
+    await waitFor(() => expect(screen.queryByTestId('accounting-export-pending')).toBeNull())
     await expectNoAxeViolations()
   })
 
@@ -551,6 +771,7 @@ describe('AccountingExportCard: accessibility (axe)', () => {
             },
           ],
           unnumberedLines: [{ lineId: 'l3', requestId: 'req-3', employee: 'Bea' }],
+          accountingUnavailable: false,
         },
       }),
     )

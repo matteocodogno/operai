@@ -7,6 +7,11 @@
  * the caller (`accountingExportFileName`), not read from `Content-Disposition`, which a browser on another
  * origin cannot read unless the server exposes it (G9).
  *
+ * specs/20261119-accounting: the summary also says how many lines get their exchange rate at this export
+ * (`ratePendingLineCount`, AC-5.6), why each missing rate is missing (`reason`, G7), that Accounting cannot be read
+ * (`blockers.accountingUnavailable`, AC-6.6) and whether the person may open Accounting's rates
+ * (`viewer.canOpenAccountingRates`, AC-7.3). The currency type is local: refund-ui no longer reads the rates.
+ *
  * Refusals are `ApiError`s: 403 `accounting_export_out_of_scope` (AC-6.11), 409 `batch_discarded` (AC-6.9),
  * 404, and, on the CSV only, 409 `accounting_export_blocked` whose body IS the summary (G10). `blockedSummary`
  * reads that body with a guard.
@@ -15,9 +20,19 @@
 import { apiFetch } from 'shell/session'
 import type { MissingValue } from './accountingApi'
 import { ApiError, getJson, refundApiBase, throwFromResponse } from './refundApi'
-import type { RateCurrency } from './exchangeRatesApi'
 
-export type MissingRateBlocker = { currency: RateCurrency; month: string }
+/** The currencies a WellD CH line can be in besides CHF (the rates Accounting keeps). */
+export type RateCurrency = 'EUR' | 'USD' | 'GBP'
+
+/** Why a rate is missing, as Accounting answered the consumer read (G7): never published yet, the fetch failed, no source. */
+export type MissingRateReason = 'not_published' | 'fetch_failed' | 'no_source'
+
+const RATE_REASONS: readonly MissingRateReason[] = ['not_published', 'fetch_failed', 'no_source']
+const asReason = (value: unknown): MissingRateReason | null =>
+  RATE_REASONS.find((reason) => reason === value) ?? null
+
+/** `reason` is `null` when the answer carries none (or one this client does not know): the item then says no reason. */
+export type MissingRateBlocker = { currency: RateCurrency; month: string; reason: MissingRateReason | null }
 
 export type UnclassifiedLineBlocker = {
   lineId: string
@@ -35,6 +50,11 @@ export type ExportBlockers = {
   missingRates: MissingRateBlocker[]
   unclassifiedLines: UnclassifiedLineBlocker[]
   unnumberedLines: UnnumberedLineBlocker[]
+  /**
+   * Accounting cannot be read while lines still wait for their rate (AC-6.6). Then `missingRates` is empty: it is
+   * not a missing rate, and the card says so under its own heading.
+   */
+  accountingUnavailable: boolean
 }
 
 export type AccountingExportSummary = {
@@ -45,13 +65,34 @@ export type AccountingExportSummary = {
   /** WellD Italia lines left out (AC-6.6). */
   excludedLineCount: number
   blockers: ExportBlockers
+  /** Approved lines in a foreign currency whose rate is copied at this export (AC-5.6). */
+  ratePendingLineCount: number
   /** True when the server just tried to fetch the missing rates from the official source. */
   fetchAttempted: boolean
+  /** Whether the person may open Accounting's exchange rates for WellD CH: it decides the link (AC-7.3, D17). */
+  viewer: { canOpenAccountingRates: boolean }
 }
 
+/**
+ * Fills what an answer from an older or newer server may leave out, so the card reads one shape: the pending count
+ * 0, the viewer flag false (no link), the unavailable blocker false and no reason on a missing rate.
+ */
+const withDefaults = (raw: AccountingExportSummary): AccountingExportSummary => ({
+  ...raw,
+  ratePendingLineCount: typeof raw.ratePendingLineCount === 'number' ? raw.ratePendingLineCount : 0,
+  viewer: { canOpenAccountingRates: raw.viewer?.canOpenAccountingRates === true },
+  blockers: raw.blockers
+    ? {
+        ...raw.blockers,
+        missingRates: (raw.blockers.missingRates ?? []).map((rate) => ({ ...rate, reason: asReason(rate.reason) })),
+        accountingUnavailable: raw.blockers.accountingUnavailable === true,
+      }
+    : raw.blockers,
+})
+
 /** `GET /batches/:id/accounting-export`: may call the official source and take several seconds. */
-export const getAccountingExport = (batchId: string): Promise<AccountingExportSummary> =>
-  getJson<AccountingExportSummary>(`/batches/${encodeURIComponent(batchId)}/accounting-export`)
+export const getAccountingExport = async (batchId: string): Promise<AccountingExportSummary> =>
+  withDefaults(await getJson<AccountingExportSummary>(`/batches/${encodeURIComponent(batchId)}/accounting-export`))
 
 /**
  * `GET /batches/:id/accounting-export/csv`: the bytes, BOM included. Every export is logged by the server, and
@@ -83,14 +124,15 @@ const isMissingValue = (value: unknown): value is MissingValue => value === 'acc
  */
 export const blockedSummary = (error: unknown): AccountingExportSummary | null => {
   if (!(error instanceof ApiError) || error.code !== 'accounting_export_blocked') return null
-  const { batchId, batchStatus, rowCount, excludedLineCount, blockers, fetchAttempted } = error.extras
+  const { batchId, batchStatus, rowCount, excludedLineCount, blockers, fetchAttempted, ratePendingLineCount, viewer } =
+    error.extras
   if (typeof batchId !== 'string' || !isRecord(blockers)) return null
 
   const missingRates: MissingRateBlocker[] = []
   for (const entry of asList(blockers.missingRates)) {
     const month = str(entry.month)
     if (month !== null && (entry.currency === 'EUR' || entry.currency === 'USD' || entry.currency === 'GBP')) {
-      missingRates.push({ currency: entry.currency, month })
+      missingRates.push({ currency: entry.currency, month, reason: asReason(entry.reason) })
     }
   }
   const unclassifiedLines: UnclassifiedLineBlocker[] = []
@@ -122,7 +164,9 @@ export const blockedSummary = (error: unknown): AccountingExportSummary | null =
     exportable: false,
     rowCount: typeof rowCount === 'number' ? rowCount : 0,
     excludedLineCount: typeof excludedLineCount === 'number' ? excludedLineCount : 0,
-    blockers: { missingRates, unclassifiedLines, unnumberedLines },
+    blockers: { missingRates, unclassifiedLines, unnumberedLines, accountingUnavailable: blockers.accountingUnavailable === true },
+    ratePendingLineCount: typeof ratePendingLineCount === 'number' ? ratePendingLineCount : 0,
     fetchAttempted: fetchAttempted === true,
+    viewer: { canOpenAccountingRates: isRecord(viewer) && viewer.canOpenAccountingRates === true },
   }
 }

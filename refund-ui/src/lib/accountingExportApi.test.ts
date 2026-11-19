@@ -25,7 +25,7 @@ const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
 const blockers = {
-  missingRates: [{ currency: 'EUR', month: '2026-03' }],
+  missingRates: [{ currency: 'EUR', month: '2026-03', reason: 'not_published' }],
   unclassifiedLines: [
     {
       lineId: 'l1',
@@ -38,6 +38,7 @@ const blockers = {
     },
   ],
   unnumberedLines: [],
+  accountingUnavailable: false,
 }
 
 beforeEach(() => {
@@ -50,11 +51,62 @@ afterEach(() => {
 })
 
 describe('getAccountingExport', () => {
-  it('GETs the summary of the batch', async () => {
-    const summary = { batchId: 'b1', batchStatus: 'compiled', exportable: true, rowCount: 12, excludedLineCount: 3 }
+  it('GETs the summary of the batch, as the plan’s contract gives it', async () => {
+    const summary = {
+      batchId: 'b1',
+      batchStatus: 'compiled',
+      exportable: false,
+      rowCount: 12,
+      excludedLineCount: 3,
+      ratePendingLineCount: 2,
+      fetchAttempted: true,
+      blockers: { ...blockers, accountingUnavailable: true },
+      viewer: { canOpenAccountingRates: true },
+    }
     vi.mocked(apiFetch).mockResolvedValueOnce(json(200, summary))
     await expect(getAccountingExport('b1')).resolves.toEqual(summary)
     expect(String(vi.mocked(apiFetch).mock.calls[0][0])).toBe(`${BASE}/batches/b1/accounting-export`)
+  })
+
+  it('fills what an answer leaves out: no pending lines, no link, Accounting readable, no reason', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      json(200, {
+        batchId: 'b1',
+        batchStatus: 'compiled',
+        exportable: false,
+        rowCount: 0,
+        excludedLineCount: 0,
+        fetchAttempted: false,
+        blockers: {
+          missingRates: [{ currency: 'EUR', month: '2026-03' }, { currency: 'USD', month: '2026-03', reason: 'soon' }],
+          unclassifiedLines: [],
+          unnumberedLines: [],
+        },
+      }),
+    )
+    await expect(getAccountingExport('b1')).resolves.toMatchObject({
+      ratePendingLineCount: 0,
+      viewer: { canOpenAccountingRates: false },
+      blockers: {
+        accountingUnavailable: false,
+        missingRates: [
+          { currency: 'EUR', month: '2026-03', reason: null },
+          { currency: 'USD', month: '2026-03', reason: null },
+        ],
+      },
+    })
+  })
+
+  it('reads the viewer flag strictly: only true opens the link', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      json(200, { batchId: 'b1', exportable: true, viewer: { canOpenAccountingRates: 'yes' } }),
+    )
+    await expect(getAccountingExport('b1')).resolves.toMatchObject({ viewer: { canOpenAccountingRates: false } })
+  })
+
+  it('does not import the exchange-rates client any more (T37)', async () => {
+    const source = await import('./accountingExportApi?raw')
+    expect(source.default).not.toContain('exchangeRatesApi')
   })
 
   it.each([
@@ -102,7 +154,9 @@ describe('downloadAccountingCsv', () => {
         rowCount: 0,
         excludedLineCount: 1,
         blockers,
+        ratePendingLineCount: 3,
         fetchAttempted: true,
+        viewer: { canOpenAccountingRates: true },
       }),
     )
     const error = await downloadAccountingCsv('b1').catch((caught: unknown) => caught)
@@ -114,7 +168,9 @@ describe('downloadAccountingCsv', () => {
       rowCount: 0,
       excludedLineCount: 1,
       blockers,
+      ratePendingLineCount: 3,
       fetchAttempted: true,
+      viewer: { canOpenAccountingRates: true },
     })
   })
 
@@ -167,8 +223,11 @@ describe('blockedSummary', () => {
       rowCount: 0,
       excludedLineCount: 0,
       fetchAttempted: false,
+      ratePendingLineCount: 0,
+      viewer: { canOpenAccountingRates: false },
       blockers: {
-        missingRates: [{ currency: 'USD', month: '2026-04' }],
+        accountingUnavailable: false,
+        missingRates: [{ currency: 'USD', month: '2026-04', reason: null }],
         unclassifiedLines: [
           {
             lineId: 'l2',
@@ -181,6 +240,40 @@ describe('blockedSummary', () => {
           },
         ],
         unnumberedLines: [{ lineId: 'l3', requestId: 'r3', employee: 'A B' }],
+      },
+    })
+  })
+})
+
+describe('blockedSummary: the specs/20261119-accounting fields', () => {
+  it('reads the unavailable blocker, the pending count, the reasons and the viewer flag, and ignores unknown values', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      json(409, {
+        title: 'x',
+        status: 409,
+        code: 'accounting_export_blocked',
+        batchId: 'b1',
+        ratePendingLineCount: 'many',
+        viewer: { canOpenAccountingRates: 1 },
+        blockers: {
+          accountingUnavailable: true,
+          missingRates: [
+            { currency: 'EUR', month: '2026-03', reason: 'fetch_failed' },
+            { currency: 'GBP', month: '2026-03', reason: 'who knows' },
+          ],
+        },
+      }),
+    )
+    const summary = blockedSummary(await downloadAccountingCsv('b1').catch((caught: unknown) => caught))
+    expect(summary).toMatchObject({
+      ratePendingLineCount: 0,
+      viewer: { canOpenAccountingRates: false },
+      blockers: {
+        accountingUnavailable: true,
+        missingRates: [
+          { currency: 'EUR', month: '2026-03', reason: 'fetch_failed' },
+          { currency: 'GBP', month: '2026-03', reason: null },
+        ],
       },
     })
   })
