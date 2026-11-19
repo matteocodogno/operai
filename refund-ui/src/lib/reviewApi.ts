@@ -66,7 +66,8 @@ export const setApprovedTotal = (id: string, lineId: string, approvedTotalCents:
  *
  * specs/20261118-refund-accounting-export adds two 409s with their own `code`, which a caller must tell apart from
  * the "already decided" 409 and from `all_lines_rejected` by `error.code`, never by status alone:
- * `classification_missing` (the refused lines are read with `classificationMissingLines` from `./accountingApi`) and
+ * `classification_missing` (the refused lines are read with `classificationMissingLines` from `./accountingApi`; since the
+ * accounting sign-off, 2026-11-19, it names accounts only: a line with no VAT code is approved, AC-3.11) and
  * `accounting_release_pending` (approvals are off until the release script has run).
  */
 export const approve = (id: string): Promise<RefundRequestDetail> =>

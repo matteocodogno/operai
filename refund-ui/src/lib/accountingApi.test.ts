@@ -183,6 +183,19 @@ describe('classification', () => {
     })
   })
 
+  it('PUTs a VAT code, a null that clears it, or an account, as the body says (AC-3.3, SO-3)', async () => {
+    for (const body of [{ vatCode: 'IPM81' }, { vatCode: null }, { accountNumber: '5905', vatCode: null }]) {
+      vi.mocked(apiFetch).mockReset()
+      vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { lineId: 'l1', inScope: true, classification: null }))
+      await classifyLine('r1', 'l1', body)
+      expect(lastCall()).toEqual({
+        url: `${BASE}/review/requests/r1/lines/l1/classification`,
+        method: 'PUT',
+        body,
+      })
+    }
+  })
+
   it.each(['classification_locked', 'not_classifiable_status', 'line_rejected'])(
     'passes the 409 %s through',
     async (code) => {
@@ -196,7 +209,7 @@ describe('the accounting view: entity scope and segregation of duties (plan.md S
   const inScopeLine = {
     lineId: 'l1',
     inScope: true,
-    classification: { account: null, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false },
+    classification: { account: null, accountIsDefault: false, vatCode: null },
     chf: { amountCents: 100, rateMicros: null, rate: null, rateMonth: null, rateStatus: 'not_applicable' },
     vatAmountCents: 8,
   }
@@ -255,8 +268,8 @@ describe('classificationMissingLines', () => {
 
   it('reads the lines of a classification_missing refusal', () => {
     const lines = [
-      { lineId: 'l1', date: '2026-03-19', type: 'travel_train', missing: ['account', 'vatCode'] },
-      { lineId: 'l2', date: '2026-03-20', type: 'postal', missing: ['vatCode'] },
+      { lineId: 'l1', date: '2026-03-19', type: 'travel_train', missing: ['account'] },
+      { lineId: 'l2', date: '2026-03-20', type: 'postal', missing: ['account'] },
     ]
     expect(classificationMissingLines(refusal({ lines }))).toEqual(lines)
   })

@@ -580,7 +580,6 @@ const en = {
         account: 'Account',
         vatCode: 'VAT code',
         chooseAccount: 'Choose an account',
-        chooseVatCode: 'Choose a VAT code',
         accountOption: (number: string, name: string) => `${number} — ${name}`,
         vatOption: (code: string, label: string, rate: string) => `${code} — ${label} (${rate})`,
         /** A VAT code whose copy recorded no label. */
@@ -590,7 +589,6 @@ const en = {
         handMarker: 'Set by hand',
         required: 'Required to approve.',
         missingAccount: 'Choose an account.',
-        missingVatCode: 'Choose a VAT code.',
         /** The VAT select's empty choice (AC-3.3, AC-3.13): a line may have no VAT code. */
         vatNone: 'None',
         inactiveCurrentAccount:
@@ -630,11 +628,6 @@ const en = {
           message: 'Its batch has been paid, so the classification can no longer change.',
         },
         missingSummary: {
-          title: (n: number) =>
-            n === 1
-              ? 'Nothing was approved. 1 value needs your attention.'
-              : `Nothing was approved. ${n} values need your attention.`,
-          hint: 'Choose the missing values, then approve again.',
           /** Account-only (AC-3.4, AC-3.11): approval needs an account, never a VAT code. */
           titleAccounts: (n: number) =>
             n === 1
@@ -642,7 +635,6 @@ const en = {
               : `Nothing was approved. ${n} lines need an account.`,
           hintAccounts: 'Choose an account for each line, then approve again.',
           account: (line: string) => `${line}: choose an account`,
-          vatCode: (line: string) => `${line}: choose a VAT code`,
           outOfScope: (line: string) => `${line}: needs a colleague with WellD CH access`,
         },
         releasePending:
@@ -657,8 +649,8 @@ const en = {
         notFoundOption: (text: string) => `${text} (not in Accounting)`,
         notFoundCurrentAccount: 'This account is no longer in Accounting. The line keeps it; choose another to change it.',
         notFoundCurrentVat: 'This VAT code is no longer in Accounting. The line keeps it; choose another to change it.',
-        /** `what` is "account" or "VAT code". */
-        defaultWhat: { account: 'account', vatCode: 'VAT code' },
+        /** `what` is "account": only an account can be a default (SO-2). */
+        defaultWhat: { account: 'account' },
         defaultDeactivated: (what: string) => `The default ${what} for this type is deactivated in Accounting. Choose one.`,
         defaultNotFound: (what: string) => `The default ${what} for this type is no longer in Accounting. Choose one.`,
         /** The rate fact before approval (UX-20): approval is not refused for a missing rate. */
@@ -1502,7 +1494,6 @@ const it: Strings = {
         account: 'Conto',
         vatCode: 'Codice IVA',
         chooseAccount: 'Scegliere un conto',
-        chooseVatCode: 'Scegliere un codice IVA',
         accountOption: (number: string, name: string) => `${number} — ${name}`,
         vatOption: (code: string, label: string, rate: string) => `${code} — ${label} (${rate})`,
         vatOptionNoLabel: (code: string, rate: string) => `${code} (${rate})`,
@@ -1511,7 +1502,6 @@ const it: Strings = {
         handMarker: 'Impostato a mano',
         required: 'Obbligatorio per approvare.',
         missingAccount: 'Scegliere un conto.',
-        missingVatCode: 'Scegliere un codice IVA.',
         vatNone: 'Nessuno',
         inactiveCurrentAccount:
           'Questo conto è disattivato in Contabilità. La riga lo mantiene; sceglierne uno attivo per cambiarlo.',
@@ -1548,18 +1538,12 @@ const it: Strings = {
           message: 'Il suo lotto è stato pagato: la classificazione non può più cambiare.',
         },
         missingSummary: {
-          title: (n: number) =>
-            n === 1
-              ? 'Non è stato approvato nulla. 1 valore richiede attenzione.'
-              : `Non è stato approvato nulla. ${n} valori richiedono attenzione.`,
-          hint: 'Scegliere i valori mancanti, poi approvare di nuovo.',
           titleAccounts: (n: number) =>
             n === 1
               ? 'Non è stato approvato nulla. 1 riga richiede un conto.'
               : `Non è stato approvato nulla. ${n} righe richiedono un conto.`,
           hintAccounts: 'Scegliere un conto per ogni riga, poi approvare di nuovo.',
           account: (line: string) => `${line}: scegliere un conto`,
-          vatCode: (line: string) => `${line}: scegliere un codice IVA`,
           outOfScope: (line: string) => `${line}: serve un collega con accesso a WellD CH`,
         },
         releasePending:
@@ -1576,7 +1560,7 @@ const it: Strings = {
           'Questo conto non è più presente in Contabilità. La riga lo mantiene; sceglierne un altro per cambiarlo.',
         notFoundCurrentVat:
           'Questo codice IVA non è più presente in Contabilità. La riga lo mantiene; sceglierne un altro per cambiarlo.',
-        defaultWhat: { account: 'conto', vatCode: 'codice IVA' },
+        defaultWhat: { account: 'conto' },
         defaultDeactivated: (what: string) =>
           `Il ${what} predefinito di questo tipo è disattivato in Contabilità. Sceglierne uno.`,
         defaultNotFound: (what: string) =>

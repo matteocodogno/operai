@@ -757,7 +757,7 @@ describe('ReviewDetailPage — line classification panels', () => {
     employee: { name: 'Alice', email: 'alice@welld.ch' },
     rejected: false,
     inScope: true,
-    classification: { account: TRAIN, accountIsDefault: true, vatCode: NOVAT, vatCodeIsDefault: true },
+    classification: { account: TRAIN, accountIsDefault: true, vatCode: NOVAT },
     chf: { amountCents: 924, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-07', rateStatus: 'in_effect' },
     vatAmountCents: 0,
     ...overrides,
@@ -897,7 +897,7 @@ describe('ReviewDetailPage — line classification panels', () => {
     vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(view([accLine('c1')]))
     vi.mocked(accountingApi.classifyLine).mockResolvedValue(
       accLine('c1', {
-        classification: { account: HOTEL, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true },
+        classification: { account: HOTEL, accountIsDefault: false, vatCode: NOVAT },
         chf: { amountCents: 999, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-07', rateStatus: 'in_effect' },
       }),
     )
@@ -913,6 +913,40 @@ describe('ReviewDetailPage — line classification panels', () => {
     // The options were loaded once and not again.
     expect(accountingApi.getAccountingOptions).toHaveBeenCalledTimes(1)
     // A save merges the answer: it does not reload the view.
+    expect(accountingApi.getRequestAccounting).toHaveBeenCalledTimes(1)
+  })
+
+  it('a line with no VAT code arrives with None selected and no VAT amount, even on a EUR line (AC-3.8, AC-3.13)', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(withCh())
+    vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(
+      view([accLine('c1', { classification: { account: TRAIN, accountIsDefault: true, vatCode: null }, vatAmountCents: null })]),
+    )
+    renderReviewDetailPage()
+
+    const vat = (await screen.findByTestId('classification-c1-vat-code')) as HTMLSelectElement
+    expect(vat.value).toBe('__none__')
+    expect(vat.selectedOptions[0].textContent).toBe('None')
+    expect(screen.getByTestId('classification-c1-vat-amount').textContent).toBe('No VAT code, so no VAT amount.')
+  })
+
+  it('choosing None sends vatCode: null, shows the line the server answers with, and then no VAT amount (AC-3.3, AC-3.8)', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(withCh())
+    vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(view([accLine('c1')]))
+    vi.mocked(accountingApi.classifyLine).mockResolvedValue(
+      accLine('c1', { classification: { account: TRAIN, accountIsDefault: true, vatCode: null }, vatAmountCents: null }),
+    )
+    renderReviewDetailPage()
+
+    await readySelect('classification-c1-account')
+    expect(screen.getByTestId('classification-c1-vat-amount').textContent).toBe('CHF 0.00')
+    fireEvent.change(screen.getByTestId('classification-c1-vat-code'), { target: { value: '__none__' } })
+
+    await waitFor(() => expect(accountingApi.classifyLine).toHaveBeenCalledWith('req-1', 'c1', { vatCode: null }))
+    await waitFor(() =>
+      expect(screen.getByTestId('classification-c1-vat-amount').textContent).toBe('No VAT code, so no VAT amount.'),
+    )
+    expect((screen.getByTestId('classification-c1-vat-code') as HTMLSelectElement).value).toBe('__none__')
+    expect(screen.getByTestId('classification-c1-saved').textContent).toBe('VAT code cleared')
     expect(accountingApi.getRequestAccounting).toHaveBeenCalledTimes(1)
   })
 
@@ -1004,11 +1038,11 @@ describe('ReviewDetailPage — line classification panels', () => {
       view([
         overrides.c1 ??
           accLine('c1', {
-            classification: { account: null, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true },
+            classification: { account: null, accountIsDefault: false, vatCode: NOVAT },
           }),
         overrides.c2 ??
           accLine('c2', {
-            classification: { account: null, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false },
+            classification: { account: null, accountIsDefault: false, vatCode: null },
             vatAmountCents: null,
           }),
         accLine('it1', { entity: 'welld_it', classification: null }),
@@ -1025,7 +1059,7 @@ describe('ReviewDetailPage — line classification panels', () => {
       fireEvent.click(screen.getByTestId('approve-dialog-confirm'))
     }
 
-    it('closes the dialog and shows one ErrorSummary link per missing value, in page order, with focus on the first select', async () => {
+    it('closes the dialog and shows one ErrorSummary link per missing ACCOUNT, in page order, with focus on the first select; a VAT code the refusal names is never listed (AC-3.4, AC-3.11)', async () => {
       vi.mocked(requestsApi.get).mockResolvedValue(missingRequest)
       vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(missingView())
       vi.mocked(reviewApi.approve).mockRejectedValue(refusal)
@@ -1038,18 +1072,21 @@ describe('ReviewDetailPage — line classification panels', () => {
       expect(screen.queryByTestId('guardrail-dialog')).toBeNull()
       expect(summary.getAttribute('role')).toBe('alert')
       expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
-        'Nothing was approved. 3 values need your attention.',
+        'Nothing was approved. 2 lines need an account.',
       )
+      expect(screen.getByText('Choose an account for each line, then approve again.')).not.toBeNull()
       expect(screen.getAllByTestId('classification-missing-summary-item').map((item) => item.textContent)).toEqual([
         '01.07.2026 · Line c1: choose an account',
         '01.07.2026 · Line c2: choose an account',
-        '01.07.2026 · Line c2: choose a VAT code',
       ])
+      expect(summary.textContent).not.toMatch(/VAT/)
       await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('classification-c1-account')))
-      // Every missing select carries its own error; a present value carries none.
+      // Every missing account carries its own error; a VAT select, with a code or with None, never does.
       expect(screen.getByTestId('classification-c1-account').getAttribute('aria-invalid')).toBe('true')
+      expect(screen.getByTestId('classification-c2-account').getAttribute('aria-invalid')).toBe('true')
       expect(screen.getByTestId('classification-c1-vat-code').getAttribute('aria-invalid')).toBeNull()
-      expect(screen.getByTestId('classification-c2-vat-code').getAttribute('aria-invalid')).toBe('true')
+      expect(screen.getByTestId('classification-c2-vat-code').getAttribute('aria-invalid')).toBeNull()
+      expect((screen.getByTestId('classification-c2-vat-code') as HTMLSelectElement).value).toBe('__none__')
       // The request and the view were loaded again, and nothing navigated.
       await waitFor(() => expect(accountingApi.getRequestAccounting).toHaveBeenCalledTimes(2))
       expect(window.location.pathname).toBe('/review/req-1')
@@ -1064,11 +1101,11 @@ describe('ReviewDetailPage — line classification panels', () => {
       await approve()
       await screen.findByTestId('classification-missing-summary')
 
-      fireEvent.click(screen.getAllByTestId('classification-missing-summary-item')[2])
-      expect(document.activeElement).toBe(screen.getByTestId('classification-c2-vat-code'))
+      fireEvent.click(screen.getAllByTestId('classification-missing-summary-item')[1])
+      expect(document.activeElement).toBe(screen.getByTestId('classification-c2-account'))
     })
 
-    it('the summary and the errors clear value by value as they are chosen', async () => {
+    it('the summary and the errors clear account by account as they are chosen', async () => {
       vi.mocked(requestsApi.get).mockResolvedValue(missingRequest)
       vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(missingView())
       vi.mocked(reviewApi.approve).mockRejectedValue(refusal)
@@ -1081,11 +1118,11 @@ describe('ReviewDetailPage — line classification panels', () => {
       fireEvent.change(select, { target: { value: '5901' } })
       await waitFor(() =>
         expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
-          'Nothing was approved. 2 values need your attention.',
+          'Nothing was approved. 1 line needs an account.',
         ),
       )
       expect(screen.getByTestId('classification-c1-account').getAttribute('aria-invalid')).toBeNull()
-      expect(screen.getAllByTestId('classification-missing-summary-item')).toHaveLength(2)
+      expect(screen.getAllByTestId('classification-missing-summary-item')).toHaveLength(1)
     })
 
     it('drops a line the page no longer has and says nothing about it', async () => {
@@ -1108,7 +1145,7 @@ describe('ReviewDetailPage — line classification panels', () => {
       const oosView = () =>
         view([
           accLine('c1', {
-            classification: { account: null, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true },
+            classification: { account: null, accountIsDefault: false, vatCode: NOVAT },
           }),
           accLine('c2', { inScope: false, classification: null, chf: null, vatAmountCents: null }),
           accLine('c3', { inScope: false, classification: null, chf: null, vatAmountCents: null }),
@@ -1131,7 +1168,7 @@ describe('ReviewDetailPage — line classification panels', () => {
         expect(screen.queryByTestId('approve-dialog-modal')).toBeNull()
         expect(summary.getAttribute('role')).toBe('alert')
         expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
-          'Nothing was approved. 2 values need your attention.',
+          'Nothing was approved. 2 lines need an account.',
         )
         expect(screen.getAllByTestId('classification-missing-summary-item').map((item) => item.textContent)).toEqual([
           '01.07.2026 · Line c2: needs a colleague with WellD CH access',
@@ -1156,7 +1193,7 @@ describe('ReviewDetailPage — line classification panels', () => {
 
         await screen.findByTestId('classification-missing-summary')
         expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
-          'Nothing was approved. 3 values need your attention.',
+          'Nothing was approved. 3 lines need an account.',
         )
         expect(screen.getAllByTestId('classification-missing-summary-item')).toHaveLength(3)
         await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('classification-c1-account')))
@@ -1179,7 +1216,7 @@ describe('ReviewDetailPage — line classification panels', () => {
         fireEvent.change(select, { target: { value: '5901' } })
         await waitFor(() =>
           expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
-            'Nothing was approved. 1 value needs your attention.',
+            'Nothing was approved. 1 line needs an account.',
           ),
         )
         fireEvent.click(screen.getByTestId('classification-missing-summary-item'))
@@ -1615,7 +1652,6 @@ describe('ReviewDetailPage — line classification panels', () => {
           account: { ...TRAIN, state: 'deactivated' },
           accountIsDefault: true,
           vatCode: NOVAT,
-          vatCodeIsDefault: true,
         },
       })
       vi.mocked(requestsApi.get).mockResolvedValue(withCh())
@@ -1722,7 +1758,6 @@ describe('ReviewDetailPage — line classification panels', () => {
               account: { ...TRAIN, state: 'deactivated' },
               accountIsDefault: true,
               vatCode: { ...NOVAT, state: 'not_found' },
-              vatCodeIsDefault: false,
             },
           }),
         ]),
@@ -1736,7 +1771,7 @@ describe('ReviewDetailPage — line classification panels', () => {
 
   describe('accessibility (axe)', () => {
     const missingBoth = {
-      classification: { account: null, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false },
+      classification: { account: null, accountIsDefault: false, vatCode: null },
       vatAmountCents: null,
     }
     const refusedWith = (lines: unknown[]) =>
@@ -1792,7 +1827,7 @@ describe('ReviewDetailPage — line classification panels', () => {
       vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(
         view([
           accLine('c1', { chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-07', rateStatus: 'missing' }, vatAmountCents: null }),
-          accLine('c2', { classification: { account: HOTEL, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: false } }),
+          accLine('c2', { classification: { account: HOTEL, accountIsDefault: false, vatCode: NOVAT } }),
           accLine('c3', missingBoth),
         ]),
       )
@@ -1822,6 +1857,19 @@ describe('ReviewDetailPage — line classification panels', () => {
       renderReviewDetailPage()
       fireEvent.change(await readySelect('classification-c1-account'), { target: { value: '5902' } })
       await waitFor(() => expect(screen.getByTestId('classification-c1-why')).not.toBeNull())
+      await expectNoAxeViolations()
+    })
+
+    it('has no violations: lines with no VAT code (None selected, no VAT amount), and one just cleared', async () => {
+      const noVat = { classification: { account: TRAIN, accountIsDefault: true, vatCode: null }, vatAmountCents: null }
+      vi.mocked(requestsApi.get).mockResolvedValue(withCh({ lines: [chLine('c1'), chLine('c2')] }))
+      vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(view([accLine('c1', noVat), accLine('c2')]))
+      vi.mocked(accountingApi.classifyLine).mockResolvedValue(accLine('c2', noVat))
+      renderReviewDetailPage()
+      await readySelect('classification-c1-account')
+      await expectNoAxeViolations()
+      fireEvent.change(screen.getByTestId('classification-c2-vat-code'), { target: { value: '__none__' } })
+      await waitFor(() => expect(screen.getByTestId('classification-c2-saved').textContent).toBe('VAT code cleared'))
       await expectNoAxeViolations()
     })
 

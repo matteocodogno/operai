@@ -13,7 +13,6 @@ const ADDED_KEYS: ReadonlyArray<{ path: string; args?: readonly unknown[] }> = [
   // Added by the tasks that changed the component, once the need showed (T35 to T37).
   { path: 'settings.defaults.needsChoiceLabel' },
   { path: 'pages.reviewDetail.classification.defaultWhat.account' },
-  { path: 'pages.reviewDetail.classification.defaultWhat.vatCode' },
   { path: 'pages.reviewDetail.classification.vatOptionNoLabel', args: ['OLD', '7.7%'] },
   { path: 'pages.batchDetail.accountingExport.blocked.rateItemReason', args: ['EUR', 'March 2026', 'x'] },
   { path: 'accountingUnavailable.approve' },
@@ -119,6 +118,20 @@ describe('T33 copy additions (specs/20261119-accounting design § Copy keys)', (
       'settings.defaults.errors.vatNotFound',
       'settings.defaults.foreign',
       'settings.history.columns.vatCode',
+    ]
+    for (const lang of [catalogs.en, catalogs.it]) {
+      for (const path of REMOVED) expect(resolve(lang, path), path).toBeUndefined()
+    }
+  })
+
+  it('T70: the copy of the VAT-required review panel and of the value-wise approve summary is gone (AC-3.4, AC-3.11)', () => {
+    const REMOVED = [
+      'pages.reviewDetail.classification.chooseVatCode',
+      'pages.reviewDetail.classification.missingVatCode',
+      'pages.reviewDetail.classification.defaultWhat.vatCode',
+      'pages.reviewDetail.classification.missingSummary.title',
+      'pages.reviewDetail.classification.missingSummary.hint',
+      'pages.reviewDetail.classification.missingSummary.vatCode',
     ]
     for (const lang of [catalogs.en, catalogs.it]) {
       for (const path of REMOVED) expect(resolve(lang, path), path).toBeUndefined()

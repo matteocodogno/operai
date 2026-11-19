@@ -92,15 +92,17 @@ export type ClassificationState = 'review' | 'post_approval' | 'locked' | 'none'
 type LineVatCodeRef = Omit<VatCodeRef, 'label'> & { label: string | null }
 
 /**
- * The account and VAT code a line carries. A type default (or designation) whose entry is deactivated or not found is
- * returned WITH its state and `…IsDefault: true`, never as `null`: `null` means no default is set (G8a). Approval
- * still refuses it server-side (AC-6.3).
+ * The account and VAT code a line carries. A type default account whose entry is deactivated or not found is
+ * returned WITH its state and `accountIsDefault: true`, never as `null`: `null` means no default is set (G8a).
+ * Approval still refuses it server-side (AC-6.3).
+ *
+ * The VAT half is a hand-set copy or `null` (T70, specs/20261118 SO-2, SO-5): it is never pre-set, so there is no
+ * `vatCodeIsDefault` on the wire and nothing here reads one.
  */
 type LineClassification = {
   account: AccountRef | null
   accountIsDefault: boolean
   vatCode: LineVatCodeRef | null
-  vatCodeIsDefault: boolean
 }
 
 /**
@@ -141,7 +143,7 @@ export type AccountingLine = {
   classification: LineClassification | null
   /** `null` for a line out of scope. */
   chf: LineChf | null
-  /** `null` when the CHF amount is unknown or there is no VAT code (never a computed zero), and out of scope. */
+  /** `null` when the CHF amount is unknown or there is no VAT code (never a computed zero), and out of scope (AC-3.8). */
   vatAmountCents: number | null
 }
 
@@ -162,8 +164,11 @@ export type RequestAccounting = {
   lines: AccountingLine[]
 }
 
-/** At least one key; natural keys (D1). There is no "back to default". */
-export type ClassifyBody = { accountNumber?: string; vatCode?: string }
+/**
+ * At least one key; natural keys (D1). There is no "back to default". `vatCode: null` clears the VAT code (AC-3.3,
+ * SO-3: a line may have none); the account is required and has no null.
+ */
+export type ClassifyBody = { accountNumber?: string; vatCode?: string | null }
 
 export type MissingValue = 'account' | 'vatCode'
 
@@ -254,7 +259,8 @@ export const getRequestAccounting = (requestId: string): Promise<RequestAccounti
   }))
 
 /**
- * `PUT /review/requests/:id/lines/:lineId/classification`: at least one key, a number or a code (there is no "back to default").
+ * `PUT /review/requests/:id/lines/:lineId/classification`: at least one key, a number or a code, or `vatCode: null` to
+ * clear the VAT code (there is no "back to default").
  * Answers with the whole line, amounts included: merge it, never recompute. 403 `self_approval_forbidden` (the
  * caller owns the request and may not shape its booking, plan.md SR-2), 404 for a line outside the caller's entity
  * scope; 409 `classification_locked` (paid), `not_classifiable_status`, `line_rejected`; 422 `line_not_welld_ch`,

@@ -44,18 +44,18 @@ describe('the accounting copy catalog (design § Copy keys)', () => {
     for (const catalog of [en, it_]) {
       expect(catalog.settings.sections.defaults).toBeTruthy()
       expect(catalog.settings.defaults.needsChoice(1)).toBeTruthy()
-      expect(catalog.pages.reviewDetail.classification.missingSummary.hint).toBeTruthy()
+      expect(catalog.pages.reviewDetail.classification.missingSummary.hintAccounts).toBeTruthy()
       expect(catalog.pages.batchDetail.accountingExport.blocked.checkAgain).toBeTruthy()
       expect(catalog.pages.requestDetail.lines.receiptNumberLabel).toBeTruthy()
     }
   })
 
   it('writes the plurals inside the function (n === 1)', () => {
-    expect(en.pages.reviewDetail.classification.missingSummary.title(1)).toBe(
-      'Nothing was approved. 1 value needs your attention.',
+    expect(en.pages.reviewDetail.classification.missingSummary.titleAccounts(1)).toBe(
+      'Nothing was approved. 1 line needs an account.',
     )
-    expect(it_.pages.reviewDetail.classification.missingSummary.title(2)).toBe(
-      'Non è stato approvato nulla. 2 valori richiedono attenzione.',
+    expect(it_.pages.reviewDetail.classification.missingSummary.titleAccounts(2)).toBe(
+      'Non è stato approvato nulla. 2 righe richiedono un conto.',
     )
     expect(en.pages.batchDetail.accountingExport.rows(1)).toBe('1 row will be exported.')
     expect(it_.pages.batchDetail.accountingExport.rows(12)).toBe('Verranno esportate 12 righe.')

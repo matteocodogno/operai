@@ -80,6 +80,42 @@ describe('CatalogSelect', () => {
     expect(select.selectedOptions[0].disabled).toBe(true)
   })
 
+  it('a VAT select with None and no code reads None, selected, first, before the codes (AC-3.13)', () => {
+    render(
+      <CatalogSelect
+        kind="vatCode"
+        options={vatCodes}
+        value={CATALOG_NONE}
+        onChange={vi.fn()}
+        noneLabel="None"
+        aria-label="VAT"
+      />,
+    )
+    expect(optionTexts()).toEqual(['None', 'NOVAT — Senza IVA (0%)', 'IMP81 — Imposta piena (8.1%)'])
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    expect(select.value).toBe(CATALOG_NONE)
+    expect(select.selectedOptions[0].textContent).toBe('None')
+  })
+
+  it('a VAT select keeps a deactivated stored code selected and still offers None to clear it (AC-3.3)', () => {
+    const onChange = vi.fn()
+    render(
+      <CatalogSelect
+        kind="vatCode"
+        options={vatCodes}
+        current={{ code: 'OLD', label: 'Vecchia', ratePercent: '7.7', state: 'deactivated' }}
+        value="OLD"
+        onChange={onChange}
+        noneLabel="None"
+        aria-label="VAT"
+      />,
+    )
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    expect(select.selectedOptions[0].textContent).toBe('OLD — Vecchia (7.7%) (deactivated)')
+    fireEvent.change(select, { target: { value: CATALOG_NONE } })
+    expect(onChange).toHaveBeenCalledWith(CATALOG_NONE)
+  })
+
   it('keeps None and the placeholder apart: None is a value, the placeholder is not', () => {
     render(
       <CatalogSelect

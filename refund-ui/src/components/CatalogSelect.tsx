@@ -1,14 +1,15 @@
 /**
  * CatalogSelect — the one native `<select>` for a ledger account or a VAT code
- * (specs/20261118-refund-accounting-export, design component #41, UX-4): the same control in the two defaults
- * dialogs, the foreign-currency VAT dialog and the line classification panel.
+ * (specs/20261118-refund-accounting-export, design component #41, UX-4): the same control in the default-account
+ * dialog and the line classification panel.
  *
  * specs/20261119-accounting (T35, RS3, RS4): an option's value is the entry's NUMBER or CODE (Accounting keys its
  * entries naturally; there are no ids), and `current` carries Accounting's `state`.
  *
  *   - Labels are number-first (`5905 — Spese rimborsi`), so type-ahead matches the number.
- *   - `noneLabel` adds an explicit "None" option (value `CATALOG_NONE`): a default may be cleared. The line
- *     panel passes none: a line has no "back to default".
+ *   - `noneLabel` adds an explicit "None" option (value `CATALOG_NONE`): a default account may be cleared, and a line's
+ *     VAT code is optional (T70, AC-3.3, AC-3.13), so the panel's VAT select passes one. The panel's account select
+ *     passes none: a line's account is required and has no "back to default".
  *   - `placeholder` is the "nothing chosen" option (empty value). It is disabled, so once a real value is
  *     picked it cannot be chosen again; it shows while `value` is `''`. A missing value and a
  *     deliberately empty one are different things and never share an option.

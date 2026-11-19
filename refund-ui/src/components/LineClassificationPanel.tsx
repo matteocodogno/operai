@@ -1,7 +1,7 @@
 /**
- * LineClassificationPanel — the account and VAT code of ONE WellD CH line on the review page
- * (specs/20261118-refund-accounting-export, design S7, F5, F6, UX-4, UX-13, UX-14; AC-3.1, AC-3.2, AC-3.3, AC-3.6,
- * AC-3.7, AC-3.8, AC-3.9, AC-3.10). It sits in the line row's footer slot; the page decides which lines get one
+ * LineClassificationPanel — the account and the optional VAT code of ONE WellD CH line on the review page
+ * (specs/20261118-refund-accounting-export, design S7, F5, F6, UX-4, UX-13, UX-14; AC-3.1, AC-3.3, AC-3.6,
+ * AC-3.7, AC-3.8, AC-3.9, AC-3.10, AC-3.11, AC-3.13). It sits in the line row's footer slot; the page decides which lines get one
  * (WellD CH and not rejected: no panel, and no "not applicable" text, for any other line).
  *
  * Everything shown comes from the server's accounting view of the line (`AccountingLine`): the values, whether each
@@ -9,10 +9,14 @@
  * computes a figure; a save answers with the whole line and the page merges it.
  *
  *   - Editable (`canChange`, state `review` or `post_approval`): two native selects, number first, committed ON CHANGE
- *     (UX-4; no confirmation after approval either, UX-14). The marker (*Default* / *Set by hand*) lives in the
- *     field's hint, so a screen reader hears it. A value that is not set yet reads "Choose …" with "Required to
- *     approve." and is only an error after a refused approval (`missing`). A saved value that has since been
+ *     (UX-4; no confirmation after approval either, UX-14). The account's marker (*Default* / *Set by hand*) lives in
+ *     the field's hint, so a screen reader hears it. An account that is not set yet reads "Choose …" with "Required
+ *     to approve." and is only an error after a refused approval (`missing`). A saved value that has since been
  *     deactivated stays as a disabled "(inactive)" option with a hint.
+ *   - The VAT code is OPTIONAL (T70, specs/20261118 SO-2, SO-3, SO-5; AC-3.3, AC-3.11, AC-3.13): its select always
+ *     offers "None", which is what a line without a code shows, and which is what a EUR line shows too (a VAT code
+ *     is never pre-set, so there is no VAT marker and no VAT "required"). Choosing a code sends `{ vatCode }`;
+ *     choosing None sends `{ vatCode: null }`, which clears it. A line with no code shows no VAT amount (AC-3.8).
  *   - While one select saves it shows "Saving…", ignores further changes (`aria-busy`; it is NOT disabled, so it
  *     keeps focus) and shows the chosen value; a refusal puts the last saved value back and says why in an alert
  *     under it: 422 inactive (and the options reload), 403, or anything else. A 409 is the page's: `onConflict`.
@@ -56,7 +60,7 @@ import type {
   EntryState,
   LineChf,
 } from '../lib/accountingApi'
-import { accountText, formatVatRate, vatCodeText } from '../lib/catalogLabels'
+import { CATALOG_NONE, accountText, formatVatRate, vatCodeText } from '../lib/catalogLabels'
 import { formatMoney } from '../lib/money'
 import { monthLabel } from '../lib/monthLabel'
 import { ApiError } from '../lib/refundApi'
@@ -101,8 +105,8 @@ export type LineClassificationPanelProps = {
   accountingUnavailable?: boolean
   /** The caller owns this request and may not approve it (the view's `selfRestricted`): read-only, with its own note. */
   selfRestricted?: boolean
-  /** The values a refused approval named for this line: shown as an error until a value is chosen. */
-  missing?: { account: boolean; vatCode: boolean }
+  /** What a refused approval named for this line: the account, shown as an error until one is chosen (AC-3.4). */
+  missing?: { account: boolean }
   /** Saves one value and answers with the line as the server now has it (the page merges it). Rejects with the `ApiError`. */
   onClassify: (body: ClassifyBody) => Promise<AccountingLine>
   /** A 409 (locked, or the status changed): the page explains it and reloads. */
@@ -178,18 +182,22 @@ export default function LineClassificationPanel({
 
   const handleChange = async (field: FieldName, value: string) => {
     if (pending !== null || value === '') return
-    const current = field === 'account' ? classification.account?.number : classification.vatCode?.code
+    const current = field === 'account' ? classification.account?.number : (classification.vatCode?.code ?? CATALOG_NONE)
     if (value === current) return
     setPending({ field, value })
     setErrorMessage(null)
     setSavedMessage(null)
     try {
-      const saved = await onClassify(field === 'account' ? { accountNumber: value } : { vatCode: value })
+      const saved = await onClassify(
+        field === 'account' ? { accountNumber: value } : { vatCode: value === CATALOG_NONE ? null : value },
+      )
       const savedClassification = saved.classification
       if (field === 'account' && savedClassification?.account) {
         setSavedMessage(t.savedAccount(accountText(savedClassification.account)))
       } else if (field === 'vatCode' && savedClassification?.vatCode) {
         setSavedMessage(t.savedVat(vatCodeText(savedClassification.vatCode)))
+      } else if (field === 'vatCode' && savedClassification?.vatCode === null) {
+        setSavedMessage(t.savedVatNone)
       }
     } catch (error) {
       const code = error instanceof ApiError ? error.code : undefined
@@ -281,12 +289,16 @@ export default function LineClassificationPanel({
       ),
     })
   }
+  // The VAT amount exists only with a code (AC-3.8): without one the fact says so and shows no figure, whatever the
+  // server sent. With a code but no amount (the CHF amount is unknown) it is "—", never 0.
   const vatAmount =
-    line.vatAmountCents === null
-      ? t.unavailable
-      : isForeign || classification.vatCode === null
-        ? formatMoney(line.vatAmountCents, 'CHF')
-        : t.vatAmountValue(formatMoney(line.vatAmountCents, 'CHF'), formatVatRate(classification.vatCode.ratePercent))
+    classification.vatCode === null
+      ? t.vatAmountNone
+      : line.vatAmountCents === null
+        ? t.unavailable
+        : isForeign
+          ? formatMoney(line.vatAmountCents, 'CHF')
+          : t.vatAmountValue(formatMoney(line.vatAmountCents, 'CHF'), formatVatRate(classification.vatCode.ratePercent))
   facts.push({
     id: 'vat',
     term: t.vatAmount,
@@ -304,9 +316,9 @@ export default function LineClassificationPanel({
 
   if (!editable) {
     // The suffix names what Accounting says; `unverified` (and, when it cannot be read, anything) claims nothing.
-    const valueText = (text: string | null, isDefault: boolean, state: EntryState) =>
+    const valueText = (text: string | null, marked: boolean | null, state: EntryState, none: string = t.unavailable) =>
       text === null ? (
-        t.unavailable
+        none
       ) : (
         <span className="inline-flex flex-wrap items-center gap-1.5">
           <span>
@@ -318,7 +330,7 @@ export default function LineClassificationPanel({
                   ? t.notFoundOption(text)
                   : text}
           </span>
-          {marker(isDefault)}
+          {marked !== null && marker(marked)}
         </span>
       )
     return (
@@ -346,8 +358,9 @@ export default function LineClassificationPanel({
               term: t.vatCode,
               value: valueText(
                 classification.vatCode ? vatCodeText(classification.vatCode) : null,
-                classification.vatCodeIsDefault,
+                null,
                 classification.vatCode?.state ?? 'active',
+                t.vatNone,
               ),
             },
           ]}
@@ -384,45 +397,43 @@ export default function LineClassificationPanel({
 
   // A default that cannot be used any more is "missing", with its reason; any other stored value stays as it is.
   const accountDefaultGone = isUnusableDefault(classification.account, classification.accountIsDefault, state)
-  const vatDefaultGone = isUnusableDefault(classification.vatCode, classification.vatCodeIsDefault, state)
   const accountRef = accountDefaultGone ? null : classification.account
-  const vatRef = vatDefaultGone ? null : classification.vatCode
+  // The VAT code is a hand copy or none, never a default: whatever is stored stays, as it is.
+  const vatRef = classification.vatCode
   const accountOptions = options?.ledgerAccounts ?? []
   const vatOptions = options?.vatCodes ?? []
 
   const fieldHint = (field: FieldName) => {
-    const reference = field === 'account' ? accountRef : vatRef
     if (pending?.field === field) return t.saving
-    if (reference === null) {
-      const gone = field === 'account' ? accountDefaultGone : vatDefaultGone
-      const unusable = field === 'account' ? classification.account : classification.vatCode
-      if (!gone || unusable === null) return t.required
-      const what = field === 'account' ? t.defaultWhat.account : t.defaultWhat.vatCode
-      return unusable.state === 'not_found' ? t.defaultNotFound(what) : t.defaultDeactivated(what)
+    if (field === 'vatCode') {
+      // No marker and no "required": only a stored copy that Accounting has since deactivated or lost is worth a word.
+      if (vatRef === null || (vatRef.state !== 'deactivated' && vatRef.state !== 'not_found')) return undefined
+      return vatRef.state === 'deactivated' ? t.inactiveCurrentVat : t.notFoundCurrentVat
+    }
+    if (accountRef === null) {
+      const unusable = classification.account
+      if (!accountDefaultGone || unusable === null) return t.required
+      return unusable.state === 'not_found'
+        ? t.defaultNotFound(t.defaultWhat.account)
+        : t.defaultDeactivated(t.defaultWhat.account)
     }
     return (
       <span className="inline-flex flex-wrap items-center gap-1.5">
-        {marker(field === 'account' ? classification.accountIsDefault : classification.vatCodeIsDefault)}
-        {reference.state === 'deactivated' && (
-          <span>{field === 'account' ? t.inactiveCurrentAccount : t.inactiveCurrentVat}</span>
-        )}
-        {reference.state === 'not_found' && (
-          <span>{field === 'account' ? t.notFoundCurrentAccount : t.notFoundCurrentVat}</span>
-        )}
+        {marker(classification.accountIsDefault)}
+        {accountRef.state === 'deactivated' && <span>{t.inactiveCurrentAccount}</span>}
+        {accountRef.state === 'not_found' && <span>{t.notFoundCurrentAccount}</span>}
       </span>
     )
   }
 
   const fieldError = (field: FieldName): string | undefined => {
     if (errorMessage?.field === field) return errorMessage.text
-    const reference = field === 'account' ? accountRef : vatRef
-    const refused = field === 'account' ? missing?.account : missing?.vatCode
-    if (refused && reference === null) return field === 'account' ? t.missingAccount : t.missingVatCode
+    if (field === 'account' && missing?.account && accountRef === null) return t.missingAccount
     return undefined
   }
 
   const accountValue = shown('account', accountRef?.number ?? '')
-  const vatValue = shown('vatCode', vatRef?.code ?? '')
+  const vatValue = shown('vatCode', vatRef?.code ?? CATALOG_NONE)
 
   return (
     <fieldset
@@ -463,7 +474,6 @@ export default function LineClassificationPanel({
           hint={fieldHint('vatCode')}
           error={fieldError('vatCode')}
           errorRole="alert"
-          required
           testId={`classification-${line.lineId}-vat-code-field`}
         >
           {(control) => (
@@ -474,7 +484,7 @@ export default function LineClassificationPanel({
               current={vatRef}
               value={vatValue}
               onChange={(value) => void handleChange('vatCode', value)}
-              placeholder={vatValue === '' ? t.chooseVatCode : undefined}
+              noneLabel={t.vatNone}
               disabled={selectsLocked}
               aria-busy={pending?.field === 'vatCode' || undefined}
               data-classification-field="vat"

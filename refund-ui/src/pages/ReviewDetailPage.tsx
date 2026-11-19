@@ -13,7 +13,6 @@ import type {
   AccountingLine,
   ClassificationMissingLine,
   ClassifyBody,
-  MissingValue,
   RequestAccounting,
 } from '../lib/accountingApi'
 import { useLoadedResource } from '../lib/useLoadedResource'
@@ -443,11 +442,12 @@ export default function ReviewDetailPage() {
     )
   }
 
-  // The values a refused approval named that are STILL missing: it shrinks as accounting chooses them, and a line the
-  // page no longer has (a race) is dropped. In the order the page shows its controls: line by line, account first.
+  // The accounts a refused approval named that are STILL missing: it shrinks as accounting chooses them, and a line
+  // the page no longer has (a race) is dropped. Approval needs an account and nothing else (AC-3.4, AC-3.11, AC-8.4):
+  // a VAT code is optional, so the summary never lists one, whatever a refusal's `missing` carries.
   // A line the caller may not see (SR-1) cannot be fixed from here, but the refusal still names it: it gets a row
   // (field `outOfScope`) that is counted and stays until the next attempt, so an approval never fails silently (A-1).
-  type MissingField = MissingValue | 'outOfScope'
+  type MissingField = 'account' | 'outOfScope'
   const missingItems: { lineId: string; field: MissingField; text: string }[] = []
   if (refusal !== null && pageState.status === 'loaded' && accountingState !== null) {
     for (const line of pageState.request.lines) {
@@ -468,17 +468,13 @@ export default function ReviewDetailPage() {
       if (named.missing.includes('account') && gone(classification.account, classification.accountIsDefault)) {
         missingItems.push({ lineId: line.id, field: 'account', text: t.classification.missingSummary.account(label) })
       }
-      if (named.missing.includes('vatCode') && gone(classification.vatCode, classification.vatCodeIsDefault)) {
-        missingItems.push({ lineId: line.id, field: 'vatCode', text: t.classification.missingSummary.vatCode(label) })
-      }
     }
   }
   const missingFor = (lineId: string) => ({
     account: missingItems.some((item) => item.lineId === lineId && item.field === 'account'),
-    vatCode: missingItems.some((item) => item.lineId === lineId && item.field === 'vatCode'),
   })
 
-  /** Moves focus to the select of one missing value; the panel's select carries `data-classification-field`. */
+  /** Moves focus to the select of one missing account; the panel's select carries `data-classification-field`. */
   const focusMissing = useCallback((lineId: string, field: MissingField) => {
     const row = rowNodesRef.current.get(lineId)
     if (field === 'outOfScope') {
@@ -487,17 +483,17 @@ export default function ReviewDetailPage() {
       return
     }
     row
-      ?.querySelector<HTMLSelectElement>(`select[data-classification-field="${field === 'account' ? 'account' : 'vat'}"]`)
+      ?.querySelector<HTMLSelectElement>('select[data-classification-field="account"]')
       ?.focus()
   }, [])
 
   const summaryFocusRef = useRef<HTMLDivElement>(null)
-  const firstFocusTargetRef = useRef<{ lineId: string; field: MissingValue } | null>(null)
+  const firstFocusTargetRef = useRef<{ lineId: string; field: MissingField } | null>(null)
   const hasMissingItemsRef = useRef(false)
   useEffect(() => {
     // The first select a person can act on; none (only out-of-scope lines named) means the summary itself.
     const firstSelect = missingItems.find((item) => item.field !== 'outOfScope')
-    firstFocusTargetRef.current = firstSelect ? { lineId: firstSelect.lineId, field: firstSelect.field as MissingValue } : null
+    firstFocusTargetRef.current = firstSelect ? { lineId: firstSelect.lineId, field: firstSelect.field } : null
     hasMissingItemsRef.current = missingItems.length > 0
   })
   useEffect(() => {
@@ -547,8 +543,8 @@ export default function ReviewDetailPage() {
         data-testid="classification-missing-summary-focus"
       >
         <ErrorSummary
-          title={t.classification.missingSummary.title(missingItems.length)}
-          hint={t.classification.missingSummary.hint}
+          title={t.classification.missingSummary.titleAccounts(missingItems.length)}
+          hint={t.classification.missingSummary.hintAccounts}
           items={missingItems.map((item) => ({ id: `${item.lineId}:${item.field}`, text: item.text }))}
           onGo={(itemId) => {
             const at = itemId.lastIndexOf(':')
