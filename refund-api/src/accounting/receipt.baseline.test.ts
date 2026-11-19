@@ -8,6 +8,7 @@
  *   AC-4.12  no baseline: 001; 2025 and every year but 2026 ignore it (the table itself refuses another year)
  *   AC-4.13  2027 restarts at 001 whatever the 2026 sequence reached
  *   key      the email, lower-cased and trimmed; another employee's baseline never applies
+ *   N-01     an email changed before the first numbering: the baseline of any email the user id has used still applies (the maximum)
  *   one-shot a counter that exists is never moved by a baseline added later; a baseline never changes a number issued
  */
 
@@ -131,6 +132,65 @@ describe("the baseline starts a 2026 counter (AC-4.11)", () => {
     const r = await makeRequest("u-other-id", "matteo.codogno@welld.ch", ["2026-03-02"]);
     await number("u-other-id", "matteo.codogno@welld.ch", [r.id]);
     expect(await numbers(r.lineIds)).toEqual(["MC26/082"]);
+  });
+});
+
+describe("an email that changed before the first numbering still continues from the baseline (N-01, AC-4.11)", () => {
+  it("the baseline was loaded under the old email, the user id now holds a new one: the first 2026 line is 082, never 001", async () => {
+    await baseline("old.name@welld.ch", 81);
+    // The employee filed under the old address, then the address changed; nothing was numbered yet, so no counter exists.
+    await makeRequest("u1", "old.name@welld.ch", ["2026-02-02"]);
+    const later = await makeRequest("u1", "new.name@welld.ch", ["2026-03-02", "2026-03-03"]);
+    expect(await db.receiptCounter.count()).toBe(0);
+    const result = await number("u1", "new.name@welld.ch", [later.id]);
+    expect(result.ok && result.lines.map((l) => l.receiptNumber)).toEqual(["MC26/082", "MC26/083"]);
+    expect(await counter("u1", 2026)).toMatchObject({ lastSeq: 83, startAfter: 81, startAfterSetBy: BASELINE_SET_BY });
+  });
+
+  it("the old email is found whatever its case or spaces in the stored requests", async () => {
+    await baseline("old.name@welld.ch", 81);
+    await makeRequest("u1", "  Old.Name@WELLD.ch ", ["2026-02-02"]);
+    const later = await makeRequest("u1", "new.name@welld.ch", ["2026-03-02"]);
+    await number("u1", "new.name@welld.ch", [later.id]);
+    expect(await numbers(later.lineIds)).toEqual(["MC26/082"]);
+  });
+
+  it("with baselines under both emails the higher one wins: a number is never issued twice (a gap is the lesser evil)", async () => {
+    await baseline("old.name@welld.ch", 81);
+    await baseline("new.name@welld.ch", 85);
+    await makeRequest("u1", "old.name@welld.ch", ["2026-02-02"]);
+    const later = await makeRequest("u1", "new.name@welld.ch", ["2026-03-02"]);
+    await number("u1", "new.name@welld.ch", [later.id]);
+    expect(await numbers(later.lineIds)).toEqual(["MC26/086"]);
+  });
+
+  it("per email the latest row counts, then the maximum across the emails of that user id", async () => {
+    await baseline("old.name@welld.ch", 90);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await baseline("old.name@welld.ch", 81); // a correction downwards: the latest row of that email is 81
+    await baseline("new.name@welld.ch", 70);
+    await makeRequest("u1", "old.name@welld.ch", ["2026-02-02"]);
+    const later = await makeRequest("u1", "new.name@welld.ch", ["2026-03-02"]);
+    await number("u1", "new.name@welld.ch", [later.id]);
+    expect(await numbers(later.lineIds)).toEqual(["MC26/082"]);
+  });
+
+  it("another user id's old email never applies: only the emails this user id has used", async () => {
+    await baseline("old.name@welld.ch", 81);
+    await makeRequest("u-other", "old.name@welld.ch", ["2026-02-02"]); // someone else filed under that address
+    const mine = await makeRequest("u1", "new.name@welld.ch", ["2026-03-02"]);
+    await number("u1", "new.name@welld.ch", [mine.id]);
+    expect(await numbers(mine.lineIds)).toEqual(["MC26/001"]);
+  });
+
+  it("the earlier email is only a lookup: a counter that exists is never moved by it, and 2027 ignores it", async () => {
+    const first = await makeRequest("u1", "new.name@welld.ch", ["2026-03-02"]);
+    await number("u1", "new.name@welld.ch", [first.id]);
+    await baseline("old.name@welld.ch", 81);
+    await makeRequest("u1", "old.name@welld.ch", ["2026-02-02"]);
+    const second = await makeRequest("u1", "new.name@welld.ch", ["2026-03-09", "2027-01-04"]);
+    await number("u1", "new.name@welld.ch", [second.id]);
+    expect(await numbers([...first.lineIds, ...second.lineIds])).toEqual(["MC26/001", "MC26/002", "MC27/001"]);
   });
 });
 

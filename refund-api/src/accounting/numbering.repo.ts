@@ -25,8 +25,8 @@
  * 3. Takes the per-(employee, year) counters, years ascending (the lock order that rules out a deadlock between two approvals
  *    of the same employee), each with ONE upsert that adds the number of lines of that year and returns the new `lastSeq`;
  *    the row stays locked until the caller commits (AC-4.10). WHEN A COUNTER IS CREATED for 2026 (and only 2026), it starts after
- *    the employee's hand-issued number: the latest row of `receipt_number_baseline` for the owner's email, lower-cased, else 0
- *    (AC-4.11 to AC-4.13, SO-13 of 20261118). So the first 2026 line of an employee whose paper register ended at 81 is `…26/082`,
+ *    the employee's hand-issued number: the latest row of `receipt_number_baseline` for each email the owner's user id has used
+ *    (highest wins, N-01), lower-cased, else 0 (AC-4.11 to AC-4.13, SO-13 of 20261118). So the first 2026 line of an employee whose paper register ended at 81 is `…26/082`,
  *    whether it is numbered by the release backfill or by an approval months later, and an employee who had no Refund request at
  *    release is covered too. A counter that already exists never reads the baseline again, and 2025, 2027 and later years never do.
  * 4. Writes each line in ONE `UPDATE`: the copies, the exchange-rate copy and the receipt columns together. The database
@@ -135,14 +135,35 @@ export const BASELINE_SET_BY = "baseline";
 /** The baseline's key for an employee: the email, trimmed and lower-cased (the table's CHECK says the same). */
 export const baselineKey = (email: string): string => email.trim().toLowerCase();
 
-/** The last hand-issued 2026 sequence of this email: the latest row of the append-only table, else 0 (no baseline). */
-async function baselineSeq(tx: Prisma.TransactionClient, email: string): Promise<number> {
-  const row = await tx.receiptNumberBaseline.findFirst({
-    where: { emailKey: baselineKey(email), year: BASELINE_YEAR },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { lastIssuedSeq: true },
+/**
+ * The last hand-issued 2026 sequence of this employee: 0 when there is none (no baseline).
+ *
+ * The table is keyed by email (the register knows people by their address), but the counter is per user id, and an address can
+ * change before the first numbering (rename, alias): a lookup by the current email alone would start that person at 001 over
+ * numbers already written by hand (N-01 of the sign-off security re-review). So the lookup covers every email this user id has
+ * used: the one on the request being numbered plus the `ownerEmail` of every request of the same `ownerUserId`, each normalised
+ * like the key. Per email the latest row counts (a correction is a new row, AC-4.11); across emails the HIGHEST of those counts
+ * wins, because a number issued twice in the books is worse than a gap. Only emails of THIS user id are read, so another
+ * employee's baseline never applies. A person who changed their address before filing anything under the old one leaves no trace
+ * to follow: that case needs a baseline row under the new email (stated in the ADR).
+ */
+async function baselineSeq(tx: Prisma.TransactionClient, userId: string, email: string): Promise<number> {
+  const used = await tx.refundRequest.findMany({
+    where: { ownerUserId: userId },
+    distinct: ["ownerEmail"],
+    select: { ownerEmail: true },
   });
-  return row?.lastIssuedSeq ?? 0;
+  const keys = [...new Set([email, ...used.map((r) => r.ownerEmail)].map(baselineKey).filter((k) => k !== ""))];
+  let best = 0;
+  for (const emailKey of keys) {
+    const row = await tx.receiptNumberBaseline.findFirst({
+      where: { emailKey, year: BASELINE_YEAR },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { lastIssuedSeq: true },
+    });
+    if (row && row.lastIssuedSeq > best) best = row.lastIssuedSeq;
+  }
+  return best;
 }
 
 const accountSummary = (a: { number: string; name: string } | null) => (a ? { number: a.number, name: a.name } : null);
@@ -245,7 +266,7 @@ export async function classifyAndNumber(
     const count = perYear.get(year)!;
     // Read only when the counter may be created here: the conflict branch below ignores the VALUES of an existing counter, so a
     // baseline never moves a counter that already exists (and `receipt_counter` freezes `startAfter` after insert anyway).
-    const start = year === BASELINE_YEAR ? await baselineSeq(tx, input.owner.email) : 0;
+    const start = year === BASELINE_YEAR ? await baselineSeq(tx, input.owner.userId, input.owner.email) : 0;
     const setBy = start > 0 ? BASELINE_SET_BY : null;
     const rows = await tx.$queryRaw<{ lastSeq: number }[]>`
       INSERT INTO "receipt_counter" ("ownerUserId", "year", "lastSeq", "startAfter", "startAfterSetBy", "updatedAt")
