@@ -611,7 +611,7 @@ Reading the list:
 
 ## QE, security, eval
 
-- [x] T35: QE pass over all 61 ACs — refs: all ACs (nominal) — deps: T16, T19, T32, T33, T34
+- [ ] T35: QE pass over all 61 ACs — refs: all ACs (nominal) — deps: T16, T19, T32, T33, T34
   - touch: `specs/20261118-refund-accounting-export/qe-report.md`
   - agent: qe · release
   - done when: `qe-report.md` has verdict PASS. Every AC has evidence (a named test). Green:

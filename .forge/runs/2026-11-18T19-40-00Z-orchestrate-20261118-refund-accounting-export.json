@@ -5,7 +5,7 @@
   "feature": "20261118-refund-accounting-export",
   "rigor": "production",
   "started": "2026-11-18T19:40:00Z",
-  "finished": null,
+  "finished": "2026-11-19T01:56:06Z",
   "agents": [
     {
       "agent": "product-owner",
@@ -168,6 +168,15 @@
       ],
       "outcome": "completed",
       "note": "eval fix round (a11y A-1,A-2,A-3,A-7,A-8)"
+    },
+    {
+      "agent": "evaluator",
+      "tasks": [
+        "T37"
+      ],
+      "outcome": "FAIL",
+      "score": 76.5,
+      "note": "round 2; eval fix loop exhausted (2 rounds) -> escalated to owner"
     }
   ],
   "drift_events": [
@@ -208,9 +217,9 @@
       "resolved": true
     },
     {
-      "agent": "evaluator",
+      "agent": "architect",
       "artifact": "docs/adr",
-      "summary": "stale ADR statements and plan attribution corrected",
+      "summary": "stale ADR statements and plan attribution (found by the evaluator in eval round 1) corrected by the architect",
       "resolved": true
     }
   ],
@@ -254,13 +263,15 @@
     }
   ],
   "verdicts": {
-    "qe": "PASS (after fix round 1)",
+    "qe": "PASS except the live e2e (T35 reopened until T31/T32 run)",
     "security": "PASS (after fix round 1)",
-    "eval": "FAIL 73.9 (round 1); round 2 pending"
+    "eval": "FAIL 73.9 (round 1), FAIL 76.5 (round 2); paths to PASS need owner steps"
   },
-  "result": "partial",
+  "result": "escalated",
   "tokens": null,
   "cost_usd": null,
   "terse": false,
-  "control_run_id": null
+  "control_run_id": null,
+  "reconstructed": true,
+  "reconstruction_note": "Written by the orchestrator at the end of the run from git history and agent reports (no per-agent timestamps); commits on feat/refund-accounting-spec are the primary evidence."
 }
