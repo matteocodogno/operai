@@ -1,10 +1,11 @@
 ---
 id: 20261112
 slug: time-tracking
-status: in-progress
+status: done
 rigor: production
 created: 2026-11-12
 approved: 2026-11-12
+done: 2026-11-19
 depends-on: 20261101-crm, 20261104-meetings, 20261103-projects, 20261110-activities
 ---
 
