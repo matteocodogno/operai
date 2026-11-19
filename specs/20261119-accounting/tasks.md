@@ -1003,7 +1003,7 @@ tasks share an edge or a path, except the declared `lerna.json` line-level touch
   - touch: `accounting-ui/src/lib/*`, `accounting-ui/src/components/*`, `accounting-ui/src/strings.ts`, `accounting-ui/src/**/*.test.tsx`
   - done when: tests for both rules and the 409 green; accounting-ui tsc -b, lint, tests, build green.
 
-- [ ] T57: refund-api — the release script's Prisma client never prints raw errors to stderr (quiet client or `log: []` for scripts; the script's own masked line is the only output), closing the rest of F-03 — refs: AC-6.10 — deps: T54
+- [x] T57: refund-api — the release script's Prisma client never prints raw errors to stderr (quiet client or `log: []` for scripts; the script's own masked line is the only output), closing the rest of F-03 — refs: AC-6.10 — deps: T54
   - touch: `refund-api/scripts/accounting-release*.ts`, `refund-api/src/lib/db.ts`, `refund-api/src/lib/db*.test.ts`
   - done when: a CLI test with an unreachable DATABASE_URL carrying fake credentials shows no host, path or credential on stdout or stderr; refund-api suite + tsc green.
   - follow-up, not planned: expense-date validation on line create/update (a line can be dated before 2000; the client floor from T54 makes it harmless to Accounting reads and the release).
