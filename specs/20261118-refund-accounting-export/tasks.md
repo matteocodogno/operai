@@ -322,7 +322,7 @@ Reading the list:
 
 ## Backend — export
 
-- [ ] T17: refund-api — pure CSV: `exportFormat.ts` (dialect constants, `FORMAT_VERSION = 1`) and `export.ts` (ordering, quoting, formula guard, number formats) with a golden file — refs: AC-6.2, AC-6.3, AC-6.4, AC-6.8, AC-6.12 — deps: T3
+- [x] T17: refund-api — pure CSV: `exportFormat.ts` (dialect constants, `FORMAT_VERSION = 1`) and `export.ts` (ordering, quoting, formula guard, number formats) with a golden file — refs: AC-6.2, AC-6.3, AC-6.4, AC-6.8, AC-6.12 — deps: T3
   - touch: `refund-api/src/accounting/exportFormat.ts`, `refund-api/src/accounting/export.ts`, `refund-api/src/accounting/export.test.ts`, `refund-api/src/accounting/fixtures/*`
   - agent: backend-dev · backend
   - Details:

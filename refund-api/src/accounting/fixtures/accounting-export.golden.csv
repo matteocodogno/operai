@@ -1,0 +1,11 @@
+﻿Employee;Receipt number;Expense date;Expense type;Reason;Km;Currency;Approved total;Exchange rate;CHF amount;Account number;Account name;VAT code;VAT rate (%);VAT amount (CHF);Batch
+Anna Rossi;AR26/001;2026-02-10;Travel — train;Treno Lugano-Zurigo;;CHF;45.60;;45.60;5901;Spese viaggi in treno;IMP81;8.10;3.42;batch-golden-1
+Anna Rossi;AR26/002;2026-02-11;Travel — mileage (km);"Visita cliente ""ACME""; Lugano";120;CHF;84.00;;84.00;5905;Spese rimborsi chilometrici (viaggi);NOVAT;0.00;0.00;batch-golden-1
+Matteo Codogno;MC26/001;2026-03-02;Office material;Cancelleria;;EUR;10.40;0.9246;9.62;6101;Spese materiale ufficio;NOVAT;0.00;0.00;batch-golden-1
+Matteo Codogno;MC26/002;2026-03-03;Stationery;Quaderni;;CHF;20.80;;20.80;6101;Spese materiale ufficio;IMP81;8.10;1.56;batch-golden-1
+Matteo Codogno;MC26/003;2026-03-04;Postal;Francobolli;;CHF;0.00;;0.00;6104;Spese postali;IMP81;8.10;0.00;batch-golden-1
+Matteo Codogno;MC26/004;2026-03-05;Telephone;Roaming;;USD;50.00;0.7808;39.04;6102;Spese telefoniche, fax, internet;NOVAT;0.00;0.00;batch-golden-1
+Matteo Codogno;MC26/005;2026-03-06;Representation — meals;"'=SUM(A1)
+second line";;GBP;12.34;1.0635;13.12;6701;Spese pranzi e cene con clienti;IMP77;7.70;0.94;batch-golden-1
+Matteo Codogno;MC27/001;2027-01-05;Office material;Toner;;CHF;10.00;;10.00;6101;Spese materiale ufficio;IMP81;8.10;0.75;batch-golden-1
+bruno.verdi@welld.ch;BV26/001;2026-03-09;Travel — parking;'-Rimborso parcheggio;;CHF;19.99;;19.99;5907;Spese parcheggio (viaggi);IMP81;8.10;1.50;batch-golden-1
