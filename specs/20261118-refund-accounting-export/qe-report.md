@@ -2,13 +2,15 @@
 spec: 20261118
 task: T35
 date: 2026-11-19
-verdict: FAIL
-tested: e7cf2ad9 (branch feat/refund-accounting-spec) plus the two test files this pass added
+verdict: PASS
+tested: 6094b486 after fix round 1 (first pass: FAIL at e7cf2ad9) (branch feat/refund-accounting-spec) plus the two test files this pass added
 ---
 
 # QE report: refund accounting export
 
-## QE verdict: FAIL
+## QE verdict: PASS (after fix round 1; the first pass at e7cf2ad9 was FAIL, kept below)
+
+See "Re-test after fix round 1" at the end. The live e2e journeys (T31, T32) remain an owner step.
 
 All 61 acceptance criteria have executed evidence and every gate the repo has is green. The verdict is FAIL because
 the code does not yet match the plan at the commit tested (security-review sync SR-1 and SR-2, confirmed by repro
@@ -273,3 +275,35 @@ it("an owner barred from approving cannot reclassify their own approved request"
   expect(res.status).toBe(403);
 });
 ```
+
+## Re-test after fix round 1 (T41, T42; commit 6094b486)
+
+Verdict: **PASS**. D-1 to D-4 are closed, no AC regressed, every gate is green. Live e2e (T31, T32) still PENDING (owner), as pre-authorised.
+
+| Check | Actual | Result |
+|---|---|---|
+| refund-api `bun test` | 1426 pass, 0 fail, 67 files; also `--randomize` (seed 2975139277) | ✓ |
+| refund-api `tsc` | clean | ✓ |
+| auth `bun test` / `tsc` | 1416 pass, 36 skip (legal-entities, unchanged), 0 fail / clean | ✓ |
+| refund-ui `tsc -b`, lint, vitest, build | clean, clean, 1252 pass (81 files), builds | ✓ |
+| operai-ui typecheck, lint, test | clean, clean, 300 pass | ✓ |
+| shell e2e tsc, shell lint, `playwright test --list` | clean, clean, 222 tests in 51 files | ✓ |
+| `changeset:check` (local main and origin/main), `env:doctor` | OK | ✓ |
+| Lockfiles / dependencies | none changed since the first pass (only `refund-api/package.json`, one script); audit result unchanged | ✓ |
+| Shell vitest, storybook, meetings-ui | not re-run: nothing under those apps changed in the fix round | n/a |
+| Live e2e `pnpm e2e refund-` | not run (owner step) | PENDING |
+
+Defects:
+
+| id | Status | Evidence |
+|---|---|---|
+| D-1 | closed | CLI test now asserts `Release marker written: no (dry run: the real run would write it)`; real run says yes. |
+| D-2 (S-01) | closed | `lineInScope` on view and PUT; `inScope:false` with null figures; old "whole request" test replaced. |
+| D-3 (S-02) | closed | `classificationSelfRestricted` (403 `self_approval_forbidden`); auth `reclassify` declares `self-approval`, seeded like each role's `approve`. |
+| D-4 (S-03, S-06) | closed | `git check-ignore refund-api/offsets.csv` matches `.gitignore:23`; summary and blocked 409 carry `Cache-Control: private, no-store` and `nosniff`. |
+
+The committed repros are non-vacuous: on a copy of the code, each mutant below fails the covering tests (control run green): N1 `lineInScope` always true; N2 self-restriction check removed; N3 `approve` restriction no longer counted after approval (the recorded drift: either grant refusing); N4 `Cache-Control` removed. All four killed.
+
+Recorded drift accepted as consistent with the code and tests: after approval a self-restriction on either `reclassify` or `approve` refuses; a `welld_ch` caller on a WellD Italia line of a mixed request gets 404 (was 422). Both are asserted by tests in `classification.routes.test.ts`. No AC text is affected; AC-3.9 still holds (no classification for Italian lines).
+
+Regression: the AC matrix above stands; every test it names ran green in the suites above. D-5 and D-6 (info) are unchanged and do not block.
