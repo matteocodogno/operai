@@ -719,13 +719,13 @@ Derived from these committed files:
     passes; `railway.ts` type-checks at the root (`pnpm exec tsc --noEmit -p .railway` or the repo's
     check); every path and command named in the new text exists (checked in review).
 
-- [ ] T44: docs: AGENTS.md (tool table, structure, backends, ports, the Accounting domain terms and the Refund terms "kept in Accounting", "Manage includes Read", Running locally and e2e setup) and README.md rows — refs: none (docs) — deps: T13, T23, T32, T38, T39, T40
+- [x] T44: docs: AGENTS.md (tool table, structure, backends, ports, the Accounting domain terms and the Refund terms "kept in Accounting", "Manage includes Read", Running locally and e2e setup) and README.md rows — refs: none (docs) — deps: T13, T23, T32, T38, T39, T40
   - touch: `AGENTS.md`, `README.md`, `accounting-api/README.md`, `accounting-ui/README.md`
   - agent: orchestrator · release
   - done when: every path, port, script and command named in the new text exists (checked by a
     reviewer, with the list in the commit message); `mise run env:doctor` is still green.
 
-- [ ] T45: changesets: `accounting-module.md` (accounting-api and accounting-ui minor as new packages; auth, shell, refund-api and refund-ui minor), and edit the pending `refund-accounting-export.md` so it no longer announces the moved Settings tabs — refs: none (release plumbing) — deps: T15, T24, T25, T32, T38
+- [x] T45: changesets: `accounting-module.md` (accounting-api and accounting-ui minor as new packages; auth, shell, refund-api and refund-ui minor), and edit the pending `refund-accounting-export.md` so it no longer announces the moved Settings tabs — refs: none (release plumbing) — deps: T15, T24, T25, T32, T38
   - touch: `.changeset/accounting-module.md`, `.changeset/refund-accounting-export.md`
   - agent: orchestrator · release
   - done when: `mise run changeset:check` is OK against local `main` and `origin/main`.
