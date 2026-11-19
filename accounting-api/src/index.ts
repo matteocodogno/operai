@@ -7,6 +7,7 @@ import { bodyLimit } from "hono/body-limit";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
 import { requestLogger } from "./lib/logger";
+import { meRouter } from "./me/me.routes";
 import { handleProblemError, problem, validationHook } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -48,6 +49,7 @@ app.use(
 // T4 → T6 → T8 → T12 → T13).
 
 app.route("/", healthRouter);
+app.route("/", meRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
