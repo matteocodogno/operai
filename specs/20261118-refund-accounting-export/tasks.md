@@ -371,7 +371,7 @@ Reading the list:
 
 ## Frontend
 
-- [ ] T20: operai-ui — `formatMonth` ("March 2026" / "marzo 2026") with test, story and changeset — refs: AC-5.2 — deps: none
+- [x] T20: operai-ui — `formatMonth` ("March 2026" / "marzo 2026") with test, story and changeset — refs: AC-5.2 — deps: none
   - touch: `operai-ui/src/lib/format.ts`, `operai-ui/src/lib/i18n-format.test.tsx`, `operai-ui/src/index.ts`, `operai-ui/src/foundations/Formatting.stories.tsx`, `.changeset/ui-format-month.md`
   - agent: frontend-dev · frontend
   - Details:
@@ -381,7 +381,7 @@ Reading the list:
   - done when: `mise run ui:check` passes, and the `formatMonth` cases (en/it, `2026-03`, a Date)
     pass in `i18n-format.test.tsx`.
 
-- [ ] T21: refund-ui — typed API modules and `useLoadedResource` — refs: AC-1.1, AC-2.1, AC-3.3, AC-5.2, AC-6.1 — deps: none
+- [x] T21: refund-ui — typed API modules and `useLoadedResource` — refs: AC-1.1, AC-2.1, AC-3.3, AC-5.2, AC-6.1 — deps: none
   - touch: `refund-ui/src/lib/accountingApi.ts`, `refund-ui/src/lib/accountingApi.test.ts`, `refund-ui/src/lib/exchangeRatesApi.ts`, `refund-ui/src/lib/exchangeRatesApi.test.ts`, `refund-ui/src/lib/accountingExportApi.ts`, `refund-ui/src/lib/accountingExportApi.test.ts`, `refund-ui/src/lib/useLoadedResource.ts`, `refund-ui/src/lib/useLoadedResource.test.ts`, `refund-ui/src/lib/requestsApi.ts`, `refund-ui/src/lib/batchesApi.ts`, `refund-ui/src/lib/reviewApi.ts`
   - agent: frontend-dev · frontend
   - Details:
@@ -392,7 +392,7 @@ Reading the list:
   - done when: `pnpm vitest run src/lib/accountingApi.test.ts src/lib/exchangeRatesApi.test.ts src/lib/accountingExportApi.test.ts src/lib/useLoadedResource.test.ts`
     passes (URLs, bodies, error `code` passthrough, Blob with BOM kept); `pnpm typecheck` green.
 
-- [ ] T22: refund-ui — the whole copy catalog (en + it), status meanings, and the shared components `CatalogSelect`, `ChangeHistoryDrawer`, `ReceiptNumber` — refs: AC-1.3, AC-1.6, AC-2.1, AC-4.9 — deps: T21
+- [x] T22: refund-ui — the whole copy catalog (en + it), status meanings, and the shared components `CatalogSelect`, `ChangeHistoryDrawer`, `ReceiptNumber` — refs: AC-1.3, AC-1.6, AC-2.1, AC-4.9 — deps: T21
   - touch: `refund-ui/src/strings.ts`, `refund-ui/src/lib/statusMeaning.ts`, `refund-ui/src/components/CatalogSelect.tsx`, `refund-ui/src/components/CatalogSelect.test.tsx`, `refund-ui/src/components/ChangeHistoryDrawer.tsx`, `refund-ui/src/components/ChangeHistoryDrawer.test.tsx`, `refund-ui/src/components/ReceiptNumber.tsx`, `refund-ui/src/components/ReceiptNumber.test.tsx`
   - agent: frontend-dev · frontend
   - Details:
@@ -404,7 +404,7 @@ Reading the list:
   - done when: `pnpm vitest run src/components/CatalogSelect.test.tsx src/components/ChangeHistoryDrawer.test.tsx src/components/ReceiptNumber.test.tsx src/lib/noHardcodedStrings.test.ts`
     and the catalog parity test pass.
 
-- [ ] T23: refund-ui — Settings views (General / Accounts and VAT / Exchange rates) with `?section=`/`&month=` and the two empty view hosts — refs: AC-1.7, AC-2.8, AC-5.7 — deps: T22
+- [x] T23: refund-ui — Settings views (General / Accounts and VAT / Exchange rates) with `?section=`/`&month=` and the two empty view hosts — refs: AC-1.7, AC-2.8, AC-5.7 — deps: T22
   - touch: `refund-ui/src/pages/SettingsPage.tsx`, `refund-ui/src/pages/SettingsPage.test.tsx`, `refund-ui/src/router.tsx`, `refund-ui/src/pages/settings/AccountingSettingsView.tsx`, `refund-ui/src/pages/settings/ExchangeRatesView.tsx`, `refund-ui/src/pages/settings/SettingsViews.test.tsx`
   - agent: frontend-dev · frontend
   - Details:
@@ -418,7 +418,7 @@ Reading the list:
     - without `settings:read`, no accounting or rates tab (AC-1.7/2.8/5.7 UI side);
     - `?section=exchange-rates` mounts only that view.
 
-- [ ] T24: refund-ui — `LedgerAccountsCard`, `VatCodesCard`, add dialogs, deactivate confirm, reactivate — refs: AC-1.1, AC-1.2, AC-1.4, AC-1.5, AC-1.7, AC-1.9, AC-1.10, AC-1.11 — deps: T23
+- [x] T24: refund-ui — `LedgerAccountsCard`, `VatCodesCard`, add dialogs, deactivate confirm, reactivate — refs: AC-1.1, AC-1.2, AC-1.4, AC-1.5, AC-1.7, AC-1.9, AC-1.10, AC-1.11 — deps: T23
   - touch: `refund-ui/src/pages/settings/AccountingSettingsView.tsx`, `refund-ui/src/components/settings/LedgerAccountsCard*`, `refund-ui/src/components/settings/VatCodesCard*`, `refund-ui/src/components/settings/AddLedgerAccountDialog*`, `refund-ui/src/components/settings/AddVatCodeDialog*`
   - agent: frontend-dev · frontend
   - Details:
@@ -437,7 +437,7 @@ Reading the list:
     - `already_active` alert and reload;
     - write controls hidden without manage.
 
-- [ ] T25: refund-ui — `ExpenseTypeDefaultsCard`, `DefaultClassificationDialog`, `ForeignCurrencyVatDialog`, history — refs: AC-2.1, AC-2.2, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8 — deps: T24
+- [x] T25: refund-ui — `ExpenseTypeDefaultsCard`, `DefaultClassificationDialog`, `ForeignCurrencyVatDialog`, history — refs: AC-2.1, AC-2.2, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8 — deps: T24
   - touch: `refund-ui/src/pages/settings/AccountingSettingsView.tsx`, `refund-ui/src/components/settings/ExpenseTypeDefaultsCard*`, `refund-ui/src/components/settings/DefaultClassificationDialog*`, `refund-ui/src/components/settings/ForeignCurrencyVatDialog*`
   - agent: frontend-dev · frontend
   - Details:
@@ -453,7 +453,7 @@ Reading the list:
     - designation shown or "none";
     - the inactive warning.
 
-- [ ] T26: refund-ui — `ExchangeRatesCard` and `RateCorrectionDialog` (auto-fetch once per visit, persistent failure banner, deep link) — refs: AC-5.2, AC-5.3, AC-5.5, AC-5.6, AC-5.7 — deps: T20, T23
+- [x] T26: refund-ui — `ExchangeRatesCard` and `RateCorrectionDialog` (auto-fetch once per visit, persistent failure banner, deep link) — refs: AC-5.2, AC-5.3, AC-5.5, AC-5.6, AC-5.7 — deps: T20, T23
   - touch: `refund-ui/src/pages/settings/ExchangeRatesView.tsx`, `refund-ui/src/components/settings/ExchangeRatesCard*`, `refund-ui/src/components/settings/RateCorrectionDialog*`
   - agent: frontend-dev · frontend
   - Details: design F8, S5, S6f, UX-10, UX-11.
@@ -466,7 +466,7 @@ Reading the list:
     - Fetch now and Correct hidden without manage;
     - `&month=` focuses the row header.
 
-- [ ] T27: refund-ui — receipt numbers on line rows, the request page and batch request rows; `ExpenseLineRow` footer slot — refs: AC-3.10, AC-4.6, AC-4.9 — deps: T22
+- [x] T27: refund-ui — receipt numbers on line rows, the request page and batch request rows; `ExpenseLineRow` footer slot — refs: AC-3.10, AC-4.6, AC-4.9 — deps: T22
   - touch: `refund-ui/src/components/ExpenseLineRow.tsx`, `refund-ui/src/components/ExpenseLineRow.test.tsx`, `refund-ui/src/pages/RequestDetailPage.tsx`, `refund-ui/src/pages/RequestDetailPage.test.tsx`, `refund-ui/src/components/BatchEmployeeGroupList.tsx`, `refund-ui/src/components/BatchEmployeeGroupList.test.tsx`
   - agent: frontend-dev · frontend
   - Details: design S9, UX-8: numbers in full, nothing for an unnumbered line. The footer slot is
@@ -478,7 +478,7 @@ Reading the list:
     - batch row lists numbers and its accessible name includes them;
     - `RequestDetailPage` renders no account/VAT text.
 
-- [ ] T28: refund-ui — `LineClassificationPanel` on the review page (selects on change, markers, amounts, states, guardrails) — refs: AC-3.1, AC-3.2, AC-3.3, AC-3.6, AC-3.7, AC-3.8, AC-3.9, AC-3.10 — deps: T27
+- [x] T28: refund-ui — `LineClassificationPanel` on the review page (selects on change, markers, amounts, states, guardrails) — refs: AC-3.1, AC-3.2, AC-3.3, AC-3.6, AC-3.7, AC-3.8, AC-3.9, AC-3.10 — deps: T27
   - touch: `refund-ui/src/components/LineClassificationPanel.tsx`, `refund-ui/src/components/LineClassificationPanel.test.tsx`, `refund-ui/src/pages/ReviewDetailPage.tsx`, `refund-ui/src/pages/ReviewDetailPage.test.tsx`
   - agent: frontend-dev · frontend
   - Details:
@@ -496,7 +496,7 @@ Reading the list:
     - no panel for IT or rejected lines;
     - existing review tests green.
 
-- [ ] T29: refund-ui — approve refusals branch on `error.code`: page-level `ErrorSummary` for `classification_missing`, in-dialog message for `accounting_release_pending` — refs: AC-3.4 — deps: T28
+- [x] T29: refund-ui — approve refusals branch on `error.code`: page-level `ErrorSummary` for `classification_missing`, in-dialog message for `accounting_release_pending` — refs: AC-3.4 — deps: T28
   - touch: `refund-ui/src/pages/ReviewDetailPage.tsx`, `refund-ui/src/pages/ReviewDetailPage.test.tsx`, `refund-ui/src/components/ApproveDialog.tsx`, `refund-ui/src/components/ApproveDialog.test.tsx`
   - agent: frontend-dev · frontend
   - Details: design S8, UX-5, G1, G2. Do not reuse `runReviewMutation`'s 409 branch.
@@ -508,7 +508,7 @@ Reading the list:
     - `all_lines_rejected` unchanged;
     - any other 409 still shows "already decided".
 
-- [ ] T30: refund-ui — `AccountingExportCard` on the batch page (summary, blockers as warning, download as Blob, out-of-scope note, hidden when discarded) — refs: AC-6.1, AC-6.5, AC-6.6, AC-6.7, AC-6.9, AC-6.11, AC-7.2 — deps: T22
+- [x] T30: refund-ui — `AccountingExportCard` on the batch page (summary, blockers as warning, download as Blob, out-of-scope note, hidden when discarded) — refs: AC-6.1, AC-6.5, AC-6.6, AC-6.7, AC-6.9, AC-6.11, AC-7.2 — deps: T22
   - touch: `refund-ui/src/components/AccountingExportCard.tsx`, `refund-ui/src/components/AccountingExportCard.test.tsx`, `refund-ui/src/pages/BatchDetailPage.tsx`, `refund-ui/src/pages/BatchDetailPage.test.tsx`
   - agent: frontend-dev · frontend
   - Details: design F9, S10, UX-6, UX-7, UX-9, UX-12, G5, G10, G12.
@@ -806,3 +806,25 @@ no two tasks share an edge or a path.
 
 The critical path is the backend chain T1 → T6 → T7 → T11 → T12 → T13 → T18 → T19 → T35 → T37 →
 T38. The frontend finishes by B5, so it has slack and can absorb review rework.
+
+## Implementation notes (reconciled 2026-11-19)
+
+Files touched outside a task's `touch:` list, reported by the dev agents (all new or additive; no
+collision with another task's list):
+
+- T21: `refund-ui/src/lib/refundApi.ts` (+ test) — `ApiError.extras`, exported `throwFromResponse`.
+- T22: `refund-ui/src/lib/catalogLabels.ts` (+ test) — number-first labels, VAT rate formatting.
+- T24: `refund-ui/src/components/settings/useCatalogToggle.ts`, `AccountingSettingsView.test.tsx`.
+- T25: `refund-ui/src/components/settings/useActiveCatalogOptions.ts`.
+- T26: `refund-ui/src/lib/monthLabel.ts` (+ test); follow-up for T10's contract additions also
+  edited `refund-ui/src/lib/exchangeRatesApi.ts` (+ test) and `refund-ui/src/strings.ts`
+  (`settings.fx.throttled`, `settings.fx.deferred`).
+- T10: `refund-api/src/fx/fx.repo.ts` (`latestFetchAttempt`).
+- T12: five refund-api test files call `truncateRefundTables({ released: false })`;
+  `decide.routes.test.ts` seeds accounting fixtures (AC-3.4 now refuses unclassified CH lines).
+- T15: `refund-api/src/requests/exportPdf.test.ts` fixture (`receiptNumber: null`).
+- T21's done-when names `pnpm typecheck`; refund-ui has no such script — `tsc -b` (run by the
+  build) was used.
+
+Frontend tracks ran in the isolated worktree `operai-expense-analysis-fe` (branch
+`feat/refund-accounting-fe`), integrated by rebase + fast-forward; no collisions.
