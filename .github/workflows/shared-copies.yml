@@ -19,6 +19,8 @@ on:
       - "crm-ui/src/lib/offerEngine/**"
       - "crm-api/src/offers/paper.ts"
       - "crm-ui/src/lib/offerPaper/**"
+      - "accounting-api/src/system/accountingWire.ts"
+      - "refund-api/src/accounting/accountingWire.ts"
       - ".github/workflows/shared-copies.yml"
   workflow_dispatch: {}
 
