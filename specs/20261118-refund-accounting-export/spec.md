@@ -168,8 +168,16 @@ approved: 2026-11-18
     order and Tax column, the row order, the line-break question. New follow-ups for the
     accountant: a trial import of the golden file into Accrio; accounts seen in the 2025 template
     but not in the signed-off list (5803, 6199, 6305, 6721, and a row whose Debit is "2").
-  - **Summary.** Added: AC-6.16, AC-6.17. Adjusted: AC-6.1, AC-6.2, AC-6.13, AC-6.14, AC-6.15,
-    AC-7.4. Retired: none.
+  - **F7, whitespace in the Description and text cells.** Control characters, line breaks and runs
+    of spaces in the reason and the name become a single space, and the ends are trimmed (the
+    plan's choice, friendly to the accounting system); everything else stays exactly as written
+    and is never a formula. Adjusted: AC-6.13, AC-6.15.
+  - **F8, the 2026 baseline follows the employee's addresses.** The hand-issued baseline applies to
+    an employee by any email address their account has used; an address changed before the
+    employee had filed anything in Refund needs a baseline row of its own (security finding
+    N-01). Adjusted: AC-4.11.
+  - **Summary.** Added: AC-6.16, AC-6.17. Adjusted: AC-4.11, AC-6.1, AC-6.2, AC-6.13, AC-6.14,
+    AC-6.15, AC-7.4. Retired: none.
 
 ## Problem
 
@@ -406,10 +414,14 @@ so that the books, the receipts and the employee all refer to the same number.
   its receipt number is shown.
 - AC-4.10: Given two approvals of the same employee saved at the same moment, when they are
   numbered, then no two lines receive the same number.
-- AC-4.11: Given an employee whose last hand-issued number in the 2026 register is N (for example
-  `MC26/081`), when the first line of that employee with an expense date in 2026 is numbered, then
-  it receives N + 1 (`MC26/082`), and the following 2026 lines continue by one with no gaps and no
-  repeats.
+- AC-4.11 *(adjusted 2026-11-19: the baseline follows the employee's addresses)*: Given an
+  employee whose last hand-issued number in the 2026 register is N (for example `MC26/081`), when
+  the first line of that employee with an expense date in 2026 is numbered, then it receives N + 1
+  (`MC26/082`), and the following 2026 lines continue by one with no gaps and no repeats. The
+  baseline applies to the employee by any email address their account has used: an employee whose
+  address changed after filing in Refund still continues after N. When an address was changed
+  before the employee had filed anything in Refund, Refund holds no link between the two
+  addresses, and the baseline list needs a row for the current address as well.
 - AC-4.12: Given an employee for whom no last hand-issued number is recorded, when their first
   line with an expense date in 2026 is numbered, then it receives `001`; and given a line with an
   expense date in a year other than 2026, then no hand-issued number is taken into account.
@@ -492,24 +504,28 @@ WellD CH expense, so that I can import it into the accounting system instead of 
   export, then it is denied.
 - AC-6.12 *(adjusted 2026-11-19: no VAT amount in the file)*: Given an approved total of 0 on a
   line that is not rejected, when it is exported, then the row is present with an Amount of 0.00.
-- AC-6.13 *(adjusted 2026-11-19: the provisional pattern)*: Given a row, then its Description
-  contains the line's reason (`motivo`), the line's receipt number and the employee's name (the
-  email address when the account has no name), in the provisional pattern `<reason> [<receipt
-  number>] <name>` (for example `Cancelleria [MC26/001] Matteo Codogno`); for a line in a currency
-  other than CHF it also contains the original currency and approved total and the CHF equivalent,
-  as `<reason> [<receipt number>] [EUR 10.40 = CHF 9.62] <name>` for the line of AC-6.3. For a line
-  in CHF it contains no currency and no second amount. A line break or other control character in
-  the reason or the name appears as one space, so a Description is always a single line. The order
-  and separators of these elements are provisional until the accountant answers (open question).
+- AC-6.13 *(adjusted 2026-11-19: the provisional pattern; whitespace made uniform)*: Given a row,
+  then its Description contains the line's reason (`motivo`), the line's receipt number and the
+  employee's name (the email address when the account has no name), in the provisional pattern
+  `<reason> [<receipt number>] <name>` (for example `Cancelleria [MC26/001] Matteo Codogno`); for
+  a line in a currency other than CHF it also contains the original currency and approved total
+  and the CHF equivalent, as `<reason> [<receipt number>] [EUR 10.40 = CHF 9.62] <name>` for the
+  line of AC-6.3. For a line in CHF it contains no currency and no second amount. In the reason
+  and the name, every line break, other control character and run of spaces appears as a single
+  space and the ends are trimmed, so a Description is always a single line without double
+  spaces. The order and separators of the elements are provisional until the accountant answers
+  (open question).
 - AC-6.14 *(adjusted 2026-11-19: confirmed by the sample file, no longer provisional; Note added)*:
   Given an export, then the Tax column and the Note column are present, in the positions of
   AC-6.2, and empty on every row, so that the file lines up with what the accounting system
   expects and VAT is not carried.
-- AC-6.15 *(adjusted 2026-11-19: reworded for a workbook)*: Given a name or a reason that starts
-  with `=`, `+`, `-` or `@`, or that contains a character with a meaning in a spreadsheet file
-  (for example `<`, `>`, `&`, a quote) or a line break, when it is exported, then it is in its
-  cell as text, exactly as written apart from the line breaks of AC-6.13, no cell of the workbook
-  is ever a formula, and the row keeps its eight cells and adds, merges or splits no row or column.
+- AC-6.15 *(adjusted 2026-11-19: reworded for a workbook; whitespace as in AC-6.13)*: Given a name
+  or a reason that starts with `=`, `+`, `-` or `@`, or that contains a character with a meaning
+  in a spreadsheet file (for example `<`, `>`, `&`, a quote), when it is exported, then it is in
+  its cell as text and no cell of the workbook is ever a formula. Apart from the whitespace
+  changes of AC-6.13 (line breaks, other control characters and runs of spaces become a single
+  space, the ends are trimmed), the text is exactly as written, and the row keeps its eight cells
+  and adds, merges or splits no row or column.
 - AC-6.16: Given an export, then its rows are ordered by Date, the latest first; rows with the same
   Date follow a fixed order (by the Description's employee name, then by employee, receipt year
   and receipt sequence, then by line), so that the same lines always give the same file (AC-6.8).
@@ -722,7 +738,9 @@ Answered or decided on 2026-11-19 (accounting sign-off) where marked.*
 - [ ] The list of each employee's last hand-issued 2026 number from the register (the highest
   sequence per employee, whatever the duplicates `FR26/002` or wrong-year numbers `LG25/…` the
   register holds, and under the initials Refund will use, AC-4.8), needed before the release
-  (AC-7.4). An employee not in the list starts at `001` (AC-4.12). — owner: accounting
+  (AC-7.4). An employee not in the list starts at `001` (AC-4.12). Where an employee changed
+  email address before filing anything in Refund, the list names the current address too
+  (AC-4.11). — owner: accounting
 - [ ] Confirm the remaining default accounts of the draft list: km 5905, train 5901, other public
   transport 5904, motorway 5906, parking 5907, office material 6101, stationery 6101, postal 6104,
   telephone 6102. — owner: accounting
