@@ -179,7 +179,8 @@ describe("a clean read", () => {
 describe("pairs before Accounting's month floor (F-02, AC-6.8, AC-7.4)", () => {
   // Accounting answers a rates request with ANY month before 2000-01 as a whole 400, which this client reads as "unavailable":
   // one such line (the expense date is only a 4-digit year) would fail every read of its request, and the release, for good.
-  const MISSING = (currency: string, month: string) => ({ currency, month, status: "missing", attempted: false, reason: "no_source" });
+  const MISSING = (currency: "EUR" | "USD" | "GBP", month: string) =>
+    ({ currency, month, status: "missing", attempted: false, reason: "no_source" }) as const;
 
   it("asks Accounting only the in-range pairs; an earlier month is answered missing (no_source), in the asked order", async () => {
     const h = harness();

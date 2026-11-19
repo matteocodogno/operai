@@ -37,6 +37,7 @@ import {
   setTypeDefault,
   type Actor,
 } from "./defaults.repo";
+import { noStoreHeaders } from "./noStore";
 import { UNVERIFIED_SNAPSHOT } from "./referenceSnapshot";
 import {
   DefaultsProblemSchema,
@@ -80,6 +81,8 @@ export const defaultsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
 for (const path of ["/accounting/expense-type-defaults/*", "/accounting/foreign-currency-vat-code"]) {
   defaultsRouter.use(
     path,
+    // F-07: no-store + nosniff on every answer, refusals included (first, so 413 and 401 carry them).
+    noStoreHeaders,
     bodyLimit({
       maxSize: BODY_SIZE_LIMIT,
       onError: (c) => c.json(problem(413, "Payload Too Large", c.req.path, "Request body is too large."), 413),

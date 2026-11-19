@@ -24,6 +24,7 @@
 import { createRoute, OpenAPIHono, type z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { noStoreHeaders } from "./noStore";
 import { authzMiddleware, type AuthzContext, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import {
@@ -84,6 +85,15 @@ export const classificationRouter = new OpenAPIHono<{ Variables: AuthzVariables 
     return undefined;
   },
 });
+
+// F-07: no-store + nosniff on every answer of these routes, before the body limit and the auth so that 413 and 401 carry them.
+for (const path of [
+  "/review/requests/:id/accounting",
+  "/accounting/options",
+  "/review/requests/:id/lines/:lineId/classification",
+]) {
+  classificationRouter.use(path, noStoreHeaders);
+}
 
 const CLASSIFY_BODY_SIZE_LIMIT = 4 * 1024; // two ids
 

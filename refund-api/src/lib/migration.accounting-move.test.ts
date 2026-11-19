@@ -75,7 +75,7 @@ async function scratchAt(name: string, state: "copies" | "next"): Promise<SQL> {
 afterAll(async () => {
   for (const name of created) await admin.unsafe(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
   await admin.close();
-});
+}, 60_000); // a dozen scratch databases to drop, under load (the 5 s default of a hook is not enough)
 
 // ─── Fixtures at the 20261119090000 schema ───────────────────────────────────
 
