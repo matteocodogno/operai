@@ -13,6 +13,11 @@
  *   AC-1.3  adding the number of an existing account is refused with a message naming it, in the dialog
  *   AC-1.9  a deactivated account is reactivated and is listed active again with the same number and name
  *   AC-2.4  a manager corrects a month's rate: the cell shows the new value with the origin "Corrected"
+ *   AC-2.1  the rates card names the authority of its source: the monthly average rates for VAT of the AFC/ESTV, in English and in
+ *           Italian (T73; the channel is the BAZG's, the card says so)
+ *   AC-7.6  WellD CH holds the signed-off seed: the six VAT codes (IPM81, IPM77, IP00, BZM81, IPM26, IPM38) with their rates and the
+ *           19 accounts (5902, 5903, 6501 and 2620.1 among them), listed in the app, and a code typed in lower case that exists is
+ *           refused as a duplicate of IPM81 (T73)
  *   AC-8.2  the switcher of a person with two entities changes the list, every title names its entity, and the address follows
  *   AC-8.3  WellD Italia, with nothing entered, shows "Nothing entered yet" (a state, not an error) in both lists, and no source
  *           for its rates (AC-2.11)
@@ -32,6 +37,8 @@ import { applySessionCookie } from './helpers/adminSession'
 import {
   accountingCall,
   createLedgerAccount,
+  SEEDED_ACCOUNT_NUMBERS,
+  SEEDED_VAT_CODES,
   setUpAccountingPeople,
   uniqueAccountNumber,
   uniqueVatCode,
@@ -232,6 +239,10 @@ test.describe('specs/20261119-accounting T41: the manager journey (AC-1.1, 1.3, 
     await openView(page, 'exchange-rates', 'welld_ch')
     await expect(page.getByRole('heading', { name: 'Exchange rates — WellD CH' })).toBeVisible({ timeout: 30_000 })
 
+    // AC-2.1: the card names where the rates come from: the AFC/ESTV's monthly average rates for VAT (served by the BAZG)
+    await expect(page.getByTestId('accounting-fx-facts')).toContainText('Monthly average rates for VAT of the Swiss Federal Tax Administration (AFC/ESTV)', {
+      timeout: 30_000,
+    })
     const cell = page.getByTestId(`accounting-fx-cell-${month}-USD`)
     await expect(cell).toBeVisible({ timeout: 30_000 })
     await expect(cell).toContainText('Missing')
@@ -248,6 +259,43 @@ test.describe('specs/20261119-accounting T41: the manager journey (AC-1.1, 1.3, 
     const read = await accountingCall<{ months: MonthRow[] }>(TOKEN(), 'GET', '/v1/entities/welld_ch/exchange-rates')
     const row = read.body.months.find((item) => item.month === month)
     expect(row?.rates['USD']).toMatchObject({ status: 'corrected', rate: expect.stringMatching(/^0\.88/) })
+    await context.close()
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+test.describe('specs/20261119-accounting T73: the signed-off seed of WellD CH (AC-7.6)', () => {
+  // The seed is loaded by global-setup.ts (`seed:welld-ch`); a run that skipped it entered the list by hand, so this proves nothing then.
+  test.skip(process.env['E2E_SKIP_ACCOUNTING_SEED'] === '1', 'E2E_SKIP_ACCOUNTING_SEED=1: the signed-off list was not loaded by the setup')
+
+  test('WellD CH holds the six signed-off VAT codes and the 19 accounts, and IPM81 typed in lower case is refused as a duplicate (AC-7.6, AC-1.5, AC-1.6)', async ({
+    browser,
+  }) => {
+    test.setTimeout(120_000)
+    // By the API: the six codes with their rates, and every account of the list ("2620.1" is a valid number, AC-1.2).
+    const codes = await listVatCodes('welld_ch')
+    for (const { code, rateBasisPoints } of SEEDED_VAT_CODES) {
+      expect(codes.find((item) => item.code === code), `the VAT code ${code}`).toMatchObject({ code, rateBasisPoints })
+    }
+    const numbers = new Set((await listAccounts('welld_ch')).map((account) => account.number))
+    for (const number of SEEDED_ACCOUNT_NUMBERS) expect(numbers.has(number), `the account ${number}`).toBe(true)
+
+    // In the app: the list shows IPM81 with its rate, and typing it in lower case in the add dialog is refused naming IPM81.
+    const { context, page } = await signedIn(browser, people.admin)
+    await openView(page, 'vat-codes', 'welld_ch')
+    await expect(page.getByRole('heading', { name: 'VAT codes — WellD CH' })).toBeVisible({ timeout: 30_000 })
+    const row = page.getByTestId('accounting-vat-row-IPM81')
+    await expect(row).toBeVisible({ timeout: 30_000 })
+    await expect(row).toContainText('8.1')
+
+    await page.getByTestId('accounting-vat-add').click()
+    await expect(page.getByRole('dialog', { name: 'Add VAT code — WellD CH' })).toBeVisible()
+    await page.getByTestId('accounting-vat-code').fill('ipm81')
+    await page.getByTestId('accounting-vat-label').fill(`E2E duplicate ${RUN}`)
+    await page.getByTestId('accounting-vat-rate').fill('8.1')
+    await page.getByTestId('accounting-vat-dialog-submit').click()
+    await expect(page.getByTestId('accounting-vat-code-error')).toContainText(/VAT code IPM81 already exists/, { timeout: 15_000 })
+    await expect(page.getByTestId('accounting-vat-code')).toBeFocused()
     await context.close()
   })
 })
@@ -323,6 +371,7 @@ test.describe('specs/20261119-accounting T41: words and axe, light and dark, Eng
             numberError: 'Usare cifre separate da un solo punto, come 5905 o 2620.1.',
             failed: "L’ultimo recupero non è riuscito",
             missing: 'Mancante',
+            source: 'Corsi medi mensili IVA dell’Amministrazione federale delle contribuzioni (AFC)',
           }
         : {
             title: 'Accounting',
@@ -334,6 +383,7 @@ test.describe('specs/20261119-accounting T41: words and axe, light and dark, Eng
             numberError: 'Use digits separated by single dots, such as 5905 or 2620.1.',
             failed: 'The last fetch failed',
             missing: 'Missing',
+            source: 'Monthly average rates for VAT of the Swiss Federal Tax Administration (AFC/ESTV)',
           }
       // A row to look at in each list, whatever the seed held.
       const number = uniqueAccountNumber()
@@ -375,6 +425,7 @@ test.describe('specs/20261119-accounting T41: words and axe, light and dark, Eng
       await openView(page, 'exchange-rates', 'welld_ch')
       await expect(page.getByRole('heading', { name: words.fx })).toBeVisible({ timeout: 30_000 })
       await expect(page.getByTestId('accounting-fx-failed')).toContainText(words.failed, { timeout: 15_000 })
+      await expect(page.getByTestId('accounting-fx-facts')).toContainText(words.source) // AC-2.1: the AFC/ESTV, in the person's language
       // A month with no rate shows its Missing cell (the newest EUR month without one, or any missing cell).
       await expect(page.getByTestId('accounting-fx-table')).toContainText(words.missing)
       await expectNoAxeViolations(page, `exchange rates with a Missing cell and the failed-fetch banner, ${locale} ${scheme}`)

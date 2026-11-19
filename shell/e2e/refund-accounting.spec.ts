@@ -1,62 +1,83 @@
 /**
- * Refund accounting journey (specs/20261118-refund-accounting-export, T32, adapted by specs/20261119-accounting, T42; plan § Test
- * strategy "e2e journey"; plan § Local development and e2e). Drives the REAL assembled shell host + refund-ui remote (ADR
- * 20260709-suite-frontend-module-federation) against the REAL refund-api, accounting-api and auth services, no mocking, like
- * this suite's other refund journeys (refund-headline.spec.ts, refund-batches-headline.spec.ts).
+ * Refund accounting journey (specs/20261118-refund-accounting-export, T32, adapted by specs/20261119-accounting, T42 and, for the
+ * 2026-11-19 accounting sign-off, T73; plan § Test strategy "e2e journey"; plan § Local development and e2e). Drives the REAL
+ * assembled shell host + refund-ui remote (ADR 20260709-suite-frontend-module-federation) against the REAL refund-api,
+ * accounting-api and auth services, no mocking, like this suite's other refund journeys (refund-headline.spec.ts,
+ * refund-batches-headline.spec.ts).
  *
  * Journey:
- *   1. an employee submits one WellD CH line in CHF and one in EUR (no receipt number exists yet);
- *   2. accounting opens the request: the panel shows the type's DEFAULT account and VAT code on the CHF line, and, on the EUR
- *      line, the type's account with the foreign-currency VAT code (the type's own default VAT code is NOT used) next to the
- *      rate 0.9246 and the CHF amount 9.62, all read from ACCOUNTING (AC-3.1, AC-3.2, AC-3.8);
- *   3. accounting changes the CHF line's VAT code by hand: the marker flips and the VAT amount reads 1.56 (AC-3.3, AC-6.4);
- *   4. accounting approves; the employee sees the receipt numbers, the EUR line (earlier expense date) first (AC-4.4, AC-4.9);
- *   5. a second employee's request, whose type has no default, is REFUSED on approval: the dialog closes, an ErrorSummary
- *      lists what is missing, focus lands on the first missing select, nothing is numbered (AC-3.4, AC-4.3); once both
- *      values are chosen it approves and gets number 001;
+ *   1. an employee submits three WellD CH lines: one in EUR, one in CHF, and a FLIGHT in CHF (no receipt number exists yet);
+ *   2. accounting opens the request: each panel shows the type's DEFAULT ACCOUNT and, for the VAT code, "None": a VAT code is never
+ *      pre-set, not for CHF and not for EUR (AC-3.1, AC-3.13), and a line without one shows no VAT amount (AC-3.8); the EUR line
+ *      shows the rate 0.9246 and the CHF amount 9.62, all read from ACCOUNTING (AC-3.1);
+ *   3. accounting sets a VAT code by hand on the CHF line (the amount reads 1.56), and then CLEARS it ("None" again); it sets
+ *      one on the flight line and leaves it (AC-3.3, AC-3.11, AC-3.13);
+ *   4. accounting approves: with an account on every line, two of the three lines carry no VAT code at all, and that is enough
+ *      (AC-3.11); the employee sees the three receipt numbers, the earlier expense date first (AC-4.4, AC-4.9);
+ *   5. a second employee's request, whose type has no default account, is REFUSED on approval: the dialog closes, an ErrorSummary
+ *      names the one line that needs an ACCOUNT (and nothing about a VAT code), focus lands on its select, nothing is numbered
+ *      (AC-3.4, AC-4.3); once the account is chosen it approves with no VAT code and gets number 001;
  *   6. a third request holds a EUR line in a past month where Accounting has NO rate: it is approved all the same, and shows
  *      "Rate pending" (AC-5.6);
  *   7. the March EUR rate is CORRECTED in Accounting to 0.9300: the lines already approved keep the rate they were booked with
  *      (the review page still reads 0.9246 and 9.62, AC-5.5);
  *   8. accounting compiles a batch: the export card is BLOCKED by the missing rate of the pending line (AC-5.6); it is the same
  *      card when Accounting cannot be read (the one answer says so, AC-6.6); a manager then enters the rate in Accounting, Check
- *      again says the export is ready, and the CSV is downloaded and PARSED: BOM, CRLF, 16 columns, `10.40;0.9246;9.62` for
- *      EUR 10.40 booked in March (AC-5.5), 1.56 (VAT of CHF 20.80 at 8.1 %), and the pending line carrying the rate typed
- *      meanwhile (AC-5.6, AC-6.1 to AC-6.4).
+ *      again says the export is ready, and the EXCEL FILE (`…/accounting-export/file`, an `.xlsx`) is downloaded and READ: sheet
+ *      "Sheet 1", the eight columns `Date | Description | Debit | Credit | Amount | Currency | Tax | Note`, one row per line, the latest
+ *      date first, the Description `<reason> [<receipt>] [EUR 10.40 = CHF 9.62] <name>` for a foreign line, the Amount `9.62` for EUR
+ *      10.40 booked in March (AC-5.5) and `9.12` for the pending line that took the rate typed meanwhile (AC-5.6), the Debit the
+ *      account, the Credit 5832, Tax and Note empty, and no formula anywhere (20261118 AC-6.2, AC-6.13 to AC-6.17). The old `…/csv`
+ *      route answers 404.
  *
  * Fixtures (written through accounting-api and refund-api as a real admin, see helpers/accountingFixtures.ts and
- * helpers/refundFixtures.ts) so the journey does not depend on what the seeds say: a ledger account, a 0 % and an 8.1 % VAT code
- * in Accounting, the defaults of three expense types and the foreign-currency VAT code in Refund (by account number and VAT
- * code), and the EUR rate of 2026-03 (a month that is past whatever today is). The defaults it changes are put back in `finally`;
- * the new Accounting entries stay (they are append-only and named "E2E"). A rate typed for a month stays in effect: the pending
- * journey uses `unusedPastMonth` (a month with no EUR rate), which this run uses up, so a database supplies about one such run per
- * missing month (see accountingFixtures.ts).
+ * helpers/refundFixtures.ts) so the journey does not depend on what the seeds say: a ledger account and an 8.1 % VAT code in
+ * Accounting, the DEFAULT ACCOUNT of four expense types in Refund (by account number: a default has no VAT half and there is no
+ * foreign-currency VAT code any more), and the EUR rate of 2026-03 (a month that is past whatever today is). The defaults it changes
+ * are put back in `finally`; the new Accounting entries stay (they are append-only and named "E2E"). A rate typed for a month stays
+ * in effect: the pending journey uses `unusedPastMonth` (a month with no EUR rate), which this run uses up, so a database supplies
+ * about one such run per missing month (see accountingFixtures.ts).
  *
- * The accounting release marker comes from global-setup.ts (the seed of WellD CH's list, then `accounting:release`); without it
- * every approval answers 409 `accounting_release_pending` (E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 skips that step). The stack runs
- * accounting-api with `ACCOUNTING_FX_SOURCE=off` (rates are typed by hand): with `bazg` the journey also passes for March, because
- * that rate is set explicitly, but a month the federal source can answer would not stay "missing" for the pending line.
- * A compile claims EVERY approved request, so the backlog other journeys leave is paid out first (drainApprovedBacklog).
+ * The accounting release marker comes from global-setup.ts (the seed of WellD CH's list, then `accounting:release --offsets` with a
+ * header-only baseline file, so receipt numbers start at 001); without it every approval answers 409 `accounting_release_pending`
+ * (E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 skips that step). The stack runs accounting-api with `ACCOUNTING_FX_SOURCE=off` (rates are
+ * typed by hand): with `bazg` the journey also passes for March, because that rate is set explicitly, but a month the federal source
+ * can answer would not stay "missing" for the pending line. A compile claims EVERY approved request, so the backlog other journeys
+ * leave is paid out first (drainApprovedBacklog).
  *
- * AC proof by level: see plan § Test strategy. This file is the e2e level of AC-3.1, AC-3.3, AC-3.4, AC-4.9, AC-5.5, AC-5.6,
- * AC-6.1 to AC-6.4, AC-6.6.
+ * AC proof by level: see plan § Test strategy. This file is the e2e level of AC-3.1, AC-3.3, AC-3.4, AC-3.11, AC-3.13, AC-4.9,
+ * AC-5.5, AC-5.6, AC-6.1 to AC-6.4, AC-6.6, AC-6.13 to AC-6.17 of 20261118 and of 20261119's AC-5.5, AC-5.6 (and AC-8.1: the flight
+ * is one of the fourteen types).
  */
 import { readFile } from 'node:fs/promises'
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test'
 import { seedAdminSession, seedUserSession, applySessionCookie } from './helpers/adminSession'
-import { createLedgerAccount, createVatCode, setRate, uniqueAccountNumber, uniqueVatCode, unusedPastMonth } from './helpers/accountingFixtures'
+import {
+  createLedgerAccount,
+  createVatCode,
+  setRate,
+  uniqueCanonicalAccountNumber,
+  uniqueVatCode,
+  unusedPastMonth,
+} from './helpers/accountingFixtures'
 import { axeViolations } from './helpers/meetingsFixtures'
 import {
-  ACCOUNTING_CSV_HEADER,
   drainApprovedBacklog,
   freshToken,
   grantRefundAccounting,
   grantRefundEmployee,
-  parseAccountingCsv,
+  refundCall,
   setExpenseTypeDefault,
-  setForeignCurrencyVatCode,
   snapshotAccountingDefaults,
 } from './helpers/refundFixtures'
+import {
+  ACCOUNTING_SHEET_NAME,
+  ACCOUNTING_XLSX_HEADER,
+  isoDateOf,
+  parseAccountingWorkbook,
+  textOf,
+  type AccountingRow,
+} from './helpers/xlsxReader'
 
 const uniqueSuffix = () => `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 
@@ -68,10 +89,17 @@ const CORRECTED_EUR_RATE = '0.9300'
 /** What a manager types for the pending line's month once the export is blocked: EUR 10.00 at 0.9123 is CHF 9.12 (AC-5.6). */
 const PENDING_RATE = '0.9123'
 
-/** Three expense types the journey owns for its duration: one with a default, one with a default used by a EUR line, one with none. */
+/** Four expense types the journey owns for its duration: three with a default account (one used by a EUR line, one the new flight), one with none. */
 const CHF_TYPE = 'stationery'
 const EUR_TYPE = 'postal'
+const FLIGHT_TYPE = 'travel_flight'
 const NO_DEFAULT_TYPE = 'representation_gifts'
+
+/** What the journey's lines say in the file: the Credit of every row is "Rimborso spese effettive" (20261118 AC-6.2). */
+const CREDIT_ACCOUNT = '5832'
+/** The date format of the Date column and the format of the Amount column (20261118 SO-8). */
+const DATE_FORMAT = 'yyyy\\-mm\\-dd;@'
+const AMOUNT_FORMAT = '0.00'
 
 type LineInput = { date: string; type: string; motivo: string; amount: string; currency: 'CHF' | 'EUR' }
 
@@ -183,11 +211,11 @@ async function exportSummaryUnavailable(route: Route): Promise<void> {
 
 test.describe.configure({ mode: 'serial' })
 
-test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journey', () => {
-  test('CHF + EUR lines get defaults → a VAT code is changed → approval numbers them → a type without default is refused → compile → the CSV is downloaded and parsed + a rate-pending line, the March correction, export blocked then ready (AC-3.1/3.2/3.3/3.4/4.9/5.5/5.6/6.1/6.2/6.3/6.4/6.6)', async ({
+test.describe('specs/20261119-accounting T73 (T32 of 20261118): accounting journey', () => {
+  test('CHF, EUR and flight lines get a default account and no VAT code → a VAT code is set, cleared, set → approval numbers them → a type without a default account is refused → compile → the Excel file is downloaded and read + a rate-pending line, the March correction, export blocked then ready (AC-3.1/3.3/3.4/3.11/3.13/4.9/5.5/5.6/6.1/6.2/6.13/6.14/6.15/6.16/6.17)', async ({
     browser,
   }) => {
-    // Three actors, two requests, a compile and a download: well beyond the 30 s default of the shorter journeys.
+    // Three actors, three requests, a compile and a download: well beyond the 30 s default of the shorter journeys.
     test.setTimeout(240_000)
     const tag = uniqueSuffix()
     const adminEmail = `e2e-acct-admin-${tag}@operai.test`
@@ -197,15 +225,16 @@ test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journ
     const empAName = 'E2E Accounting Employee A'
     const empBName = 'E2E Accounting Employee B'
 
-    // Reasons the journey finds its lines by (the CSV's "Reason" column carries them too).
+    // Reasons the journey finds its lines by (the file's Description starts with them).
     const motivoChf = `Notebooks ${tag}`
     const motivoEur = `Stamps ${tag}`
+    const motivoFlight = `Flight ${tag}`
     const motivoNoDefault = `Gift ${tag}`
     const motivoPending = `Courier ${tag}`
 
     const adminSession = await seedAdminSession(adminEmail, 'E2E Accounting Admin')
     const adminToken = await freshToken(adminSession.cookieHeader)
-    const restoreDefaults = await snapshotAccountingDefaults(adminToken, [CHF_TYPE, EUR_TYPE, NO_DEFAULT_TYPE])
+    const restoreDefaults = await snapshotAccountingDefaults(adminToken, [CHF_TYPE, EUR_TYPE, FLIGHT_TYPE, NO_DEFAULT_TYPE])
 
     const empASession = await seedUserSession(empAEmail, empAName)
     grantRefundEmployee(empAEmail)
@@ -231,19 +260,16 @@ test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journ
     const acct = await acctContext.newPage()
 
     try {
-      // ─── Fixtures: Accounting's entries and rate, Refund's defaults and designation by natural key ─────────
+      // ─── Fixtures: Accounting's entries and rate, Refund's default accounts by natural key ──────────────────
       await setRate(adminToken, RATE_MONTH, 'EUR', EUR_RATE)
+      // a canonical number (no trailing zero), so the file writes the Debit as a number (20261118 AC-6.17)
       const account = await createLedgerAccount(adminToken, {
-        number: uniqueAccountNumber(),
+        number: uniqueCanonicalAccountNumber(),
         name: `E2E booking account ${tag}`,
       })
-      const noVat = await createVatCode(adminToken, { code: uniqueVatCode(), label: `E2E no VAT ${tag}`, ratePercent: '0' })
       const vat81 = await createVatCode(adminToken, { code: uniqueVatCode(), label: `E2E VAT 8.1 ${tag}`, ratePercent: '8.1' })
-      await setExpenseTypeDefault(adminToken, CHF_TYPE, account.number, noVat.code)
-      // the EUR line's type has ANOTHER default VAT code: it must be ignored for a foreign currency (AC-3.2)
-      await setExpenseTypeDefault(adminToken, EUR_TYPE, account.number, vat81.code)
-      await setExpenseTypeDefault(adminToken, NO_DEFAULT_TYPE, null, null)
-      await setForeignCurrencyVatCode(adminToken, noVat.code)
+      for (const type of [CHF_TYPE, EUR_TYPE, FLIGHT_TYPE]) await setExpenseTypeDefault(adminToken, type, account.number)
+      await setExpenseTypeDefault(adminToken, NO_DEFAULT_TYPE, null)
 
       await drainApprovedBacklog(acctToken)
 
@@ -251,6 +277,7 @@ test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journ
       const requestA = await composeAndSubmit(empA, [
         { date: '2026-03-04', type: CHF_TYPE, motivo: motivoChf, amount: '20.80', currency: 'CHF' },
         { date: '2026-03-02', type: EUR_TYPE, motivo: motivoEur, amount: '10.40', currency: 'EUR' },
+        { date: '2026-03-06', type: FLIGHT_TYPE, motivo: motivoFlight, amount: '20.80', currency: 'CHF' },
       ])
       // no number before the approval, and none shown to the employee as a placeholder
       await expect(empA.getByTestId('receipt-number')).toHaveCount(0)
@@ -259,77 +286,95 @@ test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journ
         { date: '2026-03-10', type: NO_DEFAULT_TYPE, motivo: motivoNoDefault, amount: '10.00', currency: 'CHF' },
       ])
 
-      // ─── 2. Accounting sees the defaults (AC-3.1, AC-3.2) ────────────────────────────────────────────────
+      // ─── 2. Accounting sees the default account, and no VAT code on any line ─────────────────────────────
       await openReview(acct, requestA)
       const chf = await lineOf(acct, motivoChf)
       const eur = await lineOf(acct, motivoEur)
+      const flight = await lineOf(acct, motivoFlight)
       const chfPanel = (suffix = '') => acct.getByTestId(`classification-${chf.lineId}${suffix}`)
       const eurPanel = (suffix = '') => acct.getByTestId(`classification-${eur.lineId}${suffix}`)
+      const flightPanel = (suffix = '') => acct.getByTestId(`classification-${flight.lineId}${suffix}`)
+      // the new type reads as itself on the line (AC-8.1 of 20261118)
+      await expect(flight.row).toContainText('Travel — flight')
 
-      await expect(chfPanel()).toBeVisible({ timeout: 20_000 })
-      await expect(chfPanel('-account').locator('option:checked')).toContainText(account.number)
-      await expect(chfPanel('-vat-code').locator('option:checked')).toContainText(noVat.code)
-      await expect(chfPanel('-account-field')).toContainText('Default')
-      await expect(chfPanel('-vat-code-field')).toContainText('Default')
-      await expect(chfPanel('-vat-amount')).toContainText('0.00')
-
-      await expect(eurPanel()).toBeVisible({ timeout: 20_000 })
-      await expect(eurPanel('-account').locator('option:checked')).toContainText(account.number)
-      // the designated foreign-currency code, not the type's own default (AC-3.2)
-      await expect(eurPanel('-vat-code').locator('option:checked')).toContainText(noVat.code)
-      await expect(eurPanel('-vat-code').locator('option:checked')).not.toContainText(vat81.code)
-      await expect(eurPanel('-account-field')).toContainText('Default')
-      await expect(eurPanel('-vat-code-field')).toContainText('Default')
-      // the rate in effect and the CHF amount: EUR 10.40 at 0.9246 is CHF 9.62 (AC-6.3's figure, on the screen first)
+      for (const panel of [chfPanel, eurPanel, flightPanel]) {
+        await expect(panel()).toBeVisible({ timeout: 20_000 })
+        await expect(panel('-account').locator('option:checked')).toContainText(account.number)
+        await expect(panel('-account-field')).toContainText('Default')
+        // a VAT code is never pre-set: "None" on a CHF line and on a EUR line alike, with no marker and nothing "required"
+        await expect(panel('-vat-code').locator('option:checked')).toHaveText('None')
+        await expect(panel('-vat-code-field')).not.toContainText('Default')
+        await expect(panel('-vat-code-field')).not.toContainText('Required')
+        await expect(panel('-vat-code-field').getByRole('alert')).toHaveCount(0)
+        // and a line without one shows no VAT amount (AC-3.8), not a zero
+        await expect(panel('-vat-amount')).toContainText('No VAT code, so no VAT amount.')
+        await expect(panel('-vat-amount')).not.toContainText('0.00')
+      }
+      // the rate in effect and the CHF amount: EUR 10.40 at 0.9246 is CHF 9.62 (the workbook's Amount, on the screen first)
       await expect(eurPanel('-rate')).toContainText(EUR_RATE)
       await expect(eurPanel('-chf')).toContainText('9.62')
 
-      // ─── 3. Accounting changes one VAT code by hand (AC-3.3) ─────────────────────────────────────────────
+      // ─── 3. Accounting sets a VAT code by hand, clears it, and sets one on the flight (AC-3.3, AC-3.13) ───
       await chooseByText(chfPanel('-vat-code'), vat81.code)
       await expect(chfPanel('-saved')).toContainText(vat81.code, { timeout: 10_000 })
-      await expect(chfPanel('-vat-code-field')).toContainText('Set by hand')
-      await expect(chfPanel('-account-field')).toContainText('Default') // only the changed value is a hand value
-      await expect(chfPanel('-vat-amount')).toContainText('1.56') // CHF 20.80 at 8.1 % (AC-6.4's figure)
+      await expect(chfPanel('-account-field')).toContainText('Default') // only the VAT code was touched
+      await expect(chfPanel('-vat-amount')).toContainText('1.56') // CHF 20.80 at 8.1 %
+      await chfPanel('-vat-code').selectOption({ label: 'None' })
+      await expect(chfPanel('-saved')).toContainText('VAT code cleared', { timeout: 10_000 })
+      await expect(chfPanel('-vat-code').locator('option:checked')).toHaveText('None')
+      await expect(chfPanel('-vat-amount')).toContainText('No VAT code, so no VAT amount.')
 
-      // ─── approve (the request carries both lines, classified) ──────────────────────────────────────────
+      await chooseByText(flightPanel('-vat-code'), vat81.code)
+      await expect(flightPanel('-saved')).toContainText(vat81.code, { timeout: 10_000 })
+      await expect(flightPanel('-vat-amount')).toContainText('1.56')
+
+      // ─── approve: the request carries three lines with an account each, and a VAT code on ONE of them (AC-3.11) ──
       await pressApprove(acct)
       await expect(acct.getByTestId('refund-review-queue-page')).toBeVisible({ timeout: 20_000 })
       await expect(acct.getByTestId(`review-queue-row-${requestA}`)).toContainText(/approved/i, { timeout: 20_000 })
 
+      // what was approved keeps what it held: no VAT code on two lines, one on the flight (AC-5.1 of 20261118)
+      await acct.goto(`/refund/review/${requestA}`)
+      await expect(chfPanel('-vat-amount')).toContainText('No VAT code, so no VAT amount.', { timeout: 20_000 })
+      await expect(eurPanel('-vat-amount')).toContainText('No VAT code, so no VAT amount.')
+      await expect(flightPanel('-vat-amount')).toContainText('1.56')
+
       // ─── 4. The employee sees the numbers (AC-4.9), the earlier expense date first in the sequence (AC-4.4) ──
       await empA.goto(`/refund/requests/${requestA}`)
       await expect(empA.getByTestId('request-detail-approved')).toBeVisible({ timeout: 20_000 })
-      await expect(empA.getByTestId('receipt-number')).toHaveCount(2)
+      await expect(empA.getByTestId('receipt-number')).toHaveCount(3)
       const numberEur = await shownReceiptNumber((await lineOf(empA, motivoEur)).row)
       const numberChf = await shownReceiptNumber((await lineOf(empA, motivoChf)).row)
+      const numberFlight = await shownReceiptNumber((await lineOf(empA, motivoFlight)).row)
       expect(numberEur).toMatch(/^[A-Z]{2}26\/001$/)
       expect(numberChf).toMatch(/^[A-Z]{2}26\/002$/)
+      expect(numberFlight).toMatch(/^[A-Z]{2}26\/003$/)
 
-      // ─── 5. A type without a default: the approval is refused (AC-3.4) ───────────────────────────────────
+      // ─── 5. A type without a default account: the approval is refused, for the account only (AC-3.4) ────────
       await openReview(acct, requestB)
       const gift = await lineOf(acct, motivoNoDefault)
       const giftPanel = (suffix = '') => acct.getByTestId(`classification-${gift.lineId}${suffix}`)
       await expect(giftPanel()).toBeVisible({ timeout: 20_000 })
       await expect(giftPanel('-account-field')).toContainText('Required to approve')
+      await expect(giftPanel('-vat-code-field')).not.toContainText('Required')
 
       await pressApprove(acct)
       const summary = acct.getByTestId('classification-missing-summary')
       await expect(summary).toBeVisible({ timeout: 15_000 })
       await expect(summary).toContainText('Nothing was approved')
-      await expect(summary).toContainText('2 values need your attention')
-      // the dialog is gone and the page is the same: the values to fix are on it, and focus is on the first of them
+      await expect(summary).toContainText('1 line needs an account')
+      await expect(summary).not.toContainText('VAT')
+      // the dialog is gone and the page is the same: the value to fix is on it, and focus is on it
       await expect(acct.getByTestId('approve-dialog-confirm')).toHaveCount(0)
       await expect(acct.getByTestId('review-detail-decidable')).toBeVisible()
       await expect(giftPanel('-account')).toBeFocused({ timeout: 10_000 })
       await expect(giftPanel('-account-field').getByRole('alert')).toContainText('Choose an account')
-      await expect(giftPanel('-vat-code-field').getByRole('alert')).toContainText('Choose a VAT code')
+      await expect(giftPanel('-vat-code-field').getByRole('alert')).toHaveCount(0)
 
-      // the summary shrinks as the values are chosen, and goes when none is missing
+      // the summary goes as soon as the account is chosen: the VAT code is not asked for
       await chooseByText(giftPanel('-account'), account.number)
-      await expect(summary).toContainText('1 value needs your attention', { timeout: 10_000 })
-      await chooseByText(giftPanel('-vat-code'), vat81.code)
       await expect(summary).not.toBeVisible({ timeout: 10_000 })
-      await expect(giftPanel('-vat-amount')).toContainText('0.81') // CHF 10.00 at 8.1 %
+      await expect(giftPanel('-vat-amount')).toContainText('No VAT code, so no VAT amount.')
 
       await pressApprove(acct)
       await expect(acct.getByTestId('refund-review-queue-page')).toBeVisible({ timeout: 20_000 })
@@ -377,8 +422,10 @@ test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journ
         await expect(empA.getByTestId('request-detail-approved')).toBeVisible({ timeout: 20_000 })
         return shownReceiptNumber((await lineOf(empA, motivoPending)).row)
       })()
+      // its year follows its expense date (a month of 2025 is possible on a database that has used up the 2026 ones): any number will do here
+      expect(numberPending).toMatch(/^[A-Z]{2}\d{2}\/\d{3,}$/)
 
-      // ─── 8. Compile, check the export card, download and parse the file (AC-6.1 to AC-6.4) ─────────────────
+      // ─── 8. Compile, check the export card, download and read the file (20261118 AC-6.1, AC-6.2, AC-6.13 to AC-6.17) ──
       await acct.goto('/refund/batches')
       await expect(acct.getByTestId('refund-batch-history-page')).toBeVisible({ timeout: 20_000 })
       await acct.getByTestId('batch-history-new-button').click()
@@ -395,12 +442,9 @@ test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journ
       expect(batchId).toBeTruthy()
 
       // the numbers are on the batch page, in full (AC-4.9)
-      await expect(
-        acct.getByTestId(`batch-employee-group-${empASession.userId}-request-${requestA}-receipts`),
-      ).toContainText(numberEur)
-      await expect(
-        acct.getByTestId(`batch-employee-group-${empASession.userId}-request-${requestA}-receipts`),
-      ).toContainText(numberChf)
+      for (const number of [numberEur, numberChf, numberFlight]) {
+        await expect(acct.getByTestId(`batch-employee-group-${empASession.userId}-request-${requestA}-receipts`)).toContainText(number)
+      }
       await expect(
         acct.getByTestId(`batch-employee-group-${empBSession.userId}-request-${requestB}-receipts`),
       ).toContainText(numberGift)
@@ -409,6 +453,8 @@ test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journ
       await expect(acct.getByTestId('accounting-export-card')).toBeVisible({ timeout: 20_000 })
       await expect(acct.getByTestId('accounting-export-blocked')).toBeVisible({ timeout: 30_000 })
       await expect(acct.getByTestId('accounting-export-missing-rates')).toContainText('EUR')
+      // nothing else blocks it: every line has its account, and a missing VAT code never blocks (AC-3.11)
+      await expect(acct.getByTestId('accounting-export-unclassified')).toHaveCount(0)
       await expect(acct.getByTestId('accounting-export-pending')).toContainText('1 line gets its exchange rate at this export')
       await expectNoAxeViolations(acct, 'the export card blocked by a missing rate')
 
@@ -431,9 +477,9 @@ test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journ
       await expect(pendingCell).toContainText(PENDING_RATE, { timeout: 15_000 })
       await expect(pendingCell).toContainText('Corrected')
 
-      // ...and Check again says the export is ready: 4 rows (A's two lines, A's pending line, B's line).
+      // ...and Check again says the export is ready: 5 rows (A's three lines, A's pending line, B's line).
       await acct.getByTestId('accounting-export-check-again').click()
-      await expect(acct.getByTestId('accounting-export-ready')).toContainText('4 rows will be exported', {
+      await expect(acct.getByTestId('accounting-export-ready')).toContainText('5 rows will be exported', {
         timeout: 30_000,
       })
       await expect(acct.getByTestId('accounting-export-blocked')).toHaveCount(0)
@@ -444,96 +490,70 @@ test.describe('specs/20261119-accounting T42 (T32 of 20261118): accounting journ
       ])
       const filename = download.suggestedFilename()
       expect(filename).toMatch(/^refund-accounting-\d{4}-\d{2}-\d{2}-/)
-      expect(filename.endsWith(`-${batchId}.csv`)).toBe(true)
-      await expect(acct.getByTestId('accounting-export-downloaded')).toContainText('Export downloaded: 4 rows')
+      expect(filename.endsWith(`-${batchId}.xlsx`)).toBe(true)
+      await expect(acct.getByTestId('accounting-export-downloaded')).toContainText('Export downloaded: 5 rows')
       // the rate this export copied is frozen: nothing is pending any more
       await expect(acct.getByTestId('accounting-export-pending')).toHaveCount(0, { timeout: 15_000 })
 
-      const filePath = await download.path()
-      const text = await readFile(filePath, 'utf-8')
-      expect(text.charCodeAt(0)).toBe(0xfeff) // the byte-order mark spreadsheets detect UTF-8 by
-      expect(text.endsWith('\r\n')).toBe(true)
+      // the CSV is gone: its route answers 404, and asking for it writes nothing to the export log
+      expect((await refundCall(acctToken, 'GET', `/batches/${batchId}/accounting-export/csv`)).status).toBe(404)
 
-      const { header, rows } = parseAccountingCsv(text)
-      expect(header).toEqual([...ACCOUNTING_CSV_HEADER])
-      expect(rows).toHaveLength(4)
-      // sorted by employee (A's three lines, then B's one), each with its own receipt number
-      expect(rows.map((row) => row['Employee'])).toEqual([empAName, empAName, empAName, empBName])
-      expect(rows.map((row) => row['Receipt number']).sort()).toEqual([numberEur, numberChf, numberPending, numberGift].sort())
-      const byReason = (reason: string): Record<string, string> => {
-        const row = rows.find((candidate) => candidate['Reason'] === reason)
-        if (!row) throw new Error(`[refund-accounting] no CSV row for ${reason}`)
-        return row
+      const bytes = new Uint8Array(await readFile(await download.path()))
+      expect(String.fromCharCode(bytes[0]!, bytes[1]!)).toBe('PK') // a ZIP package: an .xlsx, not text
+      const book = parseAccountingWorkbook(bytes)
+      expect(book.sheetNames).toEqual([ACCOUNTING_SHEET_NAME])
+      expect(book.header).toEqual([...ACCOUNTING_XLSX_HEADER])
+      // text reaches the file as text only: no cell holds a formula (AC-6.15)
+      expect(book.workbook.formulaCells).toEqual([])
+      expect(book.rows).toHaveLength(5)
+
+      // the latest Date first (AC-6.16); the five dates differ, so the order is exactly that
+      const dates = book.rows.map((row) => isoDateOf(row.cells['Date']))
+      expect(dates).toEqual([...dates].sort().reverse())
+
+      /** The row of one line, found by the reason its Description starts with. */
+      const rowOf = (reason: string): AccountingRow => {
+        const found = book.rows.filter((row) => textOf(row.cells['Description']).startsWith(`${reason} [`))
+        if (found.length !== 1) throw new Error(`[refund-accounting] ${found.length} rows for ${reason} in the workbook`)
+        return found[0]!
+      }
+      /** The eight cells of a row against what the line was booked as. `foreign` is `EUR 10.40 = CHF 9.62` for a line in another currency. */
+      const expectRow = (
+        reason: string,
+        expected: { date: string; receipt: string; employee: string; amount: string; foreign?: string },
+      ): void => {
+        const { cells } = rowOf(reason)
+        const description = `${reason} [${expected.receipt}]${expected.foreign ? ` [${expected.foreign}]` : ''} ${expected.employee}`
+        expect(isoDateOf(cells['Date'])).toBe(expected.date)
+        expect(cells['Date']?.style.formatCode).toBe(DATE_FORMAT)
+        expect(cells['Description']).toMatchObject({ type: 'text', value: description })
+        expect(cells['Description']?.style.quotePrefix).toBe(true) // a spreadsheet keeps it as text, whatever it starts with
+        // Debit: the ledger account, a number because it is its own canonical decimal (AC-6.17); Credit: 5832
+        expect(cells['Debit']).toMatchObject({ type: 'number', value: account.number })
+        expect(cells['Credit']).toMatchObject({ type: 'number', value: CREDIT_ACCOUNT })
+        // Amount: the CHF amount, a number with two decimals; Currency: always CHF
+        expect(cells['Amount']).toMatchObject({ type: 'number', value: expected.amount })
+        expect(cells['Amount']?.style.formatCode).toBe(AMOUNT_FORMAT)
+        expect(cells['Currency']).toMatchObject({ type: 'text', value: 'CHF' })
+        // Tax and Note are there and empty on every row (AC-6.14): the file carries no VAT at all
+        expect(cells['Tax']?.type).toBe('empty')
+        expect(cells['Note']?.type).toBe('empty')
       }
 
-      // EUR 10.40 booked in March at 0.9246: the correction to 0.9300 made since does not reach it (AC-5.5)
-      const csvEur = byReason(motivoEur)
-      expect(csvEur).toMatchObject({
-        Employee: empAName,
-        'Expense date': '2026-03-02',
-        'Expense type': 'Postal',
-        Reason: motivoEur,
-        Km: '',
-        Currency: 'EUR',
-        'Approved total': '10.40',
-        'Exchange rate': EUR_RATE,
-        'CHF amount': '9.62',
-        'Account number': account.number,
-        'Account name': account.name,
-        'VAT code': noVat.code,
-        'VAT rate (%)': '0.00',
-        'VAT amount (CHF)': '0.00',
-        Batch: batchId,
-      })
-
-      const csvChf = byReason(motivoChf)
-      expect(csvChf).toMatchObject({
-        Employee: empAName,
-        'Expense date': '2026-03-04',
-        'Expense type': 'Stationery',
-        Reason: motivoChf,
-        Currency: 'CHF',
-        'Approved total': '20.80',
-        'Exchange rate': '',
-        'CHF amount': '20.80',
-        'Account number': account.number,
-        'VAT code': vat81.code,
-        'VAT rate (%)': '8.10',
-        'VAT amount (CHF)': '1.56',
-        Batch: batchId,
-      })
-
-      const csvGift = byReason(motivoNoDefault)
-      expect(csvGift).toMatchObject({
-        Employee: empBName,
-        'Expense date': '2026-03-10',
-        'Expense type': 'Representation — gifts',
-        Reason: motivoNoDefault,
-        Currency: 'CHF',
-        'Approved total': '10.00',
-        'CHF amount': '10.00',
-        'Account number': account.number,
-        'VAT code': vat81.code,
-        'VAT rate (%)': '8.10',
-        'VAT amount (CHF)': '0.81',
-        Batch: batchId,
-      })
-
+      // EUR 10.40 booked in March at 0.9246: the correction to 0.9300 made since does not reach it (AC-5.5). The Amount is 9.62.
+      expectRow(motivoEur, { date: '2026-03-02', receipt: numberEur, employee: empAName, amount: '9.62', foreign: 'EUR 10.40 = CHF 9.62' })
+      // a CHF line: no bracket for a currency, whether or not a VAT code was ever set on it
+      expectRow(motivoChf, { date: '2026-03-04', receipt: numberChf, employee: empAName, amount: '20.80' })
+      // the flight (a new type, with the one VAT code the journey set): the file says nothing of it
+      expectRow(motivoFlight, { date: '2026-03-06', receipt: numberFlight, employee: empAName, amount: '20.80' })
+      expectRow(motivoNoDefault, { date: '2026-03-10', receipt: numberGift, employee: empBName, amount: '10.00' })
       // the pending line carries the rate typed meanwhile, copied by this export (AC-5.6): EUR 10.00 at 0.9123 is CHF 9.12
-      const csvPending = byReason(motivoPending)
-      expect(csvPending).toMatchObject({
-        Employee: empAName,
-        'Receipt number': numberPending,
-        'Expense date': `${pendingMonth}-10`,
-        'Expense type': 'Stationery',
-        Currency: 'EUR',
-        'Approved total': '10.00',
-        'Exchange rate': PENDING_RATE,
-        'CHF amount': '9.12',
-        'Account number': account.number,
-        'VAT code': noVat.code,
-        'VAT amount (CHF)': '0.00',
-        Batch: batchId,
+      expectRow(motivoPending, {
+        date: `${pendingMonth}-10`,
+        receipt: numberPending,
+        employee: empAName,
+        amount: '9.12',
+        foreign: 'EUR 10.00 = CHF 9.12',
       })
     } finally {
       await restoreDefaults()

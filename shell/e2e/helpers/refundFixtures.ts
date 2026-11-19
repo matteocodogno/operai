@@ -18,6 +18,7 @@
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Call } from '../fixtures/letterheads'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const AUTH_DIR = path.resolve(__dirname, '../../../auth')
@@ -53,8 +54,10 @@ export function grantRefundAccounting(email: string, entity: 'welld_it' | 'welld
   runFixtureScript(['grant-refund-accounting', email.toLowerCase(), entity])
 }
 
-const REFUND_API_URL =
+/** The refund-api origin the e2e talks to. */
+export const REFUND_API_URL = (
   process.env['E2E_REFUND_API_URL'] ?? process.env['VITE_REFUND_API_URL'] ?? 'http://localhost:8082'
+).replace(/\/$/, '')
 
 /**
  * Pays out every approved-but-unbatched request already in the database, so a
@@ -84,16 +87,19 @@ export async function drainApprovedBacklog(token: string): Promise<number> {
   return requestCount
 }
 
-// ─── Accounting export fixtures (specs/20261118-refund-accounting-export, T31/T32; specs/20261119-accounting, T40) ──────
+// ─── Accounting export fixtures (specs/20261118-refund-accounting-export, T31/T32; specs/20261119-accounting, T40, T73) ─────
 //
-// The accounting journeys need a known set of defaults and a designation, whatever accounting's seed
+// The accounting journeys need a known set of defaults, whatever accounting's seed
 // (`accounting-api/scripts/data/seed.welld-ch.json`, loaded by `seed:welld-ch`) and Refund's defaults file
 // (`refund-api/scripts/data/accounting-defaults.welld-ch.json`, read by `accounting:release --defaults`) end up holding. The
-// ledger accounts, VAT codes and rates the defaults point at are Accounting's: a journey creates them with
-// helpers/accountingFixtures.ts (`createLedgerAccount`, `createVatCode`, `setRate`) and then names them to refund-api by their
-// natural keys, an account NUMBER and a VAT CODE. Refund keeps only the defaults and the designation, written through its
-// own admin routes as a real admin, the way the Settings screen writes them (nothing is inserted behind the API), and every
-// default the journey changes is put back by `restore()`.
+// ledger accounts, VAT codes and rates the journeys use are Accounting's: a journey creates them with
+// helpers/accountingFixtures.ts (`createLedgerAccount`, `createVatCode`, `setRate`) and then names an ACCOUNT to refund-api by
+// its natural key, the account NUMBER.
+//
+// Since the 2026-11-19 sign-off (20261118 SO-2, SO-16) a default is an ACCOUNT and nothing else: there is no VAT default and no
+// foreign-currency VAT code to designate (the route is gone and answers 404), and a line gets a VAT code only when accounting
+// chooses one. Refund keeps the fourteen defaults, written through its own admin route as a real admin, the way the Settings
+// screen writes them (nothing is inserted behind the API), and every default the journey changes is put back by `restore()`.
 //
 // Nothing here runs without the e2e stack (refund-api, accounting-api, auth with ENABLE_TEST_AUTH): see playwright.config.ts.
 
@@ -127,122 +133,81 @@ async function refundApi<T>(token: string, method: string, path: string, body?: 
 }
 
 /**
- * Sets the default of an expense type by Accounting's natural keys: the account NUMBER and the VAT CODE. `null` and `null`
- * clears the default of the type (an approval of a WellD CH line of that type is then refused, AC-3.4). Both entries must
- * be active in Accounting, else refund-api answers 422.
+ * A call to refund-api as `token` (or with none) that never throws on a status: a journey that proves a REFUSAL (404 for a removed
+ * route, 422 for a refused body) asserts the status and the problem `code` itself. A body that is not JSON comes back as `{ raw }`.
  */
-export async function setExpenseTypeDefault(
-  token: string,
-  type: string,
-  accountNumber: string | null,
-  vatCode: string | null,
-): Promise<void> {
-  await refundApi(token, 'PUT', `/accounting/expense-type-defaults/${type}`, { accountNumber, vatCode })
-}
-
-/** Designates the VAT code (by code) that every foreign-currency line gets; `null` clears the designation. */
-export async function setForeignCurrencyVatCode(token: string, vatCode: string | null): Promise<void> {
-  await refundApi(token, 'PUT', '/accounting/foreign-currency-vat-code', { vatCode })
-}
-
-interface DefaultsSnapshotResponse {
-  foreignCurrencyVatCode: { code: string } | null
-  types: { type: string; account: { number: string } | null; vatCode: { code: string } | null }[]
+export async function refundCall<T = Record<string, unknown>>(
+  token: string | null,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<Call<T>> {
+  const res = await fetch(`${REFUND_API_URL}${path}`, {
+    method,
+    headers: {
+      ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const text = await res.text()
+  let parsed: unknown = {}
+  try {
+    parsed = text ? JSON.parse(text) : {}
+  } catch {
+    parsed = { raw: text }
+  }
+  return { status: res.status, body: parsed as T }
 }
 
 /**
- * Remembers the default classification of `types` and the foreign-currency VAT code as they are now, and returns a function
- * that puts them back. A journey changes defaults on a database that other journeys, and a person, share; the history rows
- * it appended stay (they are append-only), but what is in effect afterwards is what was before.
+ * Sets the default ACCOUNT of an expense type by Accounting's natural key, the account NUMBER. `null` clears the default of the type
+ * (an approval of a WellD CH line of that type is then refused until accounting chooses an account on the line, AC-3.4). The
+ * account must be active in Accounting, else refund-api answers 422. The body carries `accountNumber` and nothing else: a body
+ * with `vatCode` is a 422 (a default has no VAT half any more).
+ */
+export async function setExpenseTypeDefault(token: string, type: string, accountNumber: string | null): Promise<void> {
+  await refundApi(token, 'PUT', `/accounting/expense-type-defaults/${type}`, { accountNumber })
+}
+
+/** One row of `GET /accounting/expense-type-defaults`: always the fourteen types, in enum order, each with its account or none. */
+export interface TypeDefaultRow {
+  type: string
+  account: { number: string; name: string; state: string } | null
+  updatedAt: string | null
+  updatedByEmail: string | null
+  /** Oldest first: each entry is an account as it was copied (or none), who set it and when. */
+  history: { account: { number: string; name: string } | null; at: string; byEmail: string }[]
+}
+
+export interface DefaultsResponse {
+  entity: string
+  accounting: 'available' | 'unavailable'
+  types: TypeDefaultRow[]
+}
+
+export function getExpenseTypeDefaults(token: string): Promise<DefaultsResponse> {
+  return refundApi<DefaultsResponse>(token, 'GET', '/accounting/expense-type-defaults')
+}
+
+/**
+ * Remembers the default account of `types` as it is now, and returns a function that puts them back. A journey changes defaults on a
+ * database that other journeys, and a person, share; the history rows it appended stay (they are append-only), but what is in
+ * effect afterwards is what was before.
  *
- * `restore` never throws: an entry that was deactivated meanwhile answers 422 and is left as it is, with a line on stderr
+ * `restore` never throws: an account that was deactivated meanwhile answers 422 and is left as it is, with a line on stderr
  * that names the type and nothing else.
  */
 export async function snapshotAccountingDefaults(token: string, types: readonly string[]): Promise<() => Promise<void>> {
-  const before = await refundApi<DefaultsSnapshotResponse>(token, 'GET', '/accounting/expense-type-defaults')
+  const before = await getExpenseTypeDefaults(token)
   return async () => {
     for (const type of types) {
       const row = before.types.find((candidate) => candidate.type === type)
       try {
-        await setExpenseTypeDefault(token, type, row?.account?.number ?? null, row?.vatCode?.code ?? null)
+        await setExpenseTypeDefault(token, type, row?.account?.number ?? null)
       } catch (error) {
         console.error(`[refundFixtures] default of ${type} not restored: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
-    try {
-      await setForeignCurrencyVatCode(token, before.foreignCurrencyVatCode?.code ?? null)
-    } catch (error) {
-      console.error(`[refundFixtures] foreign-currency VAT code not restored: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-}
-
-/** The header of the accounting CSV (AC-6.2): the 16 columns, in this order. */
-export const ACCOUNTING_CSV_HEADER = [
-  'Employee',
-  'Receipt number',
-  'Expense date',
-  'Expense type',
-  'Reason',
-  'Km',
-  'Currency',
-  'Approved total',
-  'Exchange rate',
-  'CHF amount',
-  'Account number',
-  'Account name',
-  'VAT code',
-  'VAT rate (%)',
-  'VAT amount (CHF)',
-  'Batch',
-] as const
-
-/**
- * Reads the accounting CSV as the spreadsheet would: `;` separated, `"` quoting with `""` for a quote, CRLF line ends, a
- * leading byte-order mark ignored. `header` is what the file says, so a test can compare it with the contract and a
- * renamed or moved column fails there, not as a missing key. A row is keyed by the header the FILE carries.
- */
-export function parseAccountingCsv(text: string): { header: string[]; rows: Record<string, string>[] } {
-  const source = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
-  const records: string[][] = []
-  let record: string[] = []
-  let field = ''
-  let quoted = false
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i]!
-    if (quoted) {
-      if (ch === '"') {
-        if (source[i + 1] === '"') {
-          field += '"'
-          i++
-        } else {
-          quoted = false
-        }
-      } else {
-        field += ch
-      }
-    } else if (ch === '"') {
-      quoted = true
-    } else if (ch === ';') {
-      record.push(field)
-      field = ''
-    } else if (ch === '\r' && source[i + 1] === '\n') {
-      record.push(field)
-      records.push(record)
-      record = []
-      field = ''
-      i++
-    } else {
-      field += ch
-    }
-  }
-  if (field !== '' || record.length > 0) {
-    record.push(field)
-    records.push(record)
-  }
-  const [header = [], ...body] = records
-  return {
-    header,
-    rows: body.map((cells) => Object.fromEntries(header.map((name, index) => [name, cells[index] ?? '']))),
   }
 }

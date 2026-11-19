@@ -135,6 +135,12 @@ test.describe('specs/20260716-refund-service T21: headline journeys', () => {
     // this date — a dependency this 007 journey was never meant to carry.
     // The travel_km line UX itself is covered by refund-ui's own component
     // tests and by `mileage-rate.spec.ts`'s (T15) dedicated e2e journey.
+    //
+    // Accounting sign-off (specs/20261119-accounting T73; 20261118 AC-3.11, AC-7.6 as adjusted): this WellD CH line is what the
+    // welld_it-scoped approver below cannot see, and it does not need to be classified by hand for the approval to go through.
+    // A line needs an ACCOUNT, and `travel_train` has the default account the release seeded (global-setup.ts runs
+    // `accounting:release`; the defaults file holds 14 accounts and no VAT code). A VAT code is optional, so the line is
+    // approved with none, exactly as it was submitted.
     await addExpenseLine(empPage, {
       date: '2026-07-02',
       type: 'travel_train',

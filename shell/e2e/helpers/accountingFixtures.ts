@@ -49,6 +49,30 @@ export interface VatCode {
   active: boolean
 }
 
+// ─── What WellD CH's signed-off seed holds (specs/20261119-accounting, SO-20, AC-7.6; T73) ─────────────────────────────
+
+/**
+ * The six VAT codes of the seed `accounting-api/scripts/data/seed.welld-ch.json` (loaded by `seed:welld-ch` in global-setup.ts),
+ * by code and rate in basis points (the rate is Accounting's, the label is the operator's until accounting confirms it, so a
+ * journey does not assert it). The codes of the first draft (IMP81, IMP77, NOVAT) are retired and not in the seed; a database seeded
+ * before the sign-off may still hold them (an entry is immutable once entered, AC-1.12), so a journey never uses them and never
+ * assumes they are absent.
+ */
+export const SEEDED_VAT_CODES: readonly { code: string; rateBasisPoints: number }[] = [
+  { code: 'IPM81', rateBasisPoints: 810 },
+  { code: 'IPM77', rateBasisPoints: 770 },
+  { code: 'IP00', rateBasisPoints: 0 },
+  { code: 'BZM81', rateBasisPoints: 810 },
+  { code: 'IPM26', rateBasisPoints: 260 },
+  { code: 'IPM38', rateBasisPoints: 380 },
+]
+
+/** The 19 ledger accounts of the seed (AC-7.6), by number: the 15 of the draft and 5902, 5903, 6501 and 2620.1. */
+export const SEEDED_ACCOUNT_NUMBERS: readonly string[] = [
+  '2620.1', '5808', '5901', '5902', '5903', '5904', '5905', '5906', '5907', '5909',
+  '5999', '6101', '6102', '6104', '6405', '6501', '6701', '6720', '7122',
+]
+
 /** One cell of the rates table: `missing`, or a `fetched` / `corrected` rate with its display form. */
 export type RateCell = { status: 'missing' } | { status: 'fetched' | 'corrected'; rateMicros: number; rate: string }
 
@@ -79,6 +103,16 @@ export function uniqueAccountNumber(): string {
   const whole = 10_000 + Math.floor(Math.random() * 89_999)
   const decimals = 100 + Math.floor(Math.random() * 899)
   return `${whole}.${decimals}`
+}
+
+/**
+ * A fresh account number that is its own canonical decimal (no trailing zero in the fraction), so the export writes it as a NUMBER in
+ * the Debit column (AC-6.17): `53142.417` yes, `53142.450` no (that one is written as text, unchanged).
+ */
+export function uniqueCanonicalAccountNumber(): string {
+  let number = uniqueAccountNumber()
+  while (number.endsWith('0')) number = uniqueAccountNumber()
+  return number
 }
 
 /** A VAT code no earlier run used (`^[A-Z0-9_-]{1,16}$`; a code stays taken after it is deactivated, so it is random). */

@@ -28,11 +28,19 @@
  *      journey) would fail for the wrong reason. Skipped only when both steps below are skipped.
  *   2. SEED: `direnv exec . bun run seed:welld-ch` in `accounting-api/` loads WellD CH's signed-off list of accounts and VAT codes.
  *      Idempotent (a second run adds nothing, and never touches an entry that exists). `E2E_SKIP_ACCOUNTING_SEED=1` skips it.
- *   3. RELEASE: `direnv exec . bun run accounting:release` in `refund-api/`. It READS Accounting first (the seed above, through
- *      refund-api's own `ACCOUNTING_INTERNAL_URL`, which must name the same accounting-api as step 1), seeds Refund's type
- *      defaults from `scripts/data/accounting-defaults.welld-ch.json` (its `--defaults` flag defaults to that file; the old
- *      `--seed` is gone), numbers and classifies what exists, and writes the release marker. Idempotent.
- *      `E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1` skips it, for a run of specs that never approve a refund request.
+ *   3. RELEASE: `direnv exec . bun run accounting:release --offsets <file>` in `refund-api/`. It READS Accounting first (the seed
+ *      above, through refund-api's own `ACCOUNTING_INTERNAL_URL`, which must name the same accounting-api as step 1), seeds
+ *      Refund's fourteen type defaults (accounts only) from `scripts/data/accounting-defaults.welld-ch.json` (its `--defaults`
+ *      flag defaults to that file; the old `--seed` is gone), numbers and classifies what exists, and writes the release
+ *      marker. Idempotent. `E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1` skips it, for a run of specs that never approve a refund request.
+ *
+ *      `--offsets` IS REQUIRED since the 2026-11-19 sign-off (20261118 SO-13, AC-7.4): the list of the last receipt numbers
+ *      issued by hand in the 2026 register, and without it the release writes nothing and exits 3. The e2e has no hand-issued
+ *      numbers: every receipt number a journey sees starts at 001. So the setup passes a file that holds ONLY THE HEADER LINE
+ *      (`email,year,lastIssuedSeq`), which the release reads as the explicit statement "no employee has a hand-issued 2026
+ *      number". The file is written to a directory of its own under the OS temp directory (mode 0700, never inside the
+ *      repository, where the release script would warn that a file naming employees may be committed) and removed when the
+ *      step ends, whatever its outcome. It names nobody.
  *
  * WHICH DATABASE THE SCRIPTS WRITE TO. Both run under `direnv exec`, the way `mise run dev` starts those services, so each reaches
  * the database its own `.envrc` names: that is the shared dev Postgres, whatever a `DATABASE_URL` already in your shell says
@@ -48,6 +56,8 @@
  * and the legal-entity import) keep following their own `.envrc`.
  */
 import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ACCOUNTING_API_URL } from './helpers/accountingFixtures'
@@ -87,17 +97,32 @@ function databaseOverride(variable: string): string | undefined {
  * exported by a one-line wrapper that runs AFTER direnv has loaded `.envrc` (which would otherwise win), and it travels in the
  * child's environment, so it appears in neither the process list nor an error message.
  */
-function runUnderDirenv(dir: string, script: string, override: string | undefined): string {
+function runUnderDirenv(dir: string, script: string, override: string | undefined, scriptArgs: readonly string[] = []): string {
   const wrapper = `if [ -n "$${PASSED_DATABASE_VARIABLE}" ]; then export DATABASE_URL="$${PASSED_DATABASE_VARIABLE}"; fi; exec "$@"`
   const env = { ...process.env }
   delete env[PASSED_DATABASE_VARIABLE]
   if (override) env[PASSED_DATABASE_VARIABLE] = override
-  return execFileSync('direnv', ['exec', '.', 'sh', '-c', wrapper, 'sh', 'bun', 'run', script], {
+  return execFileSync('direnv', ['exec', '.', 'sh', '-c', wrapper, 'sh', 'bun', 'run', script, ...scriptArgs], {
     cwd: dir,
     encoding: 'utf-8',
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+}
+
+/** The header line of the offsets file the release reads (`email,year,lastIssuedSeq`): on its own it says "no hand-issued number". */
+export const BASELINE_HEADER = 'email,year,lastIssuedSeq'
+
+/**
+ * Writes the e2e's baseline list, a file with the header line and no row, to a new directory under the OS temp directory, and
+ * returns its path and a function that removes the directory. `mkdtemp` creates it with mode 0700 and a name nobody can guess; the
+ * file is mode 0600. Only what this function created is removed.
+ */
+function writeHeaderOnlyBaseline(): { file: string; remove: () => void } {
+  const dir = mkdtempSync(path.join(tmpdir(), 'operai-e2e-baseline-'))
+  const file = path.join(dir, 'receipt-baseline.csv')
+  writeFileSync(file, `${BASELINE_HEADER}\n`, { encoding: 'utf-8', mode: 0o600 })
+  return { file, remove: () => rmSync(dir, { recursive: true, force: true }) }
 }
 
 /** The last line of a script's report (counts, never an employee), or `''`. */
@@ -167,18 +192,23 @@ function releaseRefundAccounting(): void {
     return
   }
   const override = databaseOverride(REFUND_DATABASE_OVERRIDE)
+  const baseline = writeHeaderOnlyBaseline()
   try {
-    const output = runUnderDirenv(REFUND_API_DIR, 'accounting:release', override)
+    const output = runUnderDirenv(REFUND_API_DIR, 'accounting:release', override, ['--offsets', baseline.file])
     // the script's report names counts, never an employee: print its last line only
     const last = lastLine(output)
     console.log(`[global-setup] refund accounting released${override ? ` (database from ${REFUND_DATABASE_OVERRIDE})` : ''}${last ? ` (${last})` : ''}`)
   } catch (error) {
     throw new Error(
       `[global-setup] refund accounting could not be released: ${describeFailure(error)}\n` +
-        'Run `cd refund-api && direnv exec . bun run accounting:release --dry-run` against the database refund-api uses (its migrations applied: ' +
-        '`bun run db:deploy`; ACCOUNTING_INTERNAL_URL naming the accounting-api that is running; exit 2 means Accounting could not be read), ' +
+        'Run `cd refund-api && direnv exec . bun run accounting:release --dry-run --offsets <file>` (a file holding only the header line ' +
+        `"${BASELINE_HEADER}") against the database refund-api uses (its migrations applied: ` +
+        '`bun run db:deploy`; ACCOUNTING_INTERNAL_URL naming the accounting-api that is running; exit 2 means Accounting could not be read, ' +
+        'exit 3 that the baseline list was not given or not read), ' +
         'or set E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 for specs that never approve a refund request.',
     )
+  } finally {
+    baseline.remove()
   }
 }
 
