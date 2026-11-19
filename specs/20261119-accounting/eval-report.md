@@ -1,9 +1,12 @@
 ---
 spec: 20261119
 evaluated: 2026-11-19
+round: 2
+task: T79
 rubric: default-v2
-score: 75.7
+score: 71.3
 verdict: FAIL
+round1_score: 75.7
 ---
 # Eval report: Accounting — one module for ledger accounts, VAT codes and monthly exchange rates
 
@@ -154,3 +157,156 @@ ACs have green, executed evidence, and no defect is open against an AC. What is 
   3. The architect fixes plan.md:1366 and the reference-data ADR.
   4. Design syncs design.md and fixes the axe.ts comment.
   5. Re-run `/wellforge:eval 20261119-accounting`.
+
+---
+
+# Round 2 (T79, 2026-11-19, HEAD `c4b320f5`)
+
+The front matter now carries the round-2 result. Round 1 above is kept unchanged except for that front matter;
+it scored **75.7**, FAIL, at `c1e670e3`. Round 2 scores **the accounting module and the accounting sign-off round as
+one deliverable** on `feat/accounting-module`:
+
+- 39 commits in `0b000570..HEAD`, 144 files, +10,593/−4,773;
+- the accounting module: the 70 ACs of this spec, i.e. the 68 of round 1 plus AC-2.12 and AC-7.6;
+- the sign-off ACs of `specs/20261118-refund-accounting-export`: AC-3.11 to 3.13, 4.11 to 4.13, 6.13 to 6.17, 7.4
+  and 8.1 to 8.5, plus the adjusted ACs, with the retired ones checked as retired.
+
+**Rubric:** default-v2, as in round 1. There is still no `gates/configs/eval-rubric.yml` and no `eval.md`. The weights
+and floors are unchanged, `pass_score` is 80, and the total is normalised over 115.
+
+## Verification evidence (round 2)
+
+I re-ran every suite below myself at HEAD, read-only, against the isolated Postgres on **127.0.0.1:5446 only**. The
+session's env helpers already pointed at `localhost:5446`, and a guard script forced 127.0.0.1:5446 and failed closed
+otherwise. I used no other port, no service, no network and no secret. I did not touch or stage `.envrc`, which was
+already modified in the tree.
+
+| Suite | My result | Matches QE |
+|---|---|---|
+| accounting-api `bun test` | 658 pass / 1 skip (the opt-in live AFC test) / 0 fail / 30 files | yes (qe-report.md:351) |
+| accounting-api `tsc --noEmit` | clean | yes |
+| refund-api `bun test` | 1924 pass / 0 fail / 77 files | yes (qe-report.md:471) |
+| refund-api `bun test --randomize --seed 424242` | 1924 pass / 0 fail (D-9 closed) | yes (qe-report.md:473) |
+| refund-api `tsc --noEmit` | clean | yes |
+| accounting-ui `vitest run` | 564 pass | yes |
+| accounting-ui `tsc -b` and `eslint .` | both clean | yes |
+| refund-ui `vitest run` | 1331 pass | yes (qe-report.md:358) |
+| refund-ui `tsc -b` and `eslint .` | both clean | yes |
+
+**auth:** `git diff 0b000570 HEAD -- auth shell/src operai-ui` is empty, so round 1's auth run still holds (1497 pass,
+36 skip, 0 fail). QE's sign-off pass recorded an untracked dotenv file in `auth/` that changes that suite's result
+(qe-report.md:388). That is an environment fault, not a defect.
+
+**Other evidence:**
+
+- **QE:** the round's first pass was FAIL with D-9, the same test-order defect class as D-5. Fix round T82 followed,
+  and the re-test is PASS (qe-report.md:341-486).
+  - The round's mutation sample is 14/14 killed.
+  - The N-01 fix carries 5 mutants, all killed.
+  - The workbook was compared cell by cell against the accountant's template (structure only). Its only difference,
+    D-13, is left to T80.
+- **AFC live test:** run once by QE. EUR 0.9246 for 2026-03 from the real endpoint (AC-2.12).
+- **Release rehearsal** (`release-rehearsal.md`): the real accounting-api over HTTP with a stand-in auth, on scratch
+  databases. It covers exit 3 without the baseline list, exit 2 when Accounting is unreadable, the baseline giving
+  N + 1, the dry run, and an idempotent rerun.
+- **OWASP sign-off re-review:** PASS, with 0 high or medium findings, 1 low (N-01) and 4 info (security-review.md:114-160).
+  **It was static only, and predates the N-01 fix (`e72ac580`).** The fix is covered by QE's tests and mutants, not
+  by the security reviewer.
+- **Not run by anyone (owner):**
+  - T81: the live e2e (239 tests listed, none executed) and the browser a11y pass;
+  - the workbook opened in Excel or Numbers;
+  - T80: the trial import into Accrio.
+
+## What changed against round 1
+
+| Round-1 finding | Status at HEAD | Evidence |
+|---|---|---|
+| Spec (a): catalog cap not put to the owner | **Closed** | SA-4 is confirmed by the owner (spec.md, amendment "fix round 1, confirmed by the owner", `b20d5e88`). G16 in design.md records it. |
+| Spec (b): stale plan heading | **Closed** | plan.md:1391 now reads "applied in eeb63165 as SA-1 to SA-3, owner to confirm". |
+| Spec (c): reference-data ADR stale | **Closed** | `2b7d5453` names the cap test (ADR :104), and `fc31c3d9` adds the sign-off amendment (:126-132). |
+| Spec (d): SA-1..3 unconfirmed | **Closed** | They are confirmed by the owner (spec.md:14-17). |
+| Design (b): no implementation sync | **Closed for the module, reopened by the round** | `ef805983` (17:11) syncs design.md against `0b000570`, including the `catalog_full` and invisible-character states (§ 3). But the sign-off round started at 20:30 (`1aaa81c0`), and **no design file was touched after it** (see the Design row). |
+| Design (c): false contrast claim in `axe.ts` | **Closed** | `ef805983`. |
+| Design (a): never seen in a browser | **Open** | design.md § 8 states it plainly; this is owner step T81 (formerly T51). |
+| AC / tests: live e2e | **Open** | Owner step (T81). |
+| Trajectory: trace and process | **Worse for the round** | See the Trajectory row. |
+
+## Round-2 score table
+
+| Dimension | Weight | Score (/5) | Floor | vs floor | Weighted | Evidence |
+|---|---|---|---|---|---|---|
+| AC satisfaction | 35 | 4 | 4 | pass (at floor) | 28.0 | **Every live AC of both specs has named, executed, green evidence**, and I reproduced the suites they run in. <br>• The 70 ACs here: qe-report.md:168-239, plus AC-2.12 and AC-7.6 at :426-427. <br>• The 20261118 sign-off ACs: qe-report.md:404-429. <br>• The retired ACs are retired in code, API, UI, seed and docs (qe-report.md:392-398; `removed-routes.test.ts`). <br>I traced the round's AC-critical code myself: <br>• AC-4.11 to 4.13: `baselineSeq` reads the latest row per email over every email of the same `ownerUserId`, takes the maximum, applies to 2026 only, and never moves an existing counter (`numbering.repo.ts:150-166, 262-273`). <br>• AC-6.2 and AC-6.13 to 6.17: `exportFormat.ts` holds the 8 fixed headers, Credit `5832`, CHF, and the `describeLine` pattern with one `sanitizeText` pass (:30-39, :161-164). <br>• AC-2.1 and AC-2.12: the AFC's own "XML-File" is the endpoint already read (plan.md SO-21, `afc.live.test.ts`). <br>**Why not 5:** <br>• The assembled system has still never run. That is T81: the live e2e, the browser pass, and AC-8.4's contrast and real tab order. <br>• **The point of the new export, a file the accounting system imports (20261118 AC-6.2), has not been shown with the real consumer.** No Accrio trial import (T80) has been done, and nobody has opened the workbook in Excel or Numbers. D-13 notes that the template is an Excel *table* and the output is not. <br>• The Description pattern of AC-6.13 is still provisional by the spec's own words. |
+| Spec fidelity / no drift | 20 | 4 | 3 | pass | 16.0 | All four round-1 items are closed (table above). The round's amendments are disciplined: <br>• no AC id is reused; <br>• adjusted and retired clauses are marked inline (spec.md:26-78, 20261118 spec amendments E1-E7, F1-F8); <br>• both plans carry a sign-off delta whose AC→test mapping is total over 70 ACs (plan.md:1531-1550); <br>• the AFC channel was **verified, not assumed** (SO-21: the ESTV page links the BAZG endpoint, and the live value matched); <br>• SO-24 scopes what does not change. <br>**Not 5:** <br>(a) **F7 and F8 were added at 23:25 (`8af9e0e7`), after the owner's approval at 20:38 (`1169256f`)**, under an entry that says it "adds no new decision of the owner". F8 changes AC-4.11's behaviour (the baseline follows every address; security N-01). F7 rewrites AC-6.15 to match the code after QE flagged the difference (D-12). Neither is tagged "owner to confirm". This repeats the pattern the 20261118 eval flagged. <br>(b) `refund_line.vatCodeIsDefault` stays as a column written `false`/`null` and read by nothing (QE D-15). That contradicts SO-18's own "one source of truth, no dead columns that look current" reasoning. |
+| Test quality | 20 | 4 | 3 | pass | 16.0 | Strong behavioural evidence for the round: <br>• the golden XLSX is compared byte for byte, and its cell list is checked; <br>• `xlsx.test.ts` covers the writer's guards (no formula element, XML-illegal code points refused); <br>• the baseline tests cover case, spaces, multiple emails, another user's email and 2027; <br>• the migration test carries a 20261119130000 database with realistic data; <br>• the release CLI exit codes are tested; <br>• the mutation sample is 14/14, plus 5/5 on the N-01 fix. <br>**Against:** <br>(1) **The dev suite shipped the D-5 defect class a second time** (D-9, a shared scratch DB in `migration.accounting-signoff.test.ts`), one fix round after D-5 was closed. QE caught it, not the dev task. <br>(2) The e2e journeys have been rewritten for the round (`fe98b1ca`) and **never executed**, including the e2e XLSX reader and the global setup's baseline file. <br>(3) No real spreadsheet application or the real importer has read the file. <br>(4) Accessibility is checked in jsdom only. <br>(5) The security reviews ran no tests. |
+| Code quality & conventions | 15 | 4 | 3 | pass | 12.0 | The round's code is clean and careful: <br>• a hand-written deterministic OOXML+STORE writer (fixed part names, fixed date, no metadata, a CRC per entry, u32 guards, `quotePrefix` enforced so text never becomes a formula), with the hash it logs being a real fingerprint; <br>• a canonical-number test so that `2620.10` stays text (AC-6.17); <br>• additive migrations only, with no edit of an applied migration; <br>• a strict release-file schema refusing the old shape, distinct exit codes 0/1/2/3, and masked output; <br>• `baselineSeq` scoped by user id. <br>**Against:** <br>• the vestigial `vatCodeIsDefault` column; <br>• N-02 to N-05 (info) and the carried F-04, F-05 and F-06 (low) are open. F-05 now also feeds the workbook's Amount (security-review.md:148). <br>• the seed still bypasses the cap and the lock (IM-6 info); <br>• the Description is sanitised as a whole string rather than per field (fine today; a reason containing `[` reads ambiguously, which is left to T80). |
+| Design fidelity (UI) | 15 | **2** | 3 | **FAIL (below floor)** | 6.0 | **For:** <br>• `ef805983` synced design.md with the built Accounting UI: the fix-round states, an honest "not observed" § 8 and a ready checklist for the browser pass. <br>• Every touched refund-ui component has jsdom axe coverage (`ExpenseLineComposer`, `AccountingExportCard`, `LineClassificationPanel`, `ExpenseTypeDefaultsCard`, `DefaultClassificationDialog` tests). <br>**Against (why below the floor):** <br>(a) **The sign-off round rebuilt six Refund screen areas without any design.** These are: the Settings defaults (account only, 14 types), the dialog without VAT, the review panel's optional VAT with "None", the Excel export card and its states, the 14 type labels, and **a new employee-facing split-receipt hint in the expense composer** (`refund-ui/src/strings.ts:280`, `ExpenseLineComposer`). The hint has no entry, copy key row, placement or a11y note in either design file. `specs/20261118-refund-accounting-export/design.md` is untouched since `025dda21`, and this design.md since `ef805983` (17:11), before the round (20:30). <br>(b) **The design now describes retired UI as current.** design.md:261 has "the card of 20261118 S4 (foreign-currency VAT code as one fact with Change and History, then the twelve-row table)", :268 has "Twelve rows", :102 has FR3 "Change a default or the designation", and :271 has the designation warning. The plan was corrected in place for the round ("text above that this delta contradicts has been corrected in place", plan.md:1481-1482), but the design was not. The design→implementation chain is broken for the round: the UI was built from the spec and plan alone. <br>(c) Still no browser observation of any screen in this branch, and design.md is still `status: draft` (deliberate, § Implementation sync). <br>In round 1 this was 3 with "no design is contradicted". It is now contradicted, and new user-facing UI is undesigned. |
+| Trajectory | 10 | **2** | 2 | pass (at floor) | 4.0 | **The sign-off round has no run trace at all.** The only trace was closed at `finished: 2026-11-19T18:01:18Z` with `result: "escalated"` (`c47a2180`). Every round commit (`1aaa81c0` 20:30 onwards: T58-T82, QE, OWASP, ADRs, rehearsal) falls after it, and no `.forge/runs/*` file was added. For the round this is the neutral floor. For the module, round 1's reconstructed trace stands. Git shows a sound order: spec amendment → owner approval → plan delta → tasks → tracks → QE FAIL → fix round → QE PASS, with the rehearsal before release. The owner steps are honest (T80, T81). **Deductions, from git and tasks.md:** <br>(1) **`touch:` deviations are undeclared this time.** For example, `fc13501a` (T60) edits T62's `export.repo.ts`, `export.ts`, `export.schemas.ts` and `export.test.ts`. `06837b05` (T62) and `9a81fbec` (T63) edit T60's `natural-keys`, `no-cache` and `accounting-unavailable.matrix` tests. `f7247624`, `ae08a515` and `e6c69167` (T69-T71) edit `strings.ts`/`accountingApi.ts` outside their lists. Round 1 at least reconciled such edits in "Implementation notes"; the round has no such list, although its preamble repeats "a missing path is added here before it is changed" (tasks.md:1062). <br>(2) **T77 is ticked although its done-when says "both reports have verdict PASS for the round"**: `specs/20261118-refund-accounting-export/qe-report.md` has no round section (last commit `566763e1`). The same holds for T78's 20261118 `touch:`. <br>(3) The D-5 defect class was repeated (D-9). <br>(4) Round 1's deductions stand for the module part. |
+| **Total** | 115 | | | | **82.0 / 115 = 71.3/100** | |
+
+**Round-2 verdict: FAIL.** There are two reasons:
+
+1. **Design fidelity is 2, below its floor of 3.** A sub-floor dimension fails the eval regardless of the total.
+2. The total of 71.3 is below `pass_score` 80.
+
+AC satisfaction sits at its floor and trajectory at its floor. **No AC is unmet, and no defect is open against an AC.**
+The drop from 75.7 is in design (3 → 2) and trajectory (3 → 2). Both fell because the sign-off round was run without
+updating the design or writing a run record. Spec fidelity holds at 4: round 1's gaps are closed and a new attribution
+gap (F7/F8) opened.
+
+## Round-2 findings and owners
+
+- **Design fidelity (2, below floor). Owner: design. This is the blocking item, and needs no owner step.**
+  - Add a "Sign-off round sync" to `specs/20261119-accounting/design.md` (and RS/S-deltas in 20261118's design.md, or
+    one pointer). It should cover:
+    - RS2 and RS3: account only, 14 rows, no designation fact. Mark FR3, :261, :268 and :271 as retired.
+    - The review panel's VAT select with "None": set, change, clear, and no VAT amount without a code.
+    - The export card as "Download Excel file", with its blockers on accounts only.
+    - The split-receipt hint: where it appears (WellD CH lines only), its copy keys en/it, and how it is announced.
+    - The type labels.
+  - That restores 3. A recorded browser pass (T81) on those states lifts it to 4.
+- **AC satisfaction (4, at floor). Owner: owner steps T81 and T80, then QE.**
+  - T81: `cd shell && pnpm e2e accounting refund-` green with every `refund-*.spec.ts`, the browser a11y pass, and the
+    workbook opened in Excel or Numbers.
+  - T80: Accrio imports the golden XLSX without manual fixes, and the Description pattern is confirmed.
+
+  A failing journey or import makes an AC unmet, which is below the floor.
+- **Spec fidelity (4). Owner: product owner, then the owner.**
+  - Tag F7 and F8 "owner to confirm", or record the owner's confirmation, and correct "adds no new decision of the
+    owner".
+  - Either drop `vatCodeIsDefault` in a later additive migration or record it as a known vestige in the plan's
+    sign-off delta.
+- **Test quality (4). Owner: dev/QE.**
+  - The live e2e and the real importer, as above.
+  - Make "one scratch DB per writing test" a checklist item of any migration-test task, so D-5/D-9 does not return.
+- **Code quality (4). Owner: dev, as release decisions at T52.** N-05 (mask the echoed argument), and the carried
+  F-04, F-05 and F-06.
+- **Trajectory (2, at floor). Owner: orchestrator.**
+  - This run cannot be recovered.
+  - Untick T77, or add the round's pointer section to `specs/20261118-refund-accounting-export/qe-report.md`.
+  - Record the round's `touch:` deviations in tasks.md, as round 1 did.
+  - Write a trace for every future run as it happens.
+
+## Path to PASS (arithmetic)
+
+- Today: 82/115 = **71.3**, and design fidelity is below its floor.
+- **Design sync for the round alone** (design 2 → 3, +3.0): 85/115 = 73.9. The floor is cleared, but the total is
+  not.
+- Design sync + **T81 and T80 green**:
+  - AC satisfaction 4 → 5 (+7.0) gives 92/115 = **80.0**. That is exactly `pass_score`: PASS with no margin.
+  - If T81's browser pass is also recorded in the synced design.md, design goes to 4 (+3.0): 95/115 = **82.6, PASS**.
+    **This is the robust route.**
+- Spec fidelity 4 → 5 (F7/F8 confirmed, the vestige resolved) adds +4.0 to any of the above.
+- Trajectory stays 2 for this run.
+- **No route reaches PASS without the design sync, because the floor applies.** No route reaches PASS without the owner
+  steps T80 and T81, because of the total.
+
+## Recommended next step (round 2)
+
+- **FAIL.** Leave T79 and T48 unchecked. T49 cannot close, and the spec does not move to `done`.
+- In this order:
+  1. The designer writes the sign-off round sync (no code change; it clears the floor).
+  2. The owner runs T81 (live e2e, browser pass, the workbook in Excel or Numbers) and T80 (the Accrio trial import
+     and its answers).
+  3. The product owner confirms or tags F7/F8, and the orchestrator handles T77's done-when and the `touch:` record.
+  4. Re-run `/wellforge:eval 20261119-accounting`.
+- No product-code rework is required for the eval.
