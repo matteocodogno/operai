@@ -28,7 +28,17 @@ const renderAt = (path: string) => {
 
 beforeEach(() => {
   window.scrollTo = () => undefined
-  apiFetch.mockImplementation(fakeApi({ 'GET /v1/me': () => meAnswer(meEntity(), meItalia()) }))
+  apiFetch.mockImplementation(
+    fakeApi({
+      'GET /v1/me': () => meAnswer(meEntity(), meItalia()),
+      ...Object.fromEntries(
+        ['welld_ch', 'welld_it'].map((entity) => [
+          `GET /v1/entities/${entity}/ledger-accounts`,
+          () => ({ status: 200, body: { entity, items: [] } }),
+        ]),
+      ),
+    }),
+  )
 })
 
 afterEach(() => {
@@ -65,7 +75,8 @@ describe('createAppRouter', () => {
     expect(await screen.findByTestId('accounting-ledger-page')).not.toBeNull()
     expect(window.location.pathname).toBe('/accounting/ledger-accounts')
     expect(window.location.search).toBe('?entity=welld_it')
-    expect(screen.getByTestId('accounting-ledger-entity').textContent).toBe('WellD Italia')
+    // The card names the entity the address asked for (UX-3).
+    expect(await screen.findByRole('heading', { level: 3, name: 'Ledger accounts — WellD Italia' })).not.toBeNull()
   })
 
   it('serves each view as a route under the one h1, with its own h2 and the entity shown', async () => {

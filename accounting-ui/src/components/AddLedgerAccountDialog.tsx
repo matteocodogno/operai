@@ -1,36 +1,61 @@
 /**
- * AddLedgerAccountDialog — add one account to the WellD CH chart of accounts (specs/20261118-refund-accounting-export,
- * design S6a, F1; AC-1.1, AC-1.2). Mounted BESIDE the card, never inside a `<form>` (ADR 20261118
- * dialog-beside-form); it is a `FormDialog`, which holds its own form.
+ * AddLedgerAccountDialog — add one account to an entity's chart of accounts (moved from refund-ui; specs/20261119-accounting,
+ * design FA3, AS6a, UX-3, UX-6; AC-1.1, AC-1.2, AC-1.3, AC-8.4). Mounted BESIDE the card, never inside a `<form>` (ADR
+ * 20261118 dialog-beside-form); it is a `FormDialog`, which holds its own form.
  *
- * Owns its fields and the `POST`. The client checks mirror the server (`^[0-9]{3,6}(\.[0-9]{1,3})?$`, a name of
- * 1 to 120 characters) and the number is also compared with the loaded list on blur, so a duplicate is
- * named before a round trip; the server stays the authority (a 409 is shown the same way, and the
- * "deactivated: reactivate it" variant is chosen from the list, because the 409 does not say which).
- * A failed save keeps every typed value; a field error moves focus to its field. Success reports the
- * server's account to the card (`onAdded`), which closes the dialog and confirms.
+ * Owns its fields and the `POST`. The title names the entity ("Add ledger account — WellD CH"), so a manager who switched
+ * entity sees which books it goes to. The client checks are `lib/limits.ts` (the server's limits: digits separated by single
+ * dots up to 20 characters, a name of 1 to 120; blanks around a value are removed first, AC-1.2), one sentence per reason, and
+ * the number is also compared with THIS entity's loaded list on blur and on submit, so a duplicate is named before a round
+ * trip (the same number in another entity is allowed, AC-1.3). The server stays the authority: its 409 is shown the same way
+ * (`reactivate` says whether the existing one is deactivated, G9) and its 422 `fields[]` is mapped to the same sentences.
+ *
+ * No `ErrorSummary` (UX-6): focus goes to the first refused field, whose own `role="alert"` error carries the sentence, so it
+ * is announced once. A failed save keeps every typed value. Success reports the server's account to the card (`onAdded`),
+ * which closes the dialog and confirms.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { Field, FormDialog } from '@operai/ui'
-import { strings } from '../../strings'
-import { createLedgerAccount } from '../../lib/accountingApi'
-import type { LedgerAccount } from '../../lib/accountingApi'
-import { ApiError } from '../../lib/refundApi'
+import { ApiError } from '../lib/api'
+import { createLedgerAccount, duplicateIsDeactivated, refusedFields } from '../lib/catalogApi'
+import type { LedgerAccount } from '../lib/catalogApi'
+import { checkLedgerName, checkLedgerNumber } from '../lib/limits'
+import type { LimitReason } from '../lib/limits'
+import type { EntityId } from '../lib/meApi'
+import { strings } from '../strings'
 
-const NUMBER_PATTERN = /^[0-9]{3,6}(\.[0-9]{1,3})?$/
-const NAME_MAX = 120
+const t = strings.accounts
+
+const numberMessage = (reason: LimitReason): string =>
+  reason === 'empty' ? t.errors.numberEmpty : reason === 'too_long' ? t.errors.numberTooLong : t.errors.numberFormat
+
+const nameMessage = (reason: LimitReason): string =>
+  reason === 'too_long' ? t.errors.nameTooLong : t.errors.nameEmpty
 
 export type AddLedgerAccountDialogProps = {
-  /** The accounts the card has loaded, for the duplicate pre-check. */
+  entity: EntityId
+  /** The accounts the card has loaded (this entity's), for the duplicate pre-check. */
   accounts: readonly LedgerAccount[]
   onCancel: () => void
   onAdded: (account: LedgerAccount) => void
+  /** The server named a duplicate: the list the card holds may be stale, so it loads it again. */
+  onStale: () => void
+  /** A write answered 403: the frame re-reads `/v1/me` (UX-15). */
+  onForbidden: () => void
+  /** A write answered 404: the entity is not covered any more (UX-12). */
+  onGone: () => void
 }
 
-export default function AddLedgerAccountDialog({ accounts, onCancel, onAdded }: AddLedgerAccountDialogProps) {
-  const t = strings.settings.accounts
-  const tc = strings.settings.catalog
+export default function AddLedgerAccountDialog({
+  entity,
+  accounts,
+  onCancel,
+  onAdded,
+  onStale,
+  onForbidden,
+  onGone,
+}: AddLedgerAccountDialogProps) {
   const [number, setNumber] = useState('')
   const [name, setName] = useState('')
   const [numberError, setNumberError] = useState<string | null>(null)
@@ -47,21 +72,21 @@ export default function AddLedgerAccountDialog({ accounts, onCancel, onAdded }: 
     if (focusRequest) (focusRequest.field === 'number' ? numberRef : nameRef).current?.focus()
   }, [focusRequest])
 
-  const duplicateMessage = (value: string): string | null => {
-    const existing = accounts.find((account) => account.number === value)
-    if (!existing) return null
-    return existing.active ? t.errors.duplicate(value) : t.errors.duplicateInactive(value)
+  /** The duplicate sentence: the server's `reactivate` flag when it sent one, else what the loaded list says. */
+  const duplicateText = (value: string, deactivated: boolean | null): string => {
+    const inactive = deactivated ?? accounts.find((account) => account.number === value)?.active === false
+    return inactive ? t.errors.duplicateInactive(value) : t.errors.duplicate(value, strings.entity[entity])
   }
 
   const checkNumber = (raw: string): string | null => {
-    const value = raw.trim()
-    if (!NUMBER_PATTERN.test(value)) return t.errors.numberInvalid
-    return duplicateMessage(value)
+    const checked = checkLedgerNumber(raw)
+    if (!checked.ok) return numberMessage(checked.reason)
+    return accounts.some((account) => account.number === checked.value) ? duplicateText(checked.value, null) : null
   }
 
   const checkName = (raw: string): string | null => {
-    const value = raw.trim()
-    return value.length === 0 || value.length > NAME_MAX ? t.errors.nameRequired : null
+    const checked = checkLedgerName(raw)
+    return checked.ok ? null : nameMessage(checked.reason)
   }
 
   const handleSubmit = async () => {
@@ -78,19 +103,31 @@ export default function AddLedgerAccountDialog({ accounts, onCancel, onAdded }: 
     setBusy(true)
     let created: LedgerAccount
     try {
-      created = await createLedgerAccount({ number: number.trim(), name: name.trim() })
+      created = await createLedgerAccount(entity, { number: number.trim(), name: name.trim() })
     } catch (error) {
       setBusy(false)
       if (error instanceof ApiError && error.code === 'ledger_account_duplicate') {
-        setNumberError(duplicateMessage(number.trim()) ?? t.errors.duplicate(number.trim()))
+        const named = typeof error.extras.number === 'string' ? error.extras.number : number.trim()
+        setNumberError(duplicateText(named, duplicateIsDeactivated(error)))
         setFocusRequest({ field: 'number' })
+        onStale()
       } else if (error instanceof ApiError && error.code === 'invalid_ledger_account') {
-        setNumberError(t.errors.numberInvalid)
-        setFocusRequest({ field: 'number' })
+        // The client check passed but the server refused: the same sentences, from its `fields[]`.
+        const fields = refusedFields(error)
+        const refusedNumber = fields.find((field) => field.field === 'number')
+        const refusedName = fields.find((field) => field.field === 'name')
+        if (refusedNumber) setNumberError(numberMessage(refusedNumber.reason))
+        if (refusedName) setNameError(nameMessage(refusedName.reason))
+        if (refusedNumber || refusedName) setFocusRequest({ field: refusedNumber ? 'number' : 'name' })
+        else setGeneralError(strings.common.genericError)
       } else if (error instanceof ApiError && error.status === 403) {
-        setGeneralError(tc.forbidden)
+        setGeneralError(strings.common.forbidden)
+        onForbidden()
+      } else if (error instanceof ApiError && error.status === 404) {
+        setGeneralError(strings.common.genericError)
+        onGone()
       } else {
-        setGeneralError(tc.genericError)
+        setGeneralError(strings.common.genericError)
       }
       return
     }
@@ -99,25 +136,25 @@ export default function AddLedgerAccountDialog({ accounts, onCancel, onAdded }: 
 
   return (
     <FormDialog
-      title={t.addDialog.title}
+      title={t.addDialog.title(strings.entity[entity])}
       description={t.addDialog.description}
       size="sm"
       submitLabel={t.add}
       busyLabel={t.addDialog.busy}
-      cancelLabel={tc.cancel}
-      closeLabel={tc.cancel}
+      cancelLabel={strings.common.cancel}
+      closeLabel={strings.common.close}
       busy={busy}
       canSubmit={number.trim() !== '' && name.trim() !== ''}
       error={generalError}
       onSubmit={() => void handleSubmit()}
       onCancel={onCancel}
-      testIdPrefix="add-ledger-account"
+      testIdPrefix="accounting-ledger-dialog"
     >
       <Field
         label={t.addDialog.number}
         hint={t.addDialog.numberHint}
         required
-        error={numberError && <span data-testid="add-ledger-account-number-error">{numberError}</span>}
+        error={numberError && <span data-testid="accounting-ledger-number-error">{numberError}</span>}
         errorRole="alert"
       >
         {(control) => (
@@ -136,14 +173,14 @@ export default function AddLedgerAccountDialog({ accounts, onCancel, onAdded }: 
             onBlur={() => {
               if (number.trim() !== '') setNumberError(checkNumber(number))
             }}
-            data-testid="add-ledger-account-number"
+            data-testid="accounting-ledger-number"
           />
         )}
       </Field>
       <Field
         label={t.addDialog.name}
         required
-        error={nameError && <span data-testid="add-ledger-account-name-error">{nameError}</span>}
+        error={nameError && <span data-testid="accounting-ledger-name-error">{nameError}</span>}
         errorRole="alert"
       >
         {(control) => (
@@ -160,7 +197,7 @@ export default function AddLedgerAccountDialog({ accounts, onCancel, onAdded }: 
             onBlur={() => {
               if (name.trim() !== '') setNameError(checkName(name))
             }}
-            data-testid="add-ledger-account-name"
+            data-testid="accounting-ledger-name"
           />
         )}
       </Field>

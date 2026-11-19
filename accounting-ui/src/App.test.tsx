@@ -19,7 +19,12 @@ import App from './App'
 
 beforeEach(() => {
   window.scrollTo = () => undefined
-  apiFetch.mockImplementation(fakeApi({ 'GET /v1/me': () => meAnswer(meEntity()) }))
+  apiFetch.mockImplementation(
+    fakeApi({
+      'GET /v1/me': () => meAnswer(meEntity()),
+      'GET /v1/entities/welld_ch/ledger-accounts': () => ({ status: 200, body: { entity: 'welld_ch', items: [] } }),
+    }),
+  )
 })
 
 afterEach(() => {
@@ -49,7 +54,7 @@ describe('App', () => {
   it('does not route an address that is not its own', async () => {
     window.history.pushState(null, '', '/accounting/ledger-accounts')
     render(<App />)
-    await screen.findByTestId('accounting-ledger-page')
+    await screen.findByTestId('accounting-empty')
     apiFetch.mockClear()
     await act(async () => {
       window.history.pushState(null, '', '/projects/abc')
