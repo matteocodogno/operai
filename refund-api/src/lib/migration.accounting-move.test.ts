@@ -62,6 +62,16 @@ async function scratch(name: string): Promise<SQL> {
   return new SQL(urlOf(name), { max: 1 });
 }
 
+/** A scratch database brought to a migration state with the fixture rows: `copies` = through THIS, `next` = through NEXT. */
+async function scratchAt(name: string, state: "copies" | "next"): Promise<SQL> {
+  const s = await scratch(name);
+  await apply(s, BASE);
+  await fixtures(s);
+  await apply(s, THIS, THIS);
+  if (state === "next") await apply(s, NEXT, NEXT);
+  return s;
+}
+
 afterAll(async () => {
   for (const name of created) await admin.unsafe(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
   await admin.close();
@@ -410,18 +420,25 @@ describe("20261119120000_accounting_copies carries the data of a 20261118 databa
     expect(labels).toContain("line_rate_copied");
   });
 
+  // Mutates rows, so it runs on a scratch database of its own: the other tests of this block read `sql` and must not
+  // depend on whether (or before/after what) this one ran (D-5: green only in declaration order before).
   it("guard v2 is in force on the migrated data: copies of a paid numbered line are locked, a pending rate is copied once", async () => {
-    await expect(sql.unsafe(`UPDATE refund_line SET "accountNumber" = '9999', "accountName" = 'x' WHERE id = 'L-chf'`)).rejects.toThrow(/locked/);
-    await expect(sql.unsafe(`UPDATE refund_line SET "vatCode" = 'X', "vatRateBasisPoints" = 1 WHERE id = 'L-usd'`)).rejects.toThrow(/locked/);
-    await expect(sql.unsafe(`UPDATE refund_line SET "fxRateMicros" = 1 WHERE id = 'L-eur'`)).rejects.toThrow(/write-once/);
-    // the pending line of the paid request: null -> set is the first export's copy, then it is frozen
-    await sql.unsafe(
-      `UPDATE refund_line SET "fxRateMicros" = 940000, "fxRateMonth" = '2026-04-01', "fxRateCopiedAt" = now() WHERE id = 'L-eur-pending-paid'`,
-    );
-    await expect(sql.unsafe(`UPDATE refund_line SET "fxRateMicros" = 940001 WHERE id = 'L-eur-pending-paid'`)).rejects.toThrow(/write-once/);
-    // a legacy line (no number) of a paid request is still classifiable by the release script
-    await sql.unsafe(`UPDATE refund_line SET "accountNumber" = '6101', "accountName" = 'Spese materiale ufficio' WHERE id = 'L-legacy-eur'`);
-  });
+    const own = await scratchAt("refund_mig_guard", "copies");
+    try {
+      await expect(own.unsafe(`UPDATE refund_line SET "accountNumber" = '9999', "accountName" = 'x' WHERE id = 'L-chf'`)).rejects.toThrow(/locked/);
+      await expect(own.unsafe(`UPDATE refund_line SET "vatCode" = 'X', "vatRateBasisPoints" = 1 WHERE id = 'L-usd'`)).rejects.toThrow(/locked/);
+      await expect(own.unsafe(`UPDATE refund_line SET "fxRateMicros" = 1 WHERE id = 'L-eur'`)).rejects.toThrow(/write-once/);
+      // the pending line of the paid request: null -> set is the first export's copy, then it is frozen
+      await own.unsafe(
+        `UPDATE refund_line SET "fxRateMicros" = 940000, "fxRateMonth" = '2026-04-01', "fxRateCopiedAt" = now() WHERE id = 'L-eur-pending-paid'`,
+      );
+      await expect(own.unsafe(`UPDATE refund_line SET "fxRateMicros" = 940001 WHERE id = 'L-eur-pending-paid'`)).rejects.toThrow(/write-once/);
+      // a legacy line (no number) of a paid request is still classifiable by the release script
+      await own.unsafe(`UPDATE refund_line SET "accountNumber" = '6101', "accountName" = 'Spese materiale ufficio' WHERE id = 'L-legacy-eur'`);
+    } finally {
+      await own.close();
+    }
+  }, 60_000);
 
   it("the new tables are append-only", async () => {
     await expect(sql.unsafe(`UPDATE expense_type_accounting_default SET "accountNumber" = '1' WHERE id = 'def-1'`)).rejects.toThrow(/append-only/);
@@ -715,24 +732,30 @@ describe("20261119130000_accounting_reference_moved_out, from a 20261118 databas
     await expect(sql.unsafe(`DELETE FROM refund_batch_export WHERE id = 'exp-1'`)).rejects.toThrow(/append-only/);
   });
 
+  // Mutates rows: own scratch database, so the other tests of this block do not depend on its order (D-5).
   it("the guard no longer references a dropped column: a non-accounting column of a paid numbered line can be updated", async () => {
-    const [paid] = await rows(sql, `SELECT l."receiptNumber", q.status FROM refund_line l JOIN refund_request q ON q.id = l."requestId" WHERE l.id = 'L-chf'`);
-    expect([paid!.status, paid!.receiptNumber]).toEqual(["paid", "MC26/001"]); // a paid, numbered line with copies
-    const def = (await rows(sql, `SELECT pg_get_functiondef('refund_line_accounting_guard'::regproc) AS def`))[0]!.def as string;
-    expect(def).not.toMatch(/ledgerAccountId|vatCodeId/);
-    await sql.unsafe(`UPDATE refund_line SET "motivo" = 'edited after paid', "km" = 7 WHERE id = 'L-chf'`);
-    expect((await rows(sql, `SELECT motivo FROM refund_line WHERE id = 'L-chf'`))[0]!.motivo).toBe("edited after paid");
-    // ... while the guard still refuses what it is for
-    await expect(sql.unsafe(`UPDATE refund_line SET "accountNumber" = '9999', "accountName" = 'x' WHERE id = 'L-chf'`)).rejects.toThrow(/locked/);
-    await expect(sql.unsafe(`UPDATE refund_line SET "vatCodeIsDefault" = NOT "vatCodeIsDefault" WHERE id = 'L-chf'`)).rejects.toThrow(/locked/);
-    await expect(sql.unsafe(`UPDATE refund_line SET "receiptSeq" = 99 WHERE id = 'L-chf'`)).rejects.toThrow(/immutable/);
-    await expect(sql.unsafe(`UPDATE refund_line SET "fxRateMicros" = 1 WHERE id = 'L-eur'`)).rejects.toThrow(/write-once/);
-    await expect(sql.unsafe(`DELETE FROM refund_line WHERE id = 'L-chf'`)).rejects.toThrow(/cannot be deleted/);
-    // an unnumbered line is still freely classifiable and deletable, and a pending rate is still copied once
-    await sql.unsafe(`UPDATE refund_line SET "accountNumber" = '6101', "accountName" = 'Spese materiale ufficio' WHERE id = 'L-legacy-eur'`);
-    await sql.unsafe(`UPDATE refund_line SET "fxRateMicros" = 940000, "fxRateMonth" = '2026-04-01', "fxRateCopiedAt" = now() WHERE id = 'L-eur-pending-paid'`);
-    await sql.unsafe(`DELETE FROM refund_line WHERE id = 'L-draft'`);
-  });
+    const own = await scratchAt("refund_mig_t24_guard", "next");
+    try {
+      const [paid] = await rows(own, `SELECT l."receiptNumber", q.status FROM refund_line l JOIN refund_request q ON q.id = l."requestId" WHERE l.id = 'L-chf'`);
+      expect([paid!.status, paid!.receiptNumber]).toEqual(["paid", "MC26/001"]); // a paid, numbered line with copies
+      const def = (await rows(own, `SELECT pg_get_functiondef('refund_line_accounting_guard'::regproc) AS def`))[0]!.def as string;
+      expect(def).not.toMatch(/ledgerAccountId|vatCodeId/);
+      await own.unsafe(`UPDATE refund_line SET "motivo" = 'edited after paid', "km" = 7 WHERE id = 'L-chf'`);
+      expect((await rows(own, `SELECT motivo FROM refund_line WHERE id = 'L-chf'`))[0]!.motivo).toBe("edited after paid");
+      // ... while the guard still refuses what it is for
+      await expect(own.unsafe(`UPDATE refund_line SET "accountNumber" = '9999', "accountName" = 'x' WHERE id = 'L-chf'`)).rejects.toThrow(/locked/);
+      await expect(own.unsafe(`UPDATE refund_line SET "vatCodeIsDefault" = NOT "vatCodeIsDefault" WHERE id = 'L-chf'`)).rejects.toThrow(/locked/);
+      await expect(own.unsafe(`UPDATE refund_line SET "receiptSeq" = 99 WHERE id = 'L-chf'`)).rejects.toThrow(/immutable/);
+      await expect(own.unsafe(`UPDATE refund_line SET "fxRateMicros" = 1 WHERE id = 'L-eur'`)).rejects.toThrow(/write-once/);
+      await expect(own.unsafe(`DELETE FROM refund_line WHERE id = 'L-chf'`)).rejects.toThrow(/cannot be deleted/);
+      // an unnumbered line is still freely classifiable and deletable, and a pending rate is still copied once
+      await own.unsafe(`UPDATE refund_line SET "accountNumber" = '6101', "accountName" = 'Spese materiale ufficio' WHERE id = 'L-legacy-eur'`);
+      await own.unsafe(`UPDATE refund_line SET "fxRateMicros" = 940000, "fxRateMonth" = '2026-04-01', "fxRateCopiedAt" = now() WHERE id = 'L-eur-pending-paid'`);
+      await own.unsafe(`DELETE FROM refund_line WHERE id = 'L-draft'`);
+    } finally {
+      await own.close();
+    }
+  }, 60_000);
 
   it("an old table can no longer be written to or referenced by a new line", async () => {
     await expect(sql.unsafe(`INSERT INTO ledger_account (id) VALUES ('x')`)).rejects.toThrow(/ledger_account/);
