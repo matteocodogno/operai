@@ -1,6 +1,7 @@
 ---
 spec: 20261112
-status: draft
+status: approved
+approved: 2026-11-19
 ---
 
 # Design: Time tracking — the hours employees spend on company work
