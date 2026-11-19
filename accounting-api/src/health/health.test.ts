@@ -4,7 +4,8 @@
  */
 
 import { describe, expect, it, spyOn } from "bun:test";
-import "../test-support/testAuth"; // sets the environment as an import side effect
+import { fakeResolve, PERSONAS } from "../test-support/fakeResolve";
+import { setupTestAuth } from "../test-support/testAuth"; // sets the environment and installs the auth mocks on import
 
 const { app } = await import("../index");
 const { probes } = await import("./health.routes");
@@ -80,5 +81,20 @@ describe("the assembled app (scaffold)", () => {
     });
     const allowed = res.headers.get("access-control-allow-methods") ?? "";
     expect(allowed).not.toMatch(/DELETE|PATCH/);
+  });
+});
+
+describe("the assembled app under the auth harness", () => {
+  it("answers a user route with a harness token: the mocks were installed before `../index` was evaluated", async () => {
+    // Regression of the T6 harness issue: this file evaluates `../index` first in a full run. Without the mocks in
+    // place at that moment, every route test through the assembled app (the catalog, rates and system routes)
+    // answered 401 in a full run and passed only alone.
+    const harness = setupTestAuth();
+    await harness.init();
+    harness.setResolve(fakeResolve(PERSONAS.accountingCh));
+    const token = await harness.signToken({ sub: "user-1", email: "a@welld.ch" });
+    const res = await app.request("/v1/me", { headers: { Authorization: `Bearer ${token}` } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ entities: [{ entity: "welld_ch" }] });
   });
 });

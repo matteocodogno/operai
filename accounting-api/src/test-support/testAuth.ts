@@ -9,10 +9,10 @@
  * `/system/*` is NOT mocked: `systemAuth` verifies against a key set the test
  * injects (`__setDefaultJwksForTests`), so its real code runs.
  *
- * Usage — import this module BEFORE anything that evaluates `src/lib/env`
- * (it sets the environment as a side effect of being imported), call
- * `setupTestAuth()` ONCE at the top of a route test file, and only then
- * `await import(...)` the router under test:
+ * Usage — import this module BEFORE anything that evaluates `src/lib/env` or
+ * `src/index.ts` (it sets the environment AND installs both mocks as side
+ * effects of being imported), call `harness.init()` in a route test file,
+ * and only then `await import(...)` the app or router under test:
  *
  *   import { setupTestAuth } from "../test-support/testAuth";
  *   const harness = setupTestAuth();
@@ -227,8 +227,18 @@ const harness: TestAuthHarness = {
   },
 };
 
-/** Installs the two mocks (once per process) and returns the shared harness. */
+/** Returns the shared harness. The two mocks are already installed (see below); this stays for call-site clarity. */
 export function setupTestAuth(): TestAuthHarness {
   installMocks();
   return harness;
 }
+
+// The mocks are installed when this module is IMPORTED, not only when `setupTestAuth()` runs. `mock.module` cannot swap
+// a function a router already captured (`router.use(jwtMiddleware)` holds the function it was given), so the mocks must
+// exist before ANY test file evaluates `src/index.ts` or a router. `bun test` runs every file in one process and ES
+// imports are hoisted, so a file that does `import "../test-support/testAuth"` and then `await import("../index")`
+// (health.test.ts did, without calling `setupTestAuth()`) used to pin the REAL jwt middleware into the assembled app for
+// every later file: route tests through `../index` then got 401 in a full run, and only passed alone. Installing here
+// makes the import itself the guarantee; a route test through the assembled app imports this module first and signs
+// its tokens with the harness.
+installMocks();
