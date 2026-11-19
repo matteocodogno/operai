@@ -989,7 +989,7 @@ tasks share an edge or a path, except the declared `lerna.json` line-level touch
 
 ## Fix round 1 (2026-11-19) — QE FAIL (qe-report.md D-1..D-6) and security review (security-review.md F-01..F-07, F-12)
 
-- [ ] T53: accounting-api — D-1 path keys `{number}`/`{code}` validated (NUL and control chars → 404, no 500; flips catalog.keys.test.ts green); D-6 a name/label made only of blanks incl. zero-width/bidi characters is `empty`, length counted in code points; F-01 a per-entity cap on ledger accounts and VAT codes (value chosen so the largest allowed reference-data answer stays well under refund-api's 256 KiB consumer cap, asserted by a cross-package test like budgets.cross-package.test.ts) with a clear 409/422 when reached; F-07 `Cache-Control: no-store` + `nosniff` on user routes — refs: AC-1.2, AC-1.5, AC-6.1, AC-6.8 — deps: T46, T47
+- [x] T53: accounting-api — D-1 path keys `{number}`/`{code}` validated (NUL and control chars → 404, no 500; flips catalog.keys.test.ts green); D-6 a name/label made only of blanks incl. zero-width/bidi characters is `empty`, length counted in code points; F-01 a per-entity cap on ledger accounts and VAT codes (value chosen so the largest allowed reference-data answer stays well under refund-api's 256 KiB consumer cap, asserted by a cross-package test like budgets.cross-package.test.ts) with a clear 409/422 when reached; F-07 `Cache-Control: no-store` + `nosniff` on user routes — refs: AC-1.2, AC-1.5, AC-6.1, AC-6.8 — deps: T46, T47
   - touch: `accounting-api/src/catalog/*`, `accounting-api/src/index.ts`, `accounting-api/src/lib/*`, `accounting-api/src/*.test.ts`, `accounting-api/src/system/*`
   - done when: catalog.keys.test.ts green; cap and payload-size test green; accounting-api suite + tsc green.
 - [ ] T54: refund-api — D-5 one scratch DB name per describe in migration.accounting-move.test.ts (green under `--randomize` with two seeds); F-02 lines dated before Accounting's month floor never make the whole rates read fail (ask only in-range pairs; out-of-range pairs are missing with a reason; the release does not exit 2 for them); F-03 the release script's generic catch prints only the error kind/masked text; F-07 `no-store` + `nosniff` on classification, options and defaults routes — refs: AC-6.1, AC-6.7, AC-6.10, AC-7.4 — deps: T46, T47
@@ -998,6 +998,10 @@ tasks share an edge or a path, except the declared `lerna.json` line-level touch
 - [ ] T55: docs/CI — D-2 correct the three "seed not in the Docker image" statements (`.changeset/accounting-module.md`, AGENTS.md, accounting-api/README.md); D-3 `.dockerignore` `**/*.test.ts` (or correct the comments) for accounting-api; D-4 `shared-copies.yml` path filter lists both `accountingWire` copies; F-12 the runbook's rollback names only existing migrations — refs: none (docs/CI) — deps: T46, T47
   - touch: `.changeset/accounting-module.md`, `AGENTS.md`, `accounting-api/README.md`, `accounting-api/.dockerignore`, `accounting-api/Dockerfile`, `.github/workflows/shared-copies.yml`, `infra/README.md`
   - done when: grep finds no false statement; `shared-copies.yml` filter test (if any) green; `docker build` of accounting-api excludes test files (or comment corrected).
+
+- [ ] T56: accounting-ui — mirror T53's server rules in `lib/limits.ts` (a name/label of only blanks or invisible characters is empty; length in code points) and handle 409 `catalog_full` (with `limit`) in the add dialogs with its own message (en + it), axe-checked — refs: AC-1.2, AC-1.5 — deps: T53
+  - touch: `accounting-ui/src/lib/*`, `accounting-ui/src/components/*`, `accounting-ui/src/strings.ts`, `accounting-ui/src/**/*.test.tsx`
+  - done when: tests for both rules and the 409 green; accounting-ui tsc -b, lint, tests, build green.
 
 ## Implementation notes (reconciled 2026-11-19)
 
