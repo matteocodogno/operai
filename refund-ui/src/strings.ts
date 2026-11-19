@@ -181,6 +181,9 @@ const en = {
       title: 'Default classification',
       description:
         'The account and VAT code each expense type gets in WellD CH. Accounting can change them line by line. Where a type has no default, accounting must choose on each line before approving.',
+      /** Account-only (specs/20261118 SO-16, 2026-11-19): replaces `description`, which still names a VAT code. */
+      descriptionAccountOnly:
+        'The account each expense type gets in WellD CH. Accounting can change it line by line. Where a type has no default, accounting must choose on each line before approving.',
       caption: 'Default classification by expense type',
       loading: 'Loading the default classification…',
       loadError: 'Could not load the default classification.',
@@ -292,6 +295,9 @@ const en = {
         typePlaceholder: 'Select a type…',
         motivoLabel: 'Motivo',
         amountLabel: 'Requested amount',
+        /** Under the amount of a WellD CH line only (SO-15, AC-3.12): never for WellD Italia, no validation. */
+        splitReceiptHint:
+          'One VAT rate per line: if a receipt has items at different VAT rates (for example 8.1 % and 2.6 % at a supermarket), enter one line per rate.',
         entityLabel: 'Entity',
         entityPlaceholder: 'Select an entity…',
         currencyLabel: 'Currency',
@@ -604,6 +610,8 @@ const en = {
         required: 'Required to approve.',
         missingAccount: 'Choose an account.',
         missingVatCode: 'Choose a VAT code.',
+        /** The VAT select's empty choice (AC-3.3, AC-3.13): a line may have no VAT code. */
+        vatNone: 'None',
         inactiveCurrentAccount:
           'This account is deactivated in Accounting. The line keeps it; choose an active one to change it.',
         inactiveCurrentVat:
@@ -620,6 +628,10 @@ const en = {
         saving: 'Saving…',
         savedAccount: (text: string) => `Account set to ${text}`,
         savedVat: (text: string) => `VAT code set to ${text}`,
+        /** Announced when the VAT code is cleared (AC-3.3). */
+        savedVatNone: 'VAT code cleared',
+        /** The VAT amount fact of a line with no VAT code (AC-3.8): there is none to show. */
+        vatAmountNone: 'No VAT code, so no VAT amount.',
         saveError: 'Could not change the classification. Try again.',
         forbidden: "You don't have permission to change this classification.",
         accountInactive: 'That account was deactivated. Choose another.',
@@ -642,6 +654,12 @@ const en = {
               ? 'Nothing was approved. 1 value needs your attention.'
               : `Nothing was approved. ${n} values need your attention.`,
           hint: 'Choose the missing values, then approve again.',
+          /** Account-only (AC-3.4, AC-3.11): approval needs an account, never a VAT code. */
+          titleAccounts: (n: number) =>
+            n === 1
+              ? 'Nothing was approved. 1 line needs an account.'
+              : `Nothing was approved. ${n} lines need an account.`,
+          hintAccounts: 'Choose an account for each line, then approve again.',
           account: (line: string) => `${line}: choose an account`,
           vatCode: (line: string) => `${line}: choose a VAT code`,
           outOfScope: (line: string) => `${line}: needs a colleague with WellD CH access`,
@@ -809,6 +827,9 @@ const en = {
         title: 'Accounting export',
         description:
           'One row per approved WellD CH expense line, with account, VAT and CHF amount, as a CSV file.',
+        /** The XLSX journal export (SO-6 to SO-12): replaces `description`, which names a CSV file. */
+        descriptionExcel:
+          'One row per approved WellD CH expense line, with account, VAT code (when the line has one) and CHF amount, as an Excel file.',
         loading: 'Checking the export…',
         loadError: 'Could not check the export.',
         rows: (n: number) => (n === 1 ? '1 row will be exported.' : `${n} rows will be exported.`),
@@ -819,6 +840,7 @@ const en = {
             ? '1 WellD Italia line is left out: the export covers WellD CH only.'
             : `${n} WellD Italia lines are left out: the export covers WellD CH only.`,
         download: 'Download CSV',
+        downloadExcel: 'Download Excel file',
         downloading: 'Preparing file…',
         downloadLabel: (batchId: string) => `Download the accounting export of batch ${batchId}`,
         downloaded: (n: number) => `Export downloaded: ${n} rows`,
@@ -848,6 +870,7 @@ const en = {
           rateItemReason: (currency: string, month: string, reason: string) => `${currency} · ${month} — ${reason}`,
           fetchTried: 'Accounting just tried to fetch the missing rates from the official source.',
           unclassified: 'Lines without an account or a VAT code',
+          unclassifiedAccounts: 'Lines without an account',
           unclassifiedItem: (employee: string, receipt: string, missing: string) =>
             `${employee} · ${receipt}: no ${missing}`,
           missingWhat: { account: 'account', vatCode: 'VAT code', both: 'account or VAT code' },
@@ -1199,6 +1222,8 @@ const it: Strings = {
       title: 'Classificazione predefinita',
       description:
         'Il conto e il codice IVA assegnati a ogni tipo di spesa in WellD CH. La contabilità può cambiarli riga per riga. Dove un tipo non ha un predefinito, la contabilità deve sceglierlo su ogni riga prima di approvare.',
+      descriptionAccountOnly:
+        'Il conto assegnato a ogni tipo di spesa in WellD CH. La contabilità può cambiarlo riga per riga. Dove un tipo non ha un predefinito, la contabilità deve sceglierlo su ogni riga prima di approvare.',
       caption: 'Classificazione predefinita per tipo di spesa',
       loading: 'Caricamento della classificazione predefinita…',
       loadError: 'Impossibile caricare la classificazione predefinita.',
@@ -1309,6 +1334,8 @@ const it: Strings = {
         typePlaceholder: 'Selezionare un tipo…',
         motivoLabel: 'Motivo',
         amountLabel: 'Importo richiesto',
+        splitReceiptHint:
+          'Una sola aliquota IVA per riga: se uno scontrino contiene articoli con aliquote diverse (per esempio 8,1 % e 2,6 % al supermercato), inserisci una riga per aliquota.',
         entityLabel: 'Società',
         entityPlaceholder: 'Selezionare una società…',
         currencyLabel: 'Valuta',
@@ -1524,6 +1551,7 @@ const it: Strings = {
         required: 'Obbligatorio per approvare.',
         missingAccount: 'Scegliere un conto.',
         missingVatCode: 'Scegliere un codice IVA.',
+        vatNone: 'Nessuno',
         inactiveCurrentAccount:
           'Questo conto è disattivato in Contabilità. La riga lo mantiene; sceglierne uno attivo per cambiarlo.',
         inactiveCurrentVat:
@@ -1540,6 +1568,8 @@ const it: Strings = {
         saving: 'Salvataggio…',
         savedAccount: (text: string) => `Conto impostato su ${text}`,
         savedVat: (text: string) => `Codice IVA impostato su ${text}`,
+        savedVatNone: 'Codice IVA rimosso',
+        vatAmountNone: 'Nessun codice IVA, quindi nessun importo IVA.',
         saveError: 'Impossibile modificare la classificazione. Riprovare.',
         forbidden: 'Non si dispone dei permessi per modificare questa classificazione.',
         accountInactive: 'Questo conto è stato disattivato. Sceglierne un altro.',
@@ -1562,6 +1592,11 @@ const it: Strings = {
               ? 'Non è stato approvato nulla. 1 valore richiede attenzione.'
               : `Non è stato approvato nulla. ${n} valori richiedono attenzione.`,
           hint: 'Scegliere i valori mancanti, poi approvare di nuovo.',
+          titleAccounts: (n: number) =>
+            n === 1
+              ? 'Non è stato approvato nulla. 1 riga richiede un conto.'
+              : `Non è stato approvato nulla. ${n} righe richiedono un conto.`,
+          hintAccounts: 'Scegliere un conto per ogni riga, poi approvare di nuovo.',
           account: (line: string) => `${line}: scegliere un conto`,
           vatCode: (line: string) => `${line}: scegliere un codice IVA`,
           outOfScope: (line: string) => `${line}: serve un collega con accesso a WellD CH`,
@@ -1703,6 +1738,8 @@ const it: Strings = {
         title: 'Esportazione contabile',
         description:
           'Una riga per ogni spesa WellD CH approvata, con conto, IVA e importo in CHF, in un file CSV.',
+        descriptionExcel:
+          'Una riga per ogni spesa WellD CH approvata, con conto, codice IVA (se la riga ne ha uno) e importo in CHF, in un file Excel.',
         loading: 'Verifica dell’esportazione…',
         loadError: 'Impossibile verificare l’esportazione.',
         rows: (n: number) => (n === 1 ? 'Verrà esportata 1 riga.' : `Verranno esportate ${n} righe.`),
@@ -1713,6 +1750,7 @@ const it: Strings = {
             ? '1 riga WellD Italia è esclusa: l’esportazione riguarda solo WellD CH.'
             : `${n} righe WellD Italia sono escluse: l’esportazione riguarda solo WellD CH.`,
         download: 'Scarica CSV',
+        downloadExcel: 'Scarica file Excel',
         downloading: 'Preparazione del file…',
         downloadLabel: (batchId: string) => `Scarica l’esportazione contabile del lotto ${batchId}`,
         downloaded: (n: number) => `Esportazione scaricata: ${n} righe`,
@@ -1738,6 +1776,7 @@ const it: Strings = {
           rateItemReason: (currency: string, month: string, reason: string) => `${currency} · ${month} — ${reason}`,
           fetchTried: 'Contabilità ha appena provato a recuperare i tassi mancanti dalla fonte ufficiale.',
           unclassified: 'Righe senza conto o senza codice IVA',
+          unclassifiedAccounts: 'Righe senza conto',
           unclassifiedItem: (employee: string, receipt: string, missing: string) =>
             `${employee} · ${receipt}: manca ${missing}`,
           missingWhat: { account: 'il conto', vatCode: 'il codice IVA', both: 'il conto o il codice IVA' },

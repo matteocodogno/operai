@@ -63,6 +63,18 @@ const ADDED_KEYS: ReadonlyArray<{ path: string; args?: readonly unknown[] }> = [
   { path: 'pages.batchDetail.accountingExport.blocked.rateReason.notPublished' },
   { path: 'pages.batchDetail.accountingExport.blocked.rateReason.fetchFailed' },
   { path: 'pages.batchDetail.accountingExport.blocked.rateReason.noSource' },
+  // The accounting sign-off round (T67, specs/20261119-accounting): copy for T68 to T71, which switch the components over.
+  { path: 'settings.defaults.descriptionAccountOnly' },
+  { path: 'pages.requestDetail.composer.splitReceiptHint' },
+  { path: 'pages.reviewDetail.classification.vatNone' },
+  { path: 'pages.reviewDetail.classification.savedVatNone' },
+  { path: 'pages.reviewDetail.classification.vatAmountNone' },
+  { path: 'pages.reviewDetail.classification.missingSummary.titleAccounts', args: [1] },
+  { path: 'pages.reviewDetail.classification.missingSummary.titleAccounts', args: [3] },
+  { path: 'pages.reviewDetail.classification.missingSummary.hintAccounts' },
+  { path: 'pages.batchDetail.accountingExport.descriptionExcel' },
+  { path: 'pages.batchDetail.accountingExport.downloadExcel' },
+  { path: 'pages.batchDetail.accountingExport.blocked.unclassifiedAccounts' },
 ]
 
 const resolve = (catalog: unknown, path: string): unknown =>
@@ -115,6 +127,35 @@ describe('T33 copy additions (specs/20261119-accounting design § Copy keys)', (
         lang.pages.batchDetail.accountingExport.pending(2),
       )
       expect(lang.pages.batchDetail.accountingExport.pending(3)).toContain('3')
+    }
+  })
+
+  it('the sign-off copy says what the owner approved (SO-15, AC-3.12, AC-3.3, AC-6.1)', () => {
+    const { en, it: itCatalog } = catalogs
+    expect(en.pages.requestDetail.composer.splitReceiptHint).toBe(
+      'One VAT rate per line: if a receipt has items at different VAT rates (for example 8.1 % and 2.6 % at a supermarket), enter one line per rate.',
+    )
+    expect(itCatalog.pages.requestDetail.composer.splitReceiptHint).toBe(
+      'Una sola aliquota IVA per riga: se uno scontrino contiene articoli con aliquote diverse (per esempio 8,1 % e 2,6 % al supermercato), inserisci una riga per aliquota.',
+    )
+    expect(en.pages.reviewDetail.classification.vatNone).toBe('None')
+    expect(itCatalog.pages.reviewDetail.classification.vatNone).toBe('Nessuno')
+    expect(en.pages.batchDetail.accountingExport.downloadExcel).toBe('Download Excel file')
+    expect(itCatalog.pages.batchDetail.accountingExport.downloadExcel).toBe('Scarica file Excel')
+  })
+
+  it('the account-only summary and copy never mention a VAT code (AC-3.4, AC-3.11)', () => {
+    for (const lang of [catalogs.en, catalogs.it]) {
+      const summary = lang.pages.reviewDetail.classification.missingSummary
+      for (const sentence of [summary.titleAccounts(1), summary.titleAccounts(3), summary.hintAccounts]) {
+        expect(sentence).not.toMatch(/\bVAT\b|\bIVA\b/)
+      }
+      expect(summary.titleAccounts(1)).not.toBe(summary.titleAccounts(3))
+      expect(summary.titleAccounts(3)).toContain('3')
+      expect(lang.settings.defaults.descriptionAccountOnly).not.toMatch(/\bVAT\b|\bIVA\b/)
+      expect(lang.pages.batchDetail.accountingExport.blocked.unclassifiedAccounts).not.toMatch(/\bVAT\b|\bIVA\b/)
+      expect(lang.pages.batchDetail.accountingExport.downloadExcel).not.toMatch(/CSV/)
+      expect(lang.pages.batchDetail.accountingExport.descriptionExcel).not.toMatch(/CSV/)
     }
   })
 })
