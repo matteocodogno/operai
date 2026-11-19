@@ -33,6 +33,34 @@ approved: 2026-11-18
     identifier as shown in Refund. Adjusted: AC-6.2 (wording only).
   - **Clarification, pre-release WellD Italia lines.** WellD Italia lines approved before
     this feature stay unnumbered. New: AC-7.3 and a Non-goal.
+- **2026-11-19 (decided by the owner, Matteo Codogno, in an interview; wording by the
+  product-owner agent):** the accounting reference data moves out of Refund into a new
+  Accounting module, before this feature is released (specs/20261119-accounting). Wording only:
+  the status and every AC id are unchanged, and nothing here changes what a Refund user sees
+  except where specs/20261119-accounting says so.
+  - **US-1 and US-5 move to specs/20261119-accounting.** Ledger accounts, VAT codes and monthly
+    average exchange rates are kept there, per legal entity, by accounting managers through new
+    Accounting capabilities (read / manage) instead of Refund's `settings:read` /
+    `settings:manage`. AC-1.1 to AC-1.11 and AC-5.1 to AC-5.7 are marked "(moved to
+    specs/20261119-accounting)" inline and are specified and verified there; "admin" in them reads
+    "accounting manager". The domain terms ledger account, VAT code and monthly average rate keep
+    their meaning but are now kept in Accounting.
+  - **Refund's reference data comes from Accounting, with copies frozen at approval.** The accounts
+    and VAT codes that Refund offers (AC-2.4, AC-2.6, and the choices of AC-3.3, marked inline)
+    are Accounting's active WellD CH entries. When a line is classified or approved, Refund
+    records a copy of its account number and name, its VAT code and rate and, for a line in a
+    currency other than CHF, the exchange rate used, so that approved lines and exports never
+    change when Accounting changes or is unreachable (extends AC-3.5, AC-6.3, AC-6.8). When
+    Accounting cannot be reached or lacks data, Refund refuses the approval or the export with a
+    clear message rather than book incomplete data (extends AC-3.4, AC-6.5). Refund keeps the
+    per-type defaults, the foreign-currency VAT code designation, line classification, receipt
+    numbering and the batch export.
+  - **The Settings tabs move.** The "Accounts and VAT" and "Exchange rates" views leave Refund's
+    Settings and live only in the Accounting app. Refund's Settings keeps the per-type defaults
+    and the foreign-currency VAT code designation (chosen among Accounting's active WellD CH
+    entries) and links to the Accounting app.
+  - **Open questions 1, 4 and 6** keep their owner (accounting); the answers to 1 and 4 are
+    entered in Accounting, the answer to 6 in Refund's Settings.
 
 ## Problem
 
@@ -83,43 +111,43 @@ settings). New terms:
 
 ## User stories
 
-### US-1: Admin manages the ledger accounts and VAT codes Refund may use
+### US-1: Admin manages the ledger accounts and VAT codes Refund may use *(moved to specs/20261119-accounting)*
 
 As a refund admin, I want to keep the list of ledger accounts and VAT codes Refund may use, so
 that every expense is booked to an account and a VAT code that exist in the books.
 
 **Acceptance criteria:**
-- AC-1.1: Given the Settings tab, when an admin adds a ledger account with a number and a
+- AC-1.1 *(moved to specs/20261119-accounting)*: Given the Settings tab, when an admin adds a ledger account with a number and a
   name, then it appears in the list of accounts and can be chosen as a default account or as a
   line's account.
-- AC-1.2: Given an existing ledger account, active or deactivated, when an
+- AC-1.2 *(moved to specs/20261119-accounting)*: Given an existing ledger account, active or deactivated, when an
   admin tries to add another account with the same number, then the addition is refused with a
   message naming the duplicate number.
-- AC-1.3: Given a ledger account, when an admin deactivates it, then it can no longer be chosen
+- AC-1.3 *(moved to specs/20261119-accounting)*: Given a ledger account, when an admin deactivates it, then it can no longer be chosen
   for a new classification, and every line already classified with it keeps it unchanged.
-- AC-1.4: Given the Settings tab, when an admin adds a VAT code with a code,
+- AC-1.4 *(moved to specs/20261119-accounting)*: Given the Settings tab, when an admin adds a VAT code with a code,
   a label and a rate between 0 % and 100 %, then it appears in the list of VAT codes; adding a
   code that already exists, active or deactivated, is refused (reactivation, AC-1.10, is the
   way back to a deactivated code).
-- AC-1.5: Given an existing VAT code, when an admin tries to change its rate, then no such edit
+- AC-1.5 *(moved to specs/20261119-accounting)*: Given an existing VAT code, when an admin tries to change its rate, then no such edit
   is offered; the admin can only deactivate the code and add a new one.
-- AC-1.6: Given a deactivated VAT code, when accounting classifies a line, then that code is
+- AC-1.6 *(moved to specs/20261119-accounting)*: Given a deactivated VAT code, when accounting classifies a line, then that code is
   not offered, and lines already carrying it keep it unchanged.
-- AC-1.7: Given a user without the refund admin capability, when they try to
+- AC-1.7 *(moved to specs/20261119-accounting)*: Given a user without the refund admin capability, when they try to
   add, deactivate, reactivate or view the management of accounts or VAT codes, then the action
   is denied.
-- AC-1.8: Given any addition, deactivation or reactivation of an account or
+- AC-1.8 *(moved to specs/20261119-accounting)*: Given any addition, deactivation or reactivation of an account or
   VAT code, when it is saved, then the audit trail records who did it, when, and the
   before/after state.
-- AC-1.9: Given a deactivated ledger account, when an admin reactivates it,
+- AC-1.9 *(moved to specs/20261119-accounting)*: Given a deactivated ledger account, when an admin reactivates it,
   then it is listed as active with the same number and name, it can again be chosen as a
   default account or as a line's account, and the classification of every existing line is
   unchanged.
-- AC-1.10: Given a deactivated VAT code, when an admin reactivates it, then
+- AC-1.10 *(moved to specs/20261119-accounting)*: Given a deactivated VAT code, when an admin reactivates it, then
   it is listed as active with the same code, label and rate, it can again be chosen as a
   default VAT code, as the foreign-currency VAT code or as a line's VAT code, and the
   classification of every existing line is unchanged.
-- AC-1.11: Given a ledger account or VAT code that is already active, when
+- AC-1.11 *(moved to specs/20261119-accounting)*: Given a ledger account or VAT code that is already active, when
   an admin tries to reactivate it, then the action is refused with a message saying it is
   already active, and nothing is recorded in the audit trail.
 
@@ -138,13 +166,13 @@ intervenes on the exceptions.
 - AC-2.3: Given a default classification or the foreign-currency VAT code
   that changes, when the change is saved, then the classification of every line already
   approved is unchanged (see AC-3.5).
-- AC-2.4: Given only active accounts and VAT codes, when an admin chooses a default, then only
+- AC-2.4 *(options now come from Accounting, specs/20261119-accounting)*: Given only active accounts and VAT codes, when an admin chooses a default, then only
   active accounts and codes are offered.
 - AC-2.5: Given the Settings tab, when an admin designates a VAT code as the
   foreign-currency VAT code, then the change is saved with who made it and when, the previous
   designation stays visible in the history, and the Settings tab shows the code currently
   designated, or that none is.
-- AC-2.6: Given an inactive VAT code, when an admin designates the
+- AC-2.6 *(options now come from Accounting, specs/20261119-accounting)*: Given an inactive VAT code, when an admin designates the
   foreign-currency VAT code, then only active codes are offered, and an attempt to designate an
   inactive one is refused.
 - AC-2.7: Given a foreign-currency VAT code that is not designated, or whose
@@ -166,7 +194,7 @@ able to correct it, so that I book exceptions without re-keying the rule.
 - AC-3.2: Given a submitted request with a WellD CH line in a currency other
   than CHF, when accounting opens it, then the line shows the default account of its expense
   type and the foreign-currency VAT code, marked as defaults.
-- AC-3.3: Given a WellD CH line under review, when accounting changes its account or VAT code
+- AC-3.3 *(options now come from Accounting, specs/20261119-accounting)*: Given a WellD CH line under review, when accounting changes its account or VAT code
   to another active one, then the line keeps the chosen value, it is no longer marked as a
   default, and the audit trail records who changed what from which value to which value.
 - AC-3.4: Given a WellD CH line that has no default account or no usable
@@ -221,29 +249,29 @@ so that the books, the receipts and the employee all refer to the same number.
 - AC-4.10: Given two approvals of the same employee saved at the same moment, when they are
   numbered, then no two lines receive the same number.
 
-### US-5: Admin keeps the monthly average exchange rates
+### US-5: Admin keeps the monthly average exchange rates *(moved to specs/20261119-accounting)*
 
 As a refund admin, I want the official monthly average rates of EUR, USD and GBP to CHF to be
 fetched for me and to be able to correct them, so that the export converts at the rate the
 books use without anyone typing it.
 
 **Acceptance criteria:**
-- AC-5.1: Given a calendar month whose official average rate has been published, when Refund
+- AC-5.1 *(moved to specs/20261119-accounting)*: Given a calendar month whose official average rate has been published, when Refund
   fetches the rates, then the rate of each of EUR, USD and GBP for that month is recorded with
   its source and the moment it was fetched.
-- AC-5.2: Given the Settings tab, when an admin opens the exchange rates, then each month shows
+- AC-5.2 *(moved to specs/20261119-accounting)*: Given the Settings tab, when an admin opens the exchange rates, then each month shows
   the rate in effect for each currency and whether it was fetched or corrected by hand.
-- AC-5.3: Given a month's rate, when an admin enters a correction, then the correction becomes
+- AC-5.3 *(moved to specs/20261119-accounting)*: Given a month's rate, when an admin enters a correction, then the correction becomes
   the rate in effect, the previous value stays in the history, and the audit trail records who
   corrected it, when, and from which value to which.
-- AC-5.4: Given a month whose rate an admin corrected, when the rates are fetched again, then
+- AC-5.4 *(moved to specs/20261119-accounting)*: Given a month whose rate an admin corrected, when the rates are fetched again, then
   the correction stays in effect.
-- AC-5.5: Given a month and currency with no published rate, when an admin opens the exchange
+- AC-5.5 *(moved to specs/20261119-accounting)*: Given a month and currency with no published rate, when an admin opens the exchange
   rates, then that month and currency are shown as missing.
-- AC-5.6: Given the official source unreachable, when Refund tries to fetch the rates, then the
+- AC-5.6 *(moved to specs/20261119-accounting)*: Given the official source unreachable, when Refund tries to fetch the rates, then the
   rates already recorded are unchanged and the admin can see that the last fetch failed and
   when.
-- AC-5.7: Given a user without the refund admin capability, when they try to correct a rate,
+- AC-5.7 *(moved to specs/20261119-accounting)*: Given a user without the refund admin capability, when they try to correct a rate,
   then the action is denied.
 
 ### US-6: Accounting exports a batch for the books
