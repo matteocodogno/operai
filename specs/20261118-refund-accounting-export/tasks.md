@@ -836,6 +836,15 @@ no two tasks share an edge or a path.
 The critical path is the backend chain T1 → T6 → T7 → T11 → T12 → T13 → T18 → T19 → T35 → T37 →
 T38. The frontend finishes by B5, so it has slack and can absorb review rework.
 
+## Fix round 1 (2026-11-19) — QE FAIL (qe-report.md D-1..D-4) and security review S-01..S-06 (plan "Security review sync" SR-1..SR-10)
+
+- [ ] T41: refund-api + auth — line-level entity scope for classification (SR-1: PUT 404 outside the line's entity, view `inScope:false` without figures, `/accounting/options` needs a WellD CH scope), segregation of duties (SR-2: `request:reclassify` declares `self-approval`, seeded with each role's approve conditions; owner refused 403 `self_approval_forbidden` per status; view `selfRestricted`), no-store/nosniff on the export summary and blocked 409 (SR-5/D-4), `.gitignore` offsets patterns + in-repo path warning + masked employee output with `--show-emails` (SR-3/SR-4/D-4), truthful `--dry-run` marker line (D-1) — refs: AC-3.3, AC-3.6, AC-3.10, AC-6.11, AC-7.1 — deps: T35, T36
+  - touch: `refund-api/src/accounting/classification.*`, `refund-api/src/accounting/export.routes.ts`, `refund-api/src/accounting/export.routes.test.ts`, `refund-api/scripts/accounting-release*.ts`, `auth/src/authz/catalogs/refund.ts`, `auth/src/authz/catalogs/refund.test.ts`, `auth/src/authz/seed.ts`, `auth/src/authz/seed.test.ts`, `.gitignore`, `infra/README.md`
+  - done when: the QE report's D-2/D-3 repros (appendix) pass as committed tests; refund-api and auth suites and tsc green; dry-run output says the marker was not written; no `@` in the release report without `--show-emails`.
+- [ ] T42: refund-ui — classification panel read-only with a note when `selfRestricted`, no figures for `inScope:false` lines, 403 `self_approval_forbidden` mapped to that note; copy keys en + it — refs: AC-3.3, AC-3.6, AC-3.10 — deps: T35, T36
+  - touch: `refund-ui/src/components/LineClassificationPanel*`, `refund-ui/src/pages/ReviewDetailPage*`, `refund-ui/src/lib/accountingApi*`, `refund-ui/src/strings.ts`
+  - done when: component tests for both flags and the 403 pass; refund-ui tsc -b, lint, tests, build green.
+
 ## Implementation notes (reconciled 2026-11-19)
 
 Files touched outside a task's `touch:` list, reported by the dev agents (all new or additive; no
