@@ -5,8 +5,8 @@
  *
  * `resolveClassification` is ONE function behind the places that must never disagree: the review view, the approval, the
  * release backfill and the export blockers (T4's header). The unit vectors of `classification.test.ts` prove the function.
- * This file proves the PLACES, on the view, the PUT and the approval, with a fake Accounting. (20261118 also proved the
- * release and the export here; those two places are rewritten by T22 and T21, whose own suites carry that row.) a type default that points at a
+ * This file proves the PLACES, on the view, the PUT, the approval, the release and the export, with a fake Accounting
+ * (the release and export rows came back with T22 and T21 of 20261119). A type default that points at a
  * deactivated or vanished entry is reported WITH its state and `isDefault: true` (never `null`), cannot be chosen again,
  * and comes back by itself on reactivation, while a copy already STORED on a line is kept and shown with its present
  * state. Real Postgres, jwt/authz mocked, no network.
@@ -45,6 +45,9 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
 const { decideRouter } = (await import("../review/decide.routes?inactive-default")) as typeof import("../review/decide.routes");
 // @ts-expect-error -- the query suffix is a runtime-only cache-buster
 const { classificationRouter } = (await import("./classification.routes?inactive-default")) as typeof import("./classification.routes");
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const { createExportRouter } = (await import("./export.routes?inactive-default")) as typeof import("./export.routes");
+const { parseDefaults, runAccountingRelease } = await import("../../scripts/accounting-release");
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { createFakeAccounting, useFakeAccounting, restoreAccounting } = await import("../test-support/fakeAccounting");
@@ -112,6 +115,52 @@ const approve = async (requestId: string) => {
 };
 const put = (requestId: string, lineId: string, body: object) =>
   call(`/review/requests/${requestId}/lines/${lineId}/classification`, { method: "PUT", body: JSON.stringify(body) });
+
+const exportRouter = createExportRouter({ accounting: { begin: (name) => fake.begin(name) } });
+async function callExport(path: string) {
+  const token = await harness.signToken({ sub: "acct-1", email: "acct-1@welld.ch" });
+  const res = await exportRouter.request(path, { headers: { Authorization: `Bearer ${token}` } });
+  const text = await res.text();
+  return { status: res.status, body: (res.headers.get("content-type") ?? "").includes("json") && text ? (JSON.parse(text) as Record<string, any>) : null };
+}
+const exportSummary = (batchId: string) => callExport(`/batches/${batchId}/accounting-export`);
+const exportCsv = (batchId: string) => callExport(`/batches/${batchId}/accounting-export/csv`);
+
+/** A legacy approved request in a compiled batch: lines with no number and no classification (what the release backfills). */
+async function legacyBatch(types: ("travel_train" | "office_material")[]) {
+  const batch = await db.refundBatch.create({
+    data: { cutoff: new Date("2026-03-31T21:59:59.000Z"), status: "compiled", createdByUserId: "a", createdByEmail: "a@welld.ch", pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf` },
+  });
+  const request = await db.refundRequest.create({
+    data: {
+      ownerUserId: "owner-1",
+      ownerEmail: "owner-1@welld.ch",
+      ownerName: "Matteo Codogno",
+      status: "approved",
+      submittedAt: new Date("2026-03-01"),
+      decidedAt: new Date("2026-03-20"),
+      decidedByUserId: "a",
+      decidedByEmail: "a@welld.ch",
+      batchId: batch.id,
+    },
+  });
+  const lineIds: string[] = [];
+  for (const [i, type] of types.entries()) {
+    const line = await db.refundLine.create({
+      data: { requestId: request.id, date: new Date("2026-03-02"), type, motivo: "m", entity: "welld_ch", currency: "CHF", requestedAmountCents: 2080, approvedTotalCents: 2080, createdAt: new Date(Date.UTC(2026, 2, 5, 10, 0, i)) },
+    });
+    lineIds.push(line.id);
+  }
+  await db.refundBatchItem.create({ data: { batchId: batch.id, requestId: request.id } });
+  return { batchId: batch.id, requestId: request.id, lineIds };
+}
+/** The release with no defaults of its own to seed: Refund's rows of `beforeEach` are the defaults. */
+const release = () =>
+  runAccountingRelease({
+    defaults: parseDefaults({ typeDefaults: {}, foreignCurrencyVatCode: null }),
+    accounting: { begin: (name) => fake.begin(name) },
+    now: () => new Date("2026-11-20T08:00:00Z"),
+  });
 
 async function submittedRequest(lines: { type: "travel_train" | "office_material"; currency?: "CHF" | "EUR" }[]) {
   const request = await db.refundRequest.create({
@@ -307,5 +356,69 @@ describe("the review view and the approval agree (AC-6.3)", () => {
       vatCode: { code: "IMP81", state: "deactivated" },
     });
     expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", vatCodeCopy: "IMP81" });
+  });
+});
+
+describe("the release and the export agree (AC-7.2, AC-7.4)", () => {
+  it("a legacy line whose type default is a deactivated account is numbered, left without an account, and blocks the export", async () => {
+    const batch = await legacyBatch(["travel_train", "office_material"]);
+    fake.setAccountActive("5901", false);
+
+    const report = await release();
+    expect(report.unclassified.map((l) => [l.lineId, l.missing, l.account, l.vatCode])).toEqual([
+      [batch.lineIds[0]!, ["account"], null, "IMP81"],
+    ]);
+
+    const [trainLine, officeLine] = await Promise.all(batch.lineIds.map(lineOf));
+    expect(trainLine).toMatchObject({ accountNumber: null, accountName: null, vatCodeCopy: "IMP81", receiptNumber: "MC26/001" });
+    expect(officeLine).toMatchObject({ accountNumber: "6101", vatCodeCopy: "IMP81", receiptNumber: "MC26/002" });
+
+    // The export reads the same thing: stored-only, so the deactivated default is not consulted and the line blocks.
+    const summary = await exportSummary(batch.batchId);
+    expect(summary.body).toMatchObject({ exportable: false });
+    expect(summary.body!["blockers"]["unclassifiedLines"]).toEqual([
+      {
+        lineId: batch.lineIds[0],
+        requestId: batch.requestId,
+        date: "2026-03-02",
+        type: "travel_train",
+        employee: "Matteo Codogno",
+        receiptNumber: "MC26/001",
+        missing: ["account"],
+      },
+    ]);
+    expect((await exportCsv(batch.batchId)).status).toBe(409);
+
+    // Reactivating the default does NOT classify an approved line: only accounting can (AC-3.6).
+    fake.setAccountActive("5901", true);
+    expect((await exportSummary(batch.batchId)).body).toMatchObject({ exportable: false });
+    expect((await lineOf(batch.lineIds[0]!)).accountNumber).toBeNull();
+
+    // Accounting classifies it (`request:reclassify`): the export opens, with the stored account.
+    expect((await put(batch.requestId, batch.lineIds[0]!, { accountNumber: "5901" })).status).toBe(200);
+    expect((await exportSummary(batch.batchId)).body).toMatchObject({ exportable: true, rowCount: 2 });
+    expect((await exportCsv(batch.batchId)).status).toBe(200);
+  });
+
+  it("an approved line keeps a classification whose entries were deactivated afterwards, and the export includes it (AC-5.3)", async () => {
+    const batch = await legacyBatch(["travel_train"]);
+    await release();
+    expect(await lineOf(batch.lineIds[0]!)).toMatchObject({ accountNumber: "5901", vatCodeCopy: "IMP81" });
+
+    fake.setAccountActive("5901", false);
+    fake.setVatCodeActive("IMP81", false);
+    fake.resetCalls();
+    const summary = await exportSummary(batch.batchId);
+    expect(summary.body).toMatchObject({ exportable: true, rowCount: 1 });
+    expect(summary.body!["blockers"]["unclassifiedLines"]).toEqual([]);
+    expect(fake.calls).toHaveLength(0); // every copy is held: Accounting is not asked
+  });
+
+  it("a default vanished from Accounting at release is numbered unclassified the same way, and listed by the report", async () => {
+    const batch = await legacyBatch(["office_material"]);
+    fake.removeVatCode("IMP81");
+    const report = await release();
+    expect(report.unclassified.map((l) => [l.lineId, l.missing])).toEqual([[batch.lineIds[0]!, ["vatCode"]]]);
+    expect((await exportSummary(batch.batchId)).body!["blockers"]["unclassifiedLines"].map((l: any) => l.missing)).toEqual([["vatCode"]]);
   });
 });

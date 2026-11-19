@@ -30,32 +30,3 @@ export async function markAccountingReleased(client: Client = db): Promise<boole
   });
   return true;
 }
-
-const BY = { createdByUserId: "test-admin", createdByEmail: "admin@welld.ch" };
-
-export interface AccountingFixtures {
-  readonly account: { id: string; number: string };
-  readonly vatCode: { id: string; code: string };
-}
-
-/**
- * Test-only: a configured catalog, so that a test which approves WellD CH lines
- * without being about classification still approves (AC-3.4 refuses a CH line
- * with no account or VAT code). One account (6101), one VAT code (`IMP81`, 8.1 %),
- * the pair as the default of every expense type, and the same VAT code
- * designated for foreign currencies. Call it AFTER `truncateRefundTables()`.
- */
-export async function seedAccountingFixtures(client: typeof db = db): Promise<AccountingFixtures> {
-  const { ExpenseType } = await import("../lib/generated/prisma/enums");
-  const account = await client.ledgerAccount.create({ data: { entity: "welld_ch", number: "6101", name: "Spese materiale ufficio", ...BY } });
-  const vatCode = await client.vatCode.create({ data: { entity: "welld_ch", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, ...BY } });
-  for (const type of Object.values(ExpenseType)) {
-    await client.expenseTypeDefault.create({
-      data: { entity: "welld_ch", type, ledgerAccountId: account.id, vatCodeId: vatCode.id, ...BY },
-    });
-  }
-  await client.refundSetting.create({
-    data: { key: "accounting.welld_ch.foreign-currency-vat-code", value: vatCode.id, ...BY },
-  });
-  return { account: { id: account.id, number: account.number }, vatCode: { id: vatCode.id, code: vatCode.code } };
-}

@@ -1,0 +1,18 @@
+{
+  "_note": "DRAFT read off accounting's 2026 register (plan D1, D13 of 20261118; split by 20261119 plan § Seed data split). The twelve type defaults and the foreign-currency VAT code of Refund, by natural key (the account's number, the VAT code's code). The release seeds each only where Refund holds no row yet, and only for an entry that is ACTIVE in Accounting at that moment (else it is skipped and reported). The ledger accounts and VAT codes themselves are Accounting's: `accounting-api/scripts/data/seed.welld-ch.json` (T14). Reviewed by accounting before the release: `bun run accounting:release --dry-run` prints what it would do.",
+  "typeDefaults": {
+    "travel_km": { "ledgerAccount": "5905", "vatCode": "NOVAT" },
+    "travel_train": { "ledgerAccount": "5901", "vatCode": "IMP81" },
+    "travel_other_public_transport": { "ledgerAccount": "5904", "vatCode": "IMP81" },
+    "travel_highway": { "ledgerAccount": "5906", "vatCode": "IMP81" },
+    "travel_parking": { "ledgerAccount": "5907", "vatCode": "IMP81" },
+    "representation_meals": { "ledgerAccount": "6701", "vatCode": "IMP81" },
+    "representation_gifts": { "ledgerAccount": null, "vatCode": "IMP81" },
+    "office_material": { "ledgerAccount": "6101", "vatCode": "IMP81" },
+    "stationery": { "ledgerAccount": "6101", "vatCode": "IMP81" },
+    "company_manuals": { "ledgerAccount": "6101", "vatCode": null },
+    "postal": { "ledgerAccount": "6104", "vatCode": "NOVAT" },
+    "telephone": { "ledgerAccount": "6102", "vatCode": "IMP81" }
+  },
+  "foreignCurrencyVatCode": "NOVAT"
+}
