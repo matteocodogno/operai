@@ -560,7 +560,7 @@ Reading the list:
 
 ## Release plumbing and docs
 
-- [ ] T33: Changeset for refund-api, refund-ui and auth (one cross-app changeset, minor each) — refs: none (release plumbing) — deps: T18, T30
+- [x] T33: Changeset for refund-api, refund-ui and auth (one cross-app changeset, minor each) — refs: none (release plumbing) — deps: T18, T30
   - touch: `.changeset/refund-accounting-export.md`
   - agent: orchestrator · release
   - Details:
@@ -572,6 +572,10 @@ Reading the list:
     - It notes that old batch PDFs regenerate with numbers (R12).
   - done when: `pnpm exec changeset status --verbose` lists refund-api, refund-ui, auth (minor) and
     ui (from T20).
+  - Status (2026-11-19, unattended run): done. `pnpm exec changeset status --verbose` lists
+    @operai/refund-api 0.4.0, @operai/refund-ui 0.3.0, @operai/auth 0.8.0 (all from
+    `refund-accounting-export.md`) and @operai/ui 0.6.0 (from T20's `ui-format-month.md`, checked).
+    `mise run changeset:check` passes.
 
 - [ ] T34: Docs — AGENTS.md, README.md, infra/README.md runbook, refund-api/.env.example — refs: none (docs) — deps: T9, T11, T18, T26
   - touch: `AGENTS.md`, `README.md`, `infra/README.md`, `refund-api/.env.example`
