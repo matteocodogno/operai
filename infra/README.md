@@ -1079,7 +1079,7 @@ The feature adds a migration, a permission, a shell formatter and one operator-r
 names the check that lets the next one start.
 
 *Before anything:* T39 (the owner's task, the accounting sign-off) gates T40. It settles what a release would otherwise
-freeze: the seed in `refund-api/scripts/data/accounting-seed.welld-ch.json` (six account names are marked `(to confirm)`;
+freeze: the seed in `refund-api/scripts/data/accounting-seed.welld-ch.json` (account names are taken from the WellD CH chart of accounts;
 the type defaults, the VAT codes `IMP81`/`IMP77` and the name of the placeholder VAT code `NOVAT`, which is the
 foreign-currency VAT code until accounting names the real one, are drafts read off the 2026 register), the CSV dialect (`refund-api/src/accounting/exportFormat.ts`:
 separator, decimal mark, encoding; a change bumps `FORMAT_VERSION` and the golden file `src/accounting/fixtures/accounting-export.golden.csv`),

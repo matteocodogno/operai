@@ -1,21 +1,21 @@
 {
-  "_note": "DRAFT read off accounting's 2026 register (plan D1, D13). Reviewed by accounting before the release (T39): `bun run accounting:release --dry-run` prints what it would do. Applied only where nothing exists yet. Account names marked (to confirm) were not in the material the plan was written from.",
+  "_note": "DRAFT read off accounting's 2026 register (plan D1, D13). Reviewed by accounting before the release (T39): `bun run accounting:release --dry-run` prints what it would do. Applied only where nothing exists yet. Account names are taken verbatim from the WellD CH chart of accounts in the register (2026-11-19).",
   "ledgerAccounts": [
     { "number": "5901", "name": "Spese viaggi in treno" },
     { "number": "5904", "name": "Spese viaggi altri mezzi pubblici" },
     { "number": "5905", "name": "Spese rimborsi chilometrici (viaggi)" },
     { "number": "5906", "name": "Spese autostrade (viaggi)" },
     { "number": "5907", "name": "Spese parcheggio (viaggi)" },
-    { "number": "5909", "name": "Spese alloggio (viaggi) (to confirm)" },
-    { "number": "5999", "name": "Altre spese viaggi (to confirm)" },
-    { "number": "5808", "name": "Contributo abbonamenti mezzi pubblici (to confirm)" },
+    { "number": "5909", "name": "Spese di alloggio (viaggi)" },
+    { "number": "5999", "name": "Altre spese di viaggio" },
+    { "number": "5808", "name": "Contributo aziendale abbonamento mezzi pubblici personale" },
     { "number": "6101", "name": "Spese materiale ufficio" },
     { "number": "6102", "name": "Spese telefoniche, fax, internet" },
     { "number": "6104", "name": "Spese postali" },
-    { "number": "6405", "name": "Spese licenze software (to confirm)" },
+    { "number": "6405", "name": "Spese licenze software" },
     { "number": "6701", "name": "Spese pranzi e cene con clienti" },
-    { "number": "6720", "name": "Spese pranzi e cene interni (to confirm)" },
-    { "number": "7122", "name": "Spese anticipate per WellD Italia, da riaddebitare (to confirm)" }
+    { "number": "6720", "name": "Spese pranzi e cene di lavoro (interni)" },
+    { "number": "7122", "name": "Spese anticipate per / succursali / altre società del gruppo" }
   ],
   "vatCodes": [
     { "code": "IMP81", "label": "IVA 8.1%", "ratePercent": "8.1" },
