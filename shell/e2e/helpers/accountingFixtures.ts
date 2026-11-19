@@ -17,6 +17,11 @@
  * "missing" until `setRate` types it.
  */
 
+import { authCall, type Call } from '../fixtures/letterheads'
+import { seedAdminSession, seedUserSession, type SeededSession } from './adminSession'
+
+export type { SeededSession }
+
 /** The accounting-api origin the e2e talks to (the same value the global setup health-checks). */
 export const ACCOUNTING_API_URL = (
   process.env['E2E_ACCOUNTING_API_URL'] ??
@@ -141,4 +146,148 @@ export async function unusedPastMonth(
     if (!listed.has(key) && !exclude.includes(key)) return key
   }
   throw new Error(`[accountingFixtures] no ${currency} month without a rate is left at ${entity}: recreate the e2e accounting database`)
+}
+
+/**
+ * A call to accounting-api as `token` that never throws on a status: a journey that proves a REFUSAL (403, 404, 422) asserts
+ * the status and the problem `code` itself.
+ */
+export async function accountingCall<T = Record<string, unknown>>(
+  token: string | null,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<Call<T>> {
+  const res = await fetch(`${ACCOUNTING_API_URL}${path}`, {
+    method,
+    headers: {
+      ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const text = await res.text()
+  let parsed: unknown = {}
+  try {
+    parsed = text ? JSON.parse(text) : {}
+  } catch {
+    parsed = { raw: text }
+  }
+  return { status: res.status, body: parsed as T }
+}
+
+// ─── People and what they may do (specs/20261119-accounting, T41) ─────────────────────────────────────────────────────
+
+export type AccountingPersona = 'admin' | 'manager' | 'reader' | 'chManager' | 'nobody'
+
+/** `{ key: 'entity', match: 'user' }`: the grant covers the entity equal to the person's own (auth `grantKind`). */
+const OWN_ENTITY = { attributes: [{ key: 'entity', match: 'user' }] }
+
+interface PersonaSpec {
+  email: string
+  name: string
+  /** The role created for it, with its rules; absent: the baseline roles only (or `admin`). */
+  role?: { name: string; rules: Array<{ resource: string; action: string; conditions?: object }> }
+  /** Its entity attribute, which the scope of an entity-conditioned grant reads. */
+  entity?: 'welld_ch' | 'welld_it'
+}
+
+/**
+ * Made the way an administrator makes them, through `auth`'s admin API like any capability (AC-3.1): the `accounting` resource
+ * of the Accounting catalog, with `read` and `manage`, unconditioned or limited to the person's own entity. None holds
+ * `admin:access` or any Refund permission.
+ */
+export const ACCOUNTING_PERSONAS: Record<AccountingPersona, PersonaSpec> = {
+  admin: { email: 'acc-e2e-admin@operai.test', name: 'Accounting E2E Admin' },
+  manager: {
+    email: 'acc-e2e-manager@operai.test',
+    name: 'Accounting E2E Manager',
+    role: { name: 'e2e-accounting-manager', rules: [{ resource: 'accounting', action: 'manage' }] },
+  },
+  reader: {
+    email: 'acc-e2e-reader@operai.test',
+    name: 'Accounting E2E Reader',
+    role: { name: 'e2e-accounting-reader', rules: [{ resource: 'accounting', action: 'read' }] },
+  },
+  chManager: {
+    email: 'acc-e2e-ch-manager@operai.test',
+    name: 'Accounting E2E CH Manager',
+    role: {
+      name: 'e2e-accounting-ch-manager',
+      rules: [{ resource: 'accounting', action: 'manage', conditions: OWN_ENTITY }],
+    },
+    entity: 'welld_ch',
+  },
+  nobody: { email: 'acc-e2e-nobody@operai.test', name: 'Accounting E2E Nobody' },
+}
+
+export type AccountingPeople = Record<AccountingPersona, SeededSession>
+
+interface RoleRow {
+  id: string
+  name: string
+}
+interface UserDetail {
+  id: string
+  entity: string | null
+  roles: Array<{ id: string; name: string }>
+}
+
+async function mustOk<T>(what: string, result: Call<T>, ok: number[] = [200, 201, 204]): Promise<T> {
+  if (!ok.includes(result.status)) {
+    throw new Error(`[accountingFixtures] ${what} answered ${result.status}: ${JSON.stringify(result.body).slice(0, 400)}`)
+  }
+  return result.body
+}
+
+/** Creates the role when it does not exist, then full-replaces its rules (idempotent). Returns its id. */
+async function ensureRole(admin: SeededSession, spec: NonNullable<PersonaSpec['role']>): Promise<string> {
+  const roles = await mustOk('GET /admin/roles', await authCall<RoleRow[]>(admin, 'GET', '/admin/roles'))
+  let role = roles.find((row) => row.name === spec.name)
+  if (!role) {
+    role = await mustOk(
+      'POST /admin/roles',
+      await authCall<RoleRow>(admin, 'POST', '/admin/roles', {
+        name: spec.name,
+        description: 'Created by the Accounting e2e (specs/20261119-accounting T41)',
+      }),
+    )
+  }
+  await mustOk('PUT /admin/roles/{id}/rules', await authCall(admin, 'PUT', `/admin/roles/${role.id}/rules`, { rules: spec.rules }))
+  return role.id
+}
+
+/** Gives `user` the role (keeping the ones it has: the PUT replaces the set) and, when named, its entity. */
+async function assign(admin: SeededSession, user: SeededSession, roleId: string, entity?: PersonaSpec['entity']): Promise<void> {
+  const detail = await mustOk('GET /admin/users/{id}', await authCall<UserDetail>(admin, 'GET', `/admin/users/${user.userId}`))
+  const roleIds = new Set(detail.roles.map((row) => row.id))
+  if (!roleIds.has(roleId)) {
+    roleIds.add(roleId)
+    await mustOk('PUT /admin/users/{id}/roles', await authCall(admin, 'PUT', `/admin/users/${user.userId}/roles`, { roleIds: [...roleIds] }))
+  }
+  if (entity !== undefined && detail.entity !== entity) {
+    await mustOk('PATCH /admin/users/{id}', await authCall(admin, 'PATCH', `/admin/users/${user.userId}`, { entity }))
+  }
+}
+
+/**
+ * The five people of the Accounting journeys, grants in place (idempotent by e-mail). The sessions are minted AFTER the grants,
+ * so the JWT each one carries holds the grant's `perm_epoch` (a token minted earlier is refused).
+ */
+export async function setUpAccountingPeople(): Promise<AccountingPeople> {
+  const adminSpec = ACCOUNTING_PERSONAS.admin
+  await seedAdminSession(adminSpec.email, adminSpec.name)
+  const admin = await seedUserSession(adminSpec.email, adminSpec.name)
+
+  const sessions: Partial<AccountingPeople> = { admin }
+  for (const persona of ['manager', 'reader', 'chManager', 'nobody'] as const) {
+    const spec = ACCOUNTING_PERSONAS[persona]
+    const first = await seedUserSession(spec.email, spec.name)
+    if (spec.role) {
+      const roleId = await ensureRole(admin, spec.role)
+      await assign(admin, first, roleId, spec.entity)
+    }
+    sessions[persona] = spec.role ? await seedUserSession(spec.email, spec.name) : first
+  }
+  return sessions as AccountingPeople
 }
