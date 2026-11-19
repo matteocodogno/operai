@@ -1204,7 +1204,7 @@ for REF, except T68, which needs the shared `document-labels.json` (T59).
 
 ### CLOSE — QE, OWASP, eval
 
-- [ ] T77: QE re-run over both specs (the 70 ACs here and the 53 live Refund ACs of 20261118, the retired ones checked as retired) — refs: all ACs (nominal) — deps: T58, T59, T60, T61, T62, T63, T64, T65, T66, T67, T68, T69, T70, T71, T72, T73, T74, T75, T76
+- [x] T77: QE re-run over both specs (the 70 ACs here and the 53 live Refund ACs of 20261118, the retired ones checked as retired) — refs: all ACs (nominal) — deps: T58, T59, T60, T61, T62, T63, T64, T65, T66, T67, T68, T69, T70, T71, T72, T73, T74, T75, T76
   - touch: `specs/20261119-accounting/qe-report.md`, `specs/20261118-refund-accounting-export/qe-report.md`
   - agent: qe · release
   - Details: on :5445 only. Every gate of T46, plus: the AFC live test once (`ACCOUNTING_LIVE_RATES=1`); the golden XLSX opened in LibreOffice headless (`soffice --convert-to csv`) if available, else listed for T81.

@@ -2,7 +2,7 @@
 spec: 20261119
 task: T46
 date: 2026-11-19
-verdict: PASS for the original module (after fix round 1); sign-off round (T77) FAIL, one low defect (D-9)
+verdict: PASS (original module after fix round 1; sign-off round T77 after T82)
 tested: 99c0e863 (branch feat/accounting-module, T1-T45 done, T47's security-review.md already committed) plus the QE tests of this pass (7d7e435d and the two before it)
 ---
 
@@ -461,3 +461,26 @@ Mutants were applied to copies of the packages, the covering tests run, the file
 - D-10, D-11: cosmetic edits (`1 line` in the singular; the `index.ts` and `requests.schemas.ts` comments).
 - D-12 to D-14 are for the spec owner, the owner's trial import (T80) and the docs; none blocks.
 - T77 is not checked in `tasks.md` (done-when requires PASS). The OWASP re-review runs separately (T78).
+
+### Re-test after T82 (b3324375, e72ac580, 7ea73e81; HEAD 7a92703c)
+
+Verdict for the sign-off round: **PASS**. D-9, D-10 and D-11 are closed, N-01 is covered by new non-vacuous tests, D-12 is recorded as accepted, and nothing regressed. Database 127.0.0.1:5446, `db:generate` and `db:deploy` run first. Other packages are unchanged since the pass above and were not re-run. Live e2e, the browser pass and the workbook opened in Excel or Numbers stay with the owner (T81).
+
+| Check | Actual | Result |
+|---|---|---|
+| refund-api `bun test`, default order | 1924 pass, 0 fail, 77 files | ✓ |
+| refund-api `tsc --noEmit` | clean | ✓ |
+| refund-api `--randomize` seed 424242, full suite | 1924 pass, 0 fail (was 2 fail) | ✓ |
+| refund-api `--randomize` seed 77, full suite | 1924 pass, 0 fail | ✓ |
+| `migration.accounting-signoff.test.ts` alone, seeds 1, 2, 3 and 424242 | 15 pass, 0 fail each (seeds 1 and 424242 were 2 fail) | ✓ |
+
+| id | Result |
+|---|---|
+| D-9 | closed: each writing test now has its own scratch database; the file passes under four seeds and the whole suite under both required seeds. |
+| N-01 | closed. `numbering.repo.ts` now looks the baseline up under every email the same `ownerUserId` has used (the one on the request plus the `ownerEmail` of that user's requests, normalised like the key): per email the latest row, across emails the highest, only this user id's emails, 2026 only, and a counter that exists is never moved. `receipt.baseline.test.ts` gained 6 tests (old email loaded and a new one now held: first line is 082, never 001; case and spaces; both emails baselined: the higher wins; latest row per email then the maximum; another user id's old email never applies; a counter that exists and 2027 are unaffected). Non-vacuity, mutants on a copy: lookup by the current email only (3 tests fail), lowest instead of highest (2), no `ownerUserId` filter (2), normalisation dropped (2), earliest row instead of latest (2): all killed. The limit the code states stands: a person who changed address before anything was filed under the old one leaves no trace, and needs a baseline row under the new email (stated in the ADR). |
+| D-10 | closed: `linesOf(n)` gives the singular for a group of one, in the numbered list and the "Rate pending" line; reverting it fails 2 tests (`accounting-release.cli.test.ts`, `.test.ts`). |
+| D-11 | closed: `index.ts` no longer says "summary + CSV"; `requests.schemas.ts` says fourteen. |
+| D-12 | accepted: the space collapsing of the Description is being settled on the spec side by the product owner; no QE action. |
+| D-13 to D-15 | unchanged, info. |
+
+Defects after the round: none. T77 is checked in `tasks.md`.
