@@ -33,6 +33,49 @@ approved: 2026-11-19
   consumers under Refund's read limit (security review F-01). It complements AC-1.1 and AC-1.5;
   every AC id is unchanged.
 
+- **Amendment 2026-11-19 (accounting sign-off; decided by the owner):** the company accountant
+  answered the open questions of specs/20261118-refund-accounting-export and of this spec, and the
+  owner (Matteo Codogno) took four decisions on 2026-11-19 (see the same-dated amendment of
+  20261118, which carries the Refund side). Wording by the product-owner agent. Status stays
+  `approved`. **This entry changes behaviour of an implemented, unreleased module** (plan, tasks and
+  code follow it). No AC id is reused: adjusted ACs say so, and new ACs take the next free number
+  in their story. No AC of this spec is retired outright; clauses about the foreign-currency VAT
+  code and the default VAT codes are retired inside the ACs that held them, marked inline.
+  - **R1, the foreign-currency VAT code and the default VAT codes are retired (Refund).** No VAT
+    code is ever pre-set; the VAT code of a Refund line is optional and entered by hand (20261118
+    E2). Accounting still keeps VAT codes, but nothing in Refund designates one by default.
+    Adjusted: AC-3.7, AC-4.4, AC-4.5, AC-4.6, AC-4.7, AC-5.1, AC-5.2, AC-5.3, AC-6.3, AC-6.9,
+    AC-7.4, AC-7.5; the domain terms and the "What stays in Refund" paragraph; the Non-goal "Moving
+    Refund's own rules into Accounting". The SA-3 wording about a "foreign-currency VAT code
+    designation" no longer has an object. Approval needs only a ledger account for a WellD CH line.
+  - **R2, VAT codes in use.** WellD CH holds IPM81 (8.1 %), IPM77 (7.7 %, still needed), IP00
+    (0.00 %, instead of the former "no VAT" placeholder), a 2.6 % code (supermarkets: Aldi, Coop,
+    Migros), a 3.8 % code (overnight stays in Switzerland: rare, but kept active) and BZM81
+    (reverse charge, 8.1 %). "IMP81" was a misspelling of IPM81. The codes of the 2.6 % and 3.8 %
+    rates are not yet known: IPM26 and IPM38 until confirmed (open question). New: AC-7.6.
+  - **R3, accounts added.** 6701 (default of "Pranzi/cene con clienti"), 6501 "Libri e manuali"
+    (default of company manuals), 5902 "Spese viaggi in aereo" (flight), 5903 "Spese viaggi taxi"
+    (taxi), 7122 "Spese da riaddebitare a WellD Italia" and 2620.1 "Altri debiti verso soci - CHF
+    (CH)" (the last two chosen by hand, never a default). New: AC-7.6. The account for gifts to
+    clients is unknown (open question, owner accounting).
+  - **R4, the rate source is the Swiss Federal Tax Administration.** The monthly average rates come
+    from the AFC/ESTV (Swiss Federal Tax Administration), not from the customs office; the March
+    2026 value for EUR, 0.9246, is confirmed. The spec states the authority; how to obtain it is
+    for the plan, which must replace the customs-office source it had chosen (its D10 and D27).
+    Adjusted: the domain term "Monthly average rate", AC-2.1. New: AC-2.12. The "Published"
+    rule (5th day of the following month) is kept until AFC's publication calendar is checked
+    (open question).
+  - **R5, the export format changes in Refund.** The accounting export becomes a journal file
+    (20261118 E6). Adjusted here: AC-5.5 (the Amount is 9.62) and AC-7.2 (the header and columns
+    are those of 20261118 as amended).
+  - **R6, other.** AI reading of VAT from receipts stays a non-goal (new Non-goal). The Non-goals
+    "A journal export or a Bexio integration", "New expense types" and "Carrying 20261118's test or
+    staging data" are adjusted.
+  - **Summary.** Added: AC-2.12, AC-7.6. Adjusted: AC-2.1, AC-3.7, AC-4.4, AC-4.5, AC-4.6, AC-4.7,
+    AC-5.1, AC-5.2, AC-5.3, AC-5.5, AC-6.3, AC-6.9, AC-7.1, AC-7.2, AC-7.4, AC-7.5. Retired
+    (clauses only): the foreign-currency VAT code designation and the default VAT code in AC-3.7,
+    AC-4.4, AC-4.5, AC-4.6, AC-4.7, AC-6.3, AC-6.9 and AC-7.4. New open questions below.
+
 ## Problem
 
 Refund's accounting reference data (ledger accounts, VAT codes and monthly average exchange
@@ -49,8 +92,9 @@ anyone depends on where it lives.
 ## Domain language
 
 Extends specs/20261118-refund-accounting-export (ledger account, VAT code, default account,
-default VAT code, foreign-currency VAT code, classification, VAT amount, monthly average rate,
-CHF amount, receipt number, accounting export), specs/20260716-refund-service (entity, expense
+~~default VAT code~~, ~~foreign-currency VAT code~~ *(both retired 2026-11-19: no VAT code is ever
+pre-set)*, classification, VAT amount, monthly average rate, CHF amount, receipt number,
+accounting export), specs/20260716-refund-service (entity, expense
 line, approved total) and specs/20260713-auth-roles-permissions (role, capability, entity
 condition). New or refined terms:
 
@@ -64,14 +108,18 @@ condition). New or refined terms:
 - **Ledger account** — as in 20261118, now belonging to exactly one entity and identified by its
   number within that entity. The same number in two entities is two different accounts.
 - **VAT code** — as in 20261118, now belonging to exactly one entity and identified by its code
-  within that entity. A code's rate never changes.
-- **Monthly average rate** — the average exchange rate of a foreign currency to the entity's own
-  currency for one calendar month. For WellD CH: EUR, USD and GBP to CHF, from the official Swiss
-  monthly averages. The **rate in effect** is the latest correction if there is one, otherwise the
+  within that entity. A code's rate never changes. In Refund a line's VAT code is optional and
+  never pre-set (20261118); the codes in use for WellD CH are in AC-7.6.
+- **Monthly average rate** *(amended 2026-11-19)* — the average exchange rate of a foreign currency
+  to the entity's own currency for one calendar month. For WellD CH: EUR, USD and GBP to CHF, from
+  the monthly average rates of the Swiss Federal Tax Administration (AFC/ESTV), not from the
+  customs office. The **rate in effect** is the latest correction if there is one, otherwise the
   fetched rate. The entity's own currency has no rate.
 - **Published** — a month's average rate counts as published from the 5th day
   of the following month (Europe/Zurich), because the source answers provisional values before
-  that. Before that day the rate is not fetchable and is shown as missing.
+  that. Before that day the rate is not fetchable and is shown as missing. *(The rule was set for
+  the customs-office source; it stands until AFC's publication calendar is checked, open
+  question.)*
 - **Active / deactivated** — whether an entry is offered for new use. A deactivated entry stays
   in the lists, with its history, and can be reactivated.
 - **Option** — an active entry offered to a person who has to choose one.
@@ -80,10 +128,11 @@ condition). New or refined terms:
   entity. **Accounting reader**: a person who holds Accounting read but not manage.
 - **Consumer** — a module of the suite that reads Accounting's data. Refund is the only consumer
   in this spec.
-- **Copy** — the values Refund records on a line when it is classified or approved: ledger
-  account number and name, VAT code and VAT rate and, for a line in a currency other than CHF,
-  the exchange rate used with its month. A copy never changes when Accounting changes. The CHF
-  amount and the VAT amount of a line are computed from its copy, as in 20261118.
+- **Copy** *(amended 2026-11-19)* — the values Refund records on a line when it is classified or
+  approved: ledger account number and name, the VAT code and VAT rate when the line has a VAT code
+  and, for a line in a currency other than CHF, the exchange rate used with its month. A copy never
+  changes when Accounting changes. The CHF amount and the VAT amount of a line are computed from
+  its copy, as in 20261118.
 - **Rate pending** — the state of an approved WellD CH line in a currency other than CHF whose
   expense month had no rate in effect at approval, so no exchange rate has been copied yet.
 - **Unreachable** — Accounting does not answer in time, answers with an error, or answers with
@@ -93,7 +142,8 @@ condition). New or refined terms:
 
 Refund consumes Accounting. 20261118 stays the spec of Refund's accounting behaviour and is
 amended on 2026-11-19 (entry in its Amendments, wording only, status and AC ids unchanged) to
-refer to this spec.
+refer to this spec. *(It is amended again on 2026-11-19, accounting sign-off, with changes of
+behaviour: see both Amendments sections.)*
 
 **What moves here.**
 - **US-1 and AC-1.1 to AC-1.11 of 20261118** (add, deactivate and reactivate ledger accounts and
@@ -111,18 +161,19 @@ refer to this spec.
   "accounting manager" and the Settings tab becomes the Accounting app.
 - **The option sources of AC-2.4 and AC-2.6 of 20261118** (which accounts and VAT codes an admin
   may choose as defaults and as the foreign-currency VAT code) are now Accounting's active
-  WellD CH entries (AC-4.4 here); likewise the options of AC-3.3 (AC-4.1 here).
+  WellD CH entries (AC-4.4 here); likewise the options of AC-3.3 (AC-4.1 here). *(Since 2026-11-19
+  only the default accounts are chosen: AC-2.5 and AC-2.6 of 20261118 are retired.)*
 - **Refund's Settings tabs "Accounts and VAT" and "Exchange rates"** disappear from Refund
   (AC-4.6) and live only in the Accounting app.
 - **Capabilities.** The accounts, VAT codes and rates are no longer behind Refund's
   `settings:read` / `settings:manage`; they are behind Accounting read / manage (US-3).
 
-**What stays in Refund, unchanged for users.** Per-type default account and VAT code (AC-2.1 to
-AC-2.3, AC-2.5, AC-2.7, AC-2.8), the foreign-currency VAT code designation, line
-classification and review (US-3), receipt numbers (US-4), the batch accounting export (US-6) and
-the treatment of lines approved before the release (US-7). What changes in them is only what
-US-4 to US-7 here say: where options come from, copies frozen at approval, and refusals when
-Accounting is unreachable or lacks data.
+**What stays in Refund, unchanged for users.** Per-type default account (AC-2.1 to AC-2.3,
+AC-2.8 of 20261118; the default VAT code and the foreign-currency VAT code designation are retired
+since 2026-11-19), line classification and review (US-3), receipt numbers (US-4), the batch
+accounting export (US-6) and the treatment of lines approved before the release (US-7). What
+changes in them is only what US-4 to US-7 here say: where options come from, copies frozen at
+approval, and refusals when Accounting is unreachable or lacks data.
 
 **What is adjusted in them.**
 - AC-3.5 of 20261118 (lines keep the account and VAT code they showed at approval) now also
@@ -134,10 +185,11 @@ Accounting is unreachable or lacks data.
 - G5 of its plan (exchange rates readable and correctable only by Refund admins) is resolved by
   US-3: the accounting role holds Accounting read and manage.
 
-**Still open in 20261118 and not repeated here:** its open questions 1 (official rate source),
-4 (initial list of accounts, default account and VAT code per type) and 6 (the foreign-currency
-VAT code at release). Their owner stays accounting; the answers to 1 and 4 are entered in
-Accounting, the answer to 6 in Refund's Settings.
+**Still open in 20261118 and not repeated here:** its open questions about the initial list of
+accounts and default accounts (partly answered 2026-11-19, residual question in 20261118; the
+entries are entered in Accounting, AC-7.6). Its question on the official rate source is answered
+(R4); its question on the foreign-currency VAT code is closed (retired). The questions that
+concern data kept here are repeated below.
 
 ## User stories
 
@@ -199,10 +251,12 @@ be able to correct them, so that every module converts at the rate the books use
 typing it.
 
 **Acceptance criteria:**
-- AC-2.1: Given WellD CH and a calendar month whose official average rate has been published (from
+- AC-2.1 *(adjusted 2026-11-19: the source is the Swiss Federal Tax Administration)*: Given WellD
+  CH and a calendar month whose official average rate has been published (from
   the 5th day of the following month, Europe/Zurich), when Accounting fetches the rates, then the
-  rate of each of EUR, USD and GBP to CHF for that month is recorded for WellD CH with its source
-  and the moment it was fetched.
+  rate of each of EUR, USD and GBP to CHF for that month, as published by the Swiss Federal Tax
+  Administration (AFC/ESTV), is recorded for WellD CH with its source and the moment it was
+  fetched.
 - AC-2.2: Given a month and currency whose rate has already been fetched, when the rates are
   fetched again, then the recorded rate is unchanged.
 - AC-2.3: Given an Accounting reader or manager of an entity, when they open its exchange rates,
@@ -235,6 +289,10 @@ typing it.
 - AC-2.11: Given rates are per entity, then a fetch, a correction or a missing rate of WellD CH
   changes nothing of another entity. WellD Italia has no official source in this spec: its
   exchange rates screen says so, and no fetch is attempted for it.
+- AC-2.12: Given the monthly average rate of the Swiss Federal Tax Administration (AFC/ESTV) for
+  EUR for March 2026, when Accounting fetches it, then the rate recorded for WellD CH is 0.9246,
+  the value the books use and accounting confirmed; a source that gives another value for that
+  month is not the reference.
 
 ### US-3: Accounting read and manage are separate capabilities, granted by entity
 
@@ -260,10 +318,11 @@ accounting role can keep the data and everyone else sees only what they need.
   entry did not exist.
 - AC-3.6: Given a person with neither capability for any entity, when they open the Accounting
   app or ask for its data directly, then access is denied and no reference data is exposed.
-- AC-3.7: Given a person who holds Refund's `settings:read` or `settings:manage` and no Accounting
+- AC-3.7 *(adjusted 2026-11-19: the foreign-currency VAT code designation is retired)*: Given a
+  person who holds Refund's `settings:read` or `settings:manage` and no Accounting
   capability, when they try to read or change accounts, VAT codes or rates, then it is denied;
   and a person who holds Accounting manage and no Refund settings capability cannot change
-  Refund's per-type defaults or the foreign-currency VAT code designation.
+  Refund's per-type default accounts.
 - AC-3.8: Given a suite service with the right to read Accounting (Refund in this spec), when it
   asks for the accounts, VAT codes (each with its active state) or the rates in effect of an
   entity, then it gets the same data an Accounting reader of that entity gets. A service without
@@ -290,23 +349,26 @@ entry that exists in the books, without anyone retyping it in Refund.
 - AC-4.3: Given a line being classified by hand, when the person picks an entry that is
   deactivated, unknown, or of an entity other than WellD CH (also by a direct request), then the
   classification is refused and the line is unchanged.
-- AC-4.4: Given Refund's Settings and a Refund admin choosing a default account, a default VAT
-  code or the foreign-currency VAT code of an expense type, when the choice opens, then only
-  active WellD CH entries of Accounting are offered, whether or not the admin holds an Accounting
-  capability; choosing a deactivated, unknown or non-WellD CH entry (also by a direct request) is
-  refused and nothing changes.
-- AC-4.5: Given the twelve expense types, when Refund's Settings is opened, then each shows its
-  default account (number and name) and default VAT code, or that it has none. A default or
-  designation whose entry has since been deactivated in Accounting, or is no longer found there,
-  is shown as such (deactivated, or not found) with a note that a new choice is needed, and counts
-  as no default for new classifications (AC-6.3).
-- AC-4.6: Given Refund's Settings, then it has no "Accounts and VAT" and no "Exchange rates"
-  view; it keeps the general settings, the per-type defaults and the foreign-currency VAT code,
-  and shows a link to the Accounting app to those who may open it, and to the others the name of
-  the app and that accounting managers keep the data.
-- AC-4.7: Given a change of a default or of the designation, when it is saved, then the history
-  in Refund keeps who and when and shows the account number and name, and the VAT code, as they
-  were at the time of the change, so the history reads the same whatever happens in Accounting.
+- AC-4.4 *(adjusted 2026-11-19: only the default account; the default VAT code and the
+  foreign-currency VAT code are retired)*: Given Refund's Settings and a Refund admin choosing the
+  default account of an expense type, when the choice opens, then only active WellD CH accounts of
+  Accounting are offered, whether or not the admin holds an Accounting capability; choosing a
+  deactivated, unknown or non-WellD CH account (also by a direct request) is refused and nothing
+  changes.
+- AC-4.5 *(adjusted 2026-11-19: the fourteen types; the default VAT code and the designation are
+  retired)*: Given the fourteen expense types, when Refund's Settings is opened, then each shows
+  its default account (number and name), or that it has none. A default whose account has since
+  been deactivated in Accounting, or is no longer found there, is shown as such (deactivated, or
+  not found) with a note that a new choice is needed, and counts as no default for new
+  classifications (AC-6.3).
+- AC-4.6 *(adjusted 2026-11-19: no foreign-currency VAT code)*: Given Refund's Settings, then it
+  has no "Accounts and VAT" and no "Exchange rates" view; it keeps the general settings and the
+  per-type default accounts, and shows a link to the Accounting app to those who may open it, and
+  to the others the name of the app and that accounting managers keep the data.
+- AC-4.7 *(adjusted 2026-11-19: the account only)*: Given a change of a default account, when it is
+  saved, then the history in Refund keeps who and when and shows the account number and name as
+  they were at the time of the change, so the history reads the same whatever happens in
+  Accounting.
 - AC-4.8: Given a change saved in Accounting at time T (an entry added, deactivated or
   reactivated, a rate corrected or fetched), then Refund offers and uses it for anything it starts
   later than T + 60 seconds.
@@ -321,26 +383,31 @@ and exchange rate it was booked with, so that a later change in Accounting, or A
 down, never alters an approved line or an export.
 
 **Acceptance criteria:**
-- AC-5.1: Given a request with WellD CH lines that are not rejected, when accounting approves it,
-  then each such line holds a copy of its ledger account number and name and its VAT code and
-  VAT rate, and for a line in a currency other than CHF whose expense month has a rate in effect,
-  the rate and its month. For a line classified by hand the copy is the one recorded when it was
-  classified (AC-5.2); for a line on defaults it is taken from Accounting during this approval.
-  The audit trail records the copied values.
-- AC-5.2: Given a WellD CH line under review, or approved in a batch that is not paid, when
-  accounting classifies it by hand, then at that moment the copy of the chosen account's number
-  and name, or of the chosen VAT code and rate, is recorded on the line, and the audit trail
-  records who changed what from which value to which.
-- AC-5.3: Given an approved line, when afterwards in Accounting its account or VAT code is
-  deactivated or reactivated, or a rate is fetched or corrected, then the line's account number
-  and name, VAT code and rate, exchange rate, CHF amount and VAT amount, as Refund shows them and
-  as the export carries them, are unchanged.
+- AC-5.1 *(adjusted 2026-11-19: the VAT code is copied only when the line has one)*: Given a
+  request with WellD CH lines that are not rejected, when accounting approves it,
+  then each such line holds a copy of its ledger account number and name and, when it has a VAT
+  code, that code and its VAT rate, and for a line in a currency other than CHF whose expense
+  month has a rate in effect, the rate and its month. For a line classified by hand the copy is
+  the one recorded when it was classified (AC-5.2); for a line on its default account it is taken
+  from Accounting during this approval. A line without a VAT code holds none, and is not refused
+  for that. The audit trail records the copied values.
+- AC-5.2 *(adjusted 2026-11-19: the VAT code may be set, changed or cleared)*: Given a WellD CH
+  line under review, or approved in a batch that is not paid, when accounting classifies it by
+  hand, then at that moment the copy of the chosen account's number and name, or of the chosen VAT
+  code and rate (or the absence of one, when it is cleared), is recorded on the line, and the
+  audit trail records who changed what from which value to which.
+- AC-5.3 *(adjusted 2026-11-19: the VAT code, if any)*: Given an approved line, when afterwards in
+  Accounting its account or VAT code is deactivated or reactivated, or a rate is fetched or
+  corrected, then the line's account number and name, VAT code and rate (if it has one), exchange
+  rate, CHF amount and VAT amount (if it has a VAT code), as Refund shows them and as the export
+  carries them, are unchanged.
 - AC-5.4: Given a batch whose WellD CH lines all hold their copies, when accounting exports it,
   then the file is built from the copies, is produced while Accounting is unreachable, and two
   exports of the same batch are identical whatever changed in Accounting between them.
-- AC-5.5: Given a line in EUR dated 2026-03-02 with an approved total of 10.40, approved with a
-  copied EUR rate of 0.9246 for March 2026, when Accounting later corrects the March EUR rate to
-  0.9300 and the batch is exported, then its CHF amount in the export is 9.62.
+- AC-5.5 *(adjusted 2026-11-19: the CHF amount is the row's Amount)*: Given a line in EUR dated
+  2026-03-02 with an approved total of 10.40, approved with a copied EUR rate of 0.9246 for March
+  2026, when Accounting later corrects the March EUR rate to 0.9300 and the batch is exported,
+  then the Amount of its row in the export is 9.62.
 - AC-5.6: Given a WellD CH line in a currency other than CHF, when it is approved and its expense
   month has no rate in effect, then the approval is not refused for that reason, and the line is
   marked "rate pending" with no CHF amount and no VAT amount shown. At the first accounting export
@@ -364,11 +431,12 @@ reached or lacks what a line needs, so that nothing is approved or exported half
 - AC-6.2: Given any refused approval or classification (AC-6.1, AC-6.3, AC-6.5), then the request
   stays as it was and can be approved later: no receipt number is consumed, no copy is recorded,
   no decision is recorded, and no audit entry of an approval is written.
-- AC-6.3: Given Accounting reachable and a WellD CH line with no default account or no usable
-  default VAT code (none set, or its entry deactivated or not of WellD CH; for a line in another
-  currency, the foreign-currency VAT code, AC-2.7 of 20261118) that accounting has not classified,
-  when accounting tries to approve, then the approval is refused and names the lines left without
-  an account or a VAT code. If Accounting is also unreachable, AC-6.1 applies.
+- AC-6.3 *(adjusted 2026-11-19: only the account; the default VAT code, the foreign-currency VAT
+  code and AC-2.7 of 20261118 are retired)*: Given Accounting reachable and a WellD CH line with
+  no default account (none set, or its account deactivated or not of WellD CH) that accounting has
+  not classified, when accounting tries to approve, then the approval is refused and names the
+  lines left without an account. A line without a VAT code does not make it refused. If
+  Accounting is also unreachable, AC-6.1 applies.
 - AC-6.4: Given a request with no WellD CH line that is not rejected (WellD Italia lines only, or
   every WellD CH line rejected), when accounting approves it, then the approval works as before
   and does not depend on Accounting, including while it is unreachable.
@@ -387,9 +455,9 @@ reached or lacks what a line needs, so that nothing is approved or exported half
 - AC-6.8: Given Accounting that does not answer within 10 seconds, or answers with an error or
   with data Refund cannot read, then it counts as unreachable in AC-6.1 to AC-6.6, AC-6.9 and
   AC-7.4.
-- AC-6.9: Given Accounting unreachable, when a Refund admin opens Refund's Settings, then the
-  page opens, shows each default and the designation as recorded (number and name) with a note
-  that Accounting cannot be read, and offers no new choice.
+- AC-6.9 *(adjusted 2026-11-19: no designation)*: Given Accounting unreachable, when a Refund
+  admin opens Refund's Settings, then the page opens, shows each default account as recorded
+  (number and name) with a note that Accounting cannot be read, and offers no new choice.
 - AC-6.10: Given any refusal in this story, then the message names the cause (Accounting cannot be
   read, or which lines and values are missing) and what to do, exists in Italian and English, and
   contains no address, identifier or internal error text.
@@ -400,29 +468,41 @@ As an accounting user, I want Refund to behave as 20261118 approved except where
 a difference, so that the move costs the team nothing to relearn.
 
 **Acceptance criteria:**
-- AC-7.1: Given the stories of 20261118 that stay in Refund (US-2, US-3, US-4, US-6, US-7), then
-  every one of its ACs holds for users as approved there, except the places this spec changes:
+- AC-7.1 *(adjusted 2026-11-19: as amended)*: Given the stories of 20261118 that stay in Refund
+  (US-2, US-3, US-4, US-6, US-7), then every one of its ACs holds for users as approved there (as
+  amended on 2026-11-19), except the places this spec changes:
   where options come from (AC-4.1 to AC-4.4), copies and "rate pending" (US-5), refusals (US-6),
   who may see and correct rates (US-3), and AC-7.3 and AC-7.4 here.
-- AC-7.2: Given a batch with the same lines, the same copies and the same rates, then the export
-  file has the same header, the same columns in the same order (AC-6.2 of 20261118) and the same
-  values as 20261118 specifies, and the receipt numbering is unchanged (AC-4.1 to AC-4.10 of
-  20261118); an employee still sees no account, VAT code or VAT amount on their own request
-  (AC-3.10 of 20261118).
+- AC-7.2 *(adjusted 2026-11-19: the columns are those of the amended 20261118)*: Given a batch
+  with the same lines, the same copies and the same rates, then the export
+  file has the same header, the same columns in the same order (AC-6.2 of 20261118, as amended
+  2026-11-19) and the same values as 20261118 specifies, and the receipt numbering is unchanged
+  (AC-4.1 to AC-4.13 of 20261118); an employee still sees no account, VAT code or VAT amount on
+  their own request (AC-3.10 of 20261118).
 - AC-7.3: Given an export blocked by a missing rate, when it is shown, then a person who holds
   Accounting read is given a link to that month in the Accounting app, and anyone else is told to
   ask an accounting manager.
-- AC-7.4: Given WellD CH lines approved before the release, when the release of Refund's
+- AC-7.4 *(adjusted 2026-11-19: the account only, no VAT code)*: Given WellD CH lines approved
+  before the release, when the release of Refund's
   accounting features runs, then AC-7.1 and AC-7.2 of 20261118 apply with Accounting as the
-  source: each line gets the copy of the current default classification of its expense type, and
-  a line in another currency also the exchange rate if one is in effect, otherwise it is "rate
+  source: each line gets the copy of the current default account of its expense type (no VAT code),
+  and a line in another currency also the exchange rate if one is in effect, otherwise it is "rate
   pending" (AC-5.6). If Accounting is unreachable when the release runs, nothing is numbered or
   classified and the run reports why; running it again later is safe. WellD Italia lines
   approved before the release are left as AC-7.3 of 20261118 says.
-- AC-7.5: Given the release of Refund's accounting features, then Accounting is already live and
-  holds WellD CH's ledger accounts and VAT codes entered by accounting; if it holds none, every
-  WellD CH approval is refused as in AC-6.3 and the release report lists the lines left
-  unclassified (AC-7.2 of 20261118).
+- AC-7.5 *(adjusted 2026-11-19: only the ledger accounts are needed to approve)*: Given the
+  release of Refund's accounting features, then Accounting is already live and
+  holds WellD CH's ledger accounts and VAT codes entered by accounting (AC-7.6); if it holds no
+  account, or none of the default accounts, every WellD CH approval is refused as in AC-6.3 and the
+  release report lists the lines left unclassified (AC-7.2 of 20261118). An empty VAT code list
+  refuses nothing.
+- AC-7.6: Given the release of Refund's accounting features, then Accounting holds, active, for
+  WellD CH: the ledger accounts 5902 "Spese viaggi in aereo", 5903 "Spese viaggi taxi", 6501
+  "Libri e manuali", 6701 (named as in WellD CH's chart of accounts), 7122 "Spese da riaddebitare a
+  WellD Italia" and 2620.1 "Altri debiti verso soci - CHF (CH)"; and the VAT codes IPM81 (8.1 %),
+  IPM77 (7.7 %), IP00 (0.00 %), BZM81 (8.1 %, reverse charge), a code at 2.6 % named IPM26 and a
+  code at 3.8 % named IPM38 until accounting confirms their names. No code named IMP81 or NOVAT
+  exists. The rest of the chart of accounts is the list accounting signed off (SA-1).
 
 ### US-8: The Accounting app is a tool of the suite
 
@@ -448,23 +528,27 @@ other tools, so that I find it where I find the others, in my language.
 - **Loading WellD Italia data.** The model carries WellD Italia from day one, but no Italian
   chart of accounts, VAT codes or rates are loaded now, and no official source for Italian rates
   is chosen; both come with a later spec.
-- **A journal export or a Bexio integration.** Accounting keeps reference data only; the accounting
-  export stays Refund's CSV (20261118).
+- **A journal export or a Bexio integration** *(adjusted 2026-11-19)*. Accounting keeps reference
+  data only; the accounting export is produced by Refund (20261118, a journal file since the
+  amendment of 2026-11-19), not by Accounting.
 - **Inventory, CRM, Projects or supplier invoices consuming Accounting.** Later specs; only
   Refund consumes Accounting here (the service read of AC-3.8 is built so they can).
 - **Editing or deleting accounts and VAT codes.** Deactivation and reactivation are the only
   changes after creation (AC-1.12); a wrong rate or a wrong name means a new entry.
-- **New expense types.** The twelve types stay as in 20261118.
+- **New expense types** *(adjusted 2026-11-19)*. The fourteen types are those of 20261118 (flight
+  and taxi added by its amendment of 2026-11-19); no other type is added here.
 - **A screen for browsing the audit trail or an entry's history.** 20261118 had none for accounts
   and VAT codes either (it recorded the audit, AC-1.8); changes are recorded (AC-1.13, AC-2.4),
   not displayed beyond the active state and the origin of each rate.
 - **Bulk import of accounts or VAT codes**. The initial WellD CH list is
   entered in the app, or loaded once, on the release day, by an operator-run seed of the list that
   accounting signed off; no import feature is offered to users.
-- **Moving Refund's own rules into Accounting.** Per-type defaults, the foreign-currency VAT code
-  designation, line classification, receipt numbering and the batch export stay in Refund.
-- **Carrying 20261118's test or staging data into Accounting.** 20261118 is not released, so
-  production has none; environments with such data are re-entered.
+- **Moving Refund's own rules into Accounting** *(adjusted 2026-11-19)*. Per-type default
+  accounts, line classification, receipt numbering and the batch export stay in Refund. The
+  foreign-currency VAT code designation and the default VAT codes no longer exist.
+- **Carrying 20261118's test or staging data into Accounting** *(adjusted 2026-11-19)*. 20261118 is
+  not released, so production has none; environments with such data are re-entered, including
+  data with the former code names (IMP81, NOVAT).
 - **Approving or exporting from last-known data when Accounting is unreachable.** Refund refuses
   (US-6) rather than use a stale copy of Accounting's lists; only copies already recorded on
   lines are used.
@@ -477,6 +561,12 @@ other tools, so that I find it where I find the others, in my language.
   monthly average of a foreign currency to the entity's own currency.
 - **Changing what an employee is reimbursed.** Amounts paid stay in the line's own currency, as
   in 20261118.
+- **Reading VAT from receipts and VAT logic.** AI receipt scanning (backlog item 8,
+  docs/refund-accounting-backlog.md), which would read the VAT code from the document and will have
+  to handle receipts with several VAT rates, is a future feature; Accounting only keeps the list of
+  VAT codes and never decides which applies to an expense, nor flags a reverse-charge case.
+- **A type or flag on a VAT code** (reverse charge, reduced rate, exempt). A code has a code, a
+  label and a rate; its meaning is in its label.
 
 ## Constraints
 
@@ -488,22 +578,29 @@ for the plan.*
 2. v1 scope: reference data only — chart of accounts (ledger accounts), VAT codes, monthly
    average exchange rates. Refund consumes them. Refund keeps: type→account/VAT defaults, the
    foreign-currency VAT code designation, line classification, receipt numbering, batch export. A
-   journal export / Bexio integration is a non-goal.
+   journal export / Bexio integration is a non-goal. *(2026-11-19, accounting sign-off: the VAT
+   defaults and the foreign-currency VAT code designation are retired; see Amendments.)*
 3. Modelled per legal entity from day one (WellD CH, WellD Italia: an account and a VAT code
    belong to one entity; exchange rates are per entity's own currency — CH: foreign→CHF from the
    official Swiss monthly averages, as today); only WellD CH data is loaded now; Italy can be
-   added without a model change.
+   added without a model change. *(2026-11-19, accounting sign-off: the official source is the
+   Swiss Federal Tax Administration, AFC/ESTV.)*
 4. Managed by the accounting role through new Accounting capabilities (read / manage), with the
    entity condition; an admin grants them in the existing admin GUI. (Today Refund uses
    settings:read/manage — that moves.)
 5. The Accounts/VAT and Exchange-rates views leave Refund's Settings and live only in the
    Accounting app; Refund's Settings keeps the per-type defaults and the foreign-currency VAT code
    designation (choosing among Accounting's active WellD CH entries) and links to the Accounting
-   app.
+   app. *(2026-11-19, accounting sign-off: the per-type default accounts only.)*
 
 *Carried from specs/20261118-refund-accounting-export, which still apply:* monthly average rates
 come from an official source with manual correction possible; a missing rate blocks the export,
 and the batch can still be compiled and paid; the suite's Italian/English UI copy requirement.
+
+*Decision taken by the owner (Matteo Codogno) on 2026-11-19 after the accountant's answers,
+captured verbatim for the plan:* the reference source of the monthly average rates is the Swiss
+Federal Tax Administration (AFC/ESTV), not the customs office. The VAT code on a Refund line is
+optional with no default (20261118).
 
 ## Open questions
 
@@ -537,7 +634,20 @@ and the batch can still be compiled and paid; the suite's Italian/English UI cop
   freshness of 60 seconds (AC-4.8) and an answer within 10 seconds (AC-6.8). Confirm or give the
   right values. — owner: accounting
 - [ ] Who enters WellD CH's initial accounts and VAT codes in Accounting before the Refund release
-  (AC-7.5), from the list answered in 20261118's open question 4? — owner: accounting
+  (AC-7.5), from the list answered in 20261118's open question 4 (partly answered 2026-11-19, now
+  in AC-7.6)? — owner: accounting
 - [ ] WellD Italia, for a later spec: the official source of its rates to EUR (CHF, USD, GBP), its
   chart of accounts and VAT codes, and who holds Accounting manage for it. Not needed to approve
   this spec. — owner: accounting
+- [ ] The codes and labels of the VAT codes at 2.6 % (supermarkets: Aldi, Coop, Migros) and 3.8 %
+  (overnight stays in Switzerland), and the labels of all six codes in use (AC-7.6). Fallback: the
+  names IPM26 and IPM38, labels written by the operator from the rates. — owner: accounting
+- [ ] Publication of the AFC monthly averages: from which day of the following month are they
+  final (the "published" rule of the 5th day was set for the customs-office source), and in what
+  form can they be obtained? If there is no way to obtain them automatically, is the entry by hand
+  of a month's rate by an accounting manager acceptable (today only a correction of a recorded rate
+  is offered, AC-2.4)? Fallback: the 5th-day rule stays, and a missing rate blocks the export
+  (AC-6.7 of 20261118). — owner: accounting (publication calendar), Matteo Codogno (hand entry)
+- [ ] The account for gifts to clients ("Rappresentanza – Regali"): once known, it is entered in
+  Accounting (AC-7.6) and the owner decides whether it becomes the type's default; until then the
+  type has none (20261118, AC-8.4). — owner: accounting
