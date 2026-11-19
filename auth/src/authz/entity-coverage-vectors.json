@@ -1,0 +1,945 @@
+{
+  "description": "Shared test vectors for 'which legal entities does this person cover for accounting:read and accounting:manage' (specs/20261119-accounting, plan R12). Owned by auth (T2); read by auth's tests (src/authz/derivedApps.test.ts) and, read-only, by accounting-api's coverage.ts tests (T6) and refund-api's accountingViewer.ts tests (T19), so that the two derivations of 'covers an entity' cannot drift.",
+  "contract": [
+    "A case is: the person's effective permissions (the wire shape of GET /authz/me `permissions`), the user's own entity (null when none), and the expected result.",
+    "entities: the only two legal entities are 'welld_ch' and 'welld_it'. A user entity outside them (or null) is covered only by an unconditioned grant.",
+    "An unconditioned grant (conditions null) covers both entities, whatever the user's entity.",
+    "{attributes:[{key:'entity',match:'user'}]} (and nothing else) covers the user's own entity, and only when the user's entity is one of the two. A null user entity covers nothing.",
+    "Any other condition covers nothing (fail closed), and does not hide a recognised grant next to it. The user's entity is compared exactly, case-sensitively.",
+    "Only (resource 'accounting', action 'read' or 'manage') count. Every other resource or action is ignored.",
+    "covered.read: the entities covered by accounting:read OR accounting:manage (manage includes read, AC-3.2). covered.manage: the entities covered by accounting:manage alone.",
+    "appReachable: whether the derived `accounting` entry of /authz/me `apps` is present. It is true exactly when covered.read is not empty (AC-8.1).",
+    "Arrays are SETS: compare without regard to order (auth lists entities in its own order, accounting-api in its own)."
+  ],
+  "entities": [
+    "welld_ch",
+    "welld_it"
+  ],
+  "cases": [
+    {
+      "name": "no permissions at all",
+      "permissions": [],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "an unconditioned read covers both entities, whatever the user's entity (none)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": null
+        }
+      ],
+      "user": {
+        "entity": null
+      },
+      "covered": {
+        "read": [
+          "welld_ch",
+          "welld_it"
+        ],
+        "manage": []
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an unconditioned read covers both entities for a user of welld_ch",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": null
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [
+          "welld_ch",
+          "welld_it"
+        ],
+        "manage": []
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an unconditioned read covers both entities for a user whose entity is outside the two",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": null
+        }
+      ],
+      "user": {
+        "entity": "welld_de"
+      },
+      "covered": {
+        "read": [
+          "welld_ch",
+          "welld_it"
+        ],
+        "manage": []
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an unconditioned manage covers both entities and, manage including read, reads both",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": null
+        }
+      ],
+      "user": {
+        "entity": null
+      },
+      "covered": {
+        "read": [
+          "welld_ch",
+          "welld_it"
+        ],
+        "manage": [
+          "welld_ch",
+          "welld_it"
+        ]
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an unconditioned read and an unconditioned manage together",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": null
+        },
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": null
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [
+          "welld_ch",
+          "welld_it"
+        ],
+        "manage": [
+          "welld_ch",
+          "welld_it"
+        ]
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an entity read covers the user's own entity, welld_ch",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [
+          "welld_ch"
+        ],
+        "manage": []
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an entity read covers the user's own entity, welld_it",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_it"
+      },
+      "covered": {
+        "read": [
+          "welld_it"
+        ],
+        "manage": []
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an entity manage covers the user's own entity and reads it",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [
+          "welld_ch"
+        ],
+        "manage": [
+          "welld_ch"
+        ]
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an entity manage covers the user's own entity, welld_it",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_it"
+      },
+      "covered": {
+        "read": [
+          "welld_it"
+        ],
+        "manage": [
+          "welld_it"
+        ]
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an entity read with the user's entity null covers nothing",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": null
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "an entity manage with the user's entity null covers nothing",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": null
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "an entity grant for a user whose entity is outside the two covers nothing",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        },
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_de"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "the user's entity is compared exactly: a different case covers nothing",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "WELLD_CH"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "an entity read and an unconditioned manage: manage widens the read",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        },
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": null
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [
+          "welld_ch",
+          "welld_it"
+        ],
+        "manage": [
+          "welld_ch",
+          "welld_it"
+        ]
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an unconditioned read and an entity manage: read stays wide, manage stays own",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": null
+        },
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_it"
+      },
+      "covered": {
+        "read": [
+          "welld_ch",
+          "welld_it"
+        ],
+        "manage": [
+          "welld_it"
+        ]
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an entity manage next to an entity read of the same user is the user's entity",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        },
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [
+          "welld_ch"
+        ],
+        "manage": [
+          "welld_ch"
+        ]
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an ownership condition on read covers nothing (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "ownership": "own"
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "an ownership condition on manage covers nothing, so it reads nothing either (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "ownership": "own"
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "an ownership 'any' condition on read covers nothing (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "ownership": "any"
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "an ownership 'any' condition on manage covers nothing, so it reads nothing either (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "ownership": "any"
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "the entity attribute with match 'any' on read covers nothing (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "any"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "the entity attribute with match 'any' on manage covers nothing, so it reads nothing either (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "any"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "the entity attribute with match 'deny' on read covers nothing (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "deny"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "the entity attribute with match 'deny' on manage covers nothing, so it reads nothing either (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "deny"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "another attribute on read covers nothing (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "department",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "another attribute on manage covers nothing, so it reads nothing either (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "department",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "the entity condition next to ownership on read covers nothing (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "ownership": "own",
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "the entity condition next to ownership on manage covers nothing, so it reads nothing either (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "ownership": "own",
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "the entity condition next to another attribute on read covers nothing (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              },
+              {
+                "key": "self-approval",
+                "match": "deny"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "the entity condition next to another attribute on manage covers nothing, so it reads nothing either (fail closed)",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              },
+              {
+                "key": "self-approval",
+                "match": "deny"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    },
+    {
+      "name": "an unknown condition does not mask a recognised grant next to it",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "ownership": "own"
+          }
+        },
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_it"
+      },
+      "covered": {
+        "read": [
+          "welld_it"
+        ],
+        "manage": []
+      },
+      "appReachable": true
+    },
+    {
+      "name": "an unknown condition on manage does not remove an entity read",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "manage",
+          "conditions": {
+            "ownership": "own"
+          }
+        },
+        {
+          "resource": "accounting",
+          "action": "read",
+          "conditions": {
+            "attributes": [
+              {
+                "key": "entity",
+                "match": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [
+          "welld_ch"
+        ],
+        "manage": []
+      },
+      "appReachable": true
+    },
+    {
+      "name": "other resources and actions grant nothing here",
+      "permissions": [
+        {
+          "resource": "accounting",
+          "action": "access",
+          "conditions": null
+        },
+        {
+          "resource": "accounting",
+          "action": "delete",
+          "conditions": null
+        },
+        {
+          "resource": "accounting",
+          "action": "write",
+          "conditions": null
+        },
+        {
+          "resource": "legal-entity",
+          "action": "read",
+          "conditions": null
+        },
+        {
+          "resource": "legal-entity",
+          "action": "manage",
+          "conditions": null
+        },
+        {
+          "resource": "letterhead",
+          "action": "manage",
+          "conditions": null
+        },
+        {
+          "resource": "refund",
+          "action": "read",
+          "conditions": null
+        },
+        {
+          "resource": "admin",
+          "action": "access",
+          "conditions": null
+        }
+      ],
+      "user": {
+        "entity": "welld_ch"
+      },
+      "covered": {
+        "read": [],
+        "manage": []
+      },
+      "appReachable": false
+    }
+  ]
+}

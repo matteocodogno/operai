@@ -8,7 +8,8 @@
  * It fails closed: a grant carrying a condition `grantKind` does not recognise covers nothing, and a user
  * with no entity (or one outside `LEGAL_ENTITIES`) is covered only by an unconditioned grant.
  *
- * Presentation only: `adminAreaReachable` is what lets the shell show the Admin tool. It is not "is an
+ * Presentation only: `adminAreaReachable` is what lets the shell show the Admin tool (and, through the
+ * `DERIVED_APPS` table, accounting's `read`/`manage` coverage lets it show Accounting). It is not "is an
  * administrator" - the admin APIs keep `requireAdmin`.
  */
 
@@ -19,18 +20,48 @@ import { LEGAL_ENTITIES, type LegalEntity } from "./entities";
 export const LEGAL_ENTITY_RESOURCE = "legal-entity";
 export const LEGAL_ENTITY_MANAGE_ACTION = "manage";
 
+/** One `(resource, action)` pair whose entity coverage counts. */
+export interface EntityGrantRef {
+  readonly resource: string;
+  readonly action: string;
+}
+
+/**
+ * The entities in which at least ONE of `grants` covers `user`, in `LEGAL_ENTITIES` order (stable for the API).
+ * Every caller that asks "which entities does this person cover" goes through here, so each answer is
+ * `entityGrantFor`'s: an unconditioned grant covers both entities, `{key:"entity", match:"user"}` covers the
+ * user's own entity, anything else covers nothing. A union of several grants (Accounting's `read` or `manage`,
+ * specs/20261119-accounting, AC-3.2) is one call, not two functions that could drift.
+ */
+export function entitiesCoveredByAny(
+  permissions: readonly EffectivePermission[],
+  user: { readonly entity: string | null },
+  grants: readonly EntityGrantRef[],
+): LegalEntity[] {
+  return LEGAL_ENTITIES.filter((entity) =>
+    grants.some((grant) => entityGrantFor(permissions, grant.resource, grant.action, user, entity) !== null),
+  );
+}
+
+/** The `(resource, action)` the Admin tool is derived from (specs/20261117-legal-entities). */
+export const LEGAL_ENTITY_MANAGE_GRANT: EntityGrantRef = {
+  resource: LEGAL_ENTITY_RESOURCE,
+  action: LEGAL_ENTITY_MANAGE_ACTION,
+};
+
 /** The entities `permissions` let `user` manage, in `LEGAL_ENTITIES` order (stable for the API). */
 export function coveredEntities(
   permissions: readonly EffectivePermission[],
   user: { readonly entity: string | null },
 ): LegalEntity[] {
-  return LEGAL_ENTITIES.filter(
-    (entity) =>
-      entityGrantFor(permissions, LEGAL_ENTITY_RESOURCE, LEGAL_ENTITY_MANAGE_ACTION, user, entity) !== null,
-  );
+  return entitiesCoveredByAny(permissions, user, [LEGAL_ENTITY_MANAGE_GRANT]);
 }
 
-/** Whether the person may manage at least one entity, hence reaches the administration area (AC-4.3). */
+/**
+ * Whether the person may manage at least one entity, hence reaches the administration area (AC-4.3). One row of
+ * `DERIVED_APPS` (`../authz/derivedApps.ts`), which is what `GET /authz/me` reads; kept as a named function for
+ * the callers and tests that ask only this question.
+ */
 export function adminAreaReachable(
   permissions: readonly EffectivePermission[],
   user: { readonly entity: string | null },

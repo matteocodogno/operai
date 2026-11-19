@@ -24,12 +24,15 @@
  *                      `access` action"; this is the shell's US-7
  *                      nav/route-guard convenience so it never has to know
  *                      about the generic permission shape).
- *                      Plus `"admin"` (derived, not an `access` grant) when
- *                      `legal-entity:manage` covers at least one entity for the
- *                      caller (specs/20261117-legal-entities, ADR
- *                      20261117-an-app-is-reachable-through-a-capability-it-administers...):
- *                      it means "may enter the Admin tool", never "is an
- *                      administrator" - the admin APIs keep `requireAdmin`.
+ *                      Plus the DERIVED apps of `./derivedApps` (not `access` grants),
+ *                      each added when its capability covers at least one entity for
+ *                      the caller (specs/20261117-legal-entities, specs/20261119-accounting,
+ *                      ADR 20261117-an-app-is-reachable-through-a-capability-it-administers...):
+ *                        - `"admin"`      <- `legal-entity:manage`;
+ *                        - `"accounting"` <- `accounting:read` or `accounting:manage`.
+ *                      Each means "may enter the tool", never "is an
+ *                      administrator" - the admin APIs keep `requireAdmin`, and
+ *                      accounting-api checks coverage on every route.
  *   - `roles`       — the caller's DIRECTLY assigned role names
  *                      (`user_role` → `role.name`). Department-conferred
  *                      roles are NOT repeated here — their rules are already
@@ -51,13 +54,10 @@ import { Effect } from "effect";
 import type { User } from "better-auth";
 import { requireAuth, sessionMiddleware } from "../auth/auth.middleware";
 import { db } from "../lib/db";
-import { adminAreaReachable } from "../legalEntities/coverage";
+import { withDerivedApps } from "./derivedApps";
 import { resolveEffectivePermissions } from "./resolver";
 
 const ACCESS_ACTION = "access";
-// The Admin tool's resource key: derived into `apps` for a holder of `legal-entity:manage` (ADR
-// 20261117-an-app-is-reachable-through-a-capability-it-administers...).
-const ADMIN_APP = "admin";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -108,7 +108,8 @@ const getMeRoute = createRoute({
     "holds the `access` action on (AC-3.3). Absence of a (resource,action) " +
     "pair means no access (default-deny, AC-4.4). `admin` is also added when " +
     "the caller holds `legal-entity:manage` covering at least one entity (it opens the Admin tool, " +
-    "not the administrator-only APIs).",
+    "not the administrator-only APIs), and `accounting` when `accounting:read` or `accounting:manage` " +
+    "covers at least one entity (it opens the Accounting tool; accounting-api enforces every route).",
   responses: {
     200: {
       content: { "application/json": { schema: EffectivePermissionsSchema } },
@@ -150,16 +151,16 @@ authzRouter.openapi(getMeRoute, async (c) => {
     Effect.runPromise(resolveEffectivePermissions(userId)),
   ]);
 
-  const apps = permissions
+  const accessApps = permissions
     .filter((permission) => permission.action === ACCESS_ACTION)
     .map((permission) => permission.resource);
 
-  // Derived entry (specs/20261117-legal-entities, decision 5): a person who may manage at least one legal
-  // entity reaches the Admin tool without `admin:access`. Presentation only - the admin APIs keep
-  // `requireAdmin`. `/authz/resolve`, `/authz/app-access-check` and the directory filter do not derive it.
-  if (!apps.includes(ADMIN_APP) && adminAreaReachable(permissions, { entity: profile.entity })) {
-    apps.push(ADMIN_APP);
-  }
+  // Derived entries (ADR 20261117-an-app-is-reachable-through-a-capability-it-administers..., amended 2026-11-19):
+  // `admin` for a person who may manage at least one legal entity, `accounting` for one whose `accounting:read` or
+  // `accounting:manage` covers at least one. Presentation only - the admin APIs keep `requireAdmin`, accounting-api
+  // checks coverage on every route. `/authz/resolve`, `/authz/app-access-check` and the directory filter derive
+  // neither. The table and the rule live in `./derivedApps`.
+  const apps = withDerivedApps(accessApps, permissions, { entity: profile.entity });
 
   // Re-shape into plain (non-readonly) objects — the resolver's
   // `EffectivePermission`/`RuleConditions` types are `readonly` by design

@@ -376,3 +376,147 @@ describe("GET /authz/me — `admin` derived from legal-entity:manage (T4)", () =
     expect(await appsOf(user)).toEqual([]);
   });
 });
+
+// ─── The derived `accounting` entry (T2, specs/20261119-accounting — AC-8.1, AC-3.2) ──
+
+describe("GET /authz/me — `accounting` derived from accounting:read or accounting:manage (T2)", () => {
+  const ENTITY_CONDITION = { attributes: [{ key: "entity", match: "user" }] };
+
+  async function meOf(user: { id: string; email: string; name: string }) {
+    currentSession = asSession(user);
+    const { authzRouter } = await import("./authz.routes");
+    const res = await authzRouter.request("/authz/me");
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      apps: string[];
+      permissions: { resource: string; action: string; conditions: unknown }[];
+    };
+  }
+  const appsOf = async (user: { id: string; email: string; name: string }) => (await meOf(user)).apps;
+
+  async function withGrants(
+    label: string,
+    entity: string | null,
+    grants: { action: string; conditions?: Record<string, unknown>; resource?: string }[],
+  ) {
+    const user = await makeUser(label, entity);
+    const role = await makeRole(label);
+    for (const g of grants) await addRule(role.id, g.resource ?? "accounting", g.action, g.conditions);
+    await assignUserRole(user.id, role.id);
+    return user;
+  }
+
+  test("read only adds accounting, with no access grant", async () => {
+    const user = await withGrants("acc-read", "welld_ch", [{ action: "read", conditions: ENTITY_CONDITION }]);
+    expect(await appsOf(user)).toEqual(["accounting"]);
+  });
+
+  test("manage only adds accounting (manage includes read, AC-3.2)", async () => {
+    const user = await withGrants("acc-manage", "welld_it", [{ action: "manage", conditions: ENTITY_CONDITION }]);
+    expect(await appsOf(user)).toEqual(["accounting"]);
+  });
+
+  test("both add accounting once", async () => {
+    const user = await withGrants("acc-both", "welld_ch", [
+      { action: "read", conditions: ENTITY_CONDITION },
+      { action: "manage", conditions: ENTITY_CONDITION },
+    ]);
+    expect(await appsOf(user)).toEqual(["accounting"]);
+  });
+
+  test("an unconditioned grant adds accounting for a user with no entity", async () => {
+    const user = await withGrants("acc-uncond", null, [{ action: "read" }]);
+    expect(await appsOf(user)).toEqual(["accounting"]);
+  });
+
+  test("no grant, and a user with no accounting capability, get no accounting", async () => {
+    expect(await appsOf(await makeUser("acc-none", "welld_ch"))).toEqual([]);
+    const refundOnly = await withGrants("acc-refund-only", "welld_ch", [
+      { resource: "refund", action: "access" },
+      { resource: "request", action: "review", conditions: ENTITY_CONDITION },
+    ]);
+    expect(await appsOf(refundOnly)).toEqual(["refund"]);
+  });
+
+  test("a conditioned grant with the user's entity null adds nothing", async () => {
+    const read = await withGrants("acc-null-read", null, [{ action: "read", conditions: ENTITY_CONDITION }]);
+    const manage = await withGrants("acc-null-manage", null, [{ action: "manage", conditions: ENTITY_CONDITION }]);
+    expect(await appsOf(read)).toEqual([]);
+    expect(await appsOf(manage)).toEqual([]);
+  });
+
+  test("a conditioned grant with an entity outside the registry's adds nothing", async () => {
+    const user = await withGrants("acc-foreign", "CH", [{ action: "read", conditions: ENTITY_CONDITION }]);
+    expect(await appsOf(user)).toEqual([]);
+  });
+
+  test("an unknown condition adds nothing (fail closed), on read and on manage", async () => {
+    for (const [label, conditions] of [
+      ["ownership", { ownership: "own" }],
+      ["other-attribute", { attributes: [{ key: "department", match: "user" }] }],
+      ["entity-any", { attributes: [{ key: "entity", match: "any" }] }],
+    ] as const) {
+      const read = await withGrants(`acc-unk-read-${label}`, "welld_ch", [{ action: "read", conditions }]);
+      const manage = await withGrants(`acc-unk-manage-${label}`, "welld_ch", [{ action: "manage", conditions }]);
+      expect(await appsOf(read), `read ${label}`).toEqual([]);
+      expect(await appsOf(manage), `manage ${label}`).toEqual([]);
+    }
+  });
+
+  test("an unknown condition does not mask a recognised grant next to it", async () => {
+    const user = await withGrants("acc-mixed", "welld_it", [
+      { action: "manage", conditions: { ownership: "own" } },
+      { action: "read", conditions: ENTITY_CONDITION },
+    ]);
+    expect(await appsOf(user)).toEqual(["accounting"]);
+  });
+
+  test("other grants do not derive accounting: legal-entity, letterhead, refund settings, accounting:access", async () => {
+    const user = await withGrants("acc-others", "welld_ch", [
+      { resource: "legal-entity", action: "read" },
+      { resource: "letterhead", action: "manage" },
+      { resource: "settings", action: "manage" },
+      { action: "delete" },
+    ]);
+    expect(await appsOf(user)).toEqual([]);
+  });
+
+  test("other apps are unchanged and accounting is added after them, admin before accounting", async () => {
+    const user = await withGrants("acc-order", null, [
+      { resource: "legal-entity", action: "manage" },
+      { action: "manage" },
+    ]);
+    const role = await makeRole("acc-order-access");
+    await addRule(role.id, "estimai", "access");
+    await assignUserRole(user.id, role.id);
+    expect(await appsOf(user)).toEqual(["estimai", "admin", "accounting"]);
+  });
+
+  test("an administrator without the accounting capability does not get accounting from admin:access", async () => {
+    const admin = await withGrants("acc-admin-only", "welld_ch", [{ resource: "admin", action: "access" }]);
+    expect(await appsOf(admin)).toEqual(["admin"]);
+  });
+
+  test("a department-conferred grant derives accounting like a direct one", async () => {
+    const user = await makeUser("acc-dept", "welld_it");
+    const role = await makeRole("acc-dept");
+    await addRule(role.id, "accounting", "read", ENTITY_CONDITION);
+    const department = await makeDepartment("acc-dept");
+    await assignDepartmentRole(department.id, role.id);
+    await addUserToDepartment(user.id, department.id);
+    expect(await appsOf(user)).toEqual(["accounting"]);
+  });
+
+  test("the entry is derived only in `apps`: permissions list the grants as stored, no accounting:access appears", async () => {
+    const user = await withGrants("acc-perms", "welld_ch", [{ action: "read", conditions: ENTITY_CONDITION }]);
+    const body = await meOf(user);
+    expect(body.permissions).toEqual([{ resource: "accounting", action: "read", conditions: ENTITY_CONDITION }]);
+  });
+
+  test("a revoked grant removes accounting on the next call", async () => {
+    const user = await withGrants("acc-revoke", "welld_ch", [{ action: "manage", conditions: ENTITY_CONDITION }]);
+    expect(await appsOf(user)).toEqual(["accounting"]);
+    await db.userRole.deleteMany({ where: { userId: user.id } });
+    expect(await appsOf(user)).toEqual([]);
+  });
+});
