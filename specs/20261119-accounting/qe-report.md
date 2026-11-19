@@ -2,7 +2,7 @@
 spec: 20261119
 task: T46
 date: 2026-11-19
-verdict: FAIL
+verdict: PASS (after fix round 1; first pass FAIL at 99c0e863)
 tested: 99c0e863 (branch feat/accounting-module, T1-T45 done, T47's security-review.md already committed) plus the QE tests of this pass (7d7e435d and the two before it)
 ---
 
@@ -299,3 +299,41 @@ Checked and **right**: ports (8089 api, 5183 ui, 5185 e2e preview) and the datab
 - **T46 is not checked in `tasks.md`** (done-when requires PASS). `status` of the spec stays `approved`.
 - **Open items for the owner (T51):** the live e2e; the browser accessibility pass (record it in design.md "Browser accessibility pass" and note it here); T50's open questions are not a gate of this verdict.
 - **Spec bugs:** none found. D-6 asks the spec to say what a "blank" name and a "character" are; the plan's table was total over the 68 ACs and no AC needed a change to be testable.
+
+## Re-test after fix round 1 (T53 to T57; HEAD 8f81f897)
+
+Verdict: **PASS**. D-1 to D-6 and D-8's comment are closed or handled, no AC regressed, every gate is green. The live e2e and the browser accessibility pass stay PENDING (owner, T51), as before. The first pass above is kept as it was.
+
+| Check | Threshold | Actual | Result |
+|---|---|---|---|
+| accounting-api `bun test`, `tsc` | 0 fail, clean | 655 pass, 0 fail, 29 files (D-1 repro `catalog.keys.test.ts` green); also `--randomize --seed 424242`: 655 pass; on a database migrated from zero: 655 pass; tsc clean | ✓ |
+| refund-api `bun test`, `tsc` | 0 fail, clean | 1799 pass, 0 fail, 71 files; on a fresh database 1799 pass; tsc clean | ✓ |
+| refund-api `--randomize` seeds 424242 and 77 | 0 fail | 1799 pass, 0 fail, both seeds; `migration.accounting-move.test.ts` alone, seeds 1, 2, 3: 30 pass, 0 fail each | ✓ (D-5 closed) |
+| auth `bun test`, `tsc` | green | 1497 pass, 36 skip, 0 fail; clean | ✓ |
+| accounting-ui `tsc -b`, lint, vitest, build | green | clean, clean, 564 pass, builds | ✓ |
+| refund-ui `tsc -b`, lint, vitest, build | green | clean, clean, 1314 pass, builds | ✓ |
+| operai-ui typecheck, lint, test | green | clean, clean, 300 pass | ✓ |
+| shell build, lint, vitest | green | build, lint, 685 pass | ✓ |
+| shell e2e `tsc`; `playwright test --list` | clean; listed | clean; 238 tests in 53 files | ✓ |
+| `shared:check`, `react:skew`, `env:doctor`, `changeset:check` (local main and origin/main) | green | 34 groups in sync; 12 frontends one version; all checks passed; OK, OK | ✓ |
+| Migrations from zero, accounting and refund | no drift | applied; `migrate diff --exit-code` "No difference detected" for both | ✓ |
+| Secret scan of the delta 99c0e863..HEAD (2,572 added lines) | none | only fake test fixtures (`leak_user:leak_pw@127.0.0.1`, `user:secret@db.internal`, a test service secret) | ✓ |
+| Critical CVEs | 0 | no lockfile changed since the first pass; accounting-api 0 critical (2 high, 2 moderate via the prisma dev CLI); accounting-ui none | ✓ |
+| Live e2e, browser pass | green | not run (owner, T51) | PENDING |
+
+Closed, with the evidence:
+
+| id | Result |
+|---|---|
+| D-1 | closed. `%00` in a ledger number or VAT code key now answers 404 `not_found` on deactivate and reactivate (probed: 404, writes nothing); the 3 red tests are green. Non-vacuity: a mutant that makes the key check always true fails 2 of them (`isLedgerNumberKey`, `catalog.repo.ts`). |
+| D-2 | closed. `.changeset/accounting-module.md`, `AGENTS.md:194` and `accounting-api/README.md:65` now say `seed:welld-ch` is in the image and `accounting:release` is not; no remaining "not in the Docker image" about the seed. |
+| D-3 | closed. `.dockerignore` has `**/*.test.ts`, `**/test-support` and `**/fixtures`; comments and `infra/README.md` agree. Checked that nothing at runtime imports from `test-support` or `fixtures`, and `scripts/data` stays in. The full image build was not run (Docker Hub pull hung, as the caller said); I verified the pattern semantics last pass with a context-only build. |
+| D-4 | closed for `accountingWire`: `shared-copies.yml` lists both copies. Info, not reopened: the workflow lists only selected groups, so accounting-api's `systemAuth`, `problem` and `logger` copies are not listed, like the other services'. |
+| D-5 | closed: green with seeds 424242 and 77 on the whole suite and with seeds 1, 2, 3 on the file. |
+| D-6 | closed. Server: a name made only of U+200B, a bidi override, spaces or U+2800 is 422 `empty`; 70 emoji are accepted (201) and 121 refused `too_long` (code points). UI `lib/limits.ts` mirrors both. Non-vacuity: server mutants (blank rule reduced to `\s`; length back to UTF-16 units) are killed (10 and 1 tests), UI mutants (same two) are killed (17 and 3). |
+| D-7 | unchanged, not this feature. |
+| D-8 | design.md front matter and the axe.ts comment were not part of the round; still info. |
+
+New behaviour checked: the per-entity catalog cap (`catalog.cap.test.ts`, `catalog_full` 409; the add dialogs show their own en/it message, tests in both dialogs and `catalogApi`), `Cache-Control: no-store` on every user route (probed on list, add, `/v1/me`, errors and 404s) and, in refund-api, `no-store` and `nosniff` on the options, view and classification routes and the defaults routes (mutant removing it on the options route: 3 tests fail), the 2000-01 month floor (a pre-2000 line no longer fails the whole rates read; mutant at 1900-01: 4 tests fail), and the quiet Prisma client of the release script (a CLI test with fake credentials shows no host or path; mutant that logs again: 1 test fails).
+
+Defects after the round: none. T46 is checked in `tasks.md`.

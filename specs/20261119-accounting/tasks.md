@@ -732,7 +732,7 @@ Derived from these committed files:
 
 ## CLOSE — QE, security, eval, closing
 
-- [ ] T46: QE pass over all 68 ACs — refs: all ACs (nominal) — deps: T3, T15, T24, T25, T38, T41, T42, T43, T44, T45
+- [x] T46: QE pass over all 68 ACs — refs: all ACs (nominal) — deps: T3, T15, T24, T25, T38, T41, T42, T43, T44, T45
   - touch: `specs/20261119-accounting/qe-report.md`
   - agent: qe · release
   - Details: on :5445 only. Verify the moves kept history (`git log --follow` on one file per move
