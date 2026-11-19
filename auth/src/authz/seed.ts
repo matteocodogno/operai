@@ -113,6 +113,15 @@
  *      `purchase-order:bexio`). `projects` is registered once, here, never
  *      through `SUITE_APPS`.
  *
+ *  13. {@link seedAccountingCatalog} + {@link seedAccountingGrants}
+ *      (specs/20261119-accounting — AC-3.1, AC-3.3) — register the Accounting
+ *      catalog (`catalogs/accounting.ts`: `accounting:read` and `accounting:manage`,
+ *      entity-conditionable, NO `access` action) and attach its grants (`admin`
+ *      both unconditioned, the `accounting` role both entity-conditioned; no
+ *      other role). `accounting` is registered once, here, never through
+ *      `SUITE_APPS`, and is NOT in `ALL_APP_IDS` (that list feeds the per-app
+ *      `access` grant this catalog does not have).
+ *
  * A further, per-user concern — assigning the baseline `employee` role (and
  * `admin` for the configured bootstrap email) to every newly created user —
  * is NOT part of this deploy-time seed: it happens once per user, in
@@ -129,6 +138,7 @@ import { type AppCatalogInput, upsertAppCatalog } from "./catalog";
 import { ESTIMAI_CATALOG } from "./catalogs/estimai";
 import { CRM_APP_ID, CRM_CATALOG } from "./catalogs/crm";
 import { INVENTORY_APP_ID, INVENTORY_CATALOG } from "./catalogs/inventory";
+import { ACCOUNTING_APP_ID, ACCOUNTING_CATALOG } from "./catalogs/accounting";
 import { ADMIN_APP_ID, ADMIN_CATALOG } from "./catalogs/admin";
 import { LETTERHEADS_APP_ID, LETTERHEADS_CATALOG } from "./catalogs/letterheads";
 import { MEETINGS_APP_ID, MEETINGS_CATALOG } from "./catalogs/meetings";
@@ -286,6 +296,17 @@ export async function seedAdminCatalog(): Promise<void> {
 }
 
 /**
+ * Registers the Accounting module's catalog (specs/20261119-accounting — T1, AC-3.1): the
+ * `accounting` resource with `read` and `manage`, both entity-conditionable, and NO `access`
+ * action (the tool is reached through the derived `apps` entry, see `catalogs/accounting.ts`).
+ * Idempotent (full-replace upsert per `appId`). `accounting` is registered ONLY here, never via
+ * `SUITE_APPS`, and is deliberately absent from {@link ALL_APP_IDS}.
+ */
+export async function seedAccountingCatalog(): Promise<void> {
+  await upsertAppCatalog(ACCOUNTING_CATALOG);
+}
+
+/**
  * Every catalog a suite app declares itself (everything registered by a
  * `seed<App>Catalog` above; the access-only {@link SUITE_APPS} are separate).
  * `catalogs/uniqueResourceKeys.test.ts` checks no two of them share a resource
@@ -300,6 +321,7 @@ export const DECLARED_CATALOGS: readonly AppCatalogInput[] = [
   PROJECTS_CATALOG,
   LETTERHEADS_CATALOG,
   ADMIN_CATALOG,
+  ACCOUNTING_CATALOG,
 ];
 
 /**
@@ -978,6 +1000,46 @@ export async function seedLegalEntityGrants(): Promise<void> {
   await ensureGrant(adminRole.id, "legal-entity", "manage");
 }
 
+/**
+ * Seeds the Accounting role grants (specs/20261119-accounting — T1, AC-3.3):
+ *   - `admin` holds `accounting:read` and `accounting:manage`, UNCONDITIONED (every entity);
+ *   - the `accounting` role holds both, conditioned on the entity ({@link REFUND_ENTITY_CONDITION}),
+ *     as its Refund grants are.
+ * No other system role holds either: an administrator grants them in the Admin tool. There is no
+ * `accounting:access` to grant (see `catalogs/accounting.ts`).
+ *
+ * Idempotent and non-destructive, through {@link ensureGrant}: a rule that exists is never
+ * rewritten, so a hand-edited `accounting:manage` condition survives every re-seed. Both roles are
+ * upserted defensively so the seed is safe in any order.
+ */
+export async function seedAccountingGrants(): Promise<void> {
+  const adminRole = await db.role.upsert({
+    where: { name: ADMIN_ROLE_NAME },
+    update: {},
+    create: { name: ADMIN_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(adminRole.id, ACCOUNTING_APP_ID, "read");
+  await ensureGrant(adminRole.id, ACCOUNTING_APP_ID, "manage");
+
+  const accountingRole = await db.role.upsert({
+    where: { name: ACCOUNTING_ROLE_NAME },
+    update: {},
+    create: { name: ACCOUNTING_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(
+    accountingRole.id,
+    ACCOUNTING_APP_ID,
+    "read",
+    REFUND_ENTITY_CONDITION as Prisma.InputJsonValue,
+  );
+  await ensureGrant(
+    accountingRole.id,
+    ACCOUNTING_APP_ID,
+    "manage",
+    REFUND_ENTITY_CONDITION as Prisma.InputJsonValue,
+  );
+}
+
 /** Runs every deploy-time seed step (all idempotent). */
 export async function seed(): Promise<void> {
   await seedSystemRoles();
@@ -990,6 +1052,7 @@ export async function seed(): Promise<void> {
   await seedProjectsCatalog();
   await seedLetterheadsCatalog();
   await seedAdminCatalog();
+  await seedAccountingCatalog();
   await seedAdminRoleGrants();
   await seedAccountingRoleGrants();
   await seedRefundAdminRole();
@@ -1002,6 +1065,7 @@ export async function seed(): Promise<void> {
   await seedProjectsGrants();
   await seedLetterheadsGrants();
   await seedLegalEntityGrants();
+  await seedAccountingGrants();
   await ensureBootstrapAdmin();
 }
 
@@ -1084,6 +1148,7 @@ if (import.meta.main) {
           "+ CRM catalog + CRM grants + projects catalog + projects grants " +
           "+ letterheads catalog + letterheads grants " +
           "+ admin catalog + legal-entity grants " +
+          "+ accounting catalog + accounting grants " +
           "+ bootstrap admin",
       );
       process.exit(0);

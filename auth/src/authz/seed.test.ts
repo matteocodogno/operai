@@ -36,6 +36,7 @@ import { db } from "../lib/db";
 import { env } from "../lib/env";
 import { Prisma } from "../lib/generated/prisma/client";
 import { getAppCatalog } from "./catalog";
+import { ACCOUNTING_APP_ID } from "./catalogs/accounting";
 import { ADMIN_APP_ID } from "./catalogs/admin";
 import { CRM_APP_ID } from "./catalogs/crm";
 import { ESTIMAI_APP_ID } from "./catalogs/estimai";
@@ -58,6 +59,8 @@ import {
   CRM_TECHNICAL_ROLE_NAME,
   PROJECT_MANAGER_ROLE_NAME,
   seed,
+  seedAccountingCatalog,
+  seedAccountingGrants,
   seedAccountingRoleGrants,
   seedAdminCatalog,
   seedAdminRoleGrants,
@@ -1640,5 +1643,148 @@ describe("seedLegalEntityGrants (specs/20261117-legal-entities — AC-4.1)", () 
     expect(entityGrantFor(permissions, "legal-entity", "manage", { entity: null }, "CH")).toEqual({
       unconditioned: true,
     });
+  });
+});
+
+// ─── specs/20261119-accounting ───────────────────────────────────────────────────────
+
+describe("seedAccountingCatalog (specs/20261119-accounting — T1, AC-3.1)", () => {
+  test("registers the accounting catalog — accounting:read and accounting:manage with the entity condition, no access, idempotent", async () => {
+    await seedAccountingCatalog();
+    await seedAccountingCatalog();
+    const catalog = await getAppCatalog(ACCOUNTING_APP_ID);
+    const byResource = new Map(
+      catalog.resources.map((r) => [r.key, r.actions.map((a) => [a.key, a.supportedConditions])]),
+    );
+    expect([...byResource.keys()]).toEqual(["accounting"]);
+    expect([...(byResource.get("accounting") ?? [])].sort()).toEqual([
+      ["manage", ["entity"]],
+      ["read", ["entity"]],
+    ]);
+  });
+
+  test("accounting is outside SUITE_APPS and outside ALL_APP_IDS: admin gets no per-app `access` for it", () => {
+    expect(SUITE_APPS.some((app) => app.appId === ACCOUNTING_APP_ID)).toBe(false);
+    expect(ALL_APP_IDS).not.toContain(ACCOUNTING_APP_ID);
+  });
+
+  test("seed() leaves the accounting catalog in place (no second registration prunes it)", async () => {
+    await seed();
+    const catalog = await getAppCatalog(ACCOUNTING_APP_ID);
+    expect(catalog.resources.map((r) => r.key)).toEqual(["accounting"]);
+  });
+});
+
+describe("seedAccountingGrants (specs/20261119-accounting — T1, AC-3.3)", () => {
+  const ENTITY_CONDITION = { attributes: [{ key: "entity", match: "user" }] };
+
+  /** Every `accounting` rule, with the name of the role that holds it. */
+  const accountingRules = async () => {
+    const rules = await db.permissionRule.findMany({
+      where: { resource: ACCOUNTING_APP_ID },
+      include: { role: { select: { name: true } } },
+    });
+    return rules
+      .map((r) => ({ role: r.role.name, grant: `${r.resource}:${r.action}`, conditions: r.conditions }))
+      .sort((a, b) => `${a.role} ${a.grant}`.localeCompare(`${b.role} ${b.grant}`));
+  };
+
+  async function clearGrants() {
+    await db.permissionRule.deleteMany({ where: { resource: ACCOUNTING_APP_ID } });
+  }
+  beforeEach(clearGrants);
+  afterAll(async () => {
+    await clearGrants();
+    await seedAccountingGrants();
+  });
+
+  test("admin holds both actions unconditioned and the accounting role both entity-conditioned", async () => {
+    await seedSystemRoles();
+    await seedAccountingGrants();
+    const rules = await accountingRules();
+    expect(rules.map((r) => `${r.role} ${r.grant}`)).toEqual([
+      `${ACCOUNTING_ROLE_NAME} accounting:manage`,
+      `${ACCOUNTING_ROLE_NAME} accounting:read`,
+      `${ADMIN_ROLE_NAME} accounting:manage`,
+      `${ADMIN_ROLE_NAME} accounting:read`,
+    ]);
+    for (const rule of rules) {
+      if (rule.role === ADMIN_ROLE_NAME) expect(rule.conditions).toBeNull();
+      else expect(rule.conditions).toEqual(ENTITY_CONDITION);
+    }
+  });
+
+  test("seed() twice: no duplicate rows, and no other system role holds either action", async () => {
+    await seed();
+    await seed();
+    const rules = await accountingRules();
+    expect(rules).toHaveLength(4);
+    expect([...new Set(rules.map((r) => r.role))].sort()).toEqual([ACCOUNTING_ROLE_NAME, ADMIN_ROLE_NAME].sort());
+    for (const role of SYSTEM_ROLE_NAMES.filter((n) => n !== ADMIN_ROLE_NAME && n !== ACCOUNTING_ROLE_NAME)) {
+      expect(rules.some((r) => r.role === role)).toBe(false);
+    }
+  });
+
+  test("there is no accounting:access rule for any role, admin included", async () => {
+    await seed();
+    expect((await accountingRules()).some((r) => r.grant === "accounting:access")).toBe(false);
+  });
+
+  test("a re-seed leaves a hand-edited accounting:manage rule unchanged (non-destructive)", async () => {
+    await seedSystemRoles();
+    await seedAccountingGrants();
+    const accountingRole = await db.role.findUniqueOrThrow({ where: { name: ACCOUNTING_ROLE_NAME } });
+    const adminRole = await db.role.findUniqueOrThrow({ where: { name: ADMIN_ROLE_NAME } });
+    // An administrator widened the accounting role's manage to every entity, and narrowed admin's to own entity.
+    await db.permissionRule.updateMany({
+      where: { roleId: accountingRole.id, resource: ACCOUNTING_APP_ID, action: "manage" },
+      data: { conditions: Prisma.DbNull },
+    });
+    await db.permissionRule.updateMany({
+      where: { roleId: adminRole.id, resource: ACCOUNTING_APP_ID, action: "manage" },
+      data: { conditions: ENTITY_CONDITION },
+    });
+    await seedAccountingGrants();
+    await seed();
+    const manage = (await accountingRules()).filter((r) => r.grant === "accounting:manage");
+    expect(manage).toHaveLength(2);
+    expect(manage.find((r) => r.role === ACCOUNTING_ROLE_NAME)?.conditions).toBeNull();
+    expect(manage.find((r) => r.role === ADMIN_ROLE_NAME)?.conditions).toEqual(ENTITY_CONDITION);
+  });
+
+  test("a removed rule is recreated, and only that one", async () => {
+    await seedSystemRoles();
+    await seedAccountingGrants();
+    await db.permissionRule.deleteMany({
+      where: { resource: ACCOUNTING_APP_ID, action: "read", role: { name: ACCOUNTING_ROLE_NAME } },
+    });
+    await seedAccountingGrants();
+    const rules = await accountingRules();
+    expect(rules).toHaveLength(4);
+    expect(rules.find((r) => r.role === ACCOUNTING_ROLE_NAME && r.grant === "accounting:read")?.conditions).toEqual(
+      ENTITY_CONDITION,
+    );
+  });
+
+  test("the grants resolve as seeded: admin covers every entity, the accounting role only its own", async () => {
+    await seedSystemRoles();
+    await seedAccountingGrants();
+    const toPermissions = async (roleName: string) =>
+      (await db.permissionRule.findMany({ where: { role: { name: roleName }, resource: ACCOUNTING_APP_ID } })).map(
+        (r) => ({ resource: r.resource, action: r.action, conditions: toRuleConditions(r.conditions) }),
+      );
+    const admin = await toPermissions(ADMIN_ROLE_NAME);
+    for (const action of ["read", "manage"]) {
+      expect(entityGrantFor(admin, ACCOUNTING_APP_ID, action, { entity: null }, "CH")).toEqual({ unconditioned: true });
+      expect(entityGrantFor(admin, ACCOUNTING_APP_ID, action, { entity: null }, "IT")).toEqual({ unconditioned: true });
+    }
+    const accounting = await toPermissions(ACCOUNTING_ROLE_NAME);
+    for (const action of ["read", "manage"]) {
+      expect(entityGrantFor(accounting, ACCOUNTING_APP_ID, action, { entity: "CH" }, "CH")).toEqual({
+        unconditioned: false,
+      });
+      expect(entityGrantFor(accounting, ACCOUNTING_APP_ID, action, { entity: "CH" }, "IT")).toBeNull();
+      expect(entityGrantFor(accounting, ACCOUNTING_APP_ID, action, { entity: null }, "CH")).toBeNull();
+    }
   });
 });
