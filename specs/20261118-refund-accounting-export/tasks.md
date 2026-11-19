@@ -527,7 +527,7 @@ Reading the list:
 
 ## End-to-end
 
-- [ ] T31: shell/e2e — settings journey: admin adds an account and a VAT code, sets a default and the foreign-currency VAT code, corrects a rate — refs: AC-1.1, AC-1.9, AC-2.1, AC-2.5, AC-5.2, AC-5.3 — deps: T2, T6, T7, T10, T11, T24, T25, T26
+- [x] T31: shell/e2e — settings journey: admin adds an account and a VAT code, sets a default and the foreign-currency VAT code, corrects a rate — refs: AC-1.1, AC-1.9, AC-2.1, AC-2.5, AC-5.2, AC-5.3 — deps: T2, T6, T7, T10, T11, T24, T25, T26
   - touch: `shell/e2e/refund-accounting-settings.spec.ts`, `shell/e2e/helpers/refundFixtures.ts`
   - agent: qe · e2e
   - Details:
@@ -535,6 +535,13 @@ Reading the list:
     - Fixtures: the release marker comes from global setup (T12); `REFUND_FX_SOURCE=off` in e2e,
       rates typed by hand.
   - done when: `cd shell && pnpm e2e refund-accounting-settings` passes.
+  - Status (2026-11-19, unattended run): written and statically verified; live run pending (owner).
+    Not run because the e2e stack uses fixed ports on the shared dev Postgres and 1Password secrets,
+    both off limits in that run. Verified: `tsc -p tsconfig.e2e.json --noEmit` clean, eslint clean on
+    the three files, `playwright test --list` lists the journey. Owner: run the `done when` command
+    against the e2e stack (`REFUND_FX_SOURCE=off`) and check the box again if it fails.
+    Added to `helpers/refundFixtures.ts` (in `touch:`): `freshToken`, catalog/default/rate API
+    helpers, `snapshotAccountingDefaults` (puts defaults back), `parseAccountingCsv` (also T32).
 
 - [ ] T32: shell/e2e — accounting journey: submit CHF + EUR CH lines → review shows defaults → change a VAT code → approve → employee sees numbers → compile → export CSV parsed — refs: AC-3.1, AC-3.3, AC-3.4, AC-4.9, AC-6.1, AC-6.2, AC-6.3, AC-6.4 — deps: T12, T14, T15, T18, T27, T28, T29, T30, T31
   - touch: `shell/e2e/refund-accounting.spec.ts`, `shell/e2e/helpers/refundFixtures.ts`
