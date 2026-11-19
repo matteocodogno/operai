@@ -26,10 +26,47 @@ process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["NODE_ENV"] = "test";
 
-const { insertFetchedRate, effectiveEntry, listEntriesFor } = await import("../fx/fx.repo");
-
 type Origin = "fetched" | "corrected";
 type RateCurrency = "EUR" | "USD" | "GBP";
+
+// T10/T11 (specs/20261119-accounting) moved the fx repo to accounting-api, so this file no longer imports it. What it
+// used the repo for is written out here, as the same two statements the repo ran: the insert that records a fetched
+// rate (`createMany` with `skipDuplicates`, i.e. ON CONFLICT DO NOTHING on the partial unique index) and the reading of
+// the rate in effect (the latest corrected row, else the fetched one). The assertions are unchanged. This file goes
+// with the table in T24.
+const monthToDate = (month: string): Date => new Date(`${month}-01T00:00:00.000Z`);
+
+async function insertFetchedRate(
+  input: { currency: RateCurrency; month: string; rateMicros: number; sourceUrl: string; sourceMonth: string; fetchedAt: Date },
+): Promise<boolean> {
+  const { count } = await db.exchangeRateEntry.createMany({
+    data: [
+      {
+        currency: input.currency,
+        month: monthToDate(input.month),
+        rateMicros: input.rateMicros,
+        origin: "fetched",
+        sourceUrl: input.sourceUrl,
+        sourceMonth: input.sourceMonth,
+        fetchedAt: input.fetchedAt,
+        createdByUserId: "system:fx-fetch",
+        createdByEmail: "system-fx-fetch@welld.ch",
+        createdAt: input.fetchedAt,
+      },
+    ],
+    skipDuplicates: true,
+  });
+  return count === 1;
+}
+
+/** The rate in effect of one (currency, month): the latest corrected row, else the fetched one, else null. */
+async function inEffect(currency: RateCurrency, month: string) {
+  const rows = await db.exchangeRateEntry.findMany({
+    where: { currency, month: monthToDate(month) },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  return rows.filter((r) => r.origin === "corrected").at(-1) ?? rows.find((r) => r.origin === "fetched") ?? null;
+}
 
 let n = 0;
 /** One raw INSERT into `exchange_rate_entry`. `month` is `YYYY-MM-DD`. */
@@ -135,7 +172,7 @@ describe("a second fetched row for the same (currency, month) is refused (AC-5.1
     expect(await count({ origin: "fetched" })).toBe(1);
   });
 
-  it("the fx repo's own insert under the same race: one `true`, the rest `false`, nothing thrown, one row", async () => {
+  it("the repo's insert (ON CONFLICT DO NOTHING) under the same race: one `true`, the rest `false`, nothing thrown, one row", async () => {
     const input = (i: number) => ({
       currency: "EUR" as const,
       month: "2026-03",
@@ -144,7 +181,7 @@ describe("a second fetched row for the same (currency, month) is refused (AC-5.1
       sourceMonth: "2026-03",
       fetchedAt: new Date("2026-04-10T08:00:00.000Z"),
     });
-    const results = await Promise.all(Array.from({ length: 12 }, (_, i) => insertFetchedRate(db, input(i))));
+    const results = await Promise.all(Array.from({ length: 12 }, (_, i) => insertFetchedRate(input(i))));
     expect(results.filter(Boolean)).toHaveLength(1);
     expect(await count({ origin: "fetched" })).toBe(1);
     // The winner is whoever got there first; what matters is that the stored value is one of the offered ones, unchanged by the losers.
@@ -152,7 +189,7 @@ describe("a second fetched row for the same (currency, month) is refused (AC-5.1
     const stored = row!.rateMicros;
     expect(stored).toBeGreaterThanOrEqual(924_600);
     expect(stored).toBeLessThan(924_612);
-    expect(await insertFetchedRate(db, input(500))).toBe(false);
+    expect(await insertFetchedRate(input(500))).toBe(false);
     expect((await db.exchangeRateEntry.findMany())[0]!.rateMicros).toBe(stored);
   });
 });
@@ -177,7 +214,7 @@ describe("a corrected row is never limited", () => {
   it("the correction stays in effect when the fetch arrives after it (AC-5.4)", async () => {
     await rawInsert("corrected", { rateMicros: 930_000 });
     expect(
-      await insertFetchedRate(db, {
+      await insertFetchedRate({
         currency: "EUR",
         month: "2026-03",
         rateMicros: 924_600,
@@ -186,7 +223,6 @@ describe("a corrected row is never limited", () => {
         fetchedAt: new Date("2026-04-10T08:00:00.000Z"),
       }),
     ).toBe(true);
-    const inEffect = effectiveEntry(await listEntriesFor(db, "EUR", "2026-03"));
-    expect(inEffect).toMatchObject({ origin: "corrected", rateMicros: 930_000 });
+    expect(await inEffect("EUR", "2026-03")).toMatchObject({ origin: "corrected", rateMicros: 930_000 });
   });
 });
