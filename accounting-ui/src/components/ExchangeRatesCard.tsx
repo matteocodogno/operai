@@ -1,78 +1,68 @@
 /**
- * ExchangeRatesCard — the monthly CHF exchange rates (specs/20261118-refund-accounting-export, design S5, F8, UX-10,
- * UX-11; AC-5.2, AC-5.3, AC-5.5, AC-5.6, AC-5.7).
+ * ExchangeRatesCard — one entity's monthly exchange rates (moved from refund-ui, where it listed WellD CH's CHF rates only;
+ * specs/20261119-accounting, design AS5, FA7, FA8, FA9, UX-8 to UX-11, UX-13, UX-15; AC-2.3 to AC-2.5, AC-2.7 to AC-2.9, AC-2.11,
+ * AC-7.3, AC-8.4).
  *
- * A table of months (newest first) by EUR, USD and GBP. A cell is the rate exactly as the server displays it
- * (mono), where it came from (*Fetched* / *Corrected*) and, for people with `settings:manage`, **Correct**; a month
- * the source never published is a *Missing* badge, with **Correct** so an administrator can type one. A **History**
- * icon button opens the shared change-history drawer for that one rate. The last fetch is always stated.
+ * A table of months (newest first) by the entity's currencies (EUR, USD and GBP for WellD CH). A cell is the rate exactly as the
+ * server displays it (mono), where it came from (*Fetched* / *Corrected*) and, with `canManage` (`/v1/me`'s, for the displayed
+ * entity), **Correct**; a month the source never published is a *Missing* badge (never an estimate from another month,
+ * AC-2.7), with **Correct** so a manager can type one. There is no history drawer and no per-cell history button (UX-8), no who
+ * and no when (D18). A **Source** fact says where the rates come from and **Last fetch** states its OUTCOME in words, not only a
+ * time (UX-9, closing A-7 of 20261118).
  *
- *   - Auto-fetch. When the GET says `fetchDue` and the user can manage, the card fetches ONCE per visit (this
- *     component mounts only while its tab is open): never again, also after a failure. It reports in a polite
- *     status line and banners and never moves focus; the table stays usable throughout.
- *   - Fetch now (manage) runs the same fetch on demand. A source failure is a 200 with `outcome: "failed"`, not an
- *     HTTP error: the rates already recorded are untouched and the failure stays on screen as a persistent,
- *     non-dismissible warning, derived from the server's `lastFetch`, until a later fetch succeeds (AC-5.6).
- *   - Deep link. `month` (`&month=YYYY-MM`, from the export's missing-rate blocker) puts focus on that row's header
- *     when the table first appears; a month outside the window is ignored.
+ *   - No official source (`source: null`, WellD Italia, AC-2.11, UX-13). A `StatePanel` says so: no table, no Fetch now, no
+ *     last-fetch fact, no auto-fetch, the same for a reader and a manager. It is NOT the lists' "nothing entered yet".
+ *   - Auto-fetch. When the GET says `fetchDue` and the person can manage, the card fetches ONCE per mount (per visit: the page
+ *     keys it by entity): never again, also after a failure. It reports in the polite status line and banners and never moves
+ *     focus; the table stays usable throughout. The request carries no `trigger`: the server derives who asks (D4).
+ *   - Fetch now (manage) runs the same fetch on demand and reports what happened: how many months were recorded, nothing new,
+ *     a month not published yet, throttled, more months to fetch, switched off, or the failure. A source failure is a 200 with
+ *     `outcome: "failed"`, not an HTTP error: the rates already recorded are untouched and the failure stays on screen as a
+ *     persistent, non-dismissible warning, derived from the server's `lastFetch`, until a later fetch succeeds (AC-2.8). Readers
+ *     see it too.
+ *   - Deep link. `month` (`&month=YYYY-MM`, the AC-7.3 link from Refund's export blocker) puts focus on that row's header when the
+ *     table first appears. A month that is not in the table says so in the polite status (UX-11): the link is never a dead end.
  *
- * Dialogs and the drawer are mounted beside the card (ADR 20261118 dialog-beside-form). Without `settings:manage` the
- * card is read-only; a 403 that arrives anyway leaves it out (UX-9).
+ * Exactly one state at a time: loading, denied (403 replaces the view), failed (the ladder, UX-15), no source, empty ("No months
+ * to show yet"), loaded. A list answering 404 and a write answering 403 reach the frame. The dialog is mounted beside the card
+ * (ADR 20261118 dialog-beside-form).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import {
-  Badge,
-  Banner,
-  Button,
-  Card,
-  DataTable,
-  FactList,
-  Icon,
-  SkeletonRows,
-  StatePanel,
-  StatusBadge,
-  VisuallyHidden,
-  formatDateTime,
-} from '@operai/ui'
+import { Badge, Banner, Button, Card, DataTable, FactList, Icon, StatePanel, StatusBadge, formatDateTime } from '@operai/ui'
 import type { DataTableColumn } from '@operai/ui'
-import { strings } from '../../strings'
-import { fetchExchangeRates, listExchangeRates } from '../../lib/exchangeRatesApi'
-import type {
-  ExchangeRateMonth,
-  ExchangeRates,
-  FetchResult,
-  LastFetch,
-  RateCurrency,
-  RateHistoryEntry,
-} from '../../lib/exchangeRatesApi'
-import { monthLabel } from '../../lib/monthLabel'
-import { ApiError } from '../../lib/refundApi'
-import { RATE_MISSING_MEANING } from '../../lib/statusMeaning'
-import { useLoadedResource } from '../../lib/useLoadedResource'
-import ChangeHistoryDrawer from '../ChangeHistoryDrawer'
-import ErrorBanner from '../ErrorBanner'
-import SuccessBanner from '../SuccessBanner'
+import { useLoadedResource } from '../hooks/useLoadedResource'
+import { ApiError } from '../lib/api'
+import { fetchExchangeRates, listExchangeRates } from '../lib/exchangeRatesApi'
+import type { ExchangeRateMonth, ExchangeRates, FetchResult, LastFetch, RateCurrency } from '../lib/exchangeRatesApi'
+import { statusOf } from '../lib/errors'
+import type { EntityId } from '../lib/meApi'
+import { monthLabel } from '../lib/monthLabel'
+import { RATE_MISSING_MEANING } from '../lib/statusMeaning'
+import { strings } from '../strings'
+import { LoadFailure, Loading } from './LoadState'
+import PermissionDenied from './PermissionDenied'
 import RateCorrectionDialog from './RateCorrectionDialog'
+import { Saved } from './Saved'
 
-const t = strings.settings.fx
-const tc = strings.settings.catalog
-const th = strings.settings.history
-
-const CURRENCIES: readonly RateCurrency[] = ['EUR', 'USD', 'GBP']
+const t = strings.fx
 
 export type ExchangeRatesCardProps = {
-  /** `settings:manage`: Fetch now and Correct are offered (and the auto-fetch runs). */
+  entity: EntityId
+  /** `/v1/me`'s `canManage` for this entity: Fetch now and Correct are offered (and the auto-fetch runs). */
   canManage: boolean
   /** `&month=YYYY-MM` deep link: focus that row's header when the table first appears. */
   month?: string
+  /** The list answered 404: this entity is not covered any more (UX-12). */
+  onEntityGone: () => void
+  /** A write answered 403: re-read `/v1/me` (UX-15, AC-3.4). */
+  onWriteRefused: () => void
 }
 
 type Target = { month: string; currency: RateCurrency }
 
-const buttonId = (target: Target, purpose: 'correct' | 'history'): string =>
-  `${purpose}:${target.month}:${target.currency}`
+const buttonId = (target: Target): string => `${target.month}:${target.currency}`
 
 /** The plain reason of a failed fetch, from the API's error code (`timeout`, `http_<status>`, `parse`, …). */
 const reasonText = (errorCode: string | null): string => {
@@ -102,23 +92,56 @@ const confirmationOf = (result: FetchResult): string | null => {
   return explained ? null : t.nothingNew
 }
 
-export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCardProps) {
-  const resource = useLoadedResource(() => listExchangeRates())
+const lastFetchText = (lastFetch: LastFetch | null): string => {
+  if (lastFetch === null) return t.lastFetch.never
+  const at = formatDateTime(lastFetch.at)
+  switch (lastFetch.outcome) {
+    case 'ok':
+      return t.lastFetch.ok(at)
+    case 'failed':
+      return t.lastFetch.failed(at)
+    case 'disabled':
+      return t.lastFetch.disabled(at)
+    case 'throttled':
+      return t.lastFetch.throttled(at)
+    case 'not_fetchable':
+      return t.lastFetch.notFetchable(at)
+  }
+}
+
+export default function ExchangeRatesCard({ entity, canManage, month, onEntityGone, onWriteRefused }: ExchangeRatesCardProps) {
+  const resource = useLoadedResource(() => listExchangeRates(entity))
   const { replace, reload } = resource
+  const entityName = strings.entity[entity]
   // Which fetch is running: the one-per-visit automatic check or a press of Fetch now.
   const [fetching, setFetching] = useState<'auto' | 'manual' | null>(null)
   const [notices, setNotices] = useState<FetchNotices>(NO_NOTICES)
   const [success, setSuccess] = useState<string | null>(null)
   const [correcting, setCorrecting] = useState<Target | null>(null)
-  const [history, setHistory] = useState<Target | null>(null)
-  // The icon buttons that open a dialog or the drawer, and a request to focus one (a new object each time).
+  // The Correct buttons, and a request to focus one (a new object each time): the dialog's opener gets focus back.
   const buttons = useRef(new Map<string, HTMLButtonElement>())
   const [focusRequest, setFocusRequest] = useState<{ id: string } | null>(null)
   const autoFetchStarted = useRef(false)
 
+  // The frame's callbacks are read through refs: their identity changes with every `/v1/me` re-read, and a changed identity
+  // must not start a request again.
+  const goneRef = useRef(onEntityGone)
+  const refusedRef = useRef(onWriteRefused)
+  useEffect(() => {
+    goneRef.current = onEntityGone
+    refusedRef.current = onWriteRefused
+  })
+
   useEffect(() => {
     if (focusRequest) buttons.current.get(focusRequest.id)?.focus()
   }, [focusRequest])
+
+  // A list that answers 404: a grant narrowed during the session. The frame re-reads `/v1/me` and falls back, once per answer.
+  const failure = resource.status === 'error' ? resource.error : null
+  const gone = failure !== null && statusOf(failure) === 404
+  useEffect(() => {
+    if (gone) goneRef.current()
+  }, [gone, failure])
 
   const runFetch = useCallback(
     async (kind: 'auto' | 'manual') => {
@@ -127,21 +150,22 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
       setSuccess(null)
       let result: FetchResult
       try {
-        // Which fetch it is goes in the server's attempt log (the view's automatic one, or an administrator's).
-        result = await fetchExchangeRates(undefined, kind === 'auto' ? 'settings_view' : 'admin')
+        result = await fetchExchangeRates(entity)
       } catch (error) {
         setFetching(null)
-        setNotices({
-          ...NO_NOTICES,
-          error: error instanceof ApiError && error.status === 403 ? tc.forbidden : t.fetchError,
-        })
+        const status = error instanceof ApiError ? error.status : null
+        if (status === 403) refusedRef.current()
+        if (status === 404) goneRef.current()
+        // 422 `no_rate_source` (the entity lost its source meanwhile): the list says so when it is read again.
+        if (error instanceof ApiError && error.code === 'no_rate_source') reload()
+        setNotices({ ...NO_NOTICES, error: status === 403 ? strings.common.forbidden : t.fetchError })
         return
       }
-      // The attempt is the new "last fetch" at once (a failure is a 200 with outcome "failed"); the months follow
-      // from the server when something was recorded.
+      // The attempt is the new "last fetch" at once (a failure is a 200 with outcome "failed"); the months follow from the
+      // server when something was recorded.
       replace((current) => ({ ...current, lastFetch: result.lastFetch }))
       if (recordedSomething(result)) reload()
-      const deferred = result.deferredMonths?.length ?? 0
+      const deferred = result.deferredMonths.length
       setNotices({
         notes: [
           ...result.attempts
@@ -149,7 +173,7 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
             .map((attempt) => t.notFetchable(monthLabel(attempt.month))),
           // Asked again within 15 minutes: nothing was written, which is information and not an error.
           ...(result.attempts.some((attempt) => attempt.outcome === 'throttled') ? [t.throttled] : []),
-          // Only six months are fetched per call: say that more remain.
+          // Only a few months are fetched per call: say that more remain.
           ...(deferred > 0 ? [t.deferred(deferred)] : []),
         ],
         disabled: result.attempts.some((attempt) => attempt.outcome === 'disabled'),
@@ -158,7 +182,7 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
       setSuccess(confirmationOf(result))
       setFetching(null)
     },
-    [replace, reload],
+    [entity, replace, reload],
   )
 
   const fetchDue = resource.status === 'loaded' && resource.data.fetchDue
@@ -170,12 +194,13 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
     void Promise.resolve().then(() => runFetch('auto'))
   }, [canManage, fetchDue, runFetch])
 
-  // A 403 that arrives anyway: the card is left out (UX-9).
-  if (resource.status === 'forbidden') return null
+  // Denied replaces the view: here the card IS the page, so leaving it out would say nothing (AS5).
+  if (resource.status === 'forbidden') return <PermissionDenied />
 
   const data: ExchangeRates | null = resource.status === 'loaded' ? resource.data : null
-  const rowOf = (target: Target | null): ExchangeRateMonth | null =>
-    target === null ? null : (data?.months.find((row) => row.month === target.month) ?? null)
+  const hasSource = data !== null && data.source !== null
+  const listed = month !== undefined && data !== null && data.months.some((row) => row.month === month)
+  const unlistedMonth = month !== undefined && hasSource && !listed ? month : null
 
   const register = (id: string) => (node: HTMLButtonElement | null) => {
     if (node) buttons.current.set(id, node)
@@ -184,20 +209,19 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
 
   const closeCorrection = (target: Target) => {
     setCorrecting(null)
-    setFocusRequest({ id: buttonId(target, 'correct') })
-  }
-  const closeHistory = (target: Target) => {
-    setHistory(null)
-    setFocusRequest({ id: buttonId(target, 'history') })
+    setFocusRequest({ id: buttonId(target) })
   }
 
-  const handleSaved = (saved: ExchangeRateMonth, target: Target) => {
-    replace((current) => ({
-      ...current,
-      months: current.months.map((row) => (row.month === saved.month ? saved : row)),
-    }))
+  const handleSaved = (row: ExchangeRateMonth | null, target: Target) => {
     setNotices(NO_NOTICES)
-    setSuccess(t.correction.saved(target.currency, monthLabel(target.month)))
+    if (row === null) {
+      // The server recorded nothing (the rate is the one in effect): nothing to confirm, read the list again.
+      setSuccess(null)
+      reload()
+    } else {
+      replace((current) => ({ ...current, months: current.months.map((other) => (other.month === row.month ? row : other)) }))
+      setSuccess(t.correction.saved(target.currency, monthLabel(target.month)))
+    }
     closeCorrection(target)
   }
 
@@ -207,7 +231,7 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
     const label = monthLabel(row.month)
     const correct = canManage && (
       <Button
-        ref={register(buttonId(target, 'correct'))}
+        ref={register(buttonId(target))}
         size="sm"
         variant="ghost"
         iconOnly
@@ -215,7 +239,7 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
         aria-label={t.correctLabel(currency, label)}
         title={t.correct}
         onClick={() => setCorrecting(target)}
-        data-testid={`settings-fx-correct-${row.month}-${currency}`}
+        data-testid={`accounting-fx-correct-${row.month}-${currency}`}
       >
         <Icon name="pencil" />
       </Button>
@@ -227,9 +251,9 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
           role="group"
           aria-label={t.cellMissingLabel(currency, label)}
           className="flex flex-wrap items-center gap-1.5"
-          data-testid={`settings-fx-cell-${row.month}-${currency}`}
+          data-testid={`accounting-fx-cell-${row.month}-${currency}`}
         >
-          <StatusBadge status={RATE_MISSING_MEANING}>{t.missing}</StatusBadge>
+          <StatusBadge status={RATE_MISSING_MEANING}>{t.origin.missing}</StatusBadge>
           {correct}
         </div>
       )
@@ -241,31 +265,18 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
         role="group"
         aria-label={t.cellLabel(currency, label, rate.rate, origin)}
         className="flex flex-wrap items-center gap-1.5"
-        data-testid={`settings-fx-cell-${row.month}-${currency}`}
+        data-testid={`accounting-fx-cell-${row.month}-${currency}`}
       >
         <span className="font-mono tabular-nums">{rate.rate}</span>
         <Badge tone={rate.status === 'corrected' ? 'accent' : 'neutral'}>{origin}</Badge>
         {correct}
-        <Button
-          ref={register(buttonId(target, 'history'))}
-          size="sm"
-          variant="ghost"
-          iconOnly
-          aria-haspopup="dialog"
-          aria-label={th.openLabel(t.historyLabel(currency, label))}
-          title={th.open}
-          onClick={() => setHistory(target)}
-          data-testid={`settings-fx-history-${row.month}-${currency}`}
-        >
-          <Icon name="clock" />
-        </Button>
       </div>
     )
   }
 
   const columns: DataTableColumn<ExchangeRateMonth>[] = [
     { id: 'month', header: t.columns.month, rowHeader: true, render: (row) => monthLabel(row.month) },
-    ...CURRENCIES.map(
+    ...(data?.currencies ?? []).map(
       (currency): DataTableColumn<ExchangeRateMonth> => ({
         id: currency,
         header: currency,
@@ -275,72 +286,87 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
   ]
 
   const lastFetch: LastFetch | null = data?.lastFetch ?? null
-  const lastFetchValue =
-    lastFetch === null
-      ? t.lastFetch.never
-      : lastFetch.outcome === 'not_fetchable'
-        ? t.lastFetch.notFetchable(formatDateTime(lastFetch.at))
-        : t.lastFetch[lastFetch.outcome](formatDateTime(lastFetch.at))
   const showDisabled = notices.disabled || lastFetch?.outcome === 'disabled'
+  const sourceName = data?.source?.name === 'bazg' ? t.source.bazg : (data?.source?.name ?? '')
 
-  const correctingRow = rowOf(correcting)
+  const correctingRow = correcting === null ? null : (data?.months.find((row) => row.month === correcting.month) ?? null)
   const correctingRate = correctingRow && correcting ? correctingRow.rates[correcting.currency] : undefined
-  const historyRow = rowOf(history)
-  const historyRate = historyRow && history ? historyRow.rates[history.currency] : undefined
 
   return (
     <>
       <Card
-        title={t.title}
-        data-testid="settings-fx-card"
+        title={t.title(entityName)}
+        data-testid="accounting-fx-card"
         action={
-          canManage && (
+          canManage && hasSource ? (
             <Button
               size="sm"
               busy={fetching === 'manual'}
               disabled={fetching === 'auto'}
               onClick={() => void runFetch('manual')}
-              data-testid="settings-fx-fetch-now"
+              data-testid="accounting-fx-fetch-now"
             >
               {fetching === 'manual' ? t.fetching : t.fetchNow}
             </Button>
-          )
+          ) : undefined
         }
       >
-        <p className="text-sm text-soft mb-4">{t.description}</p>
-
-        {resource.status === 'loading' && (
+        {data !== null && hasSource && (
           <>
-            <VisuallyHidden live>{t.loading}</VisuallyHidden>
-            <SkeletonRows rows={4} testId="skeleton-list-rows" />
+            <p className="text-sm text-soft mb-4">{t.description(data.ownCurrency)}</p>
+            {!canManage && (
+              <p className="text-sm text-soft mb-4" data-testid="accounting-fx-read-only">
+                {strings.common.readOnly(strings.common.readOnlyWhat.rates)}
+              </p>
+            )}
           </>
         )}
 
-        {resource.status === 'error' && <ErrorBanner message={t.loadError} onRetry={resource.reload} />}
+        {/* One polite region, mounted before anything is said in it: the automatic check and the unlisted deep-link month. */}
+        <div role="status" className="flex flex-col gap-1" data-testid="accounting-fx-status">
+          {fetching === 'auto' && (
+            <p className="text-sm text-soft" data-testid="accounting-fx-checking">
+              {t.checking}
+            </p>
+          )}
+          {unlistedMonth !== null && (
+            <p className="text-sm text-soft" data-testid="accounting-fx-deeplink-note">
+              {t.deepLink.notListed(monthLabel(unlistedMonth))}
+            </p>
+          )}
+        </div>
 
-        {data && (
+        {resource.status === 'loading' && <Loading label={t.loading} rows={4} />}
+
+        {resource.status === 'error' && <LoadFailure error={resource.error} onRetry={resource.reload} message={t.loadError} />}
+
+        {data !== null && !hasSource && (
+          // UX-13, AC-2.11: not "nothing entered yet" — nothing can be fetched or kept for this entity yet.
+          <StatePanel title={t.noSource.title(entityName)} headingLevel={4} testId="accounting-fx-no-source">
+            {t.noSource.body}
+          </StatePanel>
+        )}
+
+        {data !== null && hasSource && (
           <div className="flex flex-col gap-3">
             <FactList
-              items={[{ id: 'last-fetch', term: t.lastFetch.term, value: lastFetchValue }]}
-              testId="settings-fx-last-fetch"
+              items={[
+                { id: 'source', term: t.source.term, value: sourceName },
+                { id: 'last-fetch', term: t.lastFetch.term, value: lastFetchText(lastFetch) },
+              ]}
+              testId="accounting-fx-facts"
             />
 
-            {fetching === 'auto' && (
-              <p role="status" className="text-sm text-soft" data-testid="settings-fx-checking">
-                {t.checking}
-              </p>
-            )}
-
             {lastFetch?.outcome === 'failed' && (
-              // Persistent (AC-5.6): no ×, derived from the server's last attempt, gone only when a later fetch works.
-              <Banner tone="warning" live="polite" title={t.lastFetch.failedTitle} data-testid="settings-fx-failed">
+              // Persistent (AC-2.8): no ×, derived from the server's last attempt, gone only when a later fetch works. Readers see it.
+              <Banner tone="warning" live="polite" title={t.lastFetch.failedTitle} data-testid="accounting-fx-failed">
                 {t.lastFetch.failedBody(formatDateTime(lastFetch.at), reasonText(lastFetch.errorCode))}
               </Banner>
             )}
 
             {showDisabled && (
-              <Banner tone="info" data-testid="settings-fx-disabled">
-                {t.disabled}
+              <Banner tone="info" data-testid="accounting-fx-disabled">
+                {canManage ? t.disabled : t.disabledReader}
               </Banner>
             )}
 
@@ -351,8 +377,8 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
                 onDismiss={() =>
                   setNotices((current) => ({ ...current, notes: current.notes.filter((other) => other !== note) }))
                 }
-                dismissLabel={strings.settings.dismiss}
-                data-testid="settings-fx-note"
+                dismissLabel={strings.common.dismiss}
+                data-testid="accounting-fx-note"
               >
                 {note}
               </Banner>
@@ -362,57 +388,46 @@ export default function ExchangeRatesCard({ canManage, month }: ExchangeRatesCar
               <Banner
                 tone="danger"
                 onDismiss={() => setNotices((current) => ({ ...current, error: null }))}
-                dismissLabel={strings.settings.dismiss}
-                data-testid="settings-fx-fetch-error"
+                dismissLabel={strings.common.dismiss}
+                data-testid="accounting-fx-fetch-error"
               >
                 {notices.error}
               </Banner>
             )}
 
-            <SuccessBanner message={success} onDismiss={() => setSuccess(null)} testId="settings-fx-success" />
+            {success && <Saved message={success} onDismiss={() => setSuccess(null)} />}
 
             {data.months.length === 0 ? (
-              <StatePanel title={t.empty.title} headingLevel={4} testId="settings-fx-empty">
+              <StatePanel title={t.empty.title} headingLevel={4} testId="accounting-empty">
                 {t.empty.body}
               </StatePanel>
             ) : (
               <DataTable
-                caption={t.caption}
+                caption={t.caption(entityName)}
                 columns={columns}
                 rows={data.months}
                 getRowKey={(row) => row.month}
-                focusRowKey={month !== undefined && data.months.some((row) => row.month === month) ? month : null}
-                testId="settings-fx-table"
-                rowTestIdPrefix="settings-fx-row"
+                focusRowKey={listed ? (month ?? null) : null}
+                testId="accounting-fx-table"
+                rowTestIdPrefix="accounting-fx-row"
               />
             )}
           </div>
         )}
       </Card>
 
-      {correcting && correctingRate && (
+      {correcting && correctingRate && data && (
         <RateCorrectionDialog
+          entity={entity}
+          ownCurrency={data.ownCurrency}
+          currencies={data.currencies}
           month={correcting.month}
           currency={correcting.currency}
           rate={correctingRate}
           onCancel={() => closeCorrection(correcting)}
           onSaved={(row) => handleSaved(row, correcting)}
-        />
-      )}
-
-      {history && historyRate && historyRate.status !== 'missing' && (
-        <ChangeHistoryDrawer<RateHistoryEntry>
-          subject={t.historyLabel(history.currency, monthLabel(history.month))}
-          rows={historyRate.history}
-          valueColumns={[
-            {
-              id: 'rate',
-              header: t.history.rateColumn,
-              render: (entry) => <span className="font-mono">{entry.rate}</span>,
-            },
-            { id: 'origin', header: t.history.originColumn, render: (entry) => t.origin[entry.origin] },
-          ]}
-          onClose={() => closeHistory(history)}
+          onForbidden={onWriteRefused}
+          onGone={onEntityGone}
         />
       )}
     </>

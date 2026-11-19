@@ -1,121 +1,190 @@
-/**
- * @vitest-environment jsdom
- *
- * exchangeRatesApi (T21, specs/20261118-refund-accounting-export): URLs, query, bodies and error `code` passthrough.
- */
-
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
-vi.mock('shell/session', () => ({
-  apiFetch: vi.fn(),
-}))
-
-import { apiFetch } from 'shell/session'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fakeApi, problem } from '../test-support/fakeApi'
+import { ApiError } from './api'
 import { fetchExchangeRates, listExchangeRates, putExchangeRate } from './exchangeRatesApi'
 
-const BASE = 'http://refund-api.test'
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock('shell/session', () => ({ apiFetch, getAccountingApiBaseUrl: () => 'http://accounting-api.test' }))
 
-const json = (status: number, body: unknown): Response =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+afterEach(() => vi.clearAllMocks())
 
-const lastCall = () => {
-  const [url, init] = vi.mocked(apiFetch).mock.calls[0]
-  return {
-    url: String(url),
-    method: init?.method ?? 'GET',
-    body: init?.body ? JSON.parse(init.body as string) : undefined,
-  }
+const urlOf = (call: number) => String(apiFetch.mock.calls[call]![0])
+const initOf = (call: number) => apiFetch.mock.calls[call]![1] as RequestInit
+
+const LIST_BODY = {
+  entity: 'welld_ch',
+  ownCurrency: 'CHF',
+  currencies: ['EUR', 'USD', 'GBP'],
+  source: { name: 'bazg' },
+  months: [
+    {
+      month: '2026-03',
+      rates: {
+        EUR: { status: 'fetched', rateMicros: 924600, rate: '0.9246' },
+        USD: { status: 'corrected', rateMicros: 810200, rate: '0.8102' },
+        GBP: { status: 'missing' },
+      },
+    },
+  ],
+  lastFetch: { at: '2026-11-18T09:14:00Z', outcome: 'ok', errorCode: null, month: '2026-10' },
+  fetchDue: true,
 }
 
-beforeEach(() => {
-  vi.stubEnv('VITE_REFUND_API_URL', BASE)
-})
-
-afterEach(() => {
-  vi.unstubAllEnvs()
-  vi.clearAllMocks()
-})
-
-describe('listExchangeRates', () => {
-  it('GETs the default window with no query', async () => {
-    const body = { months: [], lastFetch: null, fetchDue: false }
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, body))
-    await expect(listExchangeRates()).resolves.toEqual(body)
-    expect(lastCall()).toMatchObject({ url: `${BASE}/exchange-rates`, method: 'GET' })
+describe('exchangeRatesApi (T31, plan § API contracts, G5)', () => {
+  it('lists under the entity’s path, with the window only when asked for', async () => {
+    apiFetch.mockImplementation(fakeApi({ 'GET /v1/entities/welld_ch/exchange-rates': () => ({ status: 200, body: LIST_BODY }) }))
+    const rates = await listExchangeRates('welld_ch')
+    expect(urlOf(0)).toBe('http://accounting-api.test/v1/entities/welld_ch/exchange-rates')
+    await listExchangeRates('welld_ch', { from: '2026-01', to: '2026-10' })
+    expect(urlOf(1)).toBe('http://accounting-api.test/v1/entities/welld_ch/exchange-rates?from=2026-01&to=2026-10')
+    expect(rates).toEqual({
+      ownCurrency: 'CHF',
+      currencies: ['EUR', 'USD', 'GBP'],
+      source: { name: 'bazg' },
+      months: [
+        {
+          month: '2026-03',
+          rates: {
+            EUR: { status: 'fetched', rateMicros: 924600, rate: '0.9246' },
+            USD: { status: 'corrected', rateMicros: 810200, rate: '0.8102' },
+            GBP: { status: 'missing' },
+          },
+        },
+      ],
+      lastFetch: { at: '2026-11-18T09:14:00Z', outcome: 'ok', errorCode: null, month: '2026-10' },
+      fetchDue: true,
+    })
   })
 
-  it('passes from and to as a query, either alone or both', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { months: [], lastFetch: null, fetchDue: false }))
-    await listExchangeRates({ from: '2026-01', to: '2026-10' })
-    expect(lastCall().url).toBe(`${BASE}/exchange-rates?from=2026-01&to=2026-10`)
-
-    vi.mocked(apiFetch).mockReset()
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { months: [], lastFetch: null, fetchDue: false }))
-    await listExchangeRates({ from: '2026-03' })
-    expect(lastCall().url).toBe(`${BASE}/exchange-rates?from=2026-03`)
+  it('keeps no history, no who and no when on a rate (UX-8, D18)', async () => {
+    apiFetch.mockImplementation(
+      fakeApi({
+        'GET /v1/entities/welld_ch/exchange-rates': () => ({
+          status: 200,
+          body: {
+            ...LIST_BODY,
+            months: [
+              {
+                month: '2026-03',
+                rates: { EUR: { status: 'fetched', rateMicros: 1, rate: '1', history: [{ byEmail: 'x@welld.ch' }], correctedByEmail: 'x@welld.ch', fetchedAt: 'now' } },
+              },
+            ],
+          },
+        }),
+      }),
+    )
+    const rates = await listExchangeRates('welld_ch')
+    expect(JSON.stringify(rates)).not.toMatch(/history|byEmail|fetchedAt|correctedBy|sourceUrl/)
   })
 
-  it('throws a 403 for a caller without settings:read', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(403, { title: 'Forbidden', status: 403 }))
-    await expect(listExchangeRates()).rejects.toMatchObject({ status: 403 })
-  })
-})
-
-describe('fetchExchangeRates', () => {
-  it('POSTs an empty body for "every missing month"', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { attempts: [], lastFetch: null }))
-    await fetchExchangeRates()
-    expect(lastCall()).toEqual({ url: `${BASE}/exchange-rates/fetch`, method: 'POST', body: {} })
-  })
-
-  it('POSTs the months asked for', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { attempts: [], lastFetch: null }))
-    await fetchExchangeRates(['2026-10'])
-    expect(lastCall().body).toEqual({ months: ['2026-10'] })
+  it('reads WellD Italia: no source, no currencies, and never fetchDue', async () => {
+    apiFetch.mockImplementation(
+      fakeApi({
+        'GET /v1/entities/welld_it/exchange-rates': () => ({
+          status: 200,
+          body: { entity: 'welld_it', ownCurrency: 'EUR', currencies: [], source: null, months: [], lastFetch: null, fetchDue: true },
+        }),
+      }),
+    )
+    const rates = await listExchangeRates('welld_it')
+    expect(rates.source).toBeNull()
+    expect(rates.currencies).toEqual([])
+    // with no source nothing is due, whatever the server says
+    expect(rates.fetchDue).toBe(false)
   })
 
-  it('says who asks, for the attempt log', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { attempts: [], deferredMonths: [], lastFetch: null }))
-    await fetchExchangeRates(undefined, 'settings_view')
-    expect(lastCall().body).toEqual({ trigger: 'settings_view' })
-    vi.mocked(apiFetch).mockClear()
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { attempts: [], deferredMonths: [], lastFetch: null }))
-    await fetchExchangeRates(['2026-10'], 'admin')
-    expect(lastCall().body).toEqual({ months: ['2026-10'], trigger: 'admin' })
+  it('reads defensively: an unknown rate status is missing, a missing currency is missing, fetchDue only when literally true', async () => {
+    apiFetch.mockImplementation(
+      fakeApi({
+        'GET /v1/entities/welld_ch/exchange-rates': () => ({
+          status: 200,
+          body: {
+            ...LIST_BODY,
+            fetchDue: 'yes',
+            lastFetch: { at: 'x', outcome: 'exploded', errorCode: null, month: '2026-10' },
+            months: [null, { month: 7 }, { month: '2026-02', rates: { EUR: { status: 'weird', rate: '1' }, USD: { status: 'fetched', rate: '1' } } }],
+          },
+        }),
+      }),
+    )
+    const rates = await listExchangeRates('welld_ch')
+    expect(rates.fetchDue).toBe(false)
+    expect(rates.lastFetch).toBeNull()
+    expect(rates.months).toEqual([
+      { month: '2026-02', rates: { EUR: { status: 'missing' }, USD: { status: 'missing' }, GBP: { status: 'missing' } } },
+    ])
   })
 
-  it('returns throttled attempts and the deferred months as they come', async () => {
-    const result = {
-      attempts: [{ month: '2026-10', outcome: 'throttled', errorCode: null, recorded: null }],
-      deferredMonths: ['2026-01'],
-      lastFetch: null,
-    }
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, result))
-    await expect(fetchExchangeRates()).resolves.toEqual(result)
+  it('fetches with POST and NO trigger: an empty body for every fetchable month, or the months asked', async () => {
+    apiFetch.mockImplementation(
+      fakeApi({
+        'POST /v1/entities/welld_ch/exchange-rates/fetch': () => ({
+          status: 200,
+          body: {
+            attempts: [
+              { month: '2026-03', outcome: 'ok', errorCode: null, recorded: { EUR: 924600 } },
+              { month: '2026-02', outcome: 'not_fetchable', errorCode: null, recorded: null },
+              { month: '2026-01', outcome: 'exploded' },
+              'junk',
+            ],
+            deferredMonths: ['2025-12', 3],
+            lastFetch: LIST_BODY.lastFetch,
+          },
+        }),
+      }),
+    )
+    const result = await fetchExchangeRates('welld_ch')
+    expect(initOf(0).method).toBe('POST')
+    expect(JSON.parse(String(initOf(0).body))).toEqual({})
+    await fetchExchangeRates('welld_ch', ['2026-03'])
+    expect(JSON.parse(String(initOf(1).body))).toEqual({ months: ['2026-03'] })
+    expect(String(initOf(0).body)).not.toContain('trigger')
+    expect(result.attempts.map((attempt) => attempt.outcome)).toEqual(['ok', 'not_fetchable'])
+    expect(result.attempts[0]!.recorded).toEqual({ EUR: 924600 })
+    expect(result.deferredMonths).toEqual(['2025-12'])
+    expect(result.lastFetch?.outcome).toBe('ok')
   })
 
-  it('returns a failed attempt as a 200 result, not an error (AC-5.6)', async () => {
-    const result = {
-      attempts: [{ month: '2026-10', outcome: 'failed', errorCode: 'timeout', recorded: null }],
-      lastFetch: { at: '2026-11-18T09:14:00Z', outcome: 'failed', errorCode: 'timeout', month: '2026-10' },
-    }
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, result))
-    await expect(fetchExchangeRates()).resolves.toEqual(result)
-  })
-})
-
-describe('putExchangeRate', () => {
-  it('PUTs the rate as a string to the month and currency', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { month: '2026-03', rates: {} }))
-    await putExchangeRate('2026-03', 'EUR', '0.9246')
-    expect(lastCall()).toEqual({ url: `${BASE}/exchange-rates/2026-03/EUR`, method: 'PUT', body: { rate: '0.9246' } })
+  it('a fetch answer without deferredMonths reads as none', async () => {
+    apiFetch.mockImplementation(
+      fakeApi({ 'POST /v1/entities/welld_ch/exchange-rates/fetch': () => ({ status: 200, body: { attempts: [], lastFetch: null } }) }),
+    )
+    expect((await fetchExchangeRates('welld_ch')).deferredMonths).toEqual([])
   })
 
-  it.each(['invalid_rate', 'currency_not_convertible', 'month_not_completed'])(
-    'passes the 422 %s through',
-    async (code) => {
-      vi.mocked(apiFetch).mockResolvedValueOnce(json(422, { title: 'Unprocessable', status: 422, code }))
-      await expect(putExchangeRate('2026-11', 'EUR', '0.9')).rejects.toMatchObject({ status: 422, code })
-    },
-  )
+  it('a refused fetch is an ApiError with its code (no_rate_source)', async () => {
+    apiFetch.mockImplementation(fakeApi({ 'POST /v1/entities/welld_it/exchange-rates/fetch': () => problem(422, 'no_rate_source') }))
+    const error = await fetchExchangeRates('welld_it').catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).code).toBe('no_rate_source')
+  })
+
+  it('corrects with PUT {rate} on month and currency, encoded, and answers the month row', async () => {
+    apiFetch.mockImplementation(
+      fakeApi({
+        'PUT /v1/entities/welld_ch/exchange-rates/2026-03/EUR': () => ({
+          status: 200,
+          body: { month: '2026-03', rates: { EUR: { status: 'corrected', rateMicros: 930000, rate: '0.93' } } },
+        }),
+      }),
+    )
+    const row = await putExchangeRate('welld_ch', '2026-03', 'EUR', '0.93', ['EUR'])
+    expect(initOf(0).method).toBe('PUT')
+    expect(JSON.parse(String(initOf(0).body))).toEqual({ rate: '0.93' })
+    expect(row).toEqual({ month: '2026-03', rates: { EUR: { status: 'corrected', rateMicros: 930000, rate: '0.93' } } })
+  })
+
+  it.each([
+    ['an empty 200 body', () => ({ status: 200 })],
+    ['a 200 that is not a month row', () => ({ status: 200, body: { ok: true } })],
+  ])('reads %s as "nothing recorded" (null)', async (_name, answer) => {
+    apiFetch.mockImplementation(fakeApi({ 'PUT /v1/entities/welld_ch/exchange-rates/2026-03/EUR': answer }))
+    expect(await putExchangeRate('welld_ch', '2026-03', 'EUR', '0.93', ['EUR'])).toBeNull()
+  })
+
+  it('a refused correction is an ApiError, never read as a no-op', async () => {
+    apiFetch.mockImplementation(fakeApi({ 'PUT /v1/entities/welld_ch/exchange-rates/2026-03/EUR': () => problem(422, 'invalid_rate') }))
+    const error = await putExchangeRate('welld_ch', '2026-03', 'EUR', '0', ['EUR']).catch((e: unknown) => e)
+    expect((error as ApiError).code).toBe('invalid_rate')
+  })
 })

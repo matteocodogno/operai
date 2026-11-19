@@ -1,60 +1,74 @@
 /**
- * RateCorrectionDialog — correct ONE monthly exchange rate, or enter one the source never published
- * (specs/20261118-refund-accounting-export, design S6f, F8; AC-5.3, AC-5.7). A `FormDialog` mounted beside the card, never
- * inside a `<form>` (ADR 20261118 dialog-beside-form). It owns its field and the `PUT`.
+ * RateCorrectionDialog — correct ONE monthly exchange rate, or enter one the source never published (moved from refund-ui;
+ * specs/20261119-accounting, design FA8, AS6c, UX-6, UX-10; AC-2.4, AC-2.5, AC-8.4). A `FormDialog` mounted beside the card,
+ * never inside a `<form>` (ADR 20261118 dialog-beside-form). It owns its field and the `PUT`.
  *
- *   - The rate is CHF per 1 unit of the currency, up to 6 decimals, dot or comma. It is parsed exactly
- *     (`parseDecimal`, never through a float) and sent as the canonical string the API expects (`0.9246`, never
- *     `0,9246`). The bound is the server's: greater than 0 and below 1000 (plan IS-6), so `999.999999` is
- *     accepted and `1000` is not. The server stays the authority.
- *   - The hint names the rate in effect and where it came from; the description says the previous value stays in
- *     the history and that a batch exported before the correction exports differently if exported again.
- *   - Save is disabled while the field is empty or still equals the rate in effect (a no-op would only write
- *     a confirmation for nothing).
- *   - 422 `invalid_rate` is a field error; `month_not_completed` is a general error (no field can fix it);
- *     403 reads as a permission problem. Every typed value is kept on failure.
+ *   - The rate is the entity's own currency per 1 unit of the foreign one, up to 6 decimals, dot or comma. It is checked as text
+ *     (`checkFxRate`, no float) and sent as the canonical string the API expects (`0.93`, never `0,9300`). The limit is AC-2.5's
+ *     and the server's: greater than 0 and below 1000, so `999.999999` is accepted and `1000` is not (UX-10; the 20261118
+ *     check accepted up to 9999). The server stays the authority.
+ *   - The description is UX-10's: anything booked from now on uses this rate, what was already booked keeps its own, and the
+ *     previous value stays in the audit trail. The 20261118 sentence about re-exporting was false after AC-5.3 and is gone.
+ *   - The hint states the limit and names the rate in effect and where it came from (never prefilled: typing over a value
+ *     invites a stray digit). Save is disabled while the field is empty or still equals the rate in effect.
+ *   - 422 `invalid_rate` is a field error; `month_not_completed` and `currency_not_convertible` are general errors (no field can
+ *     fix them); 403 reads as a permission problem and tells the frame; 404 tells the frame the entity is gone. Every typed value
+ *     is kept on failure. No `ErrorSummary` (UX-6): focus goes to the field, whose own alert carries the sentence.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { Field, FormDialog, MoneyInput, parseDecimal } from '@operai/ui'
-import { strings } from '../../strings'
-import { putExchangeRate } from '../../lib/exchangeRatesApi'
-import type { ExchangeRateMonth, Rate, RateCurrency } from '../../lib/exchangeRatesApi'
-import { monthLabel } from '../../lib/monthLabel'
-import { ApiError } from '../../lib/refundApi'
+import { ApiError } from '../lib/api'
+import { putExchangeRate } from '../lib/exchangeRatesApi'
+import type { ExchangeRateMonth, Rate, RateCurrency } from '../lib/exchangeRatesApi'
+import { checkFxRate } from '../lib/limits'
+import type { EntityId } from '../lib/meApi'
+import { monthLabel } from '../lib/monthLabel'
+import { strings } from '../strings'
 
-const t = strings.settings.fx
-const tc = strings.settings.catalog
+const t = strings.fx
 
-/** The rate must be below 1000 (a Postgres INTEGER of micros overflows above 2147.483647; plan IS-6). */
-const RATE_MAX_MICROS = 1_000_000_000
+/** Dot or comma is typed; the request carries a dot. */
+const dotted = (raw: string): string => raw.trim().replace(',', '.')
 
-/** Millionths of CHF as the API's string: `924600` → `0.9246`, `1000000` → `1`, `1` → `0.000001`. */
-const rateString = (micros: number): string => {
-  const whole = Math.floor(micros / 1_000_000)
-  const fraction = String(micros % 1_000_000)
-    .padStart(6, '0')
-    .replace(/0+$/, '')
-  return fraction === '' ? String(whole) : `${whole}.${fraction}`
-}
-
-/** The typed rate in millionths, or `null` when it is not a rate the server would accept. */
-const parseRate = (raw: string): number | null => {
-  const micros = parseDecimal(raw, 6)
-  return micros !== null && micros > 0 && micros < RATE_MAX_MICROS ? micros : null
+/** `0.9300` → `0.93`, `1.000000` → `1`: the canonical string of an already validated rate, by text only. */
+const canonicalRate = (validated: string): string => {
+  const [whole = '0', fraction = ''] = validated.split('.')
+  const trimmed = fraction.replace(/0+$/, '')
+  return trimmed === '' ? String(Number(whole)) : `${Number(whole)}.${trimmed}`
 }
 
 export type RateCorrectionDialogProps = {
+  entity: EntityId
+  /** The entity's own currency, the unit of the rate. */
+  ownCurrency: string
+  /** The entity's rate currencies, to read the month row the server answers with. */
+  currencies: readonly RateCurrency[]
   month: string
   currency: RateCurrency
   /** The rate in effect (or `missing`), for the hint and for the no-op check. */
   rate: Rate
   onCancel: () => void
-  /** The month's whole row, as the server answers. */
-  onSaved: (row: ExchangeRateMonth) => void
+  /** The month's whole row, as the server answers; `null` when it recorded nothing (the rate is the one in effect). */
+  onSaved: (row: ExchangeRateMonth | null) => void
+  /** A write answered 403: the frame re-reads `/v1/me` (UX-15). */
+  onForbidden: () => void
+  /** A write answered 404: the entity is not covered any more (UX-12). */
+  onGone: () => void
 }
 
-export default function RateCorrectionDialog({ month, currency, rate, onCancel, onSaved }: RateCorrectionDialogProps) {
+export default function RateCorrectionDialog({
+  entity,
+  ownCurrency,
+  currencies,
+  month,
+  currency,
+  rate,
+  onCancel,
+  onSaved,
+  onForbidden,
+  onGone,
+}: RateCorrectionDialogProps) {
   const [value, setValue] = useState('')
   const [fieldError, setFieldError] = useState<string | null>(null)
   const [generalError, setGeneralError] = useState<string | null>(null)
@@ -69,23 +83,25 @@ export default function RateCorrectionDialog({ month, currency, rate, onCancel, 
   }, [focusRequest])
 
   const recorded = rate.status === 'missing' ? null : rate
-  const typed = parseRate(value)
-  const unchanged = recorded !== null && typed === recorded.rateMicros
+  // Exactly equal to the rate in effect, compared as integer micros (an exact parse, never a float): a no-op would only
+  // write a confirmation for nothing.
+  const typedMicros = checkFxRate(dotted(value)).ok ? parseDecimal(value, 6) : null
+  const unchanged = recorded !== null && typedMicros === recorded.rateMicros
   const canSubmit = value.trim() !== '' && !unchanged
 
   const handleSubmit = async () => {
     setGeneralError(null)
-    const micros = parseRate(value)
-    if (micros === null) {
+    const checked = checkFxRate(dotted(value))
+    if (!checked.ok) {
       setFieldError(t.correction.rateInvalid)
       setFocusRequest({})
       return
     }
     setFieldError(null)
     setBusy(true)
-    let row: ExchangeRateMonth
+    let row: ExchangeRateMonth | null
     try {
-      row = await putExchangeRate(month, currency, rateString(micros))
+      row = await putExchangeRate(entity, month, currency, canonicalRate(checked.value), currencies)
     } catch (error) {
       setBusy(false)
       const code = error instanceof ApiError ? error.code : undefined
@@ -94,10 +110,16 @@ export default function RateCorrectionDialog({ month, currency, rate, onCancel, 
         setFocusRequest({})
       } else if (code === 'month_not_completed') {
         setGeneralError(t.correction.monthNotCompleted)
+      } else if (code === 'currency_not_convertible') {
+        setGeneralError(t.correction.notConvertible)
       } else if (error instanceof ApiError && error.status === 403) {
-        setGeneralError(tc.forbidden)
+        setGeneralError(strings.common.forbidden)
+        onForbidden()
+      } else if (error instanceof ApiError && error.status === 404) {
+        setGeneralError(strings.common.genericError)
+        onGone()
       } else {
-        setGeneralError(tc.genericError)
+        setGeneralError(strings.common.genericError)
       }
       return
     }
@@ -111,20 +133,28 @@ export default function RateCorrectionDialog({ month, currency, rate, onCancel, 
       size="sm"
       submitLabel={t.correction.save}
       busyLabel={t.correction.busy}
-      cancelLabel={tc.cancel}
-      closeLabel={tc.cancel}
+      cancelLabel={strings.common.cancel}
+      closeLabel={strings.common.close}
       busy={busy}
       canSubmit={canSubmit}
       error={generalError}
       onSubmit={() => void handleSubmit()}
       onCancel={onCancel}
-      testIdPrefix="rate-correction"
+      testIdPrefix="accounting-fx-correction"
     >
       <Field
-        label={t.correction.rate(currency)}
-        hint={recorded ? t.correction.inEffect(recorded.rate, t.origin[recorded.status]) : undefined}
+        label={t.correction.rate(currency, ownCurrency)}
+        hint={
+          recorded ? (
+            <>
+              {t.correction.hint} {t.correction.inEffect(recorded.rate, t.origin[recorded.status])}
+            </>
+          ) : (
+            t.correction.hint
+          )
+        }
         required
-        error={fieldError && <span data-testid="rate-correction-value-error">{fieldError}</span>}
+        error={fieldError && <span data-testid="accounting-fx-correction-value-error">{fieldError}</span>}
         errorRole="alert"
       >
         {(control) => (
@@ -137,9 +167,9 @@ export default function RateCorrectionDialog({ month, currency, rate, onCancel, 
               setFieldError(null)
             }}
             onBlur={() => {
-              if (value.trim() !== '' && parseRate(value) === null) setFieldError(t.correction.rateInvalid)
+              if (value.trim() !== '' && !checkFxRate(dotted(value)).ok) setFieldError(t.correction.rateInvalid)
             }}
-            data-testid="rate-correction-value"
+            data-testid="accounting-fx-correction-value"
           />
         )}
       </Field>

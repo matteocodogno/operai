@@ -39,6 +39,14 @@ beforeEach(() => {
           ]),
         ),
       ),
+      'GET /v1/entities/welld_ch/exchange-rates': () => ({
+        status: 200,
+        body: { entity: 'welld_ch', ownCurrency: 'CHF', currencies: ['EUR'], source: { name: 'bazg' }, months: [], lastFetch: null, fetchDue: false },
+      }),
+      'GET /v1/entities/welld_it/exchange-rates': () => ({
+        status: 200,
+        body: { entity: 'welld_it', ownCurrency: 'EUR', currencies: [], source: null, months: [], lastFetch: null, fetchDue: false },
+      }),
     }),
   )
 })
@@ -90,7 +98,7 @@ describe('createAppRouter', () => {
     cleanup()
     renderAt('/accounting/exchange-rates')
     expect(await screen.findByRole('heading', { level: 2, name: 'Exchange rates' })).not.toBeNull()
-    expect(screen.getByTestId('accounting-fx-entity').textContent).toBe('WellD CH')
+    expect(await screen.findByRole('heading', { level: 3, name: 'Exchange rates — WellD CH' })).not.toBeNull()
   })
 
   it('answers an unknown path with the not-found view INSIDE the frame, focused, with a way back', async () => {
