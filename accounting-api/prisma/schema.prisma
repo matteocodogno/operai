@@ -7,6 +7,122 @@ datasource db {
   provider = "postgresql"
 }
 
-// Placeholder (T4, specs/20261119-accounting): the datasource and the generator only, so the
-// scaffold type-checks and `bun run db:generate` works. T5 owns the content: five tables, the
-// init migration and its hand-written SQL.
+// Data model of specs/20261119-accounting (plan.md § Data model, accounting-api). Five tables, one init
+// migration. EVERY table is append-only: the database refuses UPDATE and DELETE on all five (raw SQL in
+// the init migration, "Hand-written SQL" block, guarded by src/lib/db.*.test.ts). An entry is never
+// edited or deleted (AC-1.12); a status change, a rate correction and a fetch attempt are new rows.
+//
+// Raw SQL in the migration (Prisma cannot express any of it, and it is the ENFORCEMENT, not a duplicate):
+//   - accounting_history_immutable(): BEFORE UPDATE and BEFORE DELETE raise on all five tables
+//   - CHECKs: number, code, name, label, rate, month, own currency, origin vs fields, status one-of
+//   - catalog_status_entity_matches (BEFORE INSERT): a status row names its entry's entity
+//   - the partial unique index exchange_rate_fetched_once: a rate is fetched once, never replaced (AC-2.2)
+// Never edit generated sources (src/lib/generated is git-ignored) and never edit a migration that has run.
+
+enum Entity {
+  welld_it
+  welld_ch
+}
+
+enum Currency {
+  CHF
+  EUR
+  USD
+  GBP
+}
+
+enum RateOrigin {
+  fetched
+  corrected
+}
+
+// Immutable once inserted. Identity = (entity, number) (spec domain language).
+model LedgerAccount {
+  id              String                @id @default(cuid()) // internal only, never on the wire
+  entity          Entity
+  number          String // ^[0-9]+(\.[0-9]+)*$, 1..20, trimmed (AC-1.2)
+  name            String // 1..120, trimmed, not blank
+  createdByUserId String // AC-1.13: who added (system:accounting-seed for the seed)
+  createdByEmail  String
+  createdAt       DateTime              @default(now())
+  statusChanges   CatalogStatusChange[]
+
+  @@unique([entity, number]) // AC-1.3 backstop
+  @@map("ledger_account")
+}
+
+// Immutable once inserted: the rate never changes (AC-1.7).
+model VatCode {
+  id              String                @id @default(cuid())
+  entity          Entity
+  code            String // ^[A-Z0-9_-]{1,16}$, upper-cased before the check (AC-1.5)
+  label           String // 1..80
+  rateBasisPoints Int // 8.1 % = 810; CHECK 0..10000
+  createdByUserId String
+  createdByEmail  String
+  createdAt       DateTime              @default(now())
+  statusChanges   CatalogStatusChange[]
+
+  @@unique([entity, code]) // AC-1.6 backstop (case-insensitive by upper-casing)
+  @@map("vat_code")
+}
+
+// Append-only. No row = active since creation. Current = latest row.
+// CHECK num_nonnulls("ledgerAccountId","vatCodeId") = 1. `entity` is a copy of the entry's
+// entity, so each audit row names the entity on its own (AC-1.13); a trigger checks it matches.
+model CatalogStatusChange {
+  id              String         @id @default(cuid())
+  entity          Entity
+  ledgerAccountId String?
+  ledgerAccount   LedgerAccount? @relation(fields: [ledgerAccountId], references: [id], onDelete: Restrict)
+  vatCodeId       String?
+  vatCode         VatCode?       @relation(fields: [vatCodeId], references: [id], onDelete: Restrict)
+  active          Boolean // after-state; before-state = the opposite (a no-op is refused, AC-1.11)
+  createdByUserId String
+  createdByEmail  String
+  createdAt       DateTime       @default(now())
+
+  @@index([ledgerAccountId, createdAt])
+  @@index([vatCodeId, createdAt])
+  @@map("catalog_status_change")
+}
+
+// Append-only. In effect = latest `corrected`, else the `fetched` row.
+model ExchangeRateEntry {
+  id                 String     @id @default(cuid())
+  entity             Entity
+  currency           Currency
+  month              DateTime   @db.Date // first day of month
+  rateMicros         Int // own currency per 1 unit × 1e6; CHECK 0 < x < 1e9 (AC-2.5)
+  origin             RateOrigin
+  replacesRateMicros Int? // corrected: the value in effect before (AC-2.4 "from which value")
+  sourceUrl          String? // fetched (AC-2.1 source)
+  sourceMonth        String? // fetched: the <monat> echo
+  fetchedAt          DateTime? // fetched (AC-2.1 moment)
+  createdByUserId    String // "system:rates-fetch" or the manager's sub
+  createdByEmail     String
+  createdAt          DateTime   @default(now())
+
+  @@index([entity, currency, month, createdAt])
+  @@map("exchange_rate_entry")
+}
+
+// Append-only log of every fetch attempt (AC-2.8 "last fetch failed, and when"; AC-2.3 "asked for").
+model ExchangeRateFetchAttempt {
+  id            String   @id @default(cuid())
+  entity        Entity
+  month         DateTime @db.Date
+  trigger       String // manager | consumer — derived server-side (closes FU-S5)
+  outcome       String // ok | failed | not_fetchable | disabled (not_fetchable only for
+  // the manager trigger; a consumer call writes no row for a
+  // not-yet-published or throttled month, G5)
+  errorCode     String? // timeout | http_<status> | parse | month_mismatch | currency_missing
+  recorded      Json?
+  discrepancies Json?
+  actorUserId   String // manager sub, or the consumer's service sub
+  createdAt     DateTime @default(now())
+
+  @@index([entity, month, createdAt])
+  @@index([entity, createdAt])
+  @@map("exchange_rate_fetch_attempt")
+}
