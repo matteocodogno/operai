@@ -114,6 +114,10 @@ enum AuditAction {
   // change; receipt number assignment). Detail shapes: plan.md § Data model.
   line_classified
   receipt_number_assigned
+  // specs/20261119-accounting (T16): a pending exchange-rate copy written by
+  // the first successful export of a batch (actor = the exporter, AC-5.6).
+  // Added last in the migration and not used inside it.
+  line_rate_copied
 }
 
 // Origin of one exchange-rate row (specs/20261118-refund-accounting-export):
@@ -342,6 +346,27 @@ model RefundLine {
   vatCode                VatCode?       @relation(fields: [vatCodeId], references: [id], onDelete: Restrict)
   vatCodeIsDefault       Boolean?
 
+  // ─── specs/20261119-accounting (T16): the copy columns ──────────────────────────────────
+  // What this line BOOKS, copied by natural key from Accounting at the moment it
+  // is booked (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-...).
+  // WellD CH lines only (CHECK refund_line_classification_ch_only). The FK
+  // columns above stay until T24 drops them; nothing new reads them.
+  //   account : both or neither (CHECK)
+  //   VAT     : both or neither (CHECK), rate 0..10000
+  //   fx      : all three or none (CHECK), non-CHF lines only, the expense
+  //             month's rate, WRITE-ONCE (trigger): null -> set at approval or at
+  //             the first export, never changed afterwards, whatever the status.
+  // `vatCodeCopy` maps the column "vatCode": the Prisma field `vatCode` above is
+  // still the relation to the old catalog (dropped by T24), and a field name
+  // cannot be used twice.
+  accountNumber      String?
+  accountName        String?
+  vatCodeCopy        String?   @map("vatCode")
+  vatRateBasisPoints Int?
+  fxRateMicros       Int? // CHF per 1 unit x 1e6, > 0 and < 1e9
+  fxRateMonth        DateTime? @db.Date // first day of the month of `date`
+  fxRateCopiedAt     DateTime?
+
   // ─── specs/20261118-refund-accounting-export: receipt number ──────────────────────────────
   // Set once at approval (or by the release script), never changed or
   // deleted (trigger refund_line_accounting_guard, AC-4.7). The five columns
@@ -520,6 +545,49 @@ model ExpenseTypeDefault {
 
   @@index([entity, type, createdAt])
   @@map("expense_type_default")
+}
+
+// specs/20261119-accounting (T16): the default classification per (entity,
+// expense type) holds COPIES by natural key of what Accounting listed when the
+// default was saved, no foreign key into Accounting (ADR
+// 20261119-accounting-reference-data-belongs-to-accounting-api-...). Append-only
+// (accounting_history_immutable() trigger); the current value is the latest row.
+// Replaces ExpenseTypeDefault, which T24 drops. CHECKs: entity = welld_ch,
+// number and name both or neither (null = "no default"), VAT code, label and
+// rate all or none.
+model ExpenseTypeAccountingDefault {
+  id                 String      @id @default(cuid())
+  entity             Entity
+  type               ExpenseType
+  accountNumber      String?
+  accountName        String?
+  vatCode            String?
+  vatLabel           String?
+  vatRateBasisPoints Int?
+  createdByUserId    String
+  createdByEmail     String
+  createdAt          DateTime    @default(now())
+
+  @@index([entity, type, createdAt])
+  @@map("expense_type_accounting_default")
+}
+
+// specs/20261119-accounting (T16): the designated VAT code of foreign-currency
+// lines, as an append-only history of copies (replaces the refund_setting key
+// `accounting.welld_ch.foreign-currency-vat-code`, whose immutable rows stay
+// unread). The current value is the latest row; all-null = cleared.
+model ForeignCurrencyVatDesignation {
+  id                 String   @id @default(cuid())
+  entity             Entity
+  vatCode            String?
+  vatLabel           String?
+  vatRateBasisPoints Int?
+  createdByUserId    String
+  createdByEmail     String
+  createdAt          DateTime @default(now())
+
+  @@index([entity, createdAt])
+  @@map("foreign_currency_vat_designation")
 }
 
 // Per (employee, year of the expense date) receipt counter, row-locked by the

@@ -363,9 +363,12 @@ describe("PUT classification racing mark-paid (20 rounds)", () => {
     const c = await compiledRequest("owner-c-final", 99);
     expect((await markPaid(c.batchId)).status).toBe(200);
     expect((await putAccount(c.requestId, c.lineId, office.id)).body).toMatchObject({ code: "classification_locked" });
+    // T16 (specs/20261119-accounting): guard v2 watches the COPY columns, no longer the old FK columns.
     await expect(
-      Promise.resolve(db.refundLine.update({ where: { id: c.lineId }, data: { ledgerAccountId: office.id } })),
-    ).rejects.toThrow();
-    expect((await db.refundLine.findUniqueOrThrow({ where: { id: c.lineId } })).ledgerAccountId).toBe(train.id);
+      Promise.resolve(db.refundLine.update({ where: { id: c.lineId }, data: { accountNumber: "6101", accountName: "Ufficio" } })),
+    ).rejects.toThrow(/locked/);
+    const reread = await db.refundLine.findUniqueOrThrow({ where: { id: c.lineId } });
+    expect(reread.ledgerAccountId).toBe(train.id);
+    expect(reread.accountNumber).toBeNull();
   });
 });

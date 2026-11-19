@@ -353,9 +353,10 @@ describe("release cause", () => {
       receiptNumber: "MC26/001", ledgerAccountId: account.id, vatCodeId: vat.id,
     });
     // and from now on it is locked
+    // T16 (specs/20261119-accounting): guard v2 watches the COPY columns, no longer the old FK columns.
     await expect(
-      Promise.resolve(db.$executeRawUnsafe(`UPDATE "refund_line" SET "vatCodeId" = $1 WHERE id = 'l1'`, zeroVat.id)),
-    ).rejects.toThrow();
+      Promise.resolve(db.$executeRawUnsafe(`UPDATE "refund_line" SET "vatCode" = 'X', "vatRateBasisPoints" = 1 WHERE id = 'l1'`)),
+    ).rejects.toThrow(/locked/);
   });
 });
 

@@ -164,7 +164,10 @@ describe("backfill (AC-7.1)", () => {
     await run();
     const l = await line("p1");
     expect([l.receiptNumber, l.ledgerAccount?.number, l.vatCode?.code]).toEqual(["MC26/001", "5901", "IMP81"]);
-    await expect(Promise.resolve(db.$executeRawUnsafe(`UPDATE "refund_line" SET "vatCodeId" = NULL WHERE id = 'p1'`))).rejects.toThrow();
+    // T16 (specs/20261119-accounting): guard v2 watches the COPY columns, no longer the old FK columns.
+    await expect(
+      Promise.resolve(db.$executeRawUnsafe(`UPDATE "refund_line" SET "accountNumber" = '9999', "accountName" = 'x' WHERE id = 'p1'`)),
+    ).rejects.toThrow(/locked/);
   });
 
   it("numbers each employee in their own sequence, two years as two sequences, initials from the name", async () => {

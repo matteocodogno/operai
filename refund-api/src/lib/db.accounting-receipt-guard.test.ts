@@ -4,6 +4,11 @@
  * AC-4.10 backstop; ADR 20261118-receipt-numbers-... and
  * 20261118-accounting-classification-...).
  *
+ * T16, specs/20261119-accounting (guard v2, migration 20261119120000_accounting_copies):
+ * the paid lock watches the COPY columns (account number and name, VAT code and
+ * rate, both "is default" flags), no longer the old FK columns (AC-5.3, AC-5.7).
+ * The fx write-once rule is in `db.accounting-copies.test.ts`.
+ *
  * Real Postgres, raw SQL, no application code: the triggers are the subject.
  */
 
@@ -17,18 +22,10 @@ const actor = { createdByUserId: "admin-1", createdByEmail: "admin@welld.ch" };
 
 async function fixture(opts: { status?: "approved" | "paid"; numbered?: boolean; owner?: string } = {}) {
   const owner = opts.owner ?? "owner-1";
-  const account = await db.ledgerAccount.create({
-    data: { entity: "welld_ch", number: `59${Math.floor(Math.random() * 90 + 10)}`, name: "Account", ...actor },
-  });
-  const otherAccount = await db.ledgerAccount.create({
-    data: { entity: "welld_ch", number: `61${Math.floor(Math.random() * 90 + 10)}`, name: "Other", ...actor },
-  });
-  const vat = await db.vatCode.create({
-    data: { entity: "welld_ch", code: `V${Math.floor(Math.random() * 1e6)}`, label: "VAT", rateBasisPoints: 810, ...actor },
-  });
-  const otherVat = await db.vatCode.create({
-    data: { entity: "welld_ch", code: `W${Math.floor(Math.random() * 1e6)}`, label: "VAT 0", rateBasisPoints: 0, ...actor },
-  });
+  const account = { number: "5901", name: "Spese di viaggio" };
+  const otherAccount = { number: "6101", name: "Spese materiale ufficio" };
+  const vat = { code: "IMP81", rateBasisPoints: 810 };
+  const otherVat = { code: "NOVAT", rateBasisPoints: 0 };
   const request = await db.refundRequest.create({
     data: { ownerUserId: owner, ownerEmail: `${owner}@welld.ch`, status: opts.status ?? "approved" },
   });
@@ -42,9 +39,11 @@ async function fixture(opts: { status?: "approved" | "paid"; numbered?: boolean;
       currency: "CHF",
       requestedAmountCents: 1000,
       approvedTotalCents: 1000,
-      ledgerAccountId: account.id,
+      accountNumber: account.number,
+      accountName: account.name,
       ledgerAccountIsDefault: true,
-      vatCodeId: vat.id,
+      vatCodeCopy: vat.code,
+      vatRateBasisPoints: vat.rateBasisPoints,
       vatCodeIsDefault: true,
       ...(opts.numbered === false
         ? {}
@@ -214,7 +213,7 @@ describe("refund_line_accounting_guard: a receipt number is immutable (AC-4.7)",
   });
 });
 
-describe("refund_line_accounting_guard: classification locked when paid (AC-3.7)", () => {
+describe("refund_line_accounting_guard: the copies are locked when paid and numbered (AC-3.7, AC-5.3, AC-5.7)", () => {
   beforeEach(async () => {
     await truncateRefundTables();
   });
@@ -222,44 +221,68 @@ describe("refund_line_accounting_guard: classification locked when paid (AC-3.7)
     await truncateRefundTables();
   });
 
-  it("a paid request's numbered line: account, VAT code and both default flags cannot change", async () => {
+  it("a paid request's numbered line: every copy column and both default flags cannot change, one by one", async () => {
     const f = await fixture({ status: "paid" });
     const attempts: [string, unknown][] = [
-      ["vatCodeId", f.otherVat.id],
-      ["ledgerAccountId", f.otherAccount.id],
-      ["vatCodeIsDefault", false],
+      ["accountNumber", f.otherAccount.number],
+      ["accountName", f.otherAccount.name],
       ["ledgerAccountIsDefault", false],
-      ["vatCodeId", null],
+      ["vatCode", f.otherVat.code],
+      ["vatRateBasisPoints", f.otherVat.rateBasisPoints],
+      ["vatCodeIsDefault", false],
+      ["ledgerAccountIsDefault", null],
+      ["vatCode", null],
     ];
     for (const [column, value] of attempts) {
       await expect(
         asPromise(db.$executeRawUnsafe(`UPDATE "refund_line" SET "${column}" = $1 WHERE id = $2`, value, f.line.id)),
       ).rejects.toThrow(/locked/);
     }
+    // ...and the whole pair at once, through the client.
+    await expect(
+      asPromise(
+        db.refundLine.update({
+          where: { id: f.line.id },
+          data: { accountNumber: f.otherAccount.number, accountName: f.otherAccount.name },
+        }),
+      ),
+    ).rejects.toThrow(/locked/);
     const reread = await db.refundLine.findUniqueOrThrow({ where: { id: f.line.id } });
-    expect(reread.vatCodeId).toBe(f.vat.id);
-    expect(reread.ledgerAccountId).toBe(f.account.id);
-    expect(reread.vatCodeIsDefault).toBe(true);
+    expect(reread).toMatchObject({
+      accountNumber: f.account.number,
+      accountName: f.account.name,
+      ledgerAccountIsDefault: true,
+      vatCodeCopy: f.vat.code,
+      vatRateBasisPoints: f.vat.rateBasisPoints,
+      vatCodeIsDefault: true,
+    });
   });
 
-  it("the same change on an approved request's line is accepted (post-approval reclassification, AC-3.6)", async () => {
+  it("the same change on an approved request's line is accepted (post-approval reclassification, AC-5.7)", async () => {
     const f = await fixture({ status: "approved" });
     await expect(
       asPromise(
         db.refundLine.update({
           where: { id: f.line.id },
-          data: { vatCodeId: f.otherVat.id, vatCodeIsDefault: false },
+          data: { vatCodeCopy: f.otherVat.code, vatRateBasisPoints: f.otherVat.rateBasisPoints, vatCodeIsDefault: false },
         }),
       ),
     ).resolves.toBeTruthy();
+    // the changed half only: the account copy is untouched
+    const reread = await db.refundLine.findUniqueOrThrow({ where: { id: f.line.id } });
+    expect(reread.accountNumber).toBe(f.account.number);
+    expect(reread.vatCodeCopy).toBe(f.otherVat.code);
   });
 
   it("marking the request paid is what locks it: change, pay, change again", async () => {
     const f = await fixture({ status: "approved" });
-    await db.refundLine.update({ where: { id: f.line.id }, data: { ledgerAccountId: f.otherAccount.id, ledgerAccountIsDefault: false } });
+    await db.refundLine.update({
+      where: { id: f.line.id },
+      data: { accountNumber: f.otherAccount.number, accountName: f.otherAccount.name, ledgerAccountIsDefault: false },
+    });
     await db.refundRequest.update({ where: { id: f.request.id }, data: { status: "paid" } });
     await expect(
-      asPromise(db.refundLine.update({ where: { id: f.line.id }, data: { ledgerAccountId: f.account.id } })),
+      asPromise(db.refundLine.update({ where: { id: f.line.id }, data: { accountNumber: f.account.number, accountName: f.account.name } })),
     ).rejects.toThrow(/locked/);
   });
 
@@ -268,13 +291,22 @@ describe("refund_line_accounting_guard: classification locked when paid (AC-3.7)
     await expect(
       asPromise(db.refundLine.update({ where: { id: f.line.id }, data: { motivo: "edited" } })),
     ).resolves.toBeTruthy();
+    // a no-op write of the copies (same values) is not a change either
+    await expect(
+      asPromise(db.refundLine.update({ where: { id: f.line.id }, data: { accountNumber: f.account.number, vatCodeCopy: f.vat.code } })),
+    ).resolves.toBeTruthy();
   });
 
   it("a legacy line of a paid request that has no receipt number yet can still be classified (the release backfill, AC-7.1)", async () => {
     const f = await fixture({ status: "paid", numbered: false });
     await db.refundLine.update({
       where: { id: f.line.id },
-      data: { ledgerAccountId: f.otherAccount.id, vatCodeId: f.otherVat.id },
+      data: {
+        accountNumber: f.otherAccount.number,
+        accountName: f.otherAccount.name,
+        vatCodeCopy: f.otherVat.code,
+        vatRateBasisPoints: f.otherVat.rateBasisPoints,
+      },
     });
     // ...and numbered in the same or a later statement, after which it is locked.
     await db.refundLine.update({
@@ -282,8 +314,38 @@ describe("refund_line_accounting_guard: classification locked when paid (AC-3.7)
       data: { receiptNumber: "MC26/001", receiptOwnerUserId: "owner-1", receiptYear: 2026, receiptSeq: 1, numberedAt: new Date() },
     });
     await expect(
-      asPromise(db.refundLine.update({ where: { id: f.line.id }, data: { vatCodeId: f.vat.id } })),
+      asPromise(db.refundLine.update({ where: { id: f.line.id }, data: { vatCodeCopy: f.vat.code, vatRateBasisPoints: f.vat.rateBasisPoints } })),
     ).rejects.toThrow(/locked/);
+  });
+
+  it("classifying and numbering a legacy line in ONE statement is allowed (the old row is unnumbered)", async () => {
+    const f = await fixture({ status: "paid", numbered: false });
+    await expect(
+      asPromise(
+        db.refundLine.update({
+          where: { id: f.line.id },
+          data: {
+            accountNumber: f.otherAccount.number,
+            accountName: f.otherAccount.name,
+            receiptNumber: "MC26/001",
+            receiptOwnerUserId: "owner-1",
+            receiptYear: 2026,
+            receiptSeq: 1,
+            numberedAt: new Date(),
+          },
+        }),
+      ),
+    ).resolves.toBeTruthy();
+  });
+
+  it("guard v2 does not name the old FK columns, so T24 can drop them (plan step 4)", async () => {
+    const rows = await db.$queryRawUnsafe<{ src: string }[]>(
+      `SELECT pg_get_functiondef('refund_line_accounting_guard'::regproc) AS src`,
+    );
+    const src = rows[0]!.src;
+    expect(src).not.toMatch(/ledgerAccountId|vatCodeId/);
+    expect(src).toContain('"accountNumber"');
+    expect(src).toContain('"fxRateMicros"');
   });
 });
 
