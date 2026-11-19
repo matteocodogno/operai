@@ -318,6 +318,20 @@ function prismaDiff(databaseUrl: string): { code: number; out: string } {
   return { code: proc.exitCode ?? -1, out: `${proc.stdout.toString()}${proc.stderr.toString()}` };
 }
 
+/**
+ * A scratch database of its OWN, carried to the final schema with the fixture rows: for a test that WRITES. The shared
+ * `refund_mig_so` of the describe below is read-only for every test: its digests and default history are compared with the ones
+ * taken before the migrations, so one write there would fail those comparisons whenever the writer ran first (D-9 of the sign-off
+ * QE round; the D-5 class again, closed the same way as in `migration.accounting-move.test.ts`).
+ */
+async function carriedToTheEnd(name: string): Promise<SQL> {
+  const s = await scratch(name);
+  await apply(s, BEFORE);
+  await fixtures(s);
+  await apply(s, M_VAT, M_ENUM);
+  return s;
+}
+
 describe("the sign-off migrations carry a 20261119130000 database with realistic data", () => {
   let sql: SQL;
   let url: string;
@@ -431,8 +445,9 @@ describe("the sign-off migrations carry a 20261119130000 database with realistic
   });
 
   it("the new enum values can be written after the migration (a line, a default)", async () => {
+    const w = await carriedToTheEnd("refund_mig_so_wenum"); // its own database: this test writes
     for (const [i, type] of (["travel_flight", "travel_taxi"] as const).entries()) {
-      await insert(sql, "refund_line", {
+      await insert(w, "refund_line", {
         id: `L-new-${type}`,
         requestId: "rq-draft",
         date: "2026-05-02",
@@ -443,7 +458,7 @@ describe("the sign-off migrations carry a 20261119130000 database with realistic
         requestedAmountCents: 100,
         updatedAt: "2026-05-01T00:00:00.000",
       });
-      await insert(sql, "expense_type_accounting_default", {
+      await insert(w, "expense_type_accounting_default", {
         id: `def-new-${type}`,
         entity: "welld_ch",
         type,
@@ -453,18 +468,21 @@ describe("the sign-off migrations carry a 20261119130000 database with realistic
         createdAt: "2026-05-02T09:00:00.000",
       });
     }
-    expect((await rows(sql, `SELECT type::text AS type FROM refund_line WHERE id LIKE 'L-new-%' ORDER BY id`)).map((r) => r["type"])).toEqual(["travel_flight", "travel_taxi"]);
-  });
+    expect((await rows(w, `SELECT type::text AS type FROM refund_line WHERE id LIKE 'L-new-%' ORDER BY id`)).map((r) => r["type"])).toEqual(["travel_flight", "travel_taxi"]);
+    await w.close();
+  }, 120_000);
 
   it("receipt_number_baseline starts empty, takes a 2026 row and refuses a 2025 row and any UPDATE or DELETE", async () => {
-    expect(await rows(sql, `SELECT count(*)::int AS n FROM receipt_number_baseline`)).toEqual([{ n: 0 }]);
+    const w = await carriedToTheEnd("refund_mig_so_wbl"); // its own database: this test writes
+    expect(await rows(w, `SELECT count(*)::int AS n FROM receipt_number_baseline`)).toEqual([{ n: 0 }]);
     const row = { id: "bl-1", emailKey: "matteo.codogno@welld.ch", year: 2026, lastIssuedSeq: 81, ...by("system:accounting-release") };
-    await insert(sql, "receipt_number_baseline", row);
-    await expect(insert(sql, "receipt_number_baseline", { ...row, id: "bl-2", year: 2025 })).rejects.toThrow(/receipt_number_baseline_year_2026/);
-    await expect(sql.unsafe(`UPDATE receipt_number_baseline SET "lastIssuedSeq" = 82 WHERE id = 'bl-1'`)).rejects.toThrow(/append-only/);
-    await expect(sql.unsafe(`DELETE FROM receipt_number_baseline WHERE id = 'bl-1'`)).rejects.toThrow(/append-only/);
-    expect(await rows(sql, `SELECT "lastIssuedSeq" FROM receipt_number_baseline`)).toEqual([{ lastIssuedSeq: 81 }]);
-  });
+    await insert(w, "receipt_number_baseline", row);
+    await expect(insert(w, "receipt_number_baseline", { ...row, id: "bl-2", year: 2025 })).rejects.toThrow(/receipt_number_baseline_year_2026/);
+    await expect(w.unsafe(`UPDATE receipt_number_baseline SET "lastIssuedSeq" = 82 WHERE id = 'bl-1'`)).rejects.toThrow(/append-only/);
+    await expect(w.unsafe(`DELETE FROM receipt_number_baseline WHERE id = 'bl-1'`)).rejects.toThrow(/append-only/);
+    expect(await rows(w, `SELECT "lastIssuedSeq" FROM receipt_number_baseline`)).toEqual([{ lastIssuedSeq: 81 }]);
+    await w.close();
+  }, 120_000);
 
   it("the guards of the other tables still hold (line paid lock, rate write-once, receipt, counter, defaults, export log, copy CHECKs)", async () => {
     await expect(sql.unsafe(`UPDATE refund_line SET "accountNumber" = '6102', "accountName" = 'x' WHERE id = 'L-chf-hand-vat'`)).rejects.toThrow(/locked/);
