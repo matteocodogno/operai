@@ -1,7 +1,7 @@
 /**
- * Data access for the ledger accounts and VAT codes of each legal entity (T8, specs/20261119-accounting; moved from
- * refund-api's `src/accounting/catalog.repo.ts`, where it served WellD CH alone; AC-1.1 to AC-1.4, AC-1.9, AC-1.11 to
- * AC-1.13; ADR 20260716-immutable-financial-audit-trail-refund, plan § Data model).
+ * Data access for the ledger accounts and VAT codes of each legal entity (T8 and T9, specs/20261119-accounting; moved
+ * from refund-api's `src/accounting/catalog.repo.ts`, where it served WellD CH alone; AC-1.1 to AC-1.13; ADR
+ * 20260716-immutable-financial-audit-trail-refund, plan § Data model).
  *
  * Shape of the data
  * - An entry (`ledger_account`, `vat_code`) is INSERT-ONLY: number, name, code, label, rate and entity never change
@@ -27,7 +27,7 @@
 import type { Prisma } from "../lib/generated/prisma/client";
 import { db } from "../lib/db";
 import type { Entity } from "../entities";
-import type { LedgerAccountItem } from "./catalog.schemas";
+import type { LedgerAccountItem, VatCodeItem } from "./catalog.schemas";
 
 export interface Actor {
   readonly userId: string;
@@ -94,6 +94,7 @@ const latestStatus = {
 } as const satisfies Prisma.LedgerAccountInclude;
 
 type LedgerAccountRow = Prisma.LedgerAccountGetPayload<{ include: typeof latestStatus }>;
+type VatCodeRow = Prisma.VatCodeGetPayload<{ include: typeof latestStatus }>;
 
 const isActive = (row: { statusChanges: readonly { active: boolean }[] }): boolean => row.statusChanges[0]?.active ?? true;
 
@@ -102,12 +103,29 @@ export function toLedgerAccountItem(row: LedgerAccountRow): LedgerAccountItem {
   return { number: row.number, name: row.name, active: isActive(row) };
 }
 
+/** The wire projection of a VAT code (D18): code, label, rate (as displayed and in basis points), active. */
+export function toVatCodeItem(row: VatCodeRow): VatCodeItem {
+  return {
+    code: row.code,
+    label: row.label,
+    ratePercent: basisPointsToPercent(row.rateBasisPoints),
+    rateBasisPoints: row.rateBasisPoints,
+    active: isActive(row),
+  };
+}
+
 // ─── Reads ───────────────────────────────────────────────────────────────────
 
 /** Every account of the entity, active and deactivated, ordered by number segments. An entity with none lists none. */
 export async function listLedgerAccounts(entity: Entity, client: Client = db): Promise<LedgerAccountItem[]> {
   const rows = await client.ledgerAccount.findMany({ where: { entity }, include: latestStatus });
   return rows.map(toLedgerAccountItem).sort((a, b) => compareAccountNumbers(a.number, b.number));
+}
+
+/** Every VAT code of the entity, active and deactivated, in code order (plain character order, capitals and digits only). */
+export async function listVatCodes(entity: Entity, client: Client = db): Promise<VatCodeItem[]> {
+  const rows = await client.vatCode.findMany({ where: { entity }, include: latestStatus });
+  return rows.map(toVatCodeItem).sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────────
@@ -145,6 +163,38 @@ export async function createLedgerAccount(
     if (!isUniqueViolation(error)) throw error;
     // Lost the race: the winner's row is there now, so the loser is told what the pre-check would have told it.
     const winner = await findLedgerAccount(entity, input.number);
+    return { kind: "duplicate", reactivate: winner !== null && !isActive(winner) };
+  }
+}
+
+async function findVatCode(entity: Entity, code: string): Promise<VatCodeRow | null> {
+  return db.vatCode.findUnique({ where: { entity_code: { entity, code } }, include: latestStatus });
+}
+
+/** `code` is already upper-cased and checked (`limits.ts`); the unique index on (entity, code) makes the match case-insensitive. */
+export async function createVatCode(
+  entity: Entity,
+  input: { readonly code: string; readonly label: string; readonly rateBasisPoints: number },
+  actor: Actor,
+): Promise<CreateOutcome<VatCodeItem>> {
+  const existing = await findVatCode(entity, input.code);
+  if (existing) return { kind: "duplicate", reactivate: !isActive(existing) };
+  try {
+    const row = await db.vatCode.create({
+      data: {
+        entity,
+        code: input.code,
+        label: input.label,
+        rateBasisPoints: input.rateBasisPoints,
+        createdByUserId: actor.userId,
+        createdByEmail: actor.email,
+      },
+      include: latestStatus,
+    });
+    return { kind: "created", item: toVatCodeItem(row) };
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    const winner = await findVatCode(entity, input.code);
     return { kind: "duplicate", reactivate: winner !== null && !isActive(winner) };
   }
 }
@@ -193,5 +243,35 @@ export async function setLedgerAccountActive(
     });
     const after = await tx.ledgerAccount.findUniqueOrThrow({ where: { id }, include: latestStatus });
     return { kind: "changed", item: toLedgerAccountItem(after) } as const;
+  });
+}
+
+/** The same as `setLedgerAccountActive`, for a VAT code: one locked transaction, one row, or nothing (AC-1.11). */
+export async function setVatCodeActive(
+  entity: Entity,
+  code: string,
+  target: boolean,
+  actor: Actor,
+): Promise<StatusOutcome<VatCodeItem>> {
+  return db.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "vat_code"
+      WHERE "entity" = ${entity}::"Entity" AND "code" = ${code} FOR UPDATE`;
+    const id = locked[0]?.id;
+    if (id === undefined) return { kind: "not_found" } as const;
+    const before = await tx.vatCode.findUniqueOrThrow({ where: { id }, include: latestStatus });
+    if (isActive(before) === target) return { kind: "unchanged", item: toVatCodeItem(before), active: target } as const;
+    await tx.catalogStatusChange.create({
+      data: {
+        entity,
+        vatCodeId: id,
+        active: target,
+        createdAt: strictlyAfter(before.statusChanges[0]?.createdAt),
+        createdByUserId: actor.userId,
+        createdByEmail: actor.email,
+      },
+    });
+    const after = await tx.vatCode.findUniqueOrThrow({ where: { id }, include: latestStatus });
+    return { kind: "changed", item: toVatCodeItem(after) } as const;
   });
 }

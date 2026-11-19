@@ -1,5 +1,5 @@
 /**
- * The limits of the catalog, in one module (T8, specs/20261119-accounting, plan D31, AC-1.2; T9 adds the VAT ones).
+ * The limits of the catalog, in one module (T8 and T9, specs/20261119-accounting, plan D31, AC-1.2, AC-1.5).
  *
  * accounting-ui's `src/lib/limits.ts` mirrors these numbers and the reason words (`empty`, `format`, `too_long`,
  * `range`); the server stays the authority and answers a refused value as `fields[{ field, reason }]`. The 20261118
@@ -18,6 +18,10 @@
 export const LIMITS = {
   ledgerNumberMax: 20,
   ledgerNameMax: 120,
+  vatCodeMax: 16,
+  vatLabelMax: 80,
+  /** A rate is at most this many percent (0 is the lower bound); the two decimals are in the pattern. */
+  vatRateMaxPercent: 100,
 } as const;
 
 /** Why a value is refused. `range` is a well-formed number outside its bounds (T9: a VAT rate). */
@@ -61,6 +65,42 @@ export function checkText(input: unknown, max: number): LimitCheck {
 }
 
 export const checkLedgerName = (input: unknown): LimitCheck => checkText(input, LIMITS.ledgerNameMax);
+
+export const checkVatLabel = (input: unknown): LimitCheck => checkText(input, LIMITS.vatLabelMax);
+
+/**
+ * Lower case to capital letters, `a` to `z` only. Not `toUpperCase()`: that one turns `ß` into `SS` and `ſ` into `S`,
+ * which would let a character outside the code's alphabet in through the conversion. The URL's `{code}` goes through
+ * the same function, so a code is found by what it is stored as.
+ */
+export const upperCaseCode = (input: string): string => input.replace(/[a-z]/g, (letter) => letter.toUpperCase());
+
+/** Capital letters, digits, `_` and `-`. Same pattern as the database CHECK (the length is checked apart). */
+const VAT_CODE = /^[A-Z0-9_-]+$/;
+
+/** A VAT code, trimmed and converted to capital letters (AC-1.5): the form the database stores and every lookup uses. */
+export function checkVatCode(input: unknown): LimitCheck {
+  const trimmedValue = trimmed(input);
+  if (trimmedValue === null) return refused("format");
+  const value = upperCaseCode(trimmedValue);
+  if (value === "") return refused("empty");
+  if (!VAT_CODE.test(value)) return refused("format");
+  if (value.length > LIMITS.vatCodeMax) return refused("too_long");
+  return ok(value);
+}
+
+/** Up to three digits and up to two decimals after a dot: `8`, `8.1`, `8.10`, `100`. The range is checked after. */
+const VAT_RATE = /^\d{1,3}(\.\d{1,2})?$/;
+
+/** A VAT rate in percent as a decimal string with a dot: 0 to 100, at most two decimals. Returns the trimmed string. */
+export function checkVatRatePercent(input: unknown): LimitCheck {
+  const value = trimmed(input);
+  if (value === null) return refused("format");
+  if (value === "") return refused("empty");
+  if (!VAT_RATE.test(value)) return refused("format");
+  if (Number(value) > LIMITS.vatRateMaxPercent) return refused("range");
+  return ok(value);
+}
 
 /** One refused field of a 422, as it travels: `fields: [{ field, reason }]`. */
 export interface FieldRefusal {

@@ -7,13 +7,15 @@
  * deactivated, other entity, racing), 1.4 deactivate stays listed, 1.9 reactivate, 1.11 already in the state and the
  * races, 1.12 no PUT/PATCH/DELETE, 1.13 who, when, entity and before/after on the status rows, 3.4 a reader writes
  * nothing, 3.5 an uncovered entity is not found, 3.6 no grant gets no data, 8.3 an empty entity is an empty list.
- * The system read of the same entries (AC-1.1, AC-1.4, AC-1.9 "also in the system read") is proved with the system
- * routes (T13); the VAT codes with T9.
+ * The VAT codes (T9): 1.5 add, upper-casing, rate in basis points and the limits, 1.6 duplicate ignoring case,
+ * 1.7 the rate cannot be changed, 1.8 and 1.10 deactivate and reactivate, 1.11 races, 1.13 status rows, 3.4, 3.5, 8.3.
+ * The system read of the same entries (AC-1.1, AC-1.4, AC-1.8, AC-1.9, AC-1.10 "also in the system read") is proved
+ * with the system routes (T13).
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { fakeResolve, PERSONAS, type Persona } from "../test-support/fakeResolve";
-import { truncateAccountingTables } from "../test-support/dbCleanup";
+import { SQLSTATE, truncateAccountingTables, violation } from "../test-support/dbCleanup";
 import { setupTestAuth } from "../test-support/testAuth";
 
 const harness = setupTestAuth();
@@ -63,6 +65,14 @@ const deactivate = (number: string, opts: CallOptions & { entity?: string } = {}
   call("POST", `${ACCOUNTS(opts.entity)}/${encodeURIComponent(number)}/deactivate`, opts);
 const reactivate = (number: string, opts: CallOptions & { entity?: string } = {}) =>
   call("POST", `${ACCOUNTS(opts.entity)}/${encodeURIComponent(number)}/reactivate`, opts);
+const VATS = (entity = "welld_ch") => `/v1/entities/${entity}/vat-codes`;
+const addVat = (code = "IMP81", ratePercent = "8.1", label = "IVA 8.1%", opts: CallOptions & { entity?: string } = {}) =>
+  call("POST", VATS(opts.entity), { ...opts, body: { code, label, ratePercent } });
+const deactivateVat = (code: string, opts: CallOptions & { entity?: string } = {}) =>
+  call("POST", `${VATS(opts.entity)}/${encodeURIComponent(code)}/deactivate`, opts);
+const reactivateVat = (code: string, opts: CallOptions & { entity?: string } = {}) =>
+  call("POST", `${VATS(opts.entity)}/${encodeURIComponent(code)}/reactivate`, opts);
+const codes = (res: { body: Record<string, any> }) => (res.body["items"] as { code: string }[]).map((i) => i.code);
 const numbers = (res: { body: Record<string, any> }) => (res.body["items"] as { number: string }[]).map((i) => i.number);
 
 beforeAll(async () => {
@@ -80,10 +90,12 @@ describe("the harness reaches the real app (the T6 issue)", () => {
   it("answers 401 without a token and 200 with one, through ../index, in a full run as alone", async () => {
     expect((await call("GET", ACCOUNTS(), { token: false })).status).toBe(401);
     expect((await call("GET", ACCOUNTS())).status).toBe(200);
+    expect((await call("GET", VATS(), { token: false })).status).toBe(401);
+    expect((await call("GET", VATS())).status).toBe(200);
   });
 });
 
-describe("percent and basis-point conversion (kept for the VAT codes of T9)", () => {
+describe("percent and basis-point conversion", () => {
   it("is exact, with no float", () => {
     expect(percentToBasisPoints("8.1")).toBe(810);
     expect(percentToBasisPoints("8")).toBe(800);
@@ -427,18 +439,21 @@ describe("(AC-1.11) an entry already in the state asked for", () => {
 });
 
 describe("(AC-1.12) there is no way to change or delete an entry", () => {
-  it("the OpenAPI document lists the four account routes and no write method but POST", async () => {
+  it("the OpenAPI document lists the catalog routes, and no write method but the six POSTs", async () => {
     const res = await app.request("/openapi.json");
     expect(res.status).toBe(200);
     const paths = ((await res.json()) as { paths: Record<string, Record<string, unknown>> }).paths;
-    const catalog = Object.entries(paths).filter(([path]) => path.includes("/ledger-accounts"));
+    const catalog = Object.entries(paths).filter(([path]) => path.startsWith("/v1/entities/"));
     expect(catalog.map(([path]) => path).sort()).toEqual([
       "/v1/entities/{entity}/ledger-accounts",
       "/v1/entities/{entity}/ledger-accounts/{number}/deactivate",
       "/v1/entities/{entity}/ledger-accounts/{number}/reactivate",
+      "/v1/entities/{entity}/vat-codes",
+      "/v1/entities/{entity}/vat-codes/{code}/deactivate",
+      "/v1/entities/{entity}/vat-codes/{code}/reactivate",
     ]);
     const methods = catalog.flatMap(([, ops]) => Object.keys(ops));
-    expect(methods.sort()).toEqual(["get", "post", "post", "post"]);
+    expect(methods.sort()).toEqual(["get", "get", "post", "post", "post", "post", "post", "post"]);
   });
 
   it("PUT, PATCH and DELETE answer 404 on the list, an entry and its actions, for a manager", async () => {
@@ -581,5 +596,317 @@ describe("(AC-3.6) a caller with no Accounting grant gets no data", () => {
     }
     expect(await db.ledgerAccount.count()).toBe(1);
     expect(await db.catalogStatusChange.count()).toBe(0);
+  });
+});
+
+
+// ─── VAT codes (T9) ──────────────────────────────────────────────────────────
+
+describe("(AC-1.5) adding a VAT code", () => {
+  it("answers 201 with code, label, ratePercent, rateBasisPoints and active only, upper-cased, and lists it", async () => {
+    const res = await addVat("imp81", "8.1", "  IVA 8.1%  ", { sub: "manager-7", email: "carla@welld.ch" });
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", rateBasisPoints: 810, active: true });
+    const list = await call("GET", VATS());
+    expect(list.body).toEqual({
+      entity: "welld_ch",
+      items: [{ code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", rateBasisPoints: 810, active: true }],
+    });
+    const row = await db.vatCode.findFirstOrThrow();
+    expect(row).toMatchObject({ entity: "welld_ch", createdByUserId: "manager-7", createdByEmail: "carla@welld.ch", rateBasisPoints: 810 });
+  });
+
+  it("stores the rate in basis points, exactly: 8.1 is 810, 8 is 800, 7.70 is 770, 0.07 is 7, 0 and 100 are the bounds", async () => {
+    const rows: [string, string, number, string][] = [
+      ["A", "8.1", 810, "8.1"],
+      ["B", "8", 800, "8"],
+      ["C", "7.70", 770, "7.7"],
+      ["D", "0.07", 7, "0.07"],
+      ["E", "0", 0, "0"],
+      ["F", "100", 10000, "100"],
+      ["G", "100.00", 10000, "100"],
+      ["H", "2.5", 250, "2.5"],
+    ];
+    for (const [code, rate, bp, shown] of rows) {
+      const res = await addVat(code, rate, `Label ${code}`);
+      expect(res.status).toBe(201);
+      expect(res.body["rateBasisPoints"]).toBe(bp);
+      expect(res.body["ratePercent"]).toBe(shown);
+    }
+  });
+
+  const refused = async (body: Record<string, unknown>, fields: { field: string; reason: string }[]) => {
+    const before = await db.vatCode.count();
+    const res = await call("POST", VATS(), { body });
+    expect(res.status).toBe(422);
+    expect(res.body["code"]).toBe("invalid_vat_code");
+    expect(res.body["fields"]).toEqual(fields);
+    expect(await db.vatCode.count()).toBe(before);
+  };
+
+  it("refuses a rate of -1, 100.01, 8.123 and a non-number, naming ratePercent, and saves nothing", async () => {
+    await refused({ code: "BAD", label: "l", ratePercent: "-1" }, [{ field: "ratePercent", reason: "format" }]);
+    await refused({ code: "BAD", label: "l", ratePercent: "100.01" }, [{ field: "ratePercent", reason: "range" }]);
+    await refused({ code: "BAD", label: "l", ratePercent: "8.123" }, [{ field: "ratePercent", reason: "format" }]);
+    for (const ratePercent of ["abc", "1e2", ".5", "1000", "8,1", "+8"]) {
+      await refused({ code: "BAD", label: "l", ratePercent }, [{ field: "ratePercent", reason: "format" }]);
+    }
+    await refused({ code: "BAD", label: "l", ratePercent: "" }, [{ field: "ratePercent", reason: "empty" }]);
+    await refused({ code: "BAD", label: "l" }, [{ field: "ratePercent", reason: "empty" }]);
+    await refused({ code: "BAD", label: "l", ratePercent: 8.1 }, [{ field: "ratePercent", reason: "format" }]);
+  });
+
+  it("refuses a code with a space or 17 characters, and a label of 0 or 81 characters, naming each field", async () => {
+    await refused({ code: "IMP 81", label: "l", ratePercent: "8" }, [{ field: "code", reason: "format" }]);
+    await refused({ code: "A".repeat(17), label: "l", ratePercent: "8" }, [{ field: "code", reason: "too_long" }]);
+    await refused({ code: "a".repeat(17), label: "l", ratePercent: "8" }, [{ field: "code", reason: "too_long" }]);
+    await refused({ code: "", label: "l", ratePercent: "8" }, [{ field: "code", reason: "empty" }]);
+    await refused({ code: "ü", label: "l", ratePercent: "8" }, [{ field: "code", reason: "format" }]);
+    await refused({ code: "OK", label: "", ratePercent: "8" }, [{ field: "label", reason: "empty" }]);
+    await refused({ code: "OK", label: "l".repeat(81), ratePercent: "8" }, [{ field: "label", reason: "too_long" }]);
+    await refused({ code: "OK", label: "a\u0000b", ratePercent: "8" }, [{ field: "label", reason: "format" }]);
+    await refused({ code: "bad code", label: "", ratePercent: "x" }, [
+      { field: "code", reason: "format" },
+      { field: "label", reason: "empty" },
+      { field: "ratePercent", reason: "format" },
+    ]);
+  });
+
+  it("accepts a 16-character code, an 80-character label, and the code's `_` and `-`", async () => {
+    expect((await addVat("a".repeat(16), "8", "l".repeat(80))).status).toBe(201);
+    expect((await addVat("imp_81-x", "8")).body["code"]).toBe("IMP_81-X");
+  });
+
+  it("(AC-8.3) lists an entity with nothing entered as an empty list", async () => {
+    const res = await call("GET", VATS("welld_it"), { as: PERSONAS.accountingIt });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ entity: "welld_it", items: [] });
+  });
+
+  it("lists in code order", async () => {
+    for (const code of ["IMP81", "A1", "EXP0", "9Z"]) await addVat(code);
+    expect(codes(await call("GET", VATS()))).toEqual(["9Z", "A1", "EXP0", "IMP81"]);
+  });
+});
+
+describe("(AC-1.6) the same VAT code twice", () => {
+  it("is a 409 naming the code, `imp81` against `IMP81`, active (reactivate false) or deactivated (reactivate true)", async () => {
+    await addVat("IMP81");
+    const active = await addVat("imp81", "7.7", "other");
+    expect(active.status).toBe(409);
+    expect(active.body).toMatchObject({ code: "vat_code_duplicate", vatCode: "IMP81", reactivate: false });
+    expect(active.body["detail"]).toBe("VAT code IMP81 already exists");
+
+    await deactivateVat("IMP81");
+    const inactive = await addVat("Imp81");
+    expect(inactive.status).toBe(409);
+    expect(inactive.body).toMatchObject({ code: "vat_code_duplicate", vatCode: "IMP81", reactivate: true }); // G9
+    expect(await db.vatCode.count()).toBe(1);
+    expect((await db.vatCode.findFirstOrThrow()).rateBasisPoints).toBe(810);
+  });
+
+  it("is accepted in the other entity", async () => {
+    expect((await addVat("IMP81", "8.1", "CH", { as: PERSONAS.admin })).status).toBe(201);
+    expect((await addVat("imp81", "22", "IT", { as: PERSONAS.admin, entity: "welld_it" })).status).toBe(201);
+    expect(await db.vatCode.count()).toBe(2);
+  });
+
+  it("two concurrent adds of one code in two spellings, 20 times over: one 201 and one 409 each time", async () => {
+    for (let i = 0; i < 20; i++) {
+      const code = `RACE${i}`;
+      const results = await Promise.all([addVat(code, "8"), addVat(code.toLowerCase(), "9")]);
+      expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+      expect(results.find((r) => r.status === 409)!.body).toMatchObject({ code: "vat_code_duplicate", vatCode: code, reactivate: false });
+    }
+    expect(await db.vatCode.count()).toBe(20);
+  });
+
+  it("twenty concurrent adds of one code: one 201, nineteen 409", async () => {
+    const results = await Promise.all(Array.from({ length: 20 }, () => addVat("RACE", "8")));
+    expect(results.filter((r) => r.status === 201)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 409)).toHaveLength(19);
+    expect(await db.vatCode.count()).toBe(1);
+  });
+});
+
+describe("(AC-1.7) there is no way to change a VAT code's rate", () => {
+  it("PUT and PATCH on the code, in any case, answer 404, and the rate is unchanged", async () => {
+    await addVat("IMP81", "8.1");
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      for (const path of [VATS(), `${VATS()}/IMP81`, `${VATS()}/imp81`, `${VATS()}/IMP81/deactivate`, `${VATS()}/IMP81/reactivate`]) {
+        const res = await call(method, path, { body: { ratePercent: "9", label: "x", code: "NEW" } });
+        expect(res.status).toBe(404);
+      }
+    }
+    expect(await db.vatCode.findFirstOrThrow()).toMatchObject({ code: "IMP81", rateBasisPoints: 810, label: "IVA 8.1%" });
+    expect(await db.catalogStatusChange.count()).toBe(0);
+  });
+
+  it("a request body cannot carry a rate onto an existing code: the duplicate is refused and the rate stays", async () => {
+    await addVat("IMP81", "8.1");
+    const res = await addVat("IMP81", "9.9");
+    expect(res.status).toBe(409);
+    expect((await db.vatCode.findFirstOrThrow()).rateBasisPoints).toBe(810);
+  });
+
+  it("the database refuses a raw UPDATE of the rate and of the entity (the wall behind the routes)", async () => {
+    await addVat("IMP81", "8.1");
+    expect((await violation(db.$executeRaw`UPDATE "vat_code" SET "rateBasisPoints" = 900`)).code).toBe(SQLSTATE.raise);
+    expect((await violation(db.$executeRaw`UPDATE "vat_code" SET "entity" = 'welld_it'::"Entity"`)).code).toBe(SQLSTATE.raise);
+    expect((await db.vatCode.findFirstOrThrow()).rateBasisPoints).toBe(810);
+  });
+});
+
+describe("(AC-1.8, AC-1.10, AC-1.13) deactivating and reactivating a VAT code", () => {
+  it("a deactivated code stays listed, inactive; reactivated it has the same code, label and rate", async () => {
+    await addVat("IMP81", "8.1", "IVA 8.1%");
+    const off = await deactivateVat("imp81", { email: "off@welld.ch" }); // {code} is upper-cased before the lookup
+    expect(off.status).toBe(200);
+    expect(off.body).toEqual({ code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", rateBasisPoints: 810, active: false });
+    expect((await call("GET", VATS())).body["items"][0].active).toBe(false);
+
+    const on = await reactivateVat("Imp81", { email: "on@welld.ch" });
+    expect(on.status).toBe(200);
+    expect(on.body).toEqual({ code: "IMP81", label: "IVA 8.1%", ratePercent: "8.1", rateBasisPoints: 810, active: true });
+  });
+
+  it("writes one status row per change with actor, time, entity and the after-state", async () => {
+    await addVat("IMP81");
+    await deactivateVat("IMP81", { sub: "u-off", email: "off@welld.ch" });
+    await reactivateVat("IMP81", { sub: "u-on", email: "on@welld.ch" });
+    const rows = await db.catalogStatusChange.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+    expect(rows.map((r) => [r.active, r.createdByUserId, r.createdByEmail, r.entity])).toEqual([
+      [false, "u-off", "off@welld.ch", "welld_ch"],
+      [true, "u-on", "on@welld.ch", "welld_ch"],
+    ]);
+    const vat = await db.vatCode.findFirstOrThrow();
+    expect(rows.every((r) => r.vatCodeId === vat.id && r.ledgerAccountId === null)).toBe(true);
+    expect(new Set(rows.map((r) => r.createdAt.getTime())).size).toBe(2);
+  });
+
+  it("changes only the code asked for, in the entity asked for, and not an account that has the same text", async () => {
+    await addVat("5905", "8", "CH", { as: PERSONAS.admin });
+    await addVat("5905", "8", "IT", { as: PERSONAS.admin, entity: "welld_it" });
+    await addAccount("5905", "An account", { as: PERSONAS.admin });
+    await deactivateVat("5905", { as: PERSONAS.admin });
+    expect((await call("GET", VATS("welld_ch"), { as: PERSONAS.admin })).body["items"][0].active).toBe(false);
+    expect((await call("GET", VATS("welld_it"), { as: PERSONAS.admin })).body["items"][0].active).toBe(true);
+    expect((await call("GET", ACCOUNTS("welld_ch"), { as: PERSONAS.admin })).body["items"][0].active).toBe(true);
+  });
+
+  it("an unknown code, or a ledger account's number on the VAT route, is a 404 `not_found` that writes nothing", async () => {
+    await addAccount("5905");
+    const unknown = await deactivateVat("NOPE");
+    expect(unknown.status).toBe(404);
+    expect(unknown.body["code"]).toBe("not_found");
+    expect((await reactivateVat("NOPE")).status).toBe(404);
+    expect((await deactivateVat("5905")).status).toBe(404);
+    expect(await db.catalogStatusChange.count()).toBe(0);
+  });
+});
+
+describe("(AC-1.11) a VAT code already in the state asked for", () => {
+  it("is a 409 with its message that writes no row", async () => {
+    await addVat("IMP81");
+    const again = await reactivateVat("IMP81");
+    expect(again.status).toBe(409);
+    expect(again.body["code"]).toBe("already_active");
+    expect(again.body["detail"]).toBe("VAT code IMP81 is already active");
+    expect(await db.catalogStatusChange.count()).toBe(0);
+    await deactivateVat("IMP81");
+    const twice = await deactivateVat("imp81");
+    expect(twice.status).toBe(409);
+    expect(twice.body["code"]).toBe("already_inactive");
+    expect(twice.body["detail"]).toBe("VAT code IMP81 is already inactive");
+    expect(await db.catalogStatusChange.count()).toBe(1);
+  });
+
+  it("twenty concurrent deactivations: exactly one 200, nineteen 409, one status row", async () => {
+    await addVat("IMP81");
+    const results = await Promise.all(Array.from({ length: 20 }, () => deactivateVat("IMP81")));
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(results.filter((r) => r.status === 409)).toHaveLength(19);
+    expect(await db.catalogStatusChange.count()).toBe(1);
+  });
+
+  it("twenty concurrent reactivations of a deactivated code: exactly one wins", async () => {
+    await addVat("IMP81");
+    await deactivateVat("IMP81");
+    const results = await Promise.all(Array.from({ length: 20 }, () => reactivateVat("IMP81")));
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect(await db.catalogStatusChange.count()).toBe(2);
+  });
+});
+
+describe("(AC-3.4, AC-3.5, AC-3.6) who may do what with VAT codes", () => {
+  it("a reader gets 403 `accounting_manage_required` for add, deactivate and reactivate, before the body is looked at, and writes nothing", async () => {
+    await addVat("IMP81");
+    const as = PERSONAS.readerCh;
+    for (const res of [
+      await call("POST", VATS(), { as, body: { code: "NEW", label: "l", ratePercent: "8" } }),
+      await call("POST", VATS(), { as, body: {} }),
+      await deactivateVat("IMP81", { as }),
+      await reactivateVat("IMP81", { as }),
+      await deactivateVat("NOPE", { as }),
+    ]) {
+      expect(res.status).toBe(403);
+      expect(res.body["code"]).toBe("accounting_manage_required");
+    }
+    expect(await db.vatCode.count()).toBe(1);
+    expect(await db.catalogStatusChange.count()).toBe(0);
+    for (const reads of [PERSONAS.readerCh, PERSONAS.managerOnlyCh]) {
+      expect(codes(await call("GET", VATS(), { as: reads }))).toEqual(["IMP81"]);
+    }
+  });
+
+  it("welld_it is not found for a welld_ch user, with the body of an entity that does not exist, and nothing is touched", async () => {
+    await db.vatCode.create({
+      data: { entity: "welld_it", code: "ITA22", label: "IT", rateBasisPoints: 2200, createdByUserId: "seed", createdByEmail: "s@welld.ch" },
+    });
+    const { instance: _i, ...unknown } = (await call("GET", VATS("xyz"))).body;
+    for (const [method, path, body] of [
+      ["GET", VATS("welld_it"), undefined],
+      ["POST", VATS("welld_it"), { code: "NEW", label: "l", ratePercent: "8" }],
+      ["POST", `${VATS("welld_it")}/ITA22/deactivate`, undefined],
+      ["POST", `${VATS("welld_it")}/ITA22/reactivate`, undefined],
+    ] as const) {
+      const res = await call(method, path, body === undefined ? {} : { body });
+      expect(res.status).toBe(404);
+      const { instance: _instance, ...rest } = res.body;
+      expect(rest).toEqual(unknown);
+    }
+    expect(await db.vatCode.count()).toBe(1);
+    expect(await db.catalogStatusChange.count()).toBe(0);
+  });
+
+  it("a caller with no grant gets 403 `accounting_forbidden` and no data on every VAT route", async () => {
+    await addVat("IMP81", "8.1", "VISIBLE-LABEL", { as: PERSONAS.admin });
+    for (const as of [PERSONAS.outsider, PERSONAS.noEntity, PERSONAS.unknownCondition]) {
+      for (const [method, path, body] of [
+        ["GET", VATS("welld_ch"), undefined],
+        ["GET", VATS("xyz"), undefined],
+        ["POST", VATS("welld_ch"), { code: "NEW", label: "l", ratePercent: "8" }],
+        ["POST", `${VATS("welld_ch")}/IMP81/deactivate`, undefined],
+        ["POST", `${VATS("welld_ch")}/IMP81/reactivate`, undefined],
+      ] as const) {
+        const res = await call(method, path, { as, ...(body ? { body } : {}) });
+        expect(res.status).toBe(403);
+        expect(res.body["code"]).toBe("accounting_forbidden");
+        const { instance: _instance, ...data } = res.body;
+        expect(JSON.stringify(data)).not.toMatch(/VISIBLE-LABEL|IMP81|810/);
+      }
+    }
+    expect(await db.catalogStatusChange.count()).toBe(0);
+  });
+
+  it("no token is 401 on every VAT route", async () => {
+    for (const [method, path] of [
+      ["GET", VATS()],
+      ["POST", VATS()],
+      ["POST", `${VATS()}/IMP81/deactivate`],
+      ["POST", `${VATS()}/IMP81/reactivate`],
+    ] as const) {
+      expect((await call(method, path, { token: false, body: {} })).status).toBe(401);
+    }
   });
 });
