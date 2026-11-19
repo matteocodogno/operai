@@ -8,6 +8,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/exchangeRatesApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/exchangeRatesApi')>()
@@ -176,5 +177,43 @@ describe('RateCorrectionDialog', () => {
     fireEvent.click(screen.getByTestId('rate-correction-cancel'))
     expect(onCancel).toHaveBeenCalled()
     expect(exchangeRatesApi.putExchangeRate).not.toHaveBeenCalled()
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state of the dialog.
+describe('RateCorrectionDialog: accessibility (axe)', () => {
+  it('has no violations: a month with a rate in effect, a missing month, and a typed value', async () => {
+    setup()
+    await expectNoAxeViolations()
+    type('0,93')
+    await expectNoAxeViolations()
+    cleanup()
+
+    setup({ status: 'missing' })
+    await expectNoAxeViolations()
+  })
+
+  it.each([
+    ['a field error (422 invalid_rate)', 422, 'invalid_rate', 'rate-correction-value-error'],
+    ['a general error (422 month_not_completed)', 422, 'month_not_completed', undefined],
+    ['a permission error (403)', 403, undefined, undefined],
+    ['a server error (500)', 500, undefined, undefined],
+  ])('has no violations: %s', async (_name, status, code, fieldTestId) => {
+    vi.mocked(exchangeRatesApi.putExchangeRate).mockRejectedValue(problem(status, code))
+    setup()
+    type('0.95')
+    submit()
+    await waitFor(() => expect(submitButton().disabled).toBe(false))
+    if (fieldTestId) await screen.findByTestId(fieldTestId)
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations while saving', async () => {
+    vi.mocked(exchangeRatesApi.putExchangeRate).mockReturnValue(new Promise(() => {}))
+    setup()
+    type('0.95')
+    submit()
+    await waitFor(() => expect(submitButton().textContent).toBe('Saving…'))
+    await expectNoAxeViolations()
   })
 })

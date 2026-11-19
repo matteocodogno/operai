@@ -19,6 +19,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { expectNoAxeViolations } from '../test-support/axe'
 import ExpenseLineRow from './ExpenseLineRow'
 import type { Attachment, MileageInfo, RefundLine } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
@@ -1175,5 +1176,39 @@ describe('ExpenseLineRow — receipt number and footer slot (specs/20261118-refu
       />,
     )
     expect(screen.queryByTestId('slot')).toBeNull()
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on the row with and without a receipt number, in each mode that shows it.
+describe('ExpenseLineRow — receipt number: accessibility (axe)', () => {
+  const numbered: RefundLine = { ...line, id: 'line-n', receiptNumber: 'MC26/014', approvedTotalCents: 1000 }
+
+  it.each(['readOnly', 'readOnlyApproved', 'review'] as const)('has no violations in %s mode, with and without the number', async (mode) => {
+    const { rerender } = render(
+      <ExpenseLineRow line={numbered} mode={mode} onDownloadAttachment={vi.fn()} onApprovedTotalChange={vi.fn()} />,
+    )
+    await expectNoAxeViolations()
+    rerender(
+      <ExpenseLineRow
+        line={{ ...numbered, receiptNumber: null }}
+        mode={mode}
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={vi.fn()}
+      />,
+    )
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations with attachments and a footer panel under the number', async () => {
+    render(
+      <ExpenseLineRow
+        line={{ ...numbered, attachments: [attachment] }}
+        mode="review"
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={vi.fn()}
+        footer={<p>panel</p>}
+      />,
+    )
+    await expectNoAxeViolations()
   })
 })

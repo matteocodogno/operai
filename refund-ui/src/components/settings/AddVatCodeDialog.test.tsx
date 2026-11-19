@@ -7,6 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
@@ -197,5 +198,55 @@ describe('AddVatCodeDialog', () => {
     vi.mocked(accountingApi.createVatCode).mockRejectedValueOnce(problem(500))
     submit()
     await waitFor(() => expect(screen.getByTestId('add-vat-code-error').textContent).toBe('Could not save. Try again.'))
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state of the dialog.
+describe('AddVatCodeDialog: accessibility (axe)', () => {
+  it('has no violations: empty, filled, and with each field error', async () => {
+    setup([vatCode({ code: 'OLD', active: false })])
+    await expectNoAxeViolations()
+    fill('IMP81', 'Imposta', '8,1')
+    await expectNoAxeViolations()
+    fireEvent.change(input('code'), { target: { value: 'old' } })
+    fireEvent.blur(input('code'))
+    await screen.findByTestId('add-vat-code-code-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    setup()
+    fill('IMP81', 'x'.repeat(81), 'abc')
+    submit()
+    await screen.findByTestId('add-vat-code-label-error')
+    await expectNoAxeViolations()
+    fill('IMP81', 'Imposta', 'abc')
+    submit()
+    await screen.findByTestId('add-vat-code-rate-error')
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: a server duplicate, a general failure, and while saving', async () => {
+    vi.mocked(accountingApi.createVatCode).mockRejectedValueOnce(problem(409, 'vat_code_duplicate'))
+    setup()
+    fill('imp81', 'Imposta', '8,1')
+    submit()
+    await screen.findByTestId('add-vat-code-code-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.createVatCode).mockRejectedValueOnce(problem(500))
+    setup()
+    fill('IMP81', 'Imposta', '8.1')
+    submit()
+    await screen.findByTestId('add-vat-code-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.createVatCode).mockReturnValue(new Promise(() => {}))
+    setup()
+    fill('IMP81', 'Imposta', '8.1')
+    submit()
+    await waitFor(() => expect(screen.getByTestId('add-vat-code-submit').textContent).toBe('Adding…'))
+    await expectNoAxeViolations()
   })
 })

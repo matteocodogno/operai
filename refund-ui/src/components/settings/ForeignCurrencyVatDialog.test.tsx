@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
@@ -161,5 +162,56 @@ describe('ForeignCurrencyVatDialog', () => {
     fireEvent.click(screen.getByTestId('foreign-currency-vat-cancel'))
     expect(onCancel).toHaveBeenCalled()
     expect(accountingApi.putForeignCurrencyVatCode).not.toHaveBeenCalled()
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state of the dialog.
+describe('ForeignCurrencyVatDialog: accessibility (axe)', () => {
+  it('has no violations: options loading, options failed, loaded, nothing designated, and a deactivated designation', async () => {
+    vi.mocked(accountingApi.listVatCodes).mockReturnValueOnce(new Promise(() => {}))
+    render(<ForeignCurrencyVatDialog state={state(VAT_CODES[0])} onSaved={vi.fn()} onCancel={vi.fn()} />)
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.listVatCodes).mockRejectedValueOnce(problem(500))
+    render(<ForeignCurrencyVatDialog state={state(VAT_CODES[0])} onSaved={vi.fn()} onCancel={vi.fn()} />)
+    await screen.findByTestId('error-banner')
+    await expectNoAxeViolations()
+    cleanup()
+
+    await setup(state(VAT_CODES[0]))
+    await expectNoAxeViolations()
+    cleanup()
+
+    await setup(state(null))
+    await expectNoAxeViolations()
+    cleanup()
+
+    await setup(state(VAT_CODES[2], false))
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: a 422 inactive code as a field error, a general failure, and while saving', async () => {
+    vi.mocked(accountingApi.putForeignCurrencyVatCode).mockRejectedValue(problem(422, 'vat_code_inactive'))
+    await setup(state(VAT_CODES[0]))
+    fireEvent.change(select(), { target: { value: 'v2' } })
+    fireEvent.click(save())
+    await screen.findByTestId('foreign-currency-vat-error-field')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.putForeignCurrencyVatCode).mockRejectedValue(problem(500))
+    await setup(state(VAT_CODES[0]))
+    fireEvent.change(select(), { target: { value: 'v2' } })
+    fireEvent.click(save())
+    await screen.findByTestId('foreign-currency-vat-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.putForeignCurrencyVatCode).mockReturnValue(new Promise(() => {}))
+    await setup(state(VAT_CODES[0]))
+    fireEvent.change(select(), { target: { value: 'v2' } })
+    fireEvent.click(save())
+    await expectNoAxeViolations()
   })
 })

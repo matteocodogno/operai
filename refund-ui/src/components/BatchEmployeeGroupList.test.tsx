@@ -16,6 +16,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
+import { expectNoAxeViolations } from '../test-support/axe'
 import { createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
 import BatchEmployeeGroupList from './BatchEmployeeGroupList'
 import type { CandidateEmployeeGroup, BatchEmployeeGroup } from '../lib/batchesApi'
@@ -163,5 +164,31 @@ describe('BatchEmployeeGroupList — detail mode', () => {
     expect(screen.getByTestId('batch-employee-group-u1-request-req-1').getAttribute('aria-label')).toBe(
       'Open Alice\u2019s request, Approved, EUR 9.10',
     )
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts), both modes, with and without receipt numbers under the rows.
+describe('BatchEmployeeGroupList — accessibility (axe)', () => {
+  it('has no violations in preview mode', async () => {
+    const { container } = render(<BatchEmployeeGroupList mode="preview" groups={[previewGroup, previewGroupNoName]} />)
+    await expectNoAxeViolations(container)
+  })
+
+  it('has no violations in detail mode, without receipt numbers', async () => {
+    const { container } = await renderDetailAt([detailGroup])
+    await expectNoAxeViolations(container)
+  })
+
+  it('has no violations in detail mode, with receipt numbers under a row', async () => {
+    const { container } = await renderDetailAt([
+      {
+        ...detailGroup,
+        requests: [
+          { ...detailGroup.requests[0], receiptNumbers: ['MC26/014', 'MC26/015', 'MC26/017'] },
+          detailGroup.requests[1],
+        ],
+      },
+    ])
+    await expectNoAxeViolations(container)
   })
 })

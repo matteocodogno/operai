@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
@@ -253,5 +254,70 @@ describe('VatCodesCard: Deactivate and Reactivate (AC-1.10, AC-1.11)', () => {
     await waitFor(() => expect(screen.getByTestId('deactivate-vat-code-confirm').textContent).toBe('Deactivating…'))
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.getByRole('alertdialog')).not.toBeNull()
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state the card shows, with its dialogs open.
+describe('VatCodesCard: accessibility (axe)', () => {
+  it('has no violations: loading, list, read-only, empty and load failure', async () => {
+    vi.mocked(accountingApi.listVatCodes).mockReturnValueOnce(pending())
+    const loading = render(<VatCodesCard canManage />)
+    await expectNoAxeViolations(loading.container)
+    loading.unmount()
+
+    const list = await renderCard()
+    await expectNoAxeViolations(list.container)
+    list.unmount()
+
+    const readOnly = await renderCard(false)
+    await expectNoAxeViolations(readOnly.container)
+    readOnly.unmount()
+
+    vi.mocked(accountingApi.listVatCodes).mockResolvedValue([])
+    const empty = render(<VatCodesCard canManage />)
+    await screen.findByTestId('settings-vat-codes-empty')
+    await expectNoAxeViolations(empty.container)
+    empty.unmount()
+
+    vi.mocked(accountingApi.listVatCodes).mockRejectedValue(problem(500))
+    const failed = render(<VatCodesCard canManage />)
+    await screen.findByTestId('error-banner')
+    await expectNoAxeViolations(failed.container)
+  })
+
+  it('has no violations: the Add dialog, with a duplicate-code error and while saving', async () => {
+    await renderCard()
+    fireEvent.click(screen.getByTestId('settings-vat-codes-add'))
+    await expectNoAxeViolations()
+    fireEvent.change(screen.getByTestId('add-vat-code-code'), { target: { value: 'old77' } })
+    fireEvent.blur(screen.getByTestId('add-vat-code-code'))
+    await screen.findByTestId('add-vat-code-code-error')
+    await expectNoAxeViolations()
+    vi.mocked(accountingApi.createVatCode).mockReturnValue(pending())
+    fireEvent.change(screen.getByTestId('add-vat-code-code'), { target: { value: 'novat' } })
+    fireEvent.change(screen.getByTestId('add-vat-code-label'), { target: { value: 'Senza IVA' } })
+    fireEvent.change(screen.getByTestId('add-vat-code-rate'), { target: { value: '0' } })
+    fireEvent.click(screen.getByTestId('add-vat-code-submit'))
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: the Deactivate confirm, its failure, the row after success and after a failed Reactivate', async () => {
+    vi.mocked(accountingApi.deactivateVatCode).mockRejectedValueOnce(problem(500))
+    await renderCard()
+    fireEvent.click(screen.getByTestId('settings-vat-code-deactivate-v1'))
+    await expectNoAxeViolations()
+    fireEvent.click(screen.getByTestId('deactivate-vat-code-confirm'))
+    await screen.findByTestId('deactivate-vat-code-error')
+    await expectNoAxeViolations()
+
+    vi.mocked(accountingApi.deactivateVatCode).mockResolvedValue({ ...ACTIVE, active: false })
+    fireEvent.click(screen.getByTestId('deactivate-vat-code-confirm'))
+    await screen.findByTestId('settings-vat-codes-success')
+    await expectNoAxeViolations()
+
+    vi.mocked(accountingApi.reactivateVatCode).mockRejectedValue(problem(409, 'already_active'))
+    fireEvent.click(screen.getByTestId('settings-vat-code-reactivate-v2'))
+    await screen.findByTestId('settings-vat-codes-action-error')
+    await expectNoAxeViolations()
   })
 })

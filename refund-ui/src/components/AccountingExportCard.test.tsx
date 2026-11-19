@@ -9,6 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { expectNoAxeViolations } from '../test-support/axe'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import type { Permission, PermissionsResult } from 'shell/session'
 
@@ -485,5 +486,136 @@ describe('AccountingExportCard: downloading (UX-12)', () => {
     fireEvent.click(download())
     await screen.findByTestId('accounting-export-denied')
     expect(screen.queryByTestId('accounting-export-download')).toBeNull()
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state of the card, whole document so nothing is left out.
+describe('AccountingExportCard: accessibility (axe)', () => {
+  it('has no violations: loading, a failed check, the out-of-scope note', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockReturnValueOnce(pending())
+    await renderCard(vi.fn(), false)
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(exportApi.getAccountingExport).mockRejectedValueOnce(problem(500))
+    await renderCard()
+    await screen.findByTestId('error-banner')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(exportApi.getAccountingExport).mockRejectedValue(problem(403, 'accounting_export_out_of_scope'))
+    await renderCard()
+    await screen.findByTestId('accounting-export-denied')
+    await expectNoAxeViolations()
+  })
+
+  it.each([
+    ['ready', summary()],
+    ['ready, one row', summary({ rowCount: 1 })],
+    ['ready, WellD Italia lines left out', summary({ excludedLineCount: 3 })],
+    ['ready, header row only', summary({ rowCount: 0, excludedLineCount: 2 })],
+  ])('has no violations: %s', async (_name, value) => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(value)
+    await renderCard()
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: blocked, with missing rates and unclassified lines, with and without settings:read', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(BLOCKED)
+    await renderCard()
+    await expectNoAxeViolations()
+    cleanup()
+
+    usePermissionsMock.mockReturnValue(permissionsWith())
+    await renderCard()
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: blocked with every kind of blocker, and the fetch note', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(
+      summary({
+        exportable: false,
+        fetchAttempted: true,
+        blockers: {
+          missingRates: BLOCKED.blockers.missingRates,
+          unclassifiedLines: [
+            ...BLOCKED.blockers.unclassifiedLines,
+            {
+              lineId: 'l2',
+              requestId: 'req-2',
+              date: '2026-03-19',
+              type: 'travel_train',
+              employee: 'Anna',
+              receiptNumber: null,
+              missing: ['account', 'vatCode'],
+            },
+          ],
+          unnumberedLines: [{ lineId: 'l3', requestId: 'req-3', employee: 'Bea' }],
+        },
+      }),
+    )
+    await renderCard()
+    await screen.findByTestId('accounting-export-unnumbered')
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: Check again busy, and its result when ready and when still blocked', async () => {
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(BLOCKED)
+    await renderCard()
+    vi.mocked(exportApi.getAccountingExport).mockReturnValueOnce(pending())
+    fireEvent.click(screen.getByTestId('accounting-export-check-again'))
+    await waitFor(() => expect(screen.getByTestId('accounting-export-check-again').getAttribute('aria-busy')).toBe('true'))
+    await expectNoAxeViolations()
+    cleanup()
+
+    await renderCard()
+    fireEvent.click(screen.getByTestId('accounting-export-check-again'))
+    await waitFor(() => expect(screen.getByTestId('accounting-export-recheck-result').textContent).toBe('Still blocked: 3 items.'))
+    await expectNoAxeViolations()
+    cleanup()
+
+    await renderCard()
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ rowCount: 12 }))
+    fireEvent.click(screen.getByTestId('accounting-export-check-again'))
+    await waitFor(() => expect(screen.getByTestId('accounting-export-recheck-result').textContent).toBe('The export is ready: 12 rows.'))
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: downloading (busy), downloaded, no file produced, and became blocked', async () => {
+    vi.mocked(exportApi.downloadAccountingCsv).mockReturnValueOnce(pending())
+    await renderCard()
+    fireEvent.click(download())
+    await waitFor(() => expect(download().textContent).toBe('Preparing file…'))
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(exportApi.downloadAccountingCsv).mockResolvedValue(new Blob(['x'], { type: 'text/csv' }))
+    await renderCard()
+    fireEvent.click(download())
+    await screen.findByTestId('accounting-export-downloaded')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(problem(500))
+    await renderCard()
+    fireEvent.click(download())
+    await screen.findByTestId('accounting-export-download-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(
+      problem(409, 'accounting_export_blocked', {
+        batchId: 'batch-1',
+        batchStatus: 'compiled',
+        rowCount: 0,
+        excludedLineCount: 0,
+        fetchAttempted: false,
+        blockers: { missingRates: [{ currency: 'GBP', month: '2026-02' }], unclassifiedLines: [], unnumberedLines: [] },
+      }),
+    )
+    await renderCard()
+    fireEvent.click(download())
+    await screen.findByTestId('accounting-export-turned-blocked')
+    await expectNoAxeViolations()
   })
 })

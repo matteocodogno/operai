@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
@@ -303,5 +304,57 @@ describe('DefaultClassificationDialog', () => {
         .getByLabelText(/Default VAT code/)
         .getAttribute('aria-required'),
     ).toBe('true')
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state of the dialog.
+describe('DefaultClassificationDialog: accessibility (axe)', () => {
+  it('has no violations: options loading, options failed, and loaded on the saved values', async () => {
+    vi.mocked(accountingApi.listLedgerAccounts).mockReturnValueOnce(new Promise(() => {}))
+    render(<DefaultClassificationDialog row={row()} typeLabel="Travel — train" onSaved={vi.fn()} onCancel={vi.fn()} />)
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.listVatCodes).mockRejectedValueOnce(problem(500))
+    render(<DefaultClassificationDialog row={row()} typeLabel="Travel — train" onSaved={vi.fn()} onCancel={vi.fn()} />)
+    await screen.findByTestId('error-banner')
+    await expectNoAxeViolations()
+    cleanup()
+
+    await setup()
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: a type with no default, a deactivated saved account with its notes, and each save failure', async () => {
+    await setup(row({ account: null, vatCode: null }))
+    await expectNoAxeViolations()
+    cleanup()
+
+    await setup(row({ account: { id: 'a3', number: '5999', name: 'Vecchio', active: false } }))
+    await screen.findByTestId('default-classification-inactive-note')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(422, 'ledger_account_inactive'))
+    await setup()
+    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.click(save())
+    await screen.findByTestId('default-classification-account-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValue(problem(500))
+    await setup()
+    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.click(save())
+    await screen.findByTestId('default-classification-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.putExpenseTypeDefault).mockReturnValue(new Promise(() => {}))
+    await setup()
+    fireEvent.change(accountSelect(), { target: { value: 'a2' } })
+    fireEvent.click(save())
+    await expectNoAxeViolations()
   })
 })

@@ -7,6 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { expectNoAxeViolations } from '../test-support/axe'
 import ChangeHistoryDrawer from './ChangeHistoryDrawer'
 import type { HistoryRow } from './ChangeHistoryDrawer'
 
@@ -82,5 +83,17 @@ describe('ChangeHistoryDrawer', () => {
     const copy = rows.map((row) => ({ ...row }))
     render(<ChangeHistoryDrawer subject="x" rows={rows} valueColumns={valueColumns} onClose={vi.fn()} />)
     expect(rows).toEqual(copy)
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts): the drawer with rows, with none, and with a null value.
+describe('ChangeHistoryDrawer: accessibility (axe)', () => {
+  it('has no violations with a history, a "None" value, and with no changes yet', async () => {
+    const { rerender } = render(
+      <ChangeHistoryDrawer subject="Travel — train" rows={rows} valueColumns={valueColumns} onClose={vi.fn()} />,
+    )
+    await expectNoAxeViolations()
+    rerender(<ChangeHistoryDrawer subject="Travel — train" rows={[]} valueColumns={valueColumns} onClose={vi.fn()} />)
+    await expectNoAxeViolations()
   })
 })

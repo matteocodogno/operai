@@ -8,6 +8,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
@@ -234,3 +235,49 @@ describe('AddLedgerAccountDialog', () => {
 function fillNumberOnly() {
   fireEvent.change(screen.getByTestId('add-ledger-account-number'), { target: { value: '5905' } })
 }
+
+// T44: automated axe checks (test-support/axe.ts) on every state of the dialog.
+describe('AddLedgerAccountDialog: accessibility (axe)', () => {
+  it('has no violations: empty, filled, and with each field error', async () => {
+    setup([account({ number: '5905', active: false })])
+    await expectNoAxeViolations()
+    fill('5901', 'Spese')
+    await expectNoAxeViolations()
+    fill('5905', 'Spese')
+    fireEvent.blur(screen.getByTestId('add-ledger-account-number'))
+    await screen.findByTestId('add-ledger-account-number-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    setup()
+    fill('5905', 'x'.repeat(121))
+    submit()
+    await screen.findByTestId('add-ledger-account-name-error')
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: a server duplicate, a general failure, and while saving', async () => {
+    vi.mocked(accountingApi.createLedgerAccount).mockRejectedValueOnce(problem(409, 'ledger_account_duplicate'))
+    setup()
+    fill('5905', 'Spese')
+    submit()
+    await screen.findByTestId('add-ledger-account-number-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.createLedgerAccount).mockRejectedValueOnce(problem(500))
+    setup()
+    fill('5905', 'Spese')
+    submit()
+    await screen.findByTestId('add-ledger-account-error')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.createLedgerAccount).mockReturnValue(new Promise(() => {}))
+    setup()
+    fill('5905', 'Spese')
+    submit()
+    await waitFor(() => expect(screen.getByTestId('add-ledger-account-submit').textContent).toBe('Adding…'))
+    await expectNoAxeViolations()
+  })
+})

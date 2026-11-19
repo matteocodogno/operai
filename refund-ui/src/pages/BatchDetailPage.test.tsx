@@ -17,6 +17,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { expectNoAxeViolations } from '../test-support/axe'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import BatchDetailPage from './BatchDetailPage'
 import type { BatchDetail } from '../lib/batchesApi'
@@ -445,5 +446,74 @@ describe('BatchDetailPage — accounting export card (T30, specs/20261118-refund
     )
     await waitFor(() => expect(screen.queryByTestId('accounting-export-card')).toBeNull())
     expect(screen.getByTestId('batch-detail-discarded-line')).not.toBeNull()
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on the batch page with the accounting export card in each of its states.
+describe('BatchDetailPage — accessibility (axe)', () => {
+  const withReceipts: BatchDetail = {
+    ...compiledBatch,
+    employees: [
+      {
+        ...compiledBatch.employees[0],
+        requests: [{ ...compiledBatch.employees[0].requests[0], receiptNumbers: ['MC26/014', 'MC26/015'] }],
+      },
+    ],
+  }
+  const blocked = exportSummary({
+    exportable: false,
+    rowCount: 0,
+    blockers: {
+      missingRates: [{ currency: 'EUR', month: '2026-03' }],
+      unclassifiedLines: [
+        {
+          lineId: 'l1',
+          requestId: 'req-1',
+          date: '2026-03-19',
+          type: 'travel_train',
+          employee: 'Alice',
+          receiptNumber: 'MC26/014',
+          missing: ['vatCode'],
+        },
+      ],
+      unnumberedLines: [],
+    },
+  })
+
+  it.each([
+    [
+      'compiled, export ready, receipt numbers under the rows',
+      withReceipts,
+      exportSummary(),
+      'accounting-export-ready',
+    ],
+    [
+      'compiled, export ready, no receipt numbers',
+      compiledBatch,
+      exportSummary({ excludedLineCount: 2 }),
+      'accounting-export-ready',
+    ],
+    ['compiled, export blocked', withReceipts, blocked, 'accounting-export-blocked'],
+    ['paid, export ready', paidBatch, exportSummary({ batchStatus: 'paid' }), 'accounting-export-ready'],
+  ])('has no violations: %s', async (_name, batch, summary, settled) => {
+    vi.mocked(batchesApi.get).mockResolvedValue(batch)
+    vi.mocked(exportApi.getAccountingExport).mockResolvedValue(summary)
+    renderBatchDetailPage()
+    await screen.findByTestId(settled)
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: the export card still loading, and a discarded batch (no card)', async () => {
+    vi.mocked(batchesApi.get).mockResolvedValue(compiledBatch)
+    vi.mocked(exportApi.getAccountingExport).mockReturnValue(pendingPromise())
+    renderBatchDetailPage()
+    await screen.findByTestId('accounting-export-skeleton')
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(batchesApi.get).mockResolvedValue(discardedBatch)
+    renderBatchDetailPage()
+    await screen.findByTestId('batch-detail-discarded-line')
+    await expectNoAxeViolations()
   })
 })

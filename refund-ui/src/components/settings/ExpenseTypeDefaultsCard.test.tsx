@@ -9,6 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
@@ -387,5 +388,85 @@ describe('ExpenseTypeDefaultsCard: failure states', () => {
     )
     await renderCard()
     expect(screen.getByTestId('settings-foreign-vat-value').textContent).toBe('IMP81 — Imposta piena (8,1%)')
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state the card shows, with its dialogs and drawer open.
+describe('ExpenseTypeDefaultsCard: accessibility (axe)', () => {
+  it('has no violations: loading, the twelve rows, read-only and load failure', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockReturnValueOnce(new Promise(() => {}))
+    const loading = render(<ExpenseTypeDefaultsCard canManage />)
+    await expectNoAxeViolations(loading.container)
+    loading.unmount()
+
+    const list = render(<ExpenseTypeDefaultsCard canManage />)
+    await screen.findByTestId('settings-defaults-table')
+    await expectNoAxeViolations(list.container)
+    list.unmount()
+
+    await renderCard(false)
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockRejectedValueOnce(problem(500))
+    const failed = render(<ExpenseTypeDefaultsCard canManage />)
+    await screen.findByTestId('error-banner')
+    await expectNoAxeViolations(failed.container)
+  })
+
+  it('has no violations: a designated foreign-currency VAT code, and a deactivated one with its warning', async () => {
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(
+      defaults({ foreignCurrencyVatCode: VAT_IMP81, foreignCurrencyVatCodeUsable: true }),
+    )
+    await renderCard()
+    await expectNoAxeViolations()
+    cleanup()
+
+    vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue(
+      defaults({ foreignCurrencyVatCode: { ...VAT_IMP81, active: false }, foreignCurrencyVatCodeUsable: false }),
+    )
+    await renderCard()
+    await screen.findByTestId('settings-foreign-vat-inactive-warning')
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: the Change dialogs, the success note, and the history drawer', async () => {
+    vi.mocked(accountingApi.putExpenseTypeDefault).mockRejectedValueOnce(problem(500))
+    await renderCard()
+    fireEvent.click(screen.getByTestId('settings-default-change-travel_train'))
+    await waitFor(() =>
+      expect((screen.getByTestId('default-classification-account') as HTMLSelectElement).disabled).toBe(false),
+    )
+    await expectNoAxeViolations()
+    fireEvent.change(screen.getByTestId('default-classification-account'), { target: { value: 'a2' } })
+    fireEvent.click(screen.getByTestId('default-classification-submit'))
+    await screen.findByTestId('default-classification-error')
+    await expectNoAxeViolations()
+    fireEvent.click(screen.getByTestId('default-classification-cancel'))
+
+    fireEvent.click(screen.getByTestId('settings-foreign-vat-change'))
+    await waitFor(() =>
+      expect((screen.getByTestId('foreign-currency-vat-select') as HTMLSelectElement).disabled).toBe(false),
+    )
+    await expectNoAxeViolations()
+    vi.mocked(accountingApi.putForeignCurrencyVatCode).mockResolvedValue({
+      foreignCurrencyVatCode: VAT_IMP81,
+      foreignCurrencyVatCodeUsable: true,
+      foreignCurrencyVatCodeHistory: [],
+    })
+    fireEvent.change(screen.getByTestId('foreign-currency-vat-select'), { target: { value: 'v2' } })
+    fireEvent.click(screen.getByTestId('foreign-currency-vat-submit'))
+    await screen.findByTestId('settings-defaults-success')
+    await expectNoAxeViolations()
+
+    fireEvent.click(screen.getByTestId('settings-default-history-travel_train'))
+    await screen.findByRole('dialog')
+    await expectNoAxeViolations()
+    cleanup()
+
+    await renderCard()
+    fireEvent.click(screen.getByTestId('settings-default-history-postal'))
+    await screen.findByRole('dialog')
+    await expectNoAxeViolations()
   })
 })

@@ -9,6 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/exchangeRatesApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/exchangeRatesApi')>()
@@ -545,5 +546,133 @@ describe('ExchangeRatesCard: the &month= deep link (AC-5.7, F8 step 5)', () => {
   it('moves no focus without a month', async () => {
     await renderCard()
     expect(screen.getByTestId('settings-fx-card').contains(document.activeElement)).toBe(false)
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state the card shows, with its dialog and drawer open.
+describe('ExchangeRatesCard: accessibility (axe)', () => {
+  it('has no violations: loading, the table, read-only, empty and load failure', async () => {
+    vi.mocked(exchangeRatesApi.listExchangeRates).mockReturnValueOnce(pending())
+    const loading = render(<ExchangeRatesCard canManage />)
+    await expectNoAxeViolations(loading.container)
+    loading.unmount()
+
+    const table = await renderCard()
+    await expectNoAxeViolations(table.container)
+    table.unmount()
+
+    const readOnly = await renderCard({ canManage: false })
+    await expectNoAxeViolations(readOnly.container)
+    readOnly.unmount()
+
+    vi.mocked(exchangeRatesApi.listExchangeRates).mockResolvedValue(rates({ months: [], lastFetch: null }))
+    const empty = render(<ExchangeRatesCard canManage />)
+    await screen.findByTestId('settings-fx-empty')
+    await expectNoAxeViolations(empty.container)
+    empty.unmount()
+
+    vi.mocked(exchangeRatesApi.listExchangeRates).mockRejectedValue(problem(500))
+    const failed = render(<ExchangeRatesCard canManage />)
+    await screen.findByTestId('error-banner')
+    await expectNoAxeViolations(failed.container)
+  })
+
+  it('has no violations: the deep-linked month, and every last-fetch outcome with its banner', async () => {
+    const linked = await renderCard({ month: '2026-02' })
+    await expectNoAxeViolations(linked.container)
+    linked.unmount()
+
+    for (const outcome of ['ok', 'failed', 'disabled', 'not_fetchable', 'throttled'] as const) {
+      vi.mocked(exchangeRatesApi.listExchangeRates).mockResolvedValue(
+        rates({ lastFetch: { ...OK_FETCH, outcome, errorCode: outcome === 'failed' ? 'timeout' : null } }),
+      )
+      const view = await renderCard()
+      if (outcome === 'failed') await screen.findByTestId('settings-fx-failed')
+      await expectNoAxeViolations(view.container)
+      view.unmount()
+    }
+  })
+
+  it('has no violations: the auto-fetch running, its result, and a failed fetch call', async () => {
+    vi.mocked(exchangeRatesApi.listExchangeRates).mockResolvedValue(rates({ fetchDue: true }))
+    vi.mocked(exchangeRatesApi.fetchExchangeRates).mockReturnValueOnce(pending())
+    const running = await renderCard()
+    await screen.findByTestId('settings-fx-checking')
+    await expectNoAxeViolations(running.container)
+    running.unmount()
+
+    vi.mocked(exchangeRatesApi.fetchExchangeRates).mockResolvedValue(result('ok'))
+    const done = await renderCard()
+    await screen.findByTestId('settings-fx-success')
+    await expectNoAxeViolations(done.container)
+    done.unmount()
+
+    vi.mocked(exchangeRatesApi.fetchExchangeRates).mockRejectedValue(problem(502))
+    const failed = await renderCard()
+    await screen.findByTestId('settings-fx-fetch-error')
+    await expectNoAxeViolations(failed.container)
+  })
+
+  it('has no violations: Fetch now busy, and each of its results (recorded and deferred, not published, throttled, disabled, refused)', async () => {
+    vi.mocked(exchangeRatesApi.fetchExchangeRates).mockReturnValueOnce(pending())
+    let view = await renderCard()
+    fireEvent.click(fetchNow())
+    await waitFor(() => expect(fetchNow().textContent).toBe('Fetching…'))
+    await expectNoAxeViolations(view.container)
+    view.unmount()
+
+    vi.mocked(exchangeRatesApi.fetchExchangeRates).mockResolvedValue({
+      ...result('ok', { recorded: { GBP: 1 } }),
+      deferredMonths: ['2026-01', '2026-02'],
+    })
+    view = await renderCard()
+    fireEvent.click(fetchNow())
+    await screen.findByTestId('settings-fx-success')
+    await screen.findByTestId('settings-fx-note')
+    await expectNoAxeViolations(view.container)
+    view.unmount()
+
+    for (const [outcome, testId] of [
+      ['not_fetchable', 'settings-fx-note'],
+      ['throttled', 'settings-fx-note'],
+      ['disabled', 'settings-fx-disabled'],
+    ] as const) {
+      vi.mocked(exchangeRatesApi.fetchExchangeRates).mockResolvedValue(result(outcome, { month: '2026-10' }))
+      view = await renderCard()
+      fireEvent.click(fetchNow())
+      await screen.findByTestId(testId)
+      await expectNoAxeViolations(view.container)
+      view.unmount()
+    }
+
+    vi.mocked(exchangeRatesApi.fetchExchangeRates).mockRejectedValue(problem(403))
+    view = await renderCard()
+    fireEvent.click(fetchNow())
+    await screen.findByTestId('settings-fx-fetch-error')
+    await expectNoAxeViolations(view.container)
+  })
+
+  it('has no violations: the correction dialog (a fetched rate and a missing one), the success note and the history drawer', async () => {
+    await renderCard()
+    fireEvent.click(screen.getByTestId('settings-fx-correct-2026-03-EUR'))
+    await screen.findByRole('dialog', { name: 'Correct rate — EUR · March 2026' })
+    await expectNoAxeViolations()
+    fireEvent.click(screen.getByTestId('rate-correction-cancel'))
+
+    fireEvent.click(screen.getByTestId('settings-fx-correct-2026-03-GBP'))
+    await screen.findByRole('dialog')
+    await expectNoAxeViolations()
+    vi.mocked(exchangeRatesApi.putExchangeRate).mockResolvedValue({
+      ...MARCH,
+      rates: { ...MARCH.rates, GBP: fetched('1.01', 1010000) },
+    })
+    fireEvent.change(screen.getByTestId('rate-correction-value'), { target: { value: '1.01' } })
+    fireEvent.click(screen.getByTestId('rate-correction-submit'))
+    await screen.findByTestId('settings-fx-success')
+    await expectNoAxeViolations()
+
+    fireEvent.click(screen.getByTestId('settings-fx-history-2026-02-EUR'))
+    await screen.findByTestId('refund-history-table')
+    await expectNoAxeViolations()
   })
 })

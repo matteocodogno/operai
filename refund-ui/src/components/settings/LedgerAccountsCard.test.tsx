@@ -8,6 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { expectNoAxeViolations } from '../../test-support/axe'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
@@ -326,5 +327,70 @@ describe('LedgerAccountsCard: Reactivate (AC-1.9, AC-1.11)', () => {
     await screen.findByTestId('settings-accounts-action-error')
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(screen.queryByTestId('settings-accounts-action-error')).toBeNull()
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state the card shows, with its dialogs open.
+describe('LedgerAccountsCard: accessibility (axe)', () => {
+  it('has no violations: loading, list, read-only, empty and load failure', async () => {
+    vi.mocked(accountingApi.listLedgerAccounts).mockReturnValueOnce(pending())
+    const loading = render(<LedgerAccountsCard canManage />)
+    await expectNoAxeViolations(loading.container)
+    loading.unmount()
+
+    const list = await renderCard()
+    await expectNoAxeViolations(list.container)
+    list.unmount()
+
+    const readOnly = await renderCard(false)
+    await expectNoAxeViolations(readOnly.container)
+    readOnly.unmount()
+
+    vi.mocked(accountingApi.listLedgerAccounts).mockResolvedValue([])
+    const empty = render(<LedgerAccountsCard canManage />)
+    await screen.findByTestId('settings-accounts-empty')
+    await expectNoAxeViolations(empty.container)
+    empty.unmount()
+
+    vi.mocked(accountingApi.listLedgerAccounts).mockRejectedValue(problem(500))
+    const failed = render(<LedgerAccountsCard canManage />)
+    await screen.findByTestId('error-banner')
+    await expectNoAxeViolations(failed.container)
+  })
+
+  it('has no violations: the Add dialog, with a duplicate-number error and while saving', async () => {
+    vi.mocked(accountingApi.createLedgerAccount).mockRejectedValue(problem(409, 'ledger_account_duplicate'))
+    await renderCard()
+    fireEvent.click(screen.getByTestId('settings-accounts-add'))
+    await expectNoAxeViolations()
+    fireEvent.change(screen.getByTestId('add-ledger-account-number'), { target: { value: '5901' } })
+    fireEvent.blur(screen.getByTestId('add-ledger-account-number'))
+    await screen.findByTestId('add-ledger-account-number-error')
+    await expectNoAxeViolations()
+    vi.mocked(accountingApi.createLedgerAccount).mockReturnValue(pending())
+    fireEvent.change(screen.getByTestId('add-ledger-account-number'), { target: { value: '5999' } })
+    fireEvent.change(screen.getByTestId('add-ledger-account-name'), { target: { value: 'Spese' } })
+    fireEvent.click(screen.getByTestId('add-ledger-account-submit'))
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: the Deactivate confirm, its failure, and the row after success and after a failed Reactivate', async () => {
+    vi.mocked(accountingApi.deactivateLedgerAccount).mockRejectedValueOnce(problem(500))
+    await renderCard()
+    fireEvent.click(screen.getByTestId('settings-account-deactivate-a1'))
+    await expectNoAxeViolations()
+    fireEvent.click(screen.getByTestId('deactivate-ledger-account-confirm'))
+    await screen.findByTestId('deactivate-ledger-account-error')
+    await expectNoAxeViolations()
+
+    vi.mocked(accountingApi.deactivateLedgerAccount).mockResolvedValue({ ...ACTIVE, active: false })
+    fireEvent.click(screen.getByTestId('deactivate-ledger-account-confirm'))
+    await screen.findByTestId('settings-accounts-success')
+    await expectNoAxeViolations()
+
+    vi.mocked(accountingApi.reactivateLedgerAccount).mockRejectedValue(problem(409, 'already_active'))
+    fireEvent.click(screen.getByTestId('settings-account-reactivate-a2'))
+    await screen.findByTestId('settings-accounts-action-error')
+    await expectNoAxeViolations()
   })
 })

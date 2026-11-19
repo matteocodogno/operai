@@ -9,6 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { expectNoAxeViolations } from '../test-support/axe'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import type { AccountingLine, AccountingOptions, ClassificationState } from '../lib/accountingApi'
 import { ApiError } from '../lib/refundApi'
@@ -551,5 +552,115 @@ describe('LineClassificationPanel: segregation of duties and entity scope (plan.
     await renderPanel(eurLine({ chf: null, vatAmountCents: null }), { canChange: false })
     expect(screen.getByTestId('classification-l1-chf').textContent).toBe('—')
     expect(screen.getByTestId('classification-l1-vat-amount').textContent).toBe('—')
+  })
+})
+
+// T44: automated axe checks (test-support/axe.ts) on every state the panel has. Each state is rendered by itself.
+describe('LineClassificationPanel: accessibility (axe)', () => {
+  const missingRate = () =>
+    eurLine({
+      chf: { amountCents: null, rateMicros: null, rate: null, rateMonth: '2026-03', rateMissing: true },
+      vatAmountCents: null,
+    })
+
+  const states: Array<[string, () => AccountingLine, Partial<LineClassificationPanelProps>]> = [
+    ['editable foreign line', () => eurLine(), {}],
+    ['editable CHF line', () => chfLine(), {}],
+    ['editable, post-approval (no amounts note)', () => eurLine(), { state: 'post_approval' }],
+    ['options still loading', () => eurLine(), { options: null }],
+    [
+      'a set-by-hand value',
+      () => eurLine({ classification: { account: HOTEL, accountIsDefault: false, vatCode: IMP81, vatCodeIsDefault: false } }),
+      {},
+    ],
+    [
+      'both values missing, before any refusal',
+      () => eurLine({ classification: { account: null, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false }, vatAmountCents: null }),
+      {},
+    ],
+    [
+      'both values missing, after a refused approval',
+      () => eurLine({ classification: { account: null, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false }, vatAmountCents: null }),
+      { missing: { account: true, vatCode: true } },
+    ],
+    [
+      'an inactive current value',
+      () => eurLine({ classification: { account: { ...TRAIN, active: false }, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
+      { options: { ledgerAccounts: [{ id: HOTEL.id, number: HOTEL.number, name: HOTEL.name }], vatCodes: OPTIONS.vatCodes } },
+    ],
+    ['rate missing, without settings:read', missingRate, {}],
+    ['rate missing, with the link to the rates', missingRate, { canOpenRates: true }],
+    ['read-only without the capability', () => eurLine(), { canChange: false }],
+    ['read-only, post-approval', () => eurLine(), { canChange: false, state: 'post_approval' }],
+    ['read-only, CHF block missing', () => eurLine({ chf: null, vatAmountCents: null }), { canChange: false }],
+    ['read-only, a value not set', () => eurLine({ classification: { account: null, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }), { canChange: false }],
+    ['locked: the batch is paid', () => eurLine(), { state: 'locked' }],
+    ['self-restricted, with the capability', () => eurLine(), { selfRestricted: true, canChange: true }],
+    ['self-restricted, without the capability', () => eurLine(), { selfRestricted: true, canChange: false }],
+    ['self-restricted, in a paid batch', () => eurLine(), { selfRestricted: true, canChange: true, state: 'locked' }],
+  ]
+
+  it.each(states)('has no violations: %s', async (_name, line, props) => {
+    await renderPanel(line(), props)
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: saving, saved, and each refusal of a change', async () => {
+    const { onClassify } = await renderPanel(eurLine())
+    onClassify.mockReturnValueOnce(new Promise(() => {}))
+    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    await waitFor(() => expect(account().getAttribute('aria-busy')).toBe('true'))
+    await expectNoAxeViolations()
+    cleanup()
+
+    const saved = await renderPanel(eurLine())
+    saved.onClassify.mockResolvedValue(
+      eurLine({ classification: { account: HOTEL, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
+    )
+    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    await screen.findByTestId('classification-l1-saved')
+    await expectNoAxeViolations()
+    cleanup()
+
+    for (const [error, expected] of [
+      [problem(422, 'ledger_account_inactive'), 'That account was deactivated. Choose another.'],
+      [problem(403), "You don't have permission to change this classification."],
+      [problem(500), 'Could not change the classification. Try again.'],
+      [problem(404, 'not_found'), "This line is outside your entity scope, so you can't change it."],
+    ] as const) {
+      const { onClassify: classify } = await renderPanel(eurLine())
+      classify.mockRejectedValue(error)
+      fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+      await screen.findByText(expected)
+      await expectNoAxeViolations()
+      cleanup()
+    }
+  })
+
+  it('has no violations: the panel after a 403 self_approval_forbidden turned it read-only', async () => {
+    const { onClassify } = await renderPanel(eurLine())
+    onClassify.mockRejectedValue(problem(403, 'self_approval_forbidden'))
+    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    await screen.findByTestId('classification-l1-why')
+    await expectNoAxeViolations()
+  })
+
+  it('has no violations: an out-of-scope line (one note)', async () => {
+    window.history.pushState(null, '', '/')
+    render(
+      <LineClassificationPanel
+        line={eurLine({ inScope: false, classification: null, chf: null, vatAmountCents: null })}
+        lineLabel="x"
+        state="review"
+        canChange
+        options={OPTIONS}
+        canOpenRates
+        onClassify={vi.fn()}
+        onConflict={vi.fn()}
+        onOptionsStale={vi.fn()}
+      />,
+    )
+    await screen.findByTestId('classification-l1-out-of-scope')
+    await expectNoAxeViolations()
   })
 })
