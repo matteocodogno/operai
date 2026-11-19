@@ -747,7 +747,7 @@ Derived from these committed files:
 
     The live e2e is PENDING (T51), not a failure.
 
-- [ ] T47: OWASP review (plan § Security, standard tier), in parallel with QE — refs: all ACs (nominal) — deps: T3, T15, T24, T25, T38, T41, T42, T43, T44, T45
+- [x] T47: OWASP review (plan § Security, standard tier), in parallel with QE — refs: all ACs (nominal) — deps: T3, T15, T24, T25, T38, T41, T42, T43, T44, T45
   - touch: `specs/20261119-accounting/security-review.md`
   - agent: owasp-reviewer · release
   - Details: the ten surfaces of plan § Security. Escalate to frontier only on the plan's trigger.
