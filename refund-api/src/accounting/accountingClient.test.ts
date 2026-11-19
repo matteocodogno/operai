@@ -176,6 +176,65 @@ describe("a clean read", () => {
   });
 });
 
+describe("pairs before Accounting's month floor (F-02, AC-6.8, AC-7.4)", () => {
+  // Accounting answers a rates request with ANY month before 2000-01 as a whole 400, which this client reads as "unavailable":
+  // one such line (the expense date is only a 4-digit year) would fail every read of its request, and the release, for good.
+  const MISSING = (currency: string, month: string) => ({ currency, month, status: "missing", attempted: false, reason: "no_source" });
+
+  it("asks Accounting only the in-range pairs; an earlier month is answered missing (no_source), in the asked order", async () => {
+    const h = harness();
+    const answers = await h.client.begin("approve").rates([
+      { currency: "EUR", month: "1999-12" },
+      { currency: "USD", month: "2026-03" },
+      { currency: "GBP", month: "0001-01" },
+    ]);
+    expect(h.calls.map((c) => new URL(c.url).searchParams.get("pairs"))).toEqual(["USD:2026-03"]);
+    expect(answers.map((a) => [a.currency, a.month, a.status])).toEqual([
+      ["EUR", "1999-12", "missing"],
+      ["USD", "2026-03", "in_effect"],
+      ["GBP", "0001-01", "missing"],
+    ]);
+    expect(answers[0]).toEqual(MISSING("EUR", "1999-12"));
+    expect(answers[2]).toEqual(MISSING("GBP", "0001-01"));
+  });
+
+  it("the floor itself, 2000-01, is asked", async () => {
+    const h = harness();
+    await h.client.begin("view").rates([{ currency: "EUR", month: "2000-01" }]);
+    expect(h.calls.map((c) => new URL(c.url).searchParams.get("pairs"))).toEqual(["EUR:2000-01"]);
+  });
+
+  it("only out-of-range pairs: no call and no token, and nothing is unavailable", async () => {
+    const h = harness();
+    const answers = await h.client.begin("release").rates([{ currency: "EUR", month: "1999-05" }]);
+    expect(answers).toEqual([MISSING("EUR", "1999-05")]);
+    expect(h.calls).toHaveLength(0);
+    expect(h.tokensMinted).toBe(0);
+  });
+
+  it("a month that is not YYYY-MM at all (a year past 9999 or before 0) is not asked either", async () => {
+    const h = harness();
+    const answers = await h.client.begin("view").rates([
+      { currency: "EUR", month: "+010000-01" },
+      { currency: "EUR", month: "-000001-01" },
+    ]);
+    expect(answers.map((a) => a.status)).toEqual(["missing", "missing"]);
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it("an in-range pair that Accounting fails still fails the read: the floor is not a way to swallow errors", async () => {
+    const h = harness({ route: () => new Response("no", { status: 500 }) });
+    expect(
+      await kindOf(
+        h.client.begin("view").rates([
+          { currency: "EUR", month: "1999-05" },
+          { currency: "EUR", month: "2026-03" },
+        ]),
+      ),
+    ).toBe("http_status");
+  });
+});
+
 describe("no cache across operations (AC-4.8, D2)", () => {
   it("within one operation the answer is memoised: one read", async () => {
     const h = harness();

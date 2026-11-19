@@ -76,6 +76,10 @@ beforeAll(() => {
       }
       if (url.pathname === "/system/v1/entities/welld_ch/rates") {
         const pairs = (url.searchParams.get("pairs") ?? "").split(",").filter(Boolean);
+        // As accounting-api (RATE_MONTH_FLOOR): one month before 2000-01 refuses the WHOLE request, 400 invalid_pairs.
+        if (pairs.some((pair) => (pair.split(":")[1] ?? "") < "2000-01")) {
+          return Response.json({ type: "about:blank", title: "Bad Request", status: 400, code: "invalid_pairs" }, { status: 400 });
+        }
         return Response.json({
           entity: "welld_ch",
           rates: pairs.map((pair) => {
@@ -265,6 +269,39 @@ describe("accounting:release, run as the operator runs it", () => {
     expect(res.stdout).toContain("Rate pending: 1 lines");
     expect(world.mints).toBe(1);
     expect(world.requests.filter((r) => r.includes("/rates"))).toEqual(["GET /system/v1/entities/welld_ch/rates?pairs=EUR:2026-03,EUR:2026-04"]);
+  });
+
+  it("(F-02) a legacy EUR line dated before Accounting's 2000-01 floor does not fail the whole rates read: exit 0, the pair is not asked, the line is numbered and rate pending", async () => {
+    const { ids } = await legacyRequest(["1999-05-05", "2026-03-02"], "EUR");
+    world.rates.set("EUR:2026-03", 924_600);
+    const res = await cli();
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toContain("Accounting release completed.");
+    expect(await released()).toBe(true);
+    expect(world.requests.filter((r) => r.includes("/rates"))).toEqual(["GET /system/v1/entities/welld_ch/rates?pairs=EUR:2026-03"]);
+    const lines = await db.refundLine.findMany({ where: { id: { in: ids } }, orderBy: { date: "asc" } });
+    expect(lines.map((l) => [l.receiptNumber !== null, l.fxRateMicros])).toEqual([[true, null], [true, 924_600]]);
+    expect(res.stdout).toContain("Rate pending: 1 lines");
+  });
+
+  it("(F-02) only dates before the floor: no rates call at all, exit 0", async () => {
+    const { ids } = await legacyRequest(["1999-05-05"], "EUR");
+    const res = await cli();
+    expect(res.exitCode).toBe(0);
+    expect(world.requests.filter((r) => r.includes("/rates"))).toEqual([]);
+    expect((await numbers(ids))[0]).not.toBeNull();
+  });
+
+  it("(F-03) a failure the script did not write itself prints the kind only: no driver text, host, credential or source path", async () => {
+    await legacyRequest(["2026-03-02"]);
+    const res = await cliWith({ DATABASE_URL: "postgresql://leak_user:leak_pw@127.0.0.1:1/refund" }, "--dry-run");
+    expect(res.exitCode).toBe(1);
+    // Prisma's own error log (db.ts) comes first on stderr; the script's line is the last one and is one line.
+    const mine = res.stderr.slice(res.stderr.lastIndexOf("accounting:release failed"));
+    expect(mine.trim().split("\n")).toHaveLength(1);
+    expect(mine).toContain("accounting:release failed, nothing was changed: ");
+    expect(mine).not.toMatch(/leak_pw|leak_user|127\.0\.0\.1|reach database|findMany|accounting-release\.ts|\/Users\//);
+    expect(mine).toMatch(/PrismaClient\w*Error|Error/);
   });
 
   it("(AC-7.5) Accounting with no WellD CH entries: exit 0, every legacy line numbered and listed unclassified, with the warning", async () => {

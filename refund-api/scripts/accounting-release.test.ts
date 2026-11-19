@@ -55,6 +55,7 @@ const {
   parseDefaults,
   parseOffsetsCsv,
   RATE_CHUNK_MONTHS,
+  describeReleaseFailure,
   ReleaseError,
   runAccountingRelease,
 } = await import("./accounting-release");
@@ -308,6 +309,20 @@ describe("Accounting is read first (AC-7.4, AC-6.8)", () => {
     await request("u1", [{ id: "chf", date: "2026-03-09" }]);
     await run();
     expect(fake.reads).toEqual({ referenceData: 1, rates: 0, total: 1 });
+  });
+
+  it("(F-02) a legacy foreign-currency line dated before Accounting's 2000-01 floor is not asked about and does not fail the read: it is numbered, rate pending, and reported", async () => {
+    await request("u1", [
+      { id: "old", date: "1999-12-30", currency: "EUR" },
+      { id: "ok", date: "2026-03-09", currency: "EUR" },
+    ]);
+    fake.setRate("EUR", "2026-03", 924_600);
+    const report = await run();
+    expect(fake.calls.filter((c) => c.read === "rates").map((c) => c.pairs)).toEqual([["EUR:2026-03"]]);
+    expect(report.lines).toHaveLength(2);
+    expect(report.ratePending.map((l) => l.lineId)).toEqual(["old"]);
+    expect(report.accounting.ratePairsAsked).toBe(2);
+    expect(await isAccountingReleased(db as never)).toBe(true);
   });
 
   it("asks the rates in chunks of six months: 14 months, three reads of 6, 6 and 2 months, each its own operation", async () => {
@@ -755,6 +770,27 @@ describe("the report (D-1, SR-4)", () => {
     const text = formatReport(await run({ dryRun: true }));
     expect(text).toMatch(/Left unclassified, account or VAT code missing \(1\)\n {2}MC26\/002 MC · u1 2026-03-03 representation_gifts/);
     expect(text).not.toContain("@");
+  });
+});
+
+describe("describeReleaseFailure (F-03)", () => {
+  it("a ReleaseError prints its own, already masked, message", () => {
+    expect(describeReleaseFailure(new ReleaseError("usage", "unknown argument --x"))).toBe("unknown argument --x");
+  });
+
+  it("any other error prints its kind (and a plain error code), never its message, which can carry an address, a host or a credential", () => {
+    const driver = Object.assign(new Error("connect ECONNREFUSED postgresql://user:secret@db.internal:5432/refund for matteo.codogno@welld.ch"), {
+      name: "PrismaClientInitializationError",
+      code: "P1001",
+    });
+    const text = describeReleaseFailure(driver);
+    expect(text).toBe("PrismaClientInitializationError (P1001)");
+    expect(text).not.toMatch(/secret|db\.internal|@|matteo/);
+    expect(describeReleaseFailure(new TypeError("x@y.ch"))).toBe("TypeError");
+    expect(describeReleaseFailure(Object.assign(new Error("m"), { code: "has spaces and secret@x.ch" }))).toBe("Error");
+    expect(describeReleaseFailure(Object.assign(new Error("m"), { name: "Evil\nname secret@x.ch" }))).toBe("Error");
+    expect(describeReleaseFailure("secret@x.ch")).toBe("an unknown error");
+    expect(describeReleaseFailure(null)).toBe("an unknown error");
   });
 });
 

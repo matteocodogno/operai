@@ -22,7 +22,7 @@
  * can mistake "could not find out" for "nothing there" (ADR 20261103, narrow-channel rule). The kinds: the deadline,
  * a network error, a non-2xx (after the one 401 re-mint), a redirect, a non-JSON body, a body over 256 KiB, a schema
  * mismatch, a wrong entity echo, a rates answer that does not answer each asked pair exactly once, and a failed
- * token mint. The kind and the operation are logged at warn; never a body, a URL, a token or a status text.
+ * token mint. A pair before Accounting's month floor is not a failure: it is never asked and is answered `missing`. The kind and the operation are logged at warn; never a body, a URL, a token or a status text.
  */
 
 import { env } from "../lib/env";
@@ -42,6 +42,24 @@ import {
 export const ACCOUNTING_DEADLINE_MS = 10_000;
 /** A body larger than this is not read (a misbehaving or hostile peer cannot exhaust memory). */
 export const ACCOUNTING_MAX_BODY_BYTES = 256 * 1024;
+/**
+ * The earliest month Accounting answers a rates request for (`RATE_MONTH_FLOOR` of accounting-api): a request carrying an
+ * earlier month is refused WHOLE (400), which would read here as "Accounting is unavailable" for every pair of the call.
+ * An expense date is only a 4-digit year, so such a line can exist (F-02).
+ */
+export const ACCOUNTING_RATE_MONTH_FLOOR = "2000-01";
+const RATE_MONTH_SHAPE = /^\d{4}-(0[1-9]|1[0-2])$/;
+/** `true` for a month Accounting can be asked about: well-formed and not before the floor. */
+export const isAskableMonth = (month: string): boolean => RATE_MONTH_SHAPE.test(month) && month >= ACCOUNTING_RATE_MONTH_FLOOR;
+/** The answer for a pair that is never asked: no rate, and none will ever be published (`no_source`, nothing to retry). */
+const unaskablePair = (pair: RatePair): RatePairWire => ({
+  currency: pair.currency,
+  month: pair.month,
+  status: "missing",
+  attempted: false,
+  reason: "no_source",
+});
+
 /** `Retry-After` of every 503 `accounting_unavailable` (plan § API contracts). */
 export const ACCOUNTING_RETRY_AFTER_SECONDS = 30;
 
@@ -136,7 +154,8 @@ export function newOperation(name: AccountingOperationName, reads: AccountingRea
     async rates(pairs: readonly RatePair[], entity: WireEntity = "welld_ch") {
       const asked = new Map<string, RatePair>();
       for (const pair of pairs) asked.set(ratePairKey(pair), pair);
-      const missing = [...asked.values()].filter((pair) => !rateMemo.has(`${entity}|${ratePairKey(pair)}`));
+      // F-02: a pair before the floor is answered here, never sent: Accounting would refuse the whole call.
+      const missing = [...asked.values()].filter((pair) => isAskableMonth(pair.month) && !rateMemo.has(`${entity}|${ratePairKey(pair)}`));
       for (let start = 0; start < missing.length; start += WIRE_RATE_PAIRS_MAX) {
         const chunk = missing.slice(start, start + WIRE_RATE_PAIRS_MAX);
         const call = reads.ratePairs(entity, chunk);
@@ -154,7 +173,7 @@ export function newOperation(name: AccountingOperationName, reads: AccountingRea
           rateMemo.set(`${entity}|${ratePairKey(pair)}`, entry);
         }
       }
-      return Promise.all([...asked.values()].map((pair) => rateMemo.get(`${entity}|${ratePairKey(pair)}`)!));
+      return Promise.all([...asked.values()].map((pair) => (isAskableMonth(pair.month) ? rateMemo.get(`${entity}|${ratePairKey(pair)}`)! : unaskablePair(pair))));
     },
   };
 }

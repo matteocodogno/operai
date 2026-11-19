@@ -237,6 +237,20 @@ export class ReleaseError extends Error {
   }
 }
 
+/**
+ * What the operator's terminal and any session log get for a failure (F-03). A `ReleaseError` is the script's own: its message was
+ * written here and masks emails unless asked. Anything else (a Prisma or driver error) can carry the invocation arguments, an
+ * employee's address, a host or connection text, so only its KIND is printed: the error name, and its `code` when that is a
+ * plain identifier (`ENOENT`, `P1001`). The same rule as `seed:welld-ch` in accounting-api.
+ */
+export function describeReleaseFailure(error: unknown): string {
+  if (error instanceof ReleaseError) return error.message;
+  if (!(error instanceof Error)) return "an unknown error";
+  const name = /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name) ? error.name : "Error";
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{1,31}$/.test(code) ? `${name} (${code})` : name;
+}
+
 /** Thrown to roll a dry run back; carries the finished report. */
 class DryRunRollback extends Error {
   constructor(readonly report: ReleaseReport) {
@@ -703,7 +717,7 @@ if (import.meta.main) {
         process.exitCode = 2;
         return;
       }
-      console.error(`accounting:release failed, nothing was changed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`accounting:release failed, nothing was changed: ${describeReleaseFailure(error)}`);
       process.exitCode = 1;
     })
     .finally(async () => {
