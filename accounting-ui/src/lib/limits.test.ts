@@ -10,6 +10,7 @@ import {
   checkVatLabel,
   checkVatRatePercent,
   reasonOf,
+  upperCaseCode,
 } from './limits'
 
 const refused = (reason: string) => ({ ok: false, reason })
@@ -151,6 +152,29 @@ describe('limits (the mirror of accounting-api, AC-1.2, AC-1.5, AC-2.5)', () => 
 
     it('refuses nothing but blanks as empty', () => {
       expect(checkVatCode('  ')).toEqual(refused('empty'))
+    })
+  })
+
+  describe('upper-casing is ASCII only (T53 `upperCaseCode`)', () => {
+    it('converts a to z and nothing else', () => {
+      expect(upperCaseCode('abc-xyz_9')).toBe('ABC-XYZ_9')
+      expect(upperCaseCode('\u00DF\u017F\u0131\uFF41')).toBe('\u00DF\u017F\u0131\uFF41')
+    })
+
+    it.each([
+      ['sharp s', '\u00DF'],
+      ['long s', '\u017F'],
+      ['dotless i', '\u0131'],
+      ['full-width a', '\uFF41'],
+      ['full-width A', '\uFF21'],
+      ['a letter with an accent', '\u00E0'],
+    ])('keeps %s as typed and refuses it as `format` (never converts it into a letter of the alphabet)', (_what, char) => {
+      expect(checkVatCode(char)).toEqual(refused('format'))
+      expect(checkVatCode(`imp${char}`)).toEqual(refused('format'))
+    })
+
+    it('still converts lower case a to z around them for the codes that are fine', () => {
+      expect(checkVatCode('imp-81')).toEqual(accepted('IMP-81'))
     })
   })
 

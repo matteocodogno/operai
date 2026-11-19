@@ -480,3 +480,32 @@ describe('AddVatCodeDialog: 409 catalog_full (T53, T56; F-01)', () => {
     await expectNoAxeViolations()
   })
 })
+
+describe('AddVatCodeDialog: the code is upper-cased a to z only (T53 upperCaseCode)', () => {
+  it.each([
+    ['sharp s', 'imp\u00DF'],
+    ['long s', 'imp\u017F'],
+    ['dotless i', 'imp\u0131'],
+    ['full-width letters', '\uFF49\uFF4D\uFF50'],
+  ])('%s stays as typed on blur and is refused as a wrong format, with no request', (_what, typed) => {
+    serve(() => ({ status: 201, body: vat() }))
+    setup()
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: typed } })
+    fireEvent.blur(screen.getByTestId('accounting-vat-code'))
+    const expected = typed.replace(/[a-z]/g, (letter) => letter.toUpperCase())
+    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe(expected)
+    expect(err('code')).toBe('Use letters, digits, - or _ only.')
+    fill(typed, 'Imposta', '8.1')
+    submit()
+    expect(err('code')).toBe('Use letters, digits, - or _ only.')
+    expect(document.activeElement).toBe(screen.getByTestId('accounting-vat-code'))
+    expect(posts()).toHaveLength(0)
+  })
+
+  it('a to z is converted on blur', () => {
+    setup()
+    fireEvent.change(screen.getByTestId('accounting-vat-code'), { target: { value: 'imp-8_1' } })
+    fireEvent.blur(screen.getByTestId('accounting-vat-code'))
+    expect((screen.getByTestId('accounting-vat-code') as HTMLInputElement).value).toBe('IMP-8_1')
+  })
+})

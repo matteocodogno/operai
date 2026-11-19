@@ -105,9 +105,16 @@ export const checkText = (input: string, max: number): LimitCheck => {
 
 export const checkLedgerName = (input: string): LimitCheck => checkText(input, LIMITS.ledgerNameMax)
 
+/**
+ * Lower case to capital letters, `a` to `z` only (accounting-api `upperCaseCode`). Not `toUpperCase()`, which turns `ß` into
+ * `SS`, `ſ` into `S` and `ı` into `I`, letting a character outside the code's alphabet in through the conversion; and the
+ * full-width `ａ` is not converted either. Such a character stays as typed and is refused as `format`.
+ */
+export const upperCaseCode = (input: string): string => input.replace(/[a-z]/g, (letter) => letter.toUpperCase())
+
 /** A VAT code, trimmed and converted to capital letters (AC-1.5), the form the server stores and looks up. */
 export function checkVatCode(input: string): LimitCheck {
-  const value = input.trim().toUpperCase()
+  const value = upperCaseCode(input.trim())
   if (value === '') return refused('empty')
   if (!VAT_CODE.test(value)) return refused('format')
   if (value.length > LIMITS.vatCodeMax) return refused('too_long')

@@ -21,7 +21,7 @@ import { Field, FormDialog, MoneyInput } from '@operai/ui'
 import { ApiError } from '../lib/api'
 import { catalogFullLimit, createVatCode, duplicateIsDeactivated, refusedFields } from '../lib/catalogApi'
 import type { VatCode } from '../lib/catalogApi'
-import { CATALOG_CAPS, checkVatCode, checkVatLabel, checkVatRatePercent } from '../lib/limits'
+import { CATALOG_CAPS, checkVatCode, checkVatLabel, checkVatRatePercent, upperCaseCode } from '../lib/limits'
 import type { LimitReason } from '../lib/limits'
 import type { EntityId } from '../lib/meApi'
 import { strings } from '../strings'
@@ -88,14 +88,14 @@ export default function AddVatCodeDialog({
   /** The duplicate sentence: the server's `reactivate` flag when it sent one, else what the loaded list says. */
   const duplicateText = (value: string, deactivated: boolean | null): string => {
     const inactive =
-      deactivated ?? vatCodes.find((vatCode) => vatCode.code.toUpperCase() === value.toUpperCase())?.active === false
+      deactivated ?? vatCodes.find((vatCode) => upperCaseCode(vatCode.code) === upperCaseCode(value))?.active === false
     return inactive ? t.errors.duplicateInactive(value) : t.errors.duplicate(value, strings.entity[entity])
   }
 
   const checkCode = (raw: string): string | null => {
     const checked = checkVatCode(raw)
     if (!checked.ok) return codeMessage(checked.reason)
-    return vatCodes.some((vatCode) => vatCode.code.toUpperCase() === checked.value)
+    return vatCodes.some((vatCode) => upperCaseCode(vatCode.code) === checked.value)
       ? duplicateText(checked.value, null)
       : null
   }
@@ -207,7 +207,7 @@ export default function AddVatCodeDialog({
             }}
             onBlur={() => {
               if (code.trim() === '') return
-              const upper = code.trim().toUpperCase()
+              const upper = upperCaseCode(code.trim())
               setCode(upper)
               setCodeError(checkCode(upper))
             }}
