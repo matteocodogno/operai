@@ -1,7 +1,7 @@
 # Operai
 
 Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting and
-back-office workflows. Eight tools ship today, composed into one suite by a
+back-office workflows. Nine tools ship today, composed into one suite by a
 Module Federation shell (ADR 20260709-suite-frontend-module-federation):
 
 | Tool | Route | What it does |
@@ -13,8 +13,10 @@ Module Federation shell (ADR 20260709-suite-frontend-module-federation):
 | **CRM** | `/crm` | Companies, contacts, deals through a stage pipeline, activities and follow-up tasks (specs/20261101-crm, ADR 20261101-crm-tool-shape-and-authorization) |
 | **Meetings** | `/meetings` | Record (browser), upload or paste a meeting; EU transcription, summaries from editable templates and cited Q&A; files and links attached as AI context; linkable to a host record such as a CRM deal; audio and attached files kept 29 days (specs/20261104-meetings, ADR 20261104-meetings-tool-shape-visibility-by-participation–0068) |
 | **Projects** | `/projects` | The delivery work wellD runs — projects (type, state, project manager, team), their terms (per-type delivery terms) and, for a project made from a won deal, its purchase order (Bexio order id, referent, ops-manager); no money (specs/20261103-projects, 022, ADR 20261103-projects-tool-shape-and-authorization/0080/0093/0094) |
+| **Letterheads** | `/letterheads` | The letterheads and document layout of the suite, served by the Rust `letterhead-api` (specs/20261116-letterhead-service) |
+| **Accounting** | `/accounting` | The accounting reference data of each legal entity — ledger accounts, VAT codes and monthly average exchange rates — that other modules (Refund first) read live; reached through the derived `accounting` app of `/authz/me`, never an `access` permission (specs/20261119-accounting, ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…) |
 
-Those seven are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
+Those nine are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
 notification center (`notify-ui`) is a further remote but **not** a `TOOLS` entry: it mounts at
 the shell-owned `/notify` route, reached from the header bell (ADR 20260713-notification-center-standalone-service-shell-seam). `inventory-ui` also
 exposes a second, UNGATED entry, `./MyDevices`, mounted at the shell-owned `/devices` route
@@ -25,9 +27,14 @@ embeds through the shell's `HostExtension` seam with a timeout and an error boun
 `./RecorderDock`, the recorder widget the shell shows in its floating slot while a recording runs and the person
 is elsewhere in Operai (ADR 20261110-shell-floating-slot-for-remote-widgets).
 
-Backed by nine Bun services: `auth` (identity + authorization), `estimai-api`,
+Backed by ten Bun services: `auth` (identity + authorization), `estimai-api`,
 `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`,
-`activities-api`.
+`activities-api`, `accounting-api` (and the one Rust service, `letterhead-api`).
+
+`accounting-api` is the owner of the accounting reference data (specs/20261119-accounting). It serves its own
+screens (`accounting-ui`) and one narrow, read-only service read to `refund-api`, which reads the list **live** on every
+operation as `system:refund-api` (scope `accounting.reference.read`), keeps no copy across requests and copies onto each
+line, by natural key, what it books. See `### Accounting (specs/20261119-accounting)` under Domain language.
 
 `activities-api` is the ninth service and is **backend-only**: it has no remote, no `TOOLS` entry and
 no screen of its own. It holds the activities, tasks and task blockers of two hosts — the CRM
@@ -79,10 +86,11 @@ operai/
 ├── refund-ui/           # Reimbursement tool — federated remote: expense requests, accounting review/decision,
 │                        # monthly batch compile/pay (specs/20260716-refund-service, 008), and the Settings tab: mileage rates and the
 │                        # accounting distribution email (specs/20260720-mileage-rate, 011; moved from admin-ui, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition amendment);
-│                        # + WellD CH accounting (specs/20261118-refund-accounting-export): Settings has three views, selected by `?section=` (General: mileage rates and the distribution email;
-│                        # Accounts and VAT: ledger accounts, VAT codes, default classification per expense type, the VAT code for foreign-currency lines; Exchange rates: the monthly CHF rates,
-│                        # with Fetch now and a correction dialog), a classification panel on each line of the review page, receipt numbers on lines and batches, and an accounting export card
-│                        # (CSV download) on the batch page. The accounting views need `settings:read`, their writes `settings:manage`
+│                        # + WellD CH accounting (specs/20261118-refund-accounting-export): Settings has two views, selected by `?section=` (`general`: mileage rates and the distribution email;
+│                        # `defaults`: the default classification per expense type and the VAT code for foreign-currency lines, chosen among Accounting's active entries), a classification panel on each
+│                        # line of the review page, receipt numbers on lines and batches, and an accounting export card (CSV download) on the batch page. The two views need `settings:read`, their
+│                        # writes `settings:manage`. The ledger accounts, VAT codes and exchange-rate views moved to accounting-ui (specs/20261119-accounting): the retired `?section=accounting` and
+│                        # `?section=exchange-rates` fall back to `general`, and a note on the defaults view points to the Accounting app
 ├── admin-ui/            # Admin tool — federated remote: roles/departments/users/permissions/invitations GUI
 │                        # (specs/20260713-auth-roles-permissions, 006, admin-only) + audit log, employee address (specs/20260803-employee-address, ADR 20260804-employee-address-auth-identity-attribute-1to1-table/0032)
 │                        # and the waiting list: access requests from allowed-domain colleagues without an invitation, approved into an invitation or dismissed (specs/20261105-signup-gate, ADR 20261105-access-only-by-invitation-waiting-list/0072)
@@ -100,6 +108,12 @@ operai/
 ├── projects-ui/         # Projects tool — federated remote (port 5181): exposes ./App (gated, /projects) and ./version; calls
 │                        # projects-api, activities-api (project tasks, My tasks) and auth's user directory through
 │                        # shell/session (specs/20261103-projects, 028, ADR 20261103-projects-tool-shape-and-authorization)
+├── accounting-ui/       # Accounting tool — federated remote (port 5183; 5185 in the e2e preview): exposes ./App (gated, /accounting) and ./version; calls
+│                        # accounting-api through shell/session (`VITE_ACCOUNTING_API_URL` is the shell's, no VITE_* of its own). Routes `/accounting/ledger-accounts`,
+│                        # `/accounting/vat-codes`, `/accounting/exchange-rates`, each with `?entity=` (a person sees only the entities their grant covers; the switcher
+│                        # appears with two or more) — add, deactivate and reactivate accounts and VAT codes, read and correct the monthly rates; write controls follow
+│                        # `/v1/me` `canManage`, never `usePermissions()` (specs/20261119-accounting, ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…).
+│                        # Moved from refund-ui with `git mv`
 ├── operai-ui/           # @operai/ui — the DESIGN SYSTEM (ADR 20261031-shared-ui-library-consumed-as-source): tokens/themes/fonts + component classes
 │                        # (src/styles/tokens.css, re-exported by shell/tokens.css), React components (src/components),
 │                        # Storybook (`mise run ui:storybook`), rules in docs/. NOT an app: never built or deployed;
@@ -134,8 +148,12 @@ operai/
 │                        # + batch compile/PDF/paid lifecycle (specs/20260719-refund-monthly-processing, ADR 20260716-immutable-financial-audit-trail-refund–0022), mileage rates
 │                        # (specs/20260720-mileage-rate, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition/0024/0025), settings store (specs/20260722-refund-settings, ADR 20260722-refund-settings-append-only-self-auditing-store/0028/0029)
 │                        # + WellD CH accounting export (specs/20261118-refund-accounting-export): `src/accounting/` (ledger accounts, VAT codes, defaults, classification, receipt numbers, the CSV export) and
-│                        # `src/fx/` (monthly CHF rates from the federal source, fetched on demand, `REFUND_FX_SOURCE`); `scripts/accounting-release.ts` (`bun run accounting:release`) is the one-off, operator-run
-│                        # release step, not in the Docker image (infra/README.md § Release runbook)
+│                        # the one-off, operator-run `scripts/accounting-release.ts` (`bun run accounting:release [--dry-run] [--offsets <csv>] [--defaults <json>]`), not in the Docker image
+│                        # (infra/README.md § Release runbook)
+│                        # + since specs/20261119-accounting refund-api keeps NO ledger accounts, VAT codes or exchange rates of its own: `src/accounting/accountingClient.ts` reads them live from
+│                        # accounting-api (`ACCOUNTING_INTERNAL_URL`, required at startup; 10 s deadline, no cache across requests), a line carries a copy by natural key (account number and name,
+│                        # VAT code and rate, exchange rate and month), `GET /accounting/options` feeds the pickers, and the fetch from the federal source moved to accounting-api
+│                        # (`REFUND_FX_SOURCE` is removed). Per-type defaults and the foreign-currency VAT code designation stay here
 ├── inventory-api/       # Bun + Hono + TypeScript backend (port 8083, DB `inventory`) — hardware register; authorization-enforcing
 │                        # resource server, entity-scoped (ADR 20260716-refund-api-authorization-enforcing-resource-server/0015 lineage); depreciation derived on read, closed years
 │                        # snapshotted (ADR 20261006-depreciation-derived-on-read-closed-years-snapshotted); invoice files in its own EU bucket; pushes to notify-api with a scoped
@@ -167,6 +185,14 @@ operai/
 │                        # failing closed; maintenance switch `ACTIVITIES_MAINTENANCE`; pushes to notify-api as
 │                        # `system:activities-api`; scripts/import-crm-activities.ts = one-off CRM copy (specs/20261110-activities,
 │                        # ADR 20261110-activities-service-access-delegated-to-host/0082/0083). No UI: backend-only
+├── accounting-api/      # Bun + Hono + TypeScript backend (port 8089, DB `accounting`) — the accounting reference data of each legal entity: ledger accounts and VAT codes
+│                        # (identified by number / code within an entity, never edited or deleted, only deactivated and reactivated) and the monthly average exchange rates (fetched on demand
+│                        # from the federal source BAZG, or typed and corrected by a manager; `ACCOUNTING_FX_SOURCE=bazg|off`); authorization-enforcing (`accounting:read` / `accounting:manage`,
+│                        # entity condition, no `access` action; `GET /v1/me` says which entities the caller covers and whether it manages them); user routes `/v1/entities/{entity}/…`;
+│                        # one service-only read `GET /system/v1/entities/{entity}/reference-data` and `/rates` behind a scoped service JWT (scope `accounting.reference.read`, `sub`
+│                        # allowlist, `aud=SERVICE_AUDIENCE`, one identical 401), the only consumer being refund-api. `scripts/seed-welld-ch.ts` (`bun run seed:welld-ch [--dry-run]`) is the
+│                        # one-off, operator-run, optional load of WellD CH's list from `scripts/data/seed.welld-ch.json`; not in the Docker image
+│                        # (specs/20261119-accounting, ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…/20261119-on-demand-outbound-work-…)
 ├── letterhead-api/      # Rust (axum + tokio, Typst embedded as a library) backend (port 8088, DB `letterhead`, bucket
 │                        # `letterhead`) — lays out a whole document for every tool; the ONE service that is not Bun/Hono/TypeScript
 │                        # (ADR 20261116-letterhead-api-is-a-rust-service-with-typst-embedded-for-document-layout-only; see ### Rust service).
@@ -194,14 +220,14 @@ operai/
 
 ## Tech stack
 
-### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui, meetings-ui, projects-ui)
-All eight share one stack. Each is installed and deployed on its own (no npm workspace).
+### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui, meetings-ui, projects-ui, letterheads-ui, accounting-ui)
+All of them share one stack. Each is installed and deployed on its own (no npm workspace).
 
 - **Runtime:** Node 24 via mise (pnpm via corepack, see `mise.toml`)
 - **Package manager:** pnpm
 - **Framework:** Vite 8 + React 19 (TypeScript)
 - **Composition:** Module Federation (`@module-federation/vite`) — the shell is the host, the
-  other seven are remotes whose URLs resolve at runtime per-env, never build-baked (ADR 20260709-suite-frontend-module-federation)
+  others are remotes whose URLs resolve at runtime per-env, never build-baked (ADR 20260709-suite-frontend-module-federation)
 - **Routing:** TanStack Router
 - **Auth/session:** better-auth client; in-memory JWT + `apiFetch` interceptor, owned by
   `shell/session` and reused by every remote (ADR 20260607-jwt-in-memory-never-web-storage/0002)
@@ -251,8 +277,8 @@ degrades silently when the key is absent (ADR 20260804-google-places-browser-dir
   per-source-address count of 20 invalid credentials (`SYSTEM_INVALID_CREDENTIAL_LIMIT`) shared by both
   routes. One byte-identical 429 with `Retry-After`. `SERVICE_TOKEN_RATE_*` are retired and ignored (env-doctor flags them).
 
-### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, meetings-api, projects-api, activities-api)
-All eight share the `auth` service's shape (see ADR 20260703-estimai-api-bun-hono-typescript — one backend stack across the monorepo, with ONE exception, the Rust `letterhead-api`: see **### Rust service**;
+### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, meetings-api, projects-api, activities-api, accounting-api)
+All nine share the `auth` service's shape (see ADR 20260703-estimai-api-bun-hono-typescript — one backend stack across the monorepo, with ONE exception, the Rust `letterhead-api`: see **### Rust service**;
 it supersedes the earlier Kotlin/Spring intention). Six are implemented; `meetings-api` is in
 progress (specs/20261104-meetings).
 
@@ -377,7 +403,19 @@ Per-service specifics:
   audit/rate/settings tables (ADR 20260716-immutable-financial-audit-trail-refund/0024/0027); WellD CH lines carry an accounting
   classification, a receipt number and a CHF amount, and a batch has a CSV export for accounting (specs/20261118-refund-accounting-export,
   the 20261118 ADRs at the end of this file). Approvals answer 409 `accounting_release_pending` until `bun run accounting:release` has run
-  once against the refund database; the e2e global setup runs it (see § Running locally, e2e)
+  once against the refund database; the e2e global setup runs it (see § Running locally, e2e). Since specs/20261119-accounting the ledger
+  accounts, VAT codes and monthly rates are **not** Refund's: it reads them live from `accounting-api` as `system:refund-api`
+  (`ACCOUNTING_INTERNAL_URL`, required at startup, scope `accounting.reference.read` in auth's `SERVICE_CLIENTS`, one 10 s deadline per operation, no cache),
+  answers 503 `accounting_unavailable` when it cannot read them rather than guess, and approves, classifies and exports from the **copy** each line carries
+  (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…, ADR 20261119-on-demand-outbound-work-…)
+- `accounting-api` — the owner of the accounting reference data (specs/20261119-accounting): a JWKS resource server (`AUTH_JWKS_URL`, `AUTH_ISSUER`,
+  `AUTH_AUDIENCE`) that resolves the caller's `accounting:read` / `accounting:manage` live from `auth GET /authz/resolve` and fails **closed** on an `auth`
+  outage; `manage` includes `read`; both carry the `entity` condition, so a manager of WellD CH only sees and changes WellD CH, and a request for an entity the
+  caller does not cover is a 404. Its service read (`/system/v1/*`) takes only a scoped service JWT, never a user token: `aud=SERVICE_AUDIENCE` (required, different from
+  `AUTH_AUDIENCE`), scope `accounting.reference.read`, `sub` allowlisted to `system:refund-api`, GET only, `Cache-Control: no-store`. Fetches the monthly rates on demand
+  from the one fixed BAZG host (`ACCOUNTING_FX_SOURCE=bazg`, default; `off` makes no outbound call and records every attempt as `disabled`, for the e2e and offline dev;
+  the host is a constant, never configuration), on a budget of 6 s inside refund-api's 10 s. Port 8089, DB `accounting`; the one-off `bun run seed:welld-ch`
+  loads WellD CH's list and is optional (accounting may type it in the app)
 
 ---
 
@@ -466,16 +504,35 @@ Use these terms consistently in code, API contracts, and UI copy.
 | `batch` | A monthly payout compilation of approved requests — `compiled` \| `paid` \| `discarded` |
 | `mileage rate` | Per-entity, effective-dated €/km series; a `travel_km` line snapshots it at submit (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition) |
 | `line rejection` | A reviewer refuses ONE line of a `submitted` request, with a required reason: approved total 0, restorable until the request is decided, cleared on withdraw; a request whose every line is rejected cannot be approved (specs/20260716-refund-service, 2026-11-10) |
-| `ledger account` | One account of WellD CH's chart of accounts a line is booked to (`5905`, `2620.1`): added, deactivated and reactivated by an admin, never edited or deleted; a line keeps the account it was classified with (ADR 20261118 classification) |
-| `VAT code` | A code with one fixed rate (`IMP81` = 8.1 %), with the same lifecycle as a ledger account; the rate is never edited, a new rate is a new code |
-| `classification` | The ledger account and VAT code of a WellD CH line: the live defaults of its expense type until approval, frozen in the approval transaction, changed afterwards only with `request:reclassify` and never once the request is paid; WellD Italia lines have none |
+| `ledger account` | One account of WellD CH's chart of accounts a line is booked to (`5905`, `2620.1`), **kept in Accounting** (added, deactivated and reactivated there by an accounting manager, never edited or deleted); a line keeps a copy of the number and name it was classified with (ADR 20261118 classification, specs/20261119-accounting) |
+| `VAT code` | A code with one fixed rate (`IMP81` = 8.1 %), **kept in Accounting** with the same lifecycle as a ledger account; the rate is never edited, a new rate is a new code; a line keeps a copy of the code and rate |
+| `classification` | The ledger account and VAT code of a WellD CH line: the live defaults of its expense type until approval, frozen in the approval transaction as a copy, changed afterwards only with `request:reclassify` and never once the request is paid; WellD Italia lines have none. The options offered are Accounting's active WellD CH entries; when Accounting cannot be read, a change or approval is refused, never guessed |
 | `foreign-currency VAT code` | The one VAT code a WellD CH line in a currency other than CHF gets by default, designated by an admin in Settings (append-only history); unset or deactivated means none, so approval asks (the type's own default VAT code is not used for such a line) |
 | `receipt number` | `MC26/014`: the employee's two initials, the year of the expense date, a running number per employee and year, issued when the request is approved, never reused or changed (ADR 20261118 receipt numbers) |
-| `monthly average rate` | CHF for 1 unit of EUR, USD or GBP in a completed month, from the federal source (BAZG) fetched on demand or typed by an admin; a fetched rate is recorded once, a correction is an appended row that wins (ADR 20261118 exchange rates) |
+| `monthly average rate` | CHF for 1 unit of EUR, USD or GBP in a completed month, **kept in Accounting**: from the federal source (BAZG) fetched on demand or typed by an accounting manager; a fetched rate is recorded once, a correction is an appended row that wins (ADR 20261118 exchange rates); a line keeps a copy of the rate and its month |
 | `accounting export` | The CSV of the approved WellD CH lines of a compiled or paid batch, generated on request and never stored, every download logged; refused with 409 while a rate, a classification or a number is missing; needs `request:review` with a scope covering `welld_ch` |
-| `accounting release` | The one-off `bun run accounting:release` after refund-api is deployed: seeds the catalog and defaults where nothing exists, numbers the legacy WellD CH lines by expense date, writes the marker that lets approvals through; idempotent, `--dry-run` first |
+| `accounting release` | The one-off `bun run accounting:release` after refund-api is deployed: reads Accounting first (exits 2 and writes nothing when it cannot), seeds Refund's type defaults and foreign-currency designation from `--defaults <json>` where nothing exists (it no longer creates a catalog; the list is loaded in Accounting by `seed:welld-ch`), numbers the legacy WellD CH lines by expense date, writes the marker that lets approvals through; idempotent, `--dry-run` first |
+| `copy` | The values Refund records on a line when it classifies or approves it: ledger account number and name, VAT code and rate and, for a foreign-currency line, the exchange rate with its month. A copy never changes when Accounting changes; the CHF and VAT amounts and the export are computed from it (specs/20261119-accounting) |
+| `rate pending` | An approved WellD CH line in a currency other than CHF whose month had no rate in effect at approval, so no rate is copied yet; it is copied at the first successful export, which is refused with the missing rate named until then |
+| `Manage includes Read` | Whoever may manage Accounting's data may also read it: `accounting:manage` covers every entity `accounting:read` would (see Accounting below). Refund shows its Accounting links and rate links by this rule (`viewer.canOpenAccountingRates`) |
 
 Money is always integer minor units (cents); mileage rates are integer micros (ADR 20260720-mileage-rate-money-precision-integer-micros).
+
+### Accounting (specs/20261119-accounting)
+
+| Term | Meaning |
+|---|---|
+| `Accounting` | The suite module (capital A) that keeps the accounting reference data and shows it in its own app. Lower-case "accounting" keeps its Refund meaning: the team and role that review and classify expenses |
+| `reference data` | The ledger accounts, VAT codes and monthly average exchange rates kept in Accounting |
+| `entity` | A legal entity of the group (`welld_ch`, `welld_it`) with an **own currency** (CHF, EUR). Accounts and VAT codes belong to exactly one entity and are identified by number or code **within it**: the same number in two entities is two accounts; Refund and every other consumer refer to them by this natural key, never by an id |
+| `active` / `deactivated` | Whether an entry is offered for new use. A deactivated entry stays in the lists, with its history, and can be reactivated; there is no edit and no delete (a VAT code's rate never changes) |
+| `option` | An active entry offered to a person who has to choose one |
+| `monthly average rate` | The average rate of a foreign currency to the entity's own currency for one calendar month; for WellD CH: EUR, USD, GBP to CHF. The **rate in effect** is the latest correction, else the fetched rate. WellD Italia has no official source yet (an empty state, not an error) |
+| `published` | A month's rate counts as published from the 5th day of the following month (Europe/Zurich), because the source answers provisional values before that; earlier it is shown as missing and not fetched |
+| `Accounting read` / `Accounting manage` | The two capabilities, `accounting:read` and `accounting:manage`, each grantable with the entity condition. **Manage includes Read.** There is no `accounting:access`: the tool appears for a person whose `read` or `manage` covers at least one entity (`apps ∋ accounting`, derived in `/authz/me`); `admin` holds both unconditioned, the `accounting` role both for WellD CH |
+| `accounting manager` / `accounting reader` | A person who holds Accounting manage for an entity / read but not manage |
+| `consumer` | A module that reads Accounting's data: Refund, the only one for now; it reads live as `system:<service>` with scope `accounting.reference.read` and keeps a copy of what it books (see Refund: `copy`) |
+| `unreachable` | Accounting does not answer in time, answers with an error, or answers with something the consumer cannot read: the consumer refuses the operation (`503 accounting_unavailable`) instead of deciding from a stale guess |
 
 ### Identity & authorization (auth)
 
@@ -487,7 +544,7 @@ Money is always integer minor units (cents); mileage rates are integer micros (A
 | `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
 | `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims) |
 | `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR 20260714-invitation-lifecycle-derived-expiry-state) |
-| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact`, `host-notices.send`, `estimate-notices.send`, `deal-link-notices.send`, `crm.companies.read` and/or `activities.write`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api` (also `activities.write`, for activities-api's `/system/v1/*`), `meetings-api`, `notify-api`, `projects-api` and `activities-api` (`notifications.push emails.send`) (`auth` mints its own in process and may not be a client, ADR 20261013-auth-mints-own-service-credential-in-process/0049); `auth` limits each client to 300 tokens and 600 contact lookups per 10 min, counted per verified service, with one per-address count of 20 invalid credentials (ADR 20261112-system-endpoints-limited-per-verified-service) |
+| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact`, `host-notices.send`, `estimate-notices.send`, `deal-link-notices.send`, `crm.companies.read`, `accounting.reference.read` and/or `activities.write`); today `refund-api` (also `accounting.reference.read`, for accounting-api's `/system/v1/*`), `estimai-api`, `inventory-api`, `crm-api` (also `activities.write`, for activities-api's `/system/v1/*`), `meetings-api`, `notify-api`, `projects-api` and `activities-api` (`notifications.push emails.send`) (`auth` mints its own in process and may not be a client, ADR 20261013-auth-mints-own-service-credential-in-process/0049); `auth` limits each client to 300 tokens and 600 contact lookups per 10 min, counted per verified service, with one per-address count of 20 invalid credentials (ADR 20261112-system-endpoints-limited-per-verified-service) |
 
 ### Inventory (specs/20261006-hardware-inventory)
 
@@ -754,12 +811,15 @@ mise run dev:preview  # frontends build+preview — no HMR, mirrors the deploy s
 ```
 
 Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, inventory-api `8083`,
-crm-api `8084`, meetings-api `8085`, projects-api `8086`, activities-api `8087`, letterhead-api `8088` (Rust), shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`,
-admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`, projects-ui `5181`; MinIO S3 `9000`
-(console `9001`). Frontend ports are pinned in each app's `vite.config.ts`.
+crm-api `8084`, meetings-api `8085`, projects-api `8086`, activities-api `8087`, letterhead-api `8088` (Rust), **accounting-api `8089`**, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`,
+admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`, projects-ui `5181`, letterheads-ui `5182`, **accounting-ui `5183`**; MinIO S3 `9000`
+(console `9001`). Frontend ports are pinned in each app's `vite.config.ts`. The e2e serves each remote by `build && preview` on its own numbering
+(`shell/playwright.config.ts`): accounting-ui is on `5185` there (`E2E_ACCOUNTING_REMOTE_PORT`), because `5183` is another remote's preview in that file.
+`accounting-api` has its own logical database `accounting`, created by the idempotent compose one-shot `accounting-createdb` (run by `mise run db:migrate` and named in
+the `dev` tasks' `docker compose up`), and its own `.envrc` and `.env.example`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`, `activities-api`, `admin-ui`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`, `activities-api`, `accounting-api`, `admin-ui`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
 explicitly — direnv's shell hook does not fire for a non-interactive mise task. Meetings runs against
 fake transcription/LLM providers locally (`MEETINGS_AI_PROVIDER=fake`, refused in production) until
@@ -781,7 +841,7 @@ MEETINGS_S3_ACCESS_KEY_ID=minioadmin MEETINGS_S3_SECRET_ACCESS_KEY=minioadmin \
 
 ### A single frontend
 ```bash
-cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui / meetings-ui / projects-ui
+cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui / meetings-ui / projects-ui / accounting-ui
 pnpm install
 pnpm dev              # standalone; a remote still needs the shell for an authed session
 pnpm lint             # ESLint
@@ -805,16 +865,36 @@ pnpm e2e estimate-sharing.spec.ts     # one spec
 pnpm e2e:ui                           # interactive
 ```
 
-The suite's global setup (`shell/e2e/global-setup.ts`) does one thing for refund beyond the legal-entity registry:
-it runs `direnv exec . bun run accounting:release` in `refund-api/` (specs/20261118-refund-accounting-export, T12).
-refund-api answers every approval with 409 `accounting_release_pending` until that script has run once against the
-database it uses, so without it every journey that approves a request fails. The script is idempotent (a second run
-changes nothing), seeds the catalog and the type defaults, and prints one summary line, which the setup logs. It needs
-refund-api's migrations applied (`cd refund-api && bun run db:deploy`) and fails the whole run, naming the command, when it cannot
-run. `E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1` skips it, for a run of specs that never approve a refund request; a run that
-skips it proves nothing about approvals. Run the stack with `REFUND_FX_SOURCE=off` (no outbound call; the accounting specs
-type their rates by hand). The accounting journeys (`refund-accounting-settings.spec.ts`, `refund-accounting.spec.ts`)
-write their own catalog and exchange rate through refund-api's admin routes and put back the defaults they changed.
+#### Accounting and Refund in the e2e (specs/20261119-accounting, specs/20261118-refund-accounting-export)
+
+The refund-accounting journeys need three services wired together, not just refund-api:
+
+- **accounting-api** (`:8089`, `mise run dev` or `cd accounting-api && direnv exec . bun run dev`) with its database `accounting` migrated
+  (`mise run db:migrate`, or `docker compose run --rm accounting-createdb && (cd accounting-api && bun run db:deploy)`), run with
+  **`ACCOUNTING_FX_SOURCE=off`**: no call to the federal source, and the accounting specs type their rates by hand. accounting-ui is served by the e2e on `:5185`
+  (`E2E_ACCOUNTING_REMOTE_PORT`); the shell build is told the API's origin by `VITE_ACCOUNTING_API_URL` (`E2E_ACCOUNTING_API_URL`, default `http://localhost:8089`).
+- **refund-api** with **`ACCOUNTING_INTERNAL_URL`** set (it exits 1 at startup without it; `http://localhost:8089` locally, `mise run dev` defaults it, compose uses
+  `http://accounting-api:8089`). `REFUND_FX_SOURCE` no longer exists: refund-api fetches no rate.
+- **auth** with `ENABLE_TEST_AUTH=true`, its seed applied (the `admin` role holds `accounting:read` and `accounting:manage`), and `SERVICE_CLIENTS` giving refund-api's
+  entry the scope **`accounting.reference.read`** (`auth/.env.example`; in a shared environment edit it only after the auth that knows the scope is deployed, or auth
+  stops at startup).
+
+The suite's global setup (`shell/e2e/global-setup.ts`) then does three things before any spec, in this order, and fails the whole run naming the command when one cannot run:
+
+1. Checks that accounting-api answers `/health` (`E2E_ACCOUNTING_API_URL`, default `http://localhost:8089`).
+2. Runs `direnv exec . bun run seed:welld-ch` in `accounting-api/`: loads WellD CH's ledger accounts and VAT codes into Accounting where they do not exist (idempotent, never
+   changes an entry that exists). `E2E_SKIP_ACCOUNTING_SEED=1` skips it, when accounting enters the list by hand.
+3. Runs `direnv exec . bun run accounting:release` in `refund-api/` (specs/20261118-refund-accounting-export, T12). refund-api answers every approval with 409
+   `accounting_release_pending` until that script has run once against the database it uses, so without it every journey that approves a request fails. The script reads
+   Accounting first (step 2 must have run, and accounting-api be reachable; otherwise it exits 2 and writes nothing), is idempotent, seeds Refund's type defaults, and prints
+   one summary line, which the setup logs. It needs refund-api's migrations applied (`cd refund-api && bun run db:deploy`).
+   `E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1` skips it, for a run of specs that never approve a refund request; a run that skips it proves nothing about approvals.
+
+Both scripts run under `direnv exec`, so each writes to the database its service's `.envrc` names (the shared dev one). To aim them at another database set
+**`E2E_ACCOUNTING_DATABASE_URL`** (accounting-api's database, for `seed:welld-ch`) and **`E2E_REFUND_DATABASE_URL`** (refund-api's, for `accounting:release`) to postgres URLs:
+the value replaces `DATABASE_URL` for that one script, is never printed, and **must be the database the running service uses**, or the setup and the specs would
+disagree. The journeys (`accounting.spec.ts`, `accounting-access.spec.ts`, `refund-accounting-settings.spec.ts`, `refund-accounting.spec.ts`) write their own accounts, VAT
+codes and exchange rate through accounting-api's routes and put back the defaults they changed.
 
 ### Auth service
 ```bash
@@ -831,7 +911,7 @@ bun test
 Not the shape below: see **### Rust service (letterhead-api)** — `mise run dev:letterhead` (host) or `docker compose up letterhead-api`;
 `cd letterhead-api && cargo test --workspace --locked`.
 
-### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084, meetings-api :8085, projects-api :8086, activities-api :8087)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084, meetings-api :8085, projects-api :8086, activities-api :8087, accounting-api :8089)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
 `bun install`, `bun run db:migrate`, `bun run dev`. See **### Resource backends** under
 Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` / `MEETINGS_S3_*` point at local MinIO in dev

@@ -8,7 +8,7 @@ Module-Federation shell that hosts each tool as a runtime remote.
 |---|---|
 | `shell/` | Suite host — shared chrome (header/sidebar/footer) + single session; mounts each tool as a federated remote |
 | `estimai-ui/` | EstimAI, as a federated remote |
-| `refund-ui/` | Reimbursement tool (federated remote) — expense requests + accounting review/decision (specs/20260716-refund-service); WellD CH accounting: ledger accounts, VAT codes, default classification and monthly exchange rates in Settings, a classification panel on the review page, receipt numbers, and the accounting CSV export on the batch page (specs/20261118-refund-accounting-export) |
+| `refund-ui/` | Reimbursement tool (federated remote) — expense requests + accounting review/decision (specs/20260716-refund-service); WellD CH accounting: default classification per expense type in Settings (chosen among Accounting's entries), a classification panel on the review page, receipt numbers, and the accounting CSV export on the batch page (specs/20261118-refund-accounting-export); the ledger accounts, VAT codes and exchange rates moved to `accounting-ui/` (specs/20261119-accounting) |
 | `admin-ui/` | Admin tool (federated remote) — roles, departments, users & fine-grained permissions (specs/20260713-auth-roles-permissions); user invitations, resend/revoke & soft-delete (specs/20260713-user-invitations, admin-only) |
 | `inventory-ui/` | Hardware inventory (federated remote) — asset register, assignments, depreciation ledger and year close; plus the ungated "My devices" screen at `/devices` (specs/20261006-hardware-inventory, ADR 20261006-ungated-second-federated-entry-of-a-gated-remote) |
 | `projects-ui/` | Projects (federated remote) — the delivery work wellD runs: projects with their type, state, project manager and team, and their contracts' delivery terms and Bexio order id; no money (specs/20261103-projects, ADR 20261103-projects-tool-shape-and-authorization) |
@@ -16,9 +16,11 @@ Module-Federation shell that hosts each tool as a runtime remote.
 | `auth/` | Bun + Hono auth service — OAuth, sessions, RS256 JWT + JWKS, hosted sign-in; + authorization (roles/departments/permissions, admin API, ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims); user invitations + soft-delete + hosted invite landing (specs/20260713-user-invitations) |
 | `estimai-api/` | Estimate-persistence backend (Bun + Hono) |
 | `notify-api/` | Notification backend (Bun + Hono) — persistence + SSE push, ticket-authed stream (specs/20260713-notification-center, ADR 20260713-sse-stream-auth-short-lived-ticket/0009); + email delivery via Resend, internal `/system/emails` (specs/20260713-user-invitations, ADR 20260714-notify-api-email-channel-service-trust); + internal `/system/notifications` for cross-user push (specs/20260716-refund-service, ADR 20260716-system-notifications-cross-user-trigger) |
-| `refund-api/` | Reimbursement backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for receipt attachments (specs/20260716-refund-service, ADR 20260716-refund-api-authorization-enforcing-resource-server/0015/0016); WellD CH accounting export: classification, receipt numbers, monthly CHF rates from the federal source (`REFUND_FX_SOURCE`) and the batch CSV (specs/20261118-refund-accounting-export); the one-off `bun run accounting:release` is run by hand after a deploy (`infra/README.md` § Release runbook) |
+| `refund-api/` | Reimbursement backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for receipt attachments (specs/20260716-refund-service, ADR 20260716-refund-api-authorization-enforcing-resource-server/0015/0016); WellD CH accounting export: classification, receipt numbers and the batch CSV (specs/20261118-refund-accounting-export); since specs/20261119-accounting it reads the ledger accounts, VAT codes and monthly CHF rates live from `accounting-api/` (`ACCOUNTING_INTERNAL_URL`, scope `accounting.reference.read`) and keeps a copy on each line, and no longer fetches rates (`REFUND_FX_SOURCE` is removed); the one-off `bun run accounting:release` is run by hand after a deploy (`infra/README.md` § Release runbook) |
 | `inventory-api/` | Hardware-inventory backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for invoices, depreciation derived on read with immutable year closes; pushes notifications to notify-api with a scoped service JWT (specs/20261006-hardware-inventory, ADR 20261006-scoped-service-jwt-fourth-notify-caller/0046/0047) |
 | `projects-api/` | Projects backend (Bun + Hono) — authorization-enforcing resource server, entity-scoped writes with optimistic concurrency; reads CRM company names from crm-api with a scoped service credential (specs/20261103-projects, ADR 20261103-projects-tool-shape-and-authorization/0080) |
+| `accounting-ui/` | Accounting tool (federated remote, port 5183) — the ledger accounts, VAT codes and monthly average exchange rates of each legal entity: add, deactivate and reactivate, read and correct rates; reached at `/accounting` by holders of `accounting:read` or `accounting:manage` (specs/20261119-accounting, ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…) |
+| `accounting-api/` | Accounting backend (Bun + Hono, port 8089, database `accounting`) — owner of the accounting reference data, authorization-enforcing per entity, with monthly rates fetched on demand from the federal source (`ACCOUNTING_FX_SOURCE`); one read-only service route for `refund-api`; the one-off `bun run seed:welld-ch` loads WellD CH's list (specs/20261119-accounting) |
 | `activities-api/` | Activities backend (Bun + Hono) — the activities, tasks and blockers of the CRM (pre-sales) and Projects (operational); no UI and no permission catalog of its own: every access decision is asked of the host as the caller, failing closed (specs/20261110-activities, ADR 20261110-activities-service-access-delegated-to-host/0082/0083) |
 | `specs/`, `docs/adr/` | Spec-driven workflow + Architecture Decision Records |
 | `infra/` | Deploy config + runbooks (Railway, Vercel) |
@@ -34,9 +36,9 @@ One-time setup:
    own `.envrc`. `mise run dev` loads these with `direnv exec` (it runs non-interactively,
    so direnv's shell hook doesn't fire on its own). So: install **direnv**, run
    `direnv allow .`, `direnv allow auth`, `direnv allow estimai-api`, `direnv allow notify-api`,
-   `direnv allow refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api` and `direnv allow admin-ui`, and set up
+   `direnv allow refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api`, `direnv allow accounting-api` and `direnv allow admin-ui`, and set up
    the 1Password service account described in
-   [1Password for local development](#1password-for-local-development). All eight backends require `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
+   [1Password for local development](#1password-for-local-development). Every backend requires `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
    `aud` claim `auth` stamps and the resource servers verify (ADR 20260713-jwt-audience-claim-enforcement); a mismatch rejects
    every token with 401. Set `ENABLE_TEST_AUTH=true` for a seeded local session, and provide
    real `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (with
@@ -44,10 +46,10 @@ One-time setup:
    Google login locally. `refund-api`, `estimai-api`, `inventory-api`, `crm-api`, `projects-api` and `activities-api` each need
    `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` (their own credentials for `auth`'s
    service-token endpoint, matching an entry of `auth`'s `SERVICE_CLIENTS`; ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired) — see
-   each `.env.example`. `refund-api`'s object-storage vars (`REFUND_S3_*`) are documented
+   each `.env.example`. `refund-api` also requires `ACCOUNTING_INTERNAL_URL` (accounting-api's address, `http://localhost:8089`; it exits 1 without it), and its `SERVICE_CLIENTS` entry must hold the scope `accounting.reference.read`. `refund-api`'s object-storage vars (`REFUND_S3_*`) are documented
    but not yet enforced (no bucket provisioned yet); `inventory-api` also needs its own
    `INVENTORY_S3_*` bucket.
-2. **Apply DB migrations** (brings up Postgres, then migrates all eight backends):
+2. **Apply DB migrations** (brings up Postgres, then migrates every backend, `accounting-api` included):
 
    ```bash
    mise run db:migrate
@@ -56,7 +58,7 @@ One-time setup:
 Then run the whole suite with **one command**:
 
 ```bash
-mise run dev            # HMR — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api + activities-api + all 7 frontends
+mise run dev            # HMR — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api + activities-api + accounting-api + all the frontends
 ```
 
 The three `dev*` tasks open the shell (http://localhost:5173) in your browser as soon as it
@@ -76,6 +78,7 @@ open **http://localhost:5173**.
 | inventory-ui (remote) | 5178 | hardware inventory + `/devices` (specs/20261006-hardware-inventory) |
 | crm-ui (remote) | 5179 | CRM (specs/20261101-crm) |
 | projects-ui (remote) | 5181 | Projects (specs/20261103-projects) |
+| accounting-ui (remote) | 5183 | Accounting (specs/20261119-accounting); 5185 in the e2e preview |
 | auth | 3001 | Bun + Hono |
 | estimai-api | 8080 | Bun + Hono |
 | notify-api | 8081 | Bun + Hono — SSE push (specs/20260713-notification-center) |
@@ -84,7 +87,8 @@ open **http://localhost:5173**.
 | crm-api | 8084 | Bun + Hono — authz-enforcing resource server (specs/20261101-crm) |
 | projects-api | 8086 | Bun + Hono — authz-enforcing resource server (specs/20261103-projects) |
 | activities-api | 8087 | Bun + Hono — activities and tasks of the CRM and Projects; access asked of the host (specs/20261110-activities) |
-| Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`, `inventory`, `crm`, `projects`, `activities`) |
+| accounting-api | 8089 | Bun + Hono — accounting reference data per entity; read live by refund-api (specs/20261119-accounting) |
+| Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`, `inventory`, `crm`, `projects`, `activities`, `accounting`) |
 | MinIO | 9000 / 9001 | `docker compose` — local S3 + console for receipts and invoices |
 
 Other `mise` tasks:
@@ -92,7 +96,7 @@ Other `mise` tasks:
 ```bash
 mise run dev:web        # frontends only (HMR) — when backends run elsewhere
 mise run dev:preview    # full stack, but frontends build+preview (no HMR; mirrors deploy)
-mise run db:migrate     # apply auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api + activities-api migrations
+mise run db:migrate     # apply auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api + activities-api + accounting-api migrations
 ```
 
 One-off, production only: the legacy Excel asset register is loaded by
@@ -147,7 +151,7 @@ to the `OperAILocal` vault.
 3. Allow the files and check that none is missing a variable. Nothing should ask for Touch ID:
 
    ```bash
-   for d in . auth estimai-api notify-api refund-api inventory-api crm-api projects-api activities-api admin-ui; do direnv allow "$d"; done
+   for d in . auth estimai-api notify-api refund-api inventory-api crm-api projects-api activities-api accounting-api admin-ui; do direnv allow "$d"; done
    OP_SERVICE_ACCOUNT_TOKEN="$(security find-generic-password -a "$USER" -s op-sa-operai-local -w)" \
      op item list --vault OperAILocal --format json | jq length   # the items the service account can see
    mise run env:doctor -- --env local
