@@ -24,9 +24,9 @@
  * Rules that are switched off, and why (the same reasoning as operai-ui's tests, which disable `color-contrast`):
  *   - `color-contrast` and `color-contrast-enhanced` (AAA): need computed colours and layout. jsdom does no layout,
  *     and the design tokens come from CSS that is not loaded in a unit test, so the rule reports "incomplete" at
- *     best and a false verdict at worst. Contrast is checked by hand instead (design.md "Browser accessibility pass
- *     (2026-11-19)": no text below 4.5:1 on any captured screen, light and dark, apart from the exempt disabled
- *     controls and A-5).
+ *     best and a false verdict at worst. Contrast of the Accounting screens is NOT checked here and has not been
+ *     checked yet: it belongs to the real-browser pass, owner step T51 (specs/20261119-accounting/design.md,
+ *     "Browser accessibility pass (pending, owner step T51)"; no result is recorded there until that pass runs).
  *   - `region`, `landmark-one-main`, `page-has-heading-one`: page-level rules about the document's landmarks and
  *     its `<h1>`. A component test renders a fragment into `document.body`, and the page's `<main>` and `<h1>`
  *     belong to the shell that hosts this remote, so these would fail on every fragment (design.md calls

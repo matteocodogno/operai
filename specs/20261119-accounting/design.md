@@ -11,6 +11,8 @@ The suite already has a design system (`@operai/ui`) and Accounting is a new too
 
 Decisions are numbered `UX-n`, each with its reason and the cost of reversing it. Everything the plan or spec has to answer is under **Gaps found** at the end.
 
+> **Status and sync.** `status: draft` is deliberate: design is ungated in this flow, and nothing approves this file. Everything before that section describes the design as intended; **the section "Implementation sync (2026-11-19)" at the end reconciles it with what was built** (states added by the fix round, differences, new keys) and says plainly that no browser accessibility pass of the Accounting screens has run yet (owner step T51). Where the two disagree, the sync records what the code does.
+
 ## Decisions
 
 | # | Decision | Why | Cost to change |
@@ -417,6 +419,10 @@ Entity names are the same in both languages (proper names, as `refund-ui` `badge
 | `common.forbidden` | You don't have permission to do this. | Non si dispone dei permessi per questa operazione. |
 | `common.genericError` | Could not save. Try again. | Impossibile salvare. Riprovare. |
 | `common.accessChanged` | Your access to Accounting changed. The page was updated. | L’accesso a Contabilità è cambiato. La pagina è stata aggiornata. |
+| `common.readOnlyWhat.accounts` / `vatCodes` / `rates` *(added in the sync)* | add and deactivate accounts / add and deactivate VAT codes / fetch and correct rates | aggiungere e disattivare i conti / aggiungere e disattivare i codici IVA / recuperare e correggere i tassi |
+| `common.loadErrorTitle` *(added in the sync)* | Could not load | Caricamento non riuscito |
+| `common.networkError` *(added in the sync)* | The server could not be reached. Check your connection and try again. | Impossibile raggiungere il server. Controllare la connessione e riprovare. |
+| `common.unknownError` *(added in the sync)* | Something went wrong. Try again. | Qualcosa è andato storto. Riprovare. |
 | `common.readOnly(what)` | `You can view this list. Accounting managers ${what}.` with `what` = add and deactivate accounts / add and deactivate VAT codes / fetch and correct rates | `È possibile vedere questo elenco. Spetta ai responsabili della contabilità ${what}.` with aggiungere e disattivare i conti / aggiungere e disattivare i codici IVA / recuperare e correggere i tassi |
 | `common.notFound.heading` / `body` / `back` | This page does not exist / The link may be wrong. / Back to ledger accounts | Questa pagina non esiste / Il link potrebbe essere errato. / Torna ai conti contabili |
 | `status.active` / `inactive` | Active / Inactive | Attivo / Disattivato |
@@ -436,6 +442,8 @@ Entity names are the same in both languages (proper names, as `refund-ui` `badge
 | `accounts.errors.numberFormat` | Use digits separated by single dots, such as 5905 or 2620.1. | Usare cifre separate da un solo punto, come 5905 o 2620.1. |
 | `accounts.errors.numberTooLong` | The number can have up to 20 characters. | Il numero può avere al massimo 20 caratteri. |
 | `accounts.errors.nameEmpty` / `nameTooLong` | Enter a name. / The name can have up to 120 characters. | Inserire un nome. / Il nome può avere al massimo 120 caratteri. |
+| `accounts.errors.nameFormat` *(added in the sync, T56)* | The name cannot contain control characters. | Il nome non può contenere caratteri di controllo. |
+| `accounts.errors.catalogFull(limit, entity)` *(added in the sync, T56)* | `${entity} already has the most accounts it can hold (${limit}, deactivated ones included). Nothing was added. Use an existing account instead.` | `${entity} ha già il numero massimo di conti consentito (${limit}, compresi quelli disattivati). Non è stato aggiunto nulla. Usare un conto esistente.` |
 | `accounts.errors.duplicate(number, entity)` | `Account ${number} already exists in ${entity}.` | `Il conto ${number} esiste già in ${entity}.` |
 | `accounts.errors.duplicateInactive(number)` | `Account ${number} already exists but is deactivated. Reactivate it from the list.` | `Il conto ${number} esiste già ma è disattivato. Riattivarlo dall’elenco.` |
 | `accounts.errors.alreadyActive(number)` / `alreadyInactive(number)` | `Account ${number} is already active.` / `…is already deactivated.` | `Il conto ${number} è già attivo.` / `…è già disattivato.` |
@@ -447,12 +455,15 @@ Entity names are the same in both languages (proper names, as `refund-ui` `badge
 | `accounts.deactivateDialog.confirm` / `busy` | Deactivate / Deactivating… | Disattiva / Disattivazione… |
 | `vatCodes.title(entity)` / `description(entity)` / `caption(entity)` | `VAT codes — ${entity}` / `The VAT codes of ${entity}. Each carries one fixed rate.` / `${entity} VAT codes` | `Codici IVA — ${entity}` / `I codici IVA di ${entity}. Ognuno ha un’aliquota fissa.` / `Codici IVA di ${entity}` |
 | `vatCodes.columns.code` / `label` / `rate` | Code / Label / VAT rate | Codice / Descrizione / Aliquota IVA |
+| `vatCodes.columns.status` / `actions` *(added in the sync)* | Status / Actions | Stato / Azioni |
 | `vatCodes.add` / `addDialog.title(entity)` | Add VAT code / `Add VAT code — ${entity}` | Aggiungi codice IVA / `Aggiungi codice IVA — ${entity}` |
 | `vatCodes.addDialog.description` | The rate cannot be changed later: a new rate needs a new code. | L’aliquota non può essere modificata in seguito: una nuova aliquota richiede un nuovo codice. |
 | `vatCodes.addDialog.code` / `codeHint` | Code / Letters, digits, - and _ (up to 16). Saved in capitals. | Codice / Lettere, cifre, - e _ (fino a 16). Salvato in maiuscolo. |
 | `vatCodes.addDialog.label` / `rate` / `rateHint` | Label / VAT rate (%) / Between 0 and 100, up to 2 decimals. | Descrizione / Aliquota IVA (%) / Tra 0 e 100, fino a 2 decimali. |
 | `vatCodes.errors.codeEmpty` / `codeFormat` / `codeTooLong` | Enter a code. / Use letters, digits, - or _ only. / The code can have up to 16 characters. | Inserire un codice. / Usare solo lettere, cifre, - o _. / Il codice può avere al massimo 16 caratteri. |
 | `vatCodes.errors.labelEmpty` / `labelTooLong` | Enter a label. / The label can have up to 80 characters. | Inserire una descrizione. / La descrizione può avere al massimo 80 caratteri. |
+| `vatCodes.errors.labelFormat` *(added in the sync, T56)* | The label cannot contain control characters. | La descrizione non può contenere caratteri di controllo. |
+| `vatCodes.errors.catalogFull(limit, entity)` *(added in the sync, T56)* | `${entity} already has the most VAT codes it can hold (${limit}, deactivated ones included). Nothing was added. Use an existing code instead.` | `${entity} ha già il numero massimo di codici IVA consentito (${limit}, compresi quelli disattivati). Non è stato aggiunto nulla. Usare un codice esistente.` |
 | `vatCodes.errors.rateInvalid` | Enter a rate between 0 and 100, with up to 2 decimals. | Inserire un’aliquota tra 0 e 100, con al massimo 2 decimali. |
 | `vatCodes.errors.duplicate(code, entity)` / `duplicateInactive(code)` | `VAT code ${code} already exists in ${entity}.` / `VAT code ${code} already exists but is deactivated. Reactivate it from the list.` | `Il codice IVA ${code} esiste già in ${entity}.` / `Il codice IVA ${code} esiste già ma è disattivato. Riattivarlo dall’elenco.` |
 | `vatCodes.errors.alreadyActive(code)` / `alreadyInactive(code)` | `VAT code ${code} is already active.` / `…is already deactivated.` | `Il codice IVA ${code} è già attivo.` / `…è già disattivato.` |
@@ -494,6 +505,7 @@ Entity names are the same in both languages (proper names, as `refund-ui` `badge
 | `settings.accountingLink.withoutAccess` | Ledger accounts, VAT codes and exchange rates are kept in the Accounting app by accounting managers. Ask one of them if an entry is missing. | I conti contabili, i codici IVA e i tassi di cambio sono tenuti nell’app Contabilità dai responsabili della contabilità. Se manca una voce, rivolgersi a uno di loro. |
 | `settings.defaults.state.deactivated` / `notFound` | Deactivated in Accounting / Not found in Accounting | Disattivato in Contabilità / Non trovato in Contabilità |
 | `settings.defaults.needsChoice(n)` | `${n} defaults need a new choice: their entry is deactivated or no longer in Accounting. Lines of those types get no default until you choose another.` (1: `1 default needs a new choice: its entry is deactivated …`; "Lines of that type") | `${n} predefiniti richiedono una nuova scelta: la loro voce è disattivata o non più presente in Contabilità. Le righe di quei tipi non hanno un predefinito finché non se ne sceglie un altro.` (1 analogous, singular) |
+| `settings.defaults.needsChoiceLabel` *(added in the sync)* | Defaults that need a new choice | Predefiniti che richiedono una nuova scelta |
 | `settings.defaults.unavailable.title` / `body` | Accounting cannot be read now / The defaults are shown as recorded. You cannot change them until Accounting can be read. | Contabilità non è leggibile in questo momento / I predefiniti sono mostrati come registrati. Non si possono modificare finché Contabilità non è leggibile. |
 | `settings.defaults.changeBlocked` | Accounting cannot be read now, so defaults cannot be changed. | Contabilità non è leggibile in questo momento: i predefiniti non si possono modificare. |
 | `settings.defaults.recovered` / `stillUnavailable` | Accounting can be read again. / Accounting still cannot be read. | Contabilità è di nuovo leggibile. / Contabilità non è ancora leggibile. |
@@ -513,6 +525,9 @@ Entity names are the same in both languages (proper names, as `refund-ui` `badge
 | `…classification.notFoundOption(text)` | `${text} (not in Accounting)` | `${text} (non presente in Contabilità)` |
 | `…classification.inactiveCurrentAccount` / `inactiveCurrentVat` (reworded), `notFoundCurrentAccount` / `notFoundCurrentVat` | This account is deactivated in Accounting. The line keeps it; choose an active one to change it. / This account is no longer in Accounting. The line keeps it; choose another to change it. (VAT code likewise) | Questo conto è disattivato in Contabilità. La riga lo mantiene; sceglierne uno attivo per cambiarlo. / Questo conto non è più presente in Contabilità. La riga lo mantiene; sceglierne un altro per cambiarlo. (codice IVA analogo) |
 | `…classification.defaultDeactivated(what)` / `defaultNotFound(what)` | `The default ${what} for this type is deactivated in Accounting. Choose one.` / `…is no longer in Accounting. Choose one.` with `what` = account / VAT code | `Il ${what} predefinito di questo tipo è disattivato in Contabilità. Sceglierne uno.` / `…non è più presente in Contabilità. Sceglierne uno.` with conto / codice IVA |
+| `…classification.defaultWhat.account` / `vatCode` *(added in the sync)* | account / VAT code | conto / codice IVA |
+| `…classification.inactiveOption(text)` *(added in the sync)* | `${text} (deactivated)` | `${text} (disattivato)` |
+| `…classification.vatOptionNoLabel(code, rate)` *(added in the sync)* | `${code} (${rate})`: a VAT code whose recorded copy has no label | identical |
 | `…classification.rateNotYet` / `rateNotYetHelp(currency, month)` | No rate yet / `No ${currency} rate for ${month} yet. You can still approve: the rate is copied at the first export.` | Ancora nessun tasso / `Ancora nessun tasso ${currency} per ${month}. Si può comunque approvare: il tasso viene copiato alla prima esportazione.` |
 | `…classification.ratePending` / `ratePendingHelp(currency, month)` | Rate pending / `No ${currency} rate for ${month} yet. It is copied at the first accounting export of the batch.` | Tasso in attesa / `Ancora nessun tasso ${currency} per ${month}. Viene copiato alla prima esportazione contabile del lotto.` |
 | `…classification.follows` (reworded) / `frozen` | Amounts follow the approved total and the exchange rate as they stand now. They are fixed when the request is approved. / Account, VAT code and rate are kept as booked. Later changes in Accounting do not change this line. | Gli importi seguono il totale approvato e il tasso di cambio attuali. Si fissano quando la richiesta viene approvata. / Conto, codice IVA e tasso restano come registrati. Le modifiche successive in Contabilità non cambiano questa riga. |
@@ -521,8 +536,9 @@ Entity names are the same in both languages (proper names, as `refund-ui` `badge
 | `pages.batchDetail.accountingExport.pending(n)` | `${n} lines get their exchange rate at this export.` (1: `1 line gets its exchange rate at this export.`) | `${n} righe ricevono il tasso di cambio con questa esportazione.` (1: `1 riga riceve il tasso di cambio con questa esportazione.`) |
 | `…accountingExport.blocked.unavailableTitle` / `unavailableBody` | Accounting cannot be read / The exchange rates of lines with a pending rate cannot be fetched. You can still pay or discard this batch. Check again in a few minutes. | Contabilità non è leggibile / I tassi di cambio delle righe con tasso in attesa non si possono recuperare. Il lotto può comunque essere pagato o scartato. Verificare di nuovo tra qualche minuto. |
 | `…accountingExport.blocked.rateReason.notPublished` / `fetchFailed` / `noSource` | not published yet / the official source did not answer / no official source | non ancora pubblicato / la fonte ufficiale non ha risposto / nessuna fonte ufficiale |
+| `…accountingExport.blocked.rateItemReason(currency, month, reason)` *(added in the sync)* | `${currency} · ${month} — ${reason}` | identical |
 | `…accountingExport.blocked.fetchTried` (reworded) | Accounting just tried to fetch the missing rates from the official source. | Contabilità ha appena provato a recuperare i tassi mancanti dalla fonte ufficiale. |
-| `…accountingExport.blocked.readyAgain(n)` / `stillBlocked(n)` (from A-3 of 20261118) | `The export is ready: ${n} rows.` / `Still blocked: ${n} items.` | `L’esportazione è pronta: ${n} righe.` / `Ancora bloccata: ${n} voci.` |
+| `…accountingExport.blocked.recheckReady(n)` / `recheckBlocked(n)` (the 20261118 keys, **unchanged**; the table named them `readyAgain` / `stillBlocked`, which were never built) | `The export is ready: ${n} rows.` (0: `…the file will contain only the header row.`) / `Still blocked: ${n} items.` | `L’esportazione è pronta: …` / `Ancora bloccata: …` (see refund-ui `strings.ts`; the blocker count includes "Accounting cannot be read" as one item) |
 
 Each refusal message above names the cause and the remedy, and contains no address, identifier or internal text, in both languages (AC-6.10). The plan's own sentence for `accounting_unavailable` is kept as the base; the Italian uses the file's impersonal "Riprovare" instead of the plan's "Riprova".
 
@@ -601,3 +617,180 @@ Lifting `expectNoAxeViolations` into a shared test package is the right fix once
 | G12 | auth catalog (AC-3.1) | The admin GUI shows the catalog's `label` fields, in English only. | Resource "Accounting", actions "Read" and "Manage". No description field exists to say that Manage includes Read (AC-3.2); put it in the admin docs, not the catalog. |
 | G13 | spec AC-2.3 vs plan D18 | AC-2.3 asks the rate list to show "fetched or corrected by hand" (designed, as the origin badge) but nothing shows **who** or **when**; the plan's D18 and the spec's non-goal agree. | Nothing to do. Recorded so a reviewer does not look for it. |
 | G14 | 20261118 findings still open | A-1 (silent approval refusal for out-of-scope lines), A-2, A-3, A-4 and A-7 of the Browser accessibility pass are not part of this feature but sit on screens it changes (review panel, approve dialog, export card, last-fetch line). | A-7 is closed here (UX-9); A-3 is designed in (UX-23); A-4 is noted in RS5. A-1 and A-2 remain for the 20261118 fix round. |
+
+## Implementation sync (2026-11-19)
+
+Written after the build, by the designer agent, working unattended from a **static read** of the code at `0b000570` (`feat/accounting-module`): `accounting-ui/src` in full (strings, shell, entity hook, the three cards, the three dialogs, `lib/limits.ts`, `lib/catalogApi.ts`, the toggle hook, pages, router), the refund-ui files changed by T33 to T38 (`SettingsPage`, `DefaultsSettingsView`, `AccountingLinkNote`, `ExpenseTypeDefaultsCard`, the two defaults dialogs, `useActiveCatalogOptions`, `CatalogSelect`, `LineClassificationPanel`, `ReviewDetailPage`'s accounting parts, `AccountingExportCard`, `accountingExportApi`, `statusMeaning`, `strings`), the shell's `tools.ts` and `Sidebar.tsx`, and the e2e specs' axe calls. **Nothing was run**: no dev server, no browser, no test suite, no screenshot. Where this section says a state "is built", it means the code does it; where a behaviour depends on a library component (focus return, once-only focus) it says so instead of asserting it. It reconciles this file against that code; it does not change a decision, and nothing in the sections above this one was rewritten except the copy-key rows marked *added in the sync*.
+
+> **Status of this file.** `status: draft` is deliberate and stays. Design is ungated in this flow: the owner's autonomous-run choice gated spec and plan, and no step approves this file. This sync records what was built; it does not approve the design, and it does not claim a browser accessibility result (see "Browser accessibility pass (pending, owner step T51)" below). Moving the status is a decision for the owner after T51.
+
+Key used below: **Built** = as designed. **Differs** = built differently from the text above. **New** = built, no earlier entry. **Not built** = designed, absent. **Unverified** = depends on something only a browser (or a re-run) can show.
+
+### 1. Decisions UX-1 to UX-23
+
+| # | Verdict | What the code does |
+|---|---|---|
+| UX-1 | Built, one extension | `TabNav` of TanStack `Link`s with `wrap`, `aria-current` from the router. The links carry `?entity=` **only when it is a covered entity** (or, before `/v1/me` answers, a well-formed one) and **never carry `?month=`**, so `?month=` is dropped on every tab change, not only when leaving Exchange rates. |
+| UX-2 | Built, one extension | One `EntitySwitch` per page header's `actions` slot; shown with two or more entities; `replace`. Changing it also **drops `?month=`**. The "Showing {entity}" status is a polite `VisuallyHidden` region that says nothing until the person changes the select (nothing is announced on arrival). |
+| UX-3 | Built | Entity named in card title, table caption and dialog title. |
+| UX-4 | Built, one detail | Write controls come only from the context's `canManage` for the displayed entity. The read-only sentence shows once the list has loaded, **also in the empty state** (a reader of an empty list reads both "Accounting managers enter them." and the read-only sentence). On the rates card it shows only when the entity has a source. |
+| UX-5 | Built | `keyOf`, `getRowKey` and every test id use the number or code. |
+| UX-6 | Built, one extension | No `ErrorSummary` in any dialog; focus to the first refused field; each field's own `role="alert"`. **Extension:** a refusal that is nobody's field (409 `catalog_full`) is the dialog's own alert (section 3.1). |
+| UX-7 | Built | `ConfirmDialog tone="primary"`, neutral body. Default focus on Cancel is the library's behaviour; **Unverified** in a browser. |
+| UX-8 | Built | No Added column, no who-added, no history drawer, no per-cell history button. |
+| UX-9 | Built | Auto-fetch once per mount (the page keys the card by entity), started from a promise callback; no `trigger` sent; **Source** and **Last fetch** facts with the outcome in words. |
+| UX-10 | Built | New description and the "greater than 0 and below 1000, up to 6 decimals" limit. Two states the design did not name are in section 2 (Save disabled for an unchanged value; a save the server records as nothing). |
+| UX-11 | Built | `?month=` focuses the row through the table's `focusRowKey` when listed; otherwise the polite note. The month is validated by the router (`YYYY-MM` only): a malformed `?month=` is **dropped silently**, with no note. Whether the focus move happens exactly once is the library's behaviour: **Unverified**. |
+| UX-12 | Built | `resolveEntity`: absent -> default; not an entity id -> fallback with `replace`; known but not covered -> not-found view; grant narrowed -> `/v1/me` re-read, first covered entity, one info note. The note is shell state, so it stays until dismissed, **also across views**. |
+| UX-13 | Built | Two different "nothing" states. |
+| UX-14 | Built | `TOOLS` entry last (Letterheads is pinned in the Settings group, so in the main list Accounting follows Projects, before the pinned Admin), `Icon name="list-ordered"`, `tools.accounting` in both languages. |
+| UX-15 | Built | One `LoadFailure` for the frame and every card. The warning `Banner` has no `live` prop, so the library renders it as `role="alert"` (assertive), not polite (`Banner.tsx`). |
+| UX-16 | Built | `?section=general|defaults`; anything else shows General. |
+| UX-17 | Built | `<a className="link" href="/accounting">` and `/accounting/exchange-rates?entity=welld_ch&month=...`. |
+| UX-18 | Built | `ENTRY_STATE_MEANING`: `deactivated` -> `voided`, `not_found` -> `attention`; `active` and `unverified` carry no badge. |
+| UX-19 | Built | One banner per page; Change `aria-disabled` with `aria-describedby`; History works. |
+| UX-20 | Built | "No rate yet" before approval, "Rate pending" after; "—" for CHF and VAT. |
+| UX-21 | Built | `accounting_unavailable` stays in the approve dialog; per-surface "what stayed" sentences. |
+| UX-22 | Built, with deltas | See RS6 below (intro suppressed when only unavailable; quiet re-read swallows its own failure). |
+| UX-23 | Built, two anchors | Defaults card: focus to the card heading (a `tabIndex=-1` span). Review page: focus to the "Lines" heading, which is made focusable **imperatively** (`tabIndex = -1` set at the moment of the move). Both announce the result in a polite region. The export card's **Check again** keeps its 20261118 behaviour (result line, focus to Download when ready, else to Check again). |
+
+### 2. Screens and states: accounting-ui, what differs or is new
+
+**AS1 AccountingShell**
+
+| State | Verdict | What is built |
+|---|---|---|
+| Denied (403, or an empty entity list) | **Differs** | `PermissionDenied` (h2, alert, focus, no retry) as designed, **but the `TabNav` is left out**: with no covered entity no view can open. The title stays. |
+| Not found (uncovered entity) | **Differs** | The `TabNav` stays (it carries no entity), the not-found panel replaces the page. The "Back to ledger accounts" link goes to `/`, which redirects to Ledger accounts **without** `?entity=`. |
+| Other failure | Built | Warning `Banner` titled "Could not load" (`common.loadErrorTitle`) with the Problem detail, or "The server could not be reached…" for a network failure, or "Something went wrong. Try again." for a Problem with no detail (`common.networkError`, `common.unknownError`, both new keys). |
+| Notice after a re-read | **New** (named in FA2/FA10, no state row) | Dismissible info `Banner` above the page: "You no longer have access to {was}. Showing {now}." or "Your access to Accounting changed. The page was updated." The second appears only when a refused write is followed by a re-read in which `canManage` actually changed; a refused write with no change says nothing beyond the card's own "You don't have permission to do this." |
+
+**AS3 / AS4 Lists** (Ledger accounts, VAT codes; the two cards are structurally identical)
+
+| State | Verdict | What is built |
+|---|---|---|
+| Denied | Built | `PermissionDenied` replaces the card; the page's h2 stays, so the page has two h2 (the view name, then "No access to Accounting"). `heading-order` does not object, but a screen-reader pass should confirm the outline reads sensibly. |
+| Loaded, manager | Built | Add in the card action **only after the list has loaded** (not while loading or failed). Rows: Deactivate (confirm) or Reactivate (at once), both named after the row. |
+| One action at a time | Built | While any row action is in flight every row action is `disabled`; the acting row's Reactivate is `busy`. |
+| **Deactivate refused** | **New** (FA5 named only the 409) | 409 `already_*` or 404: the confirm closes, a danger banner says "Account 5905 is already deactivated." (or the generic error for 404) and the list reloads. **403: the confirm stays open** with "You don't have permission to do this." and the frame re-reads `/v1/me`. Any other failure: the confirm stays open with "Could not save. Try again." |
+| **Reactivate refused** | **New** | Same ladder, in the danger banner above the table (409: "…is already active."; 403: the permission sentence and the re-read). |
+| 404 on the list | Built | Frame told once per answer; the card shows the failure until the shell swaps entity. |
+| Duplicate pre-check | Built | On blur and on submit, against this entity's loaded list; for VAT codes compared after ASCII upper-casing. |
+
+**AS5 Exchange rates**
+
+| State | Verdict | What is built |
+|---|---|---|
+| Fetch now while the auto-fetch runs | **New** | **Fetch now** is `disabled` while the automatic check is running; `busy` with "Fetching…" while its own request runs. |
+| Switched-off banner | **Differs** | The info banner shows when the response says `disabled` **or when the server's `lastFetch` outcome is `disabled`**, so it is persistent across reloads and is **not dismissible**; managers read the "enter by hand" variant, readers the plain one. |
+| Fetch notes | Built | Not-published, throttled and "more months" are dismissible info banners; the confirmation is the compact success banner. "No new rates to record." appears **only when no attempt had an outcome other than `ok`**. |
+| Fetch request failed | Built | Danger dismissible banner; 403 says the permission sentence and re-reads `/v1/me`; 404 tells the frame; 422 `no_rate_source` reloads the list. |
+| **Correct, value equals the rate in effect** | **New** | Save is `disabled` while the field is empty **or** exactly equals the rate in effect (compared as integer micros). The hint reads "Greater than 0 and below 1000, up to 6 decimals. In effect: 0.9301 (Fetched)". |
+| **Correct, server records nothing** | **New** | If the PUT answers with no row (the value is the one in effect) the dialog closes with **no confirmation** and the list reloads. |
+| Correct, refusals | Built | `invalid_rate` is the field error; `month_not_completed` and `currency_not_convertible` are general errors; 403 and 404 reach the frame. |
+| Correct on a month listed without a currency | **New** | A currency missing from a row is treated as **Missing**, with Correct for a manager. |
+| No-source | Built | No description, no read-only sentence, no facts, no table, no Fetch now. |
+
+**AS6 Dialogs** are described in section 3 (the add dialogs) and above (correction). **AS7 Not found** is built as designed (alert, focus on the heading), at heading level 2.
+
+### 3. The fix-round states (T53 server rules, T56 client mirror) that had no entry
+
+These are the states the 20261119 eval named as missing from this file. They are built in `lib/limits.ts`, `AddLedgerAccountDialog.tsx` and `AddVatCodeDialog.tsx`; the server stays the authority and the client mirrors its rules so the refusal is the same sentence before and after a round trip.
+
+**3.1 The 409 `catalog_full` message, in both add dialogs (FA3, FA4, AS6a, AS6b)**
+
+An entity holds at most 200 ledger accounts and 50 VAT codes, **deactivated ones included**; entries are never deleted, so the cap is a lifetime limit on additions. Reaching it is not a field error.
+
+| Aspect | Built behaviour |
+|---|---|
+| Where | The dialog's own general error (`FormDialog` `error`), `role="alert"`, above the buttons. No field is marked invalid and no field takes focus. |
+| Words | Accounts: "WellD CH already has the most accounts it can hold (200, deactivated ones included). Nothing was added. Use an existing account instead." VAT codes: the same with "VAT codes" and "Use an existing code instead." Italian: `accounts.errors.catalogFull` / `vatCodes.errors.catalogFull` (rows in the copy-key table). |
+| The number | The server's `limit` when it is a positive safe integer; otherwise the mirrored cap (200 / 50, `CATALOG_CAPS`), so the sentence never says "undefined" or "0". |
+| What stays | Every typed value. **Save stays enabled**, so the person can retry, but a retry fails the same way while the entity is at the cap (deactivating an entry frees no slot); the sentence says to use an existing entry instead. No frame callback fires (no `/v1/me` re-read, no list reload). |
+| Remedy | Only "use an existing account/code". The person cannot raise the cap from this screen, and the sentence does not say who can. See gap G16. |
+| Focus | Stays inside the dialog (a component test asserts the dialog contains the active element). Which control holds it, while the busy Save is disabled, is the library's behaviour and was not re-verified. |
+| Axe | jsdom axe is run on this state, in both dialogs. The browser run (T51) does not cover it: no e2e journey reaches the cap. |
+
+**3.2 Names and labels made only of invisible characters, and the control-character rule (AC-1.2, AC-1.5)**
+
+| Input (account name or VAT label) | Result |
+|---|---|
+| Empty, spaces, or only invisible characters (white space, zero-width space and joiners, LTR/RTL marks, bidi embeddings and isolates, word joiner, soft hyphen, byte-order mark, Hangul and Braille fillers) | Refused as **empty**: "Enter a name." / "Enter a label." (`nameEmpty`, `labelEmpty`). The reason is the same as for an empty field, because to the person the field looks empty. |
+| Contains a control character (C0 or DEL) | Refused as **format**: `accounts.errors.nameFormat` "The name cannot contain control characters." / `vatCodes.errors.labelFormat` "The label cannot contain control characters." (new keys; before T56 the only sentence for a refused name was "Enter a name.", which would have been false here). |
+| Visible text with invisible characters **inside** it | Accepted and kept as typed; only the two ends are trimmed. |
+| Longer than the limit | Refused as **too long** (next table). |
+
+Two details a reviewer should not read as bugs. First, **Save is enabled for an invisible-only value**: the Save gate uses `trim()`, which does not remove zero-width characters, so such a value can be submitted and is refused with the message and focus on the field (it is also checked on blur). Second, the server's `fields[]` reason `format` for a name or label now always reads "control characters"; that is true for every `format` reason the server has today (T53), and would be misleading if the server grew another one (gap G17).
+
+**3.3 The length rule counts code points**
+
+| | Limit | Counted as |
+|---|---|---|
+| Ledger account name | 120 | Unicode code points (an emoji is 1, a lone surrogate is 1), as the server counts. |
+| VAT label | 80 | Code points. |
+| VAT code | 16 | `A-Z`, digits, `_`, `-`: ASCII only, so units and code points agree. |
+| Ledger account number | 20 | Characters of a string that already passed the format check. **Format is checked before length**: a long value that is also malformed is told its format, since cutting it would not fix it. |
+
+**3.4 ASCII-only upper-casing of the VAT code (FA4, AC-1.5)**
+
+The code field is converted to capitals **when it loses focus and again on submit**, with a function that changes `a` to `z` only (not `toUpperCase()`, which would turn `ß` into `SS`, `ſ` into `S` and `ı` into `I`, letting characters outside the alphabet in through the conversion). A character that is not `A-Z`, a digit, `_` or `-` stays **exactly as typed** (the full-width `ａ` too), the field is not rewritten, and the refusal is `codeFormat`: "Use letters, digits, - or _ only." with focus on the field and **no request sent**. The duplicate pre-check compares after the same upper-casing (`imp81` against `IMP81`). Gap G15 records that the hint and this sentence say "letters" for what is, precisely, the letters A to Z.
+
+**3.5 Where the format messages appear**
+
+`accounts.errors.nameFormat` and `vatCodes.errors.labelFormat` appear in the name or label field's own `role="alert"` error, from the client check or from the server's `invalid_ledger_account` / `invalid_vat_code` `fields[]`. `numberFormat` and `codeFormat` are the existing sentences for the number and the code.
+
+### 4. Refund (RS1 to RS7): what differs or is new
+
+| Screen | Verdict | What is built |
+|---|---|---|
+| RS1 Settings frame | Built | Two views; `?section=general|defaults`; the 20261118 `accounting` and `exchange-rates` values show General. |
+| RS2 Defaults card | Built, with deltas | The needs-a-new-choice note is a `Banner tone="warning" live="off"` (library `role="note"`) with `aria-label` "Defaults that need a new choice" (`needsChoiceLabel`, new key). N **counts the designation** when it is unusable. The foreign-currency fact also has **its own** static warning banner when its code is deactivated or not found, in addition to the card-level count. A recovered Retry announces "Accounting can be read again." and focuses the heading; a Retry whose next answer is an error announces "still cannot be read" even when the error is Refund's own load failure rather than Accounting's (the card shows its own load banner then). |
+| RS3 Default dialogs | Built, with deltas | A one-line note ("Lines of this type get no default until you choose another.") heads the dialog when either half is deactivated or not found, **in addition to** the per-field hint. The 503 inside a dialog is a warning `Banner` (library `role="alert"`) with a ghost **Try again**; **a non-503 options failure is a separate load-error banner with Retry** (not designed). A 403 on the options read shows "You don't have permission…" as the dialog error. Save is disabled until a real choice is made on a half that reads "Choose…". |
+| RS4 Line panel | Built | A deactivated or not-found stored value is a disabled selected option with the hint; a type default that is unusable (before approval, not set by hand) reads as Missing with the reason. **Read-only** lines mark a deactivated value "(deactivated)" and a missing one "(not in Accounting)" in the text, and give **no hint**. Rate help ends in "Open exchange rates" (plain link, month of the rate or of the line) only when `viewer.canOpenAccountingRates`. After approval the "kept as booked" sentence shows in the editable and read-only panels, but not in a paid (locked) batch and not while Accounting cannot be read. |
+| RS4 Page banner | Built | One warning banner with `live="polite"` (so `role="status"`) and Retry; an options 503 raises it too. Retry focuses the "Lines" heading once, announces the result. |
+| RS5 Approve | Built | 503 sentence in the dialog; `classification_missing` unchanged. Focus return to the confirm button after the busy state (A-4 of 20261118) was **not part of T36's diff and not re-verified**; treat it as still open. |
+| RS6 Export card | Built, with deltas | "Accounting cannot be read" is its own heading in the blocked banner and, **when it is the only blocker, the usual "Download is blocked" intro is left out** so the banner does not open with a sentence about missing items. **Check again**'s announced count includes it as one item. A missing rate shows its reason ("EUR · March 2026 — not published yet") when the summary carries one; a `reason` this client does not know is treated as none. The quiet re-read after a download **swallows its own failure**: the file was produced, and Check again remains. `accountingExportApi` fills defaults for an older answer (pending 0, no link, no reason). |
+| RS6 copy | **Differs** | The table above named two keys `readyAgain` / `stillBlocked`. They were never built: the card keeps the 20261118 `recheckReady(n)` / `recheckBlocked(n)`. The copy-key row is corrected. |
+| RS7 Everything else | Built | Not diffed beyond the files above. |
+
+### 5. Copy keys
+
+The accounting-ui catalog has the keys of the original table plus **12 more**, which the strings test lists with reasons (`EXTRA_KEYS`); all 12 are now rows of the table above, marked *added in the sync*: `accounts.errors.nameFormat`, `accounts.errors.catalogFull`, `vatCodes.errors.labelFormat`, `vatCodes.errors.catalogFull` (T56, with Italian), `common.readOnlyWhat.{accounts,vatCodes,rates}`, `common.loadErrorTitle`, `common.networkError`, `common.unknownError`, `vatCodes.columns.{status,actions}`. refund-ui gained rows for `settings.defaults.needsChoiceLabel`, `…classification.defaultWhat.{account,vatCode}`, `…classification.inactiveOption`, `…classification.vatOptionNoLabel` and `…accountingExport.blocked.rateItemReason`. A scripted comparison of the English column of both tables and the Italian column of the accounting-ui table against the two `strings.ts` files found every sentence present word for word (the only differences were abbreviations in the table, such as "…is already deactivated"); the Italian column of the refund-ui table was not compared by script. English/Italian parity and the no-hard-coded-copy scan are tests of the two apps, which this sync did not run.
+
+### 6. Test hooks, ports and the e2e
+
+- **Ids.** The `accounting-` ids the design listed are built (`accounting-shell`, `accounting-denied`, `accounting-entity-switch`, `accounting-ledger-card`, `accounting-ledger-add`, `accounting-ledger-table`, `accounting-ledger-deactivate-<number>`, `accounting-vat-*`, `accounting-fx-card`, `accounting-fx-fetch-now`, `accounting-fx-correct-<month>-<currency>`, `accounting-fx-cell-<month>-<currency>`, `accounting-fx-failed`, `accounting-fx-no-source`, `accounting-empty`). Additional ones exist for the new states (for example `accounting-notice`, `accounting-fx-deeplink-note`, `accounting-fx-checking`, the dialogs' `…-error` ids).
+- **Ports.** accounting-ui serves on **5183** in development and on **5185 in the e2e preview** (`E2E_ACCOUNTING_REMOTE_PORT`, default 5185 in `shell/playwright.config.ts`; per `tasks.md`, 5183 is projects-ui's e2e preview port there). The design did not name a port.
+- **e2e axe.** The browser axe variants of `accounting.spec.ts` and `accounting-access.spec.ts` are written, **not executed**. They run in a 1440 x 1000 viewport only. Coverage, so the pending pass knows what it adds: manager and reader, the three views, **four combinations** (English and Italian, light and dark); the add dialog with a refused number and the failed-fetch banner (manager, four combinations); Italia empty and no-source, the denied state and the uncovered-entity not-found view (**one** combination each); Refund's Default classification (deactivated default, Accounting unreadable), the review panel (Rate pending, Accounting unreadable) and the export card (blocked by a missing rate, blocked by "Accounting cannot be read"), **one** combination each as far as the call sites show.
+
+### 7. Component inventory
+
+Unchanged in substance. accounting-ui holds the 5 NEW rows of the inventory (shell, entity switch with its hook, three thin pages, `limits.ts`) and the declared copies; refund-ui's only new component is `AccountingLinkNote`; no visual component, token or icon was added (the eval and QE audits agree). Two small divergences from the table: `LoadFailure`'s third rung takes the card's own sentence, as designed, and `Saved` is the only success banner (a `Banner tone="success" compact autoDismiss`). `limits.ts` also holds `CATALOG_CAPS`, used only as the `catalog_full` fallback.
+
+### 8. What has not been observed, stated plainly
+
+- **No browser accessibility pass of the Accounting screens has been run.** None by the designer (this sync is static), and none is on record: no contrast measurement, no 320 px reflow check, no real tab-order walk, no browser axe run. The changed Refund screens were not re-checked either. QE (`qe-report.md`) and the eval both record it as pending, owner step **T51**. This file claims **no accessibility result** for any Accounting screen.
+- What exists instead is **jsdom axe at 115 call sites in 14 files** of accounting-ui (6 of them the helper's own self-test), each after the state settled, plus refund-ui's. jsdom axe runs with `color-contrast`, `color-contrast-enhanced`, `region`, `landmark-one-main` and `page-has-heading-one` switched off (the helper says why), and rules that need layout come back "incomplete" and are not failures. It cannot say anything about contrast, reflow or real focus order. It is evidence that markup is well formed, not that AC-8.4 holds.
+- Screen-reader output (what a live region or a focus move actually says) is not covered by any of the four checks below and remains unverified.
+
+#### Browser accessibility pass (pending, owner step T51)
+
+T51's "done when" records the result in a section of this file named **Browser accessibility pass**. **This is that section, still empty of results.** When the pass is run, rename this heading with its date and fill the tables; until then nothing below is a finding. The pass must check exactly:
+
+1. **Contrast, light and dark.** Every text and non-text element of the Accounting screens in both themes (AA: 4.5:1 text, 3:1 large text, 3:1 for control borders, focus rings and badge glyphs). Specifically: the `text-soft` description, read-only and status lines; the mono number and code cells; the Active, Inactive (`voided`), Missing (`attention`) badges and the neutral Fetched and accent Corrected badges; the persistent failed-fetch warning, the info, success and danger banners; hint and error text in dialogs; the `aria-disabled` and `disabled` controls (decide whether each is an exempt inactive control; the `aria-disabled` Change and Download look active on purpose); and, in Refund, the state badges of the defaults card, the Rate pending and No rate yet badges and their small help text, the "Default (as recorded)" and "Set by hand" markers, the blocked-export banner and its headings. Record the lowest ratio per screen and theme, with the token that produced it.
+2. **Reflow at 320 px.** At 320 CSS px wide (and 400% zoom at 1280 px), with no horizontal scroll of the page: the `TabNav` wrap, the entity select dropping under the title, cards stacking, the lists, the rates table (three currency columns of rate, badge and Correct button) scrolling **inside** its own keyboard-focusable region, dialog footers staying reachable, and the long strings: the Italian tab and cell labels, the `catalog_full` sentence, the refused-field messages, the rate-pending help. Also the Refund review panel and export card at the same width.
+3. **Real tab order and focus.** With the keyboard only, in a real browser (and Safari, because the code works around its not focusing a button on click): the order through sidebar, tab nav, entity select, card action and rows; one Tab stop for each table scroll region; the rates table's many Correct buttons (one per cell); and where focus lands after each event: add (back to Add), deactivate or reactivate (the row header), dialog close (the opener), a correction (its Correct button), a refused field (the first one), `catalog_full` (inside the dialog), the deep link (the row header, once), the denied and not-found views (their heading), a Retry on the defaults card and on the review page (card heading, "Lines" heading), and **Check again** on the export card. Include the two-h2 outline of a denied card.
+4. **Browser axe, English and Italian, light and dark.** Run the e2e variants already written (section 6) and add the states they do not reach, in at least one Italian and one dark run each: the `catalog_full` alert; a refused name, label and VAT code (invisible-only, control character, non-ASCII); the deactivate confirm; the correction dialog (idle, refused, unchanged value); the denied, not-found, no-source and Italia empty views in the other three combinations; the deep-link note and the auto-fetch status line; the switched-off banner; Refund's link note (both variants), defaults dialogs with the 503 alert, and the review panel with a deactivated stored value or an unusable default. Record each as zero violations or list the findings with a finding id (A-n), as the 20261118 pass did.
+
+### 9. New gaps found in the sync
+
+| # | In | Gap | Proposed answer |
+|---|---|---|---|
+| G15 | `vatCodes.addDialog.codeHint`, `vatCodes.errors.codeFormat` | Both say "letters" but the alphabet is `A-Z`. A person who types `é` or `ß` is told "Use letters, digits, - or _ only." about a character that looks like a letter. | Reword both to name the alphabet ("Letters A to Z, digits, - and _"; Italian likewise). A copy change in `strings.ts` and the two language tests; not made here. |
+| G16 | spec "Limits", `accounts.errors.catalogFull`, `vatCodes.errors.catalogFull` | The cap (200 accounts, 50 VAT codes, lifetime, deactivated included) is an agent-chosen limit the eval says nobody who knows the chart has confirmed (T50). The dialog states the number to the person, with no hint of who can raise it. | Owner confirms or changes the numbers at T50; if a path to raise them exists (a change request, an operator), the sentence should say so. The sentence already takes the server's `limit`, so a changed cap needs no copy change. |
+| G17 | `nameMessage`, `labelMessage` | The client maps any server `format` reason to "cannot contain control characters". True today; wrong if the server adds another `format` reason. | Either the server names the reason (`control`) or the client keeps a generic sentence for an unknown one. |
+| G18 | `AccountingShell`, `PermissionDenied` in a card | A denied card renders a second h2 beside the page's h2. | Decide in the screen-reader pass; if it reads badly, lower the in-card denied state to h3 or drop the page h2 for that state. |
+
+### 10. Closure of earlier gaps, UI side only
+
+G1 (icon): closed, `list-ordered`, no library change. G2 (`TabNav`): closed in the code; whether plan.md's bullet says `Tabs` is for the architect. G3 (garbage versus uncovered entity): closed in `resolveEntity`. G5 (fetch response shape): the card reads `attempts[].recorded`, `deferredMonths` and the outcomes `ok`, `failed`, `disabled`, `throttled`, `not_fetchable`; whether the API sends exactly that is for its tests. G7, G8b, G9, G10: the UI reads `reason` on a missing rate, `viewer.canOpenAccountingRates` on the export summary and the review view, the duplicate's `reactivate` flag (with the loaded list as fallback), and the `fetchTried` sentence. G4, G6, G11 to G14: no change from the text above (G14's A-1 to A-3 are designed in or tested per QE; A-4 stays open, see RS5).
