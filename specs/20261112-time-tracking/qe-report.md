@@ -3,6 +3,13 @@
 Two passes, newest first. **Second pass (2026-11-18, re-verification after fix round 1 of 2): this section, the current verdict.**
 The first pass (FAIL, D-1, D-2, D-3) is kept unchanged below the line, as history.
 
+> **Main-loop note, 2026-11-19 (not a QE pass).** P-2 (`letterheads.spec.ts:379`) accepted by the user as pre-existing:
+> recorded here with the QE's evidence, its spec fix is a separate bugfix after this PR, PR #10's scope unchanged. EF-9 repaired
+> by the main loop (notify-api `prisma generate`, restarted). EF-2 and EF-10 stay open on this machine (crm-api
+> `ACTIVITIES_API_URL`; ffmpeg and meetings-api service-client credentials). PR #10 is marked ready for review at the
+> user's request while this verdict stays BLOCKED: the feature is NOT closed (no eval, T35 and T40 open). Closing needs
+> EF-2/EF-10 repaired and a QE re-run of the blocked specs (crm-offer-wizard*, push-notifications, meetings-deal).
+
 ## QE verdict: BLOCKED   (second pass; gates measured at 3ca1931f; my two commits add `shell/e2e/hours.spec.ts` (57814131) and this file, nothing a gate measures)
 
 D-1, D-2 and D-3 are **fixed, in every placement, rendered**; nothing in this pass is a ✗ and no hours spec failed (11 of 11 existing

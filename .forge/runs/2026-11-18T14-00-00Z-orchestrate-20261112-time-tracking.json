@@ -1,0 +1,48 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.61.0",
+  "run_id": "2026-11-18T14-00-00Z-orchestrate-20261112-time-tracking",
+  "command": "orchestrate",
+  "feature": "20261112-time-tracking",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "started": "2026-11-18T14:00:00Z",
+  "finished": "2026-11-19T07:10:00Z",
+  "agents": [
+    { "agent": "quality-engineer", "tasks": ["T35"], "outcome": "FAIL", "commits": ["309845fb", "94ebcedd"], "note": "first full pass: D-1 Medium, D-2 Low, D-3 Low; whole-suite e2e BLOCKED (EF-1..EF-8)" },
+    { "agent": "owasp-reviewer", "outcome": "PASS", "note": "delta since c85b0898 (T43-T45, rebase onto main); R2, R3 fixed by the main loop in b374f5c7" },
+    { "agent": "architect", "outcome": "completed", "note": "plan amendment 2026-11-18 for D-1 (60 s identity cache keyed by user id), approved by the user; T46 added (dfee895b)" },
+    { "agent": "frontend-dev", "outcome": "completed", "commits": ["42e7bc27", "afd0261d", "7ef2a61b"], "note": "D-2, D-3" },
+    { "agent": "backend-dev", "tasks": ["T46"], "outcome": "completed", "commits": ["8686a68f", "703bf6fa"] },
+    { "agent": "owasp-reviewer", "tasks": ["T46"], "outcome": "PASS", "note": "F1 Low, I1, I4 fixed in 2650fa89; I2, I3 accepted" },
+    { "agent": "backend-dev", "tasks": ["T46"], "outcome": "completed", "commits": ["2650fa89", "ee762ade"], "note": "T46 review follow-up" },
+    { "agent": "quality-engineer", "tasks": ["T35"], "outcome": "BLOCKED", "commits": ["57814131", "f230ac4d"], "note": "second pass: D-1..D-3 fixed in every placement; whole pnpm e2e 140 passed / 12 failed / 31 not run, 0 in hours" }
+  ],
+  "drift_events": [
+    { "agent": "quality-engineer", "artifact": "plan.md", "summary": "D-1: hours-api resolved names live with no cache and exhausted auth's per-person identities budget (120 per 10 min) under ordinary use; plan amended to a 60 s cache keyed by user id (ADR 20260807 section 3)", "resolved": true }
+  ],
+  "collision_events": [],
+  "env_faults": [
+    { "agent": "main loop", "class": "dependencies", "detail": "after the rebase onto main some app dependencies (web-push among them) were not installed; notify-api down", "resolved_by": "frozen-lockfile installs in every app" },
+    { "agent": "main loop", "class": "config", "detail": "mise.toml dev:web still pointed the shell at hours-api on 8088", "resolved_by": "e78b6c95" },
+    { "agent": "quality-engineer", "class": "database", "detail": "EF-1, EF-3: dev inventory, crm and meetings databases behind main's migrations; EF-4: auth not re-seeded (letterheads catalog); EF-7: refund-api Prisma client stale; EF-9: notify-api Prisma client stale (PushDevice)", "resolved_by": "migrate deploy, auth db:seed, prisma generate (main loop)" },
+    { "agent": "quality-engineer", "class": "secret env", "detail": "EF-5, EF-6: auth SERVICE_CLIENTS missing clients and scopes; activities-api without notify credentials; notify-api push off, and its committed direnv file blanks the VAPID pair", "resolved_by": "temporary script writing only the uncommitted per-service dotenv files, run by the user; notify-api run by the main loop with the VAPID pair from its dotenv; every client verified by minting a token" },
+    { "agent": "quality-engineer", "class": "secret env", "detail": "EF-2: crm-api without ACTIVITIES_API_URL (crm-offer-wizard specs); EF-10: ffmpeg not installed and meetings-api without service-client credentials (meetings-deal)", "resolved_by": "open: script extended, the user installs ffmpeg, applies and restarts" }
+  ],
+  "verdicts": { "security": "PASS" },
+  "fix_rounds": { "used": 1, "cap": 2, "extensions": [] },
+  "security": {
+    "matched_rules": ["auth/**", "permission", "session"],
+    "dispatched": true,
+    "notes": [
+      "delta re-check 2026-11-18 PASS: R1 low accepted (picomatch, dev-time), R2 and R3 fixed, R4 low accepted (suite-wide /docs pattern)",
+      "T46 re-check 2026-11-18 PASS: F1 low, I1, I4 fixed; I2, I3 accepted"
+    ]
+  },
+  "result": "partial",
+  "notes": "QE second pass BLOCKED only on the environment: every hours row and gate green, D-1..D-3 fixed. Whole-suite e2e blocked by EF-2 and EF-10 (local environment), P-2 (letterheads.spec.ts:379 races a debug letterhead-api; accepted by the user 2026-11-19 as pre-existing, follow-up bugfix outside this PR) and P-1 (env-doctor push.test.ts, fails on origin/main too). No eval (QE not PASS). The feature stays in-progress; PR #10 marked ready for review at the user's request with the feature not closed.",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
