@@ -33,6 +33,8 @@ const tmp = mkdtempSync(join(tmpdir(), "accounting-release-cli-"));
 const TOKEN = "cli-test-service-jwt";
 const ACCOUNTS: readonly [string, string][] = [
   ["5901", "Spese viaggi in treno"],
+  ["5902", "Spese viaggi in aereo"],
+  ["5903", "Spese viaggi taxi"],
   ["5904", "Spese viaggi altri mezzi pubblici"],
   ["5905", "Spese rimborsi chilometrici (viaggi)"],
   ["5906", "Spese autostrade (viaggi)"],
@@ -40,12 +42,13 @@ const ACCOUNTS: readonly [string, string][] = [
   ["6101", "Spese materiale ufficio"],
   ["6102", "Spese telefoniche, fax, internet"],
   ["6104", "Spese postali"],
+  ["6501", "Libri e manuali"],
   ["6701", "Spese pranzi e cene con clienti"],
 ];
 const VAT: readonly [string, string, number][] = [
-  ["IMP81", "IVA 8.1%", 810],
-  ["IMP77", "IVA 7.7%", 770],
-  ["NOVAT", "Senza IVA", 0],
+  ["IPM81", "IVA 8.1%", 810],
+  ["IPM77", "IVA 7.7%", 770],
+  ["IP00", "IVA 0%", 0],
 ];
 
 const world = { down: false, empty: false, rates: new Map<string, number>(), requests: [] as string[], mints: 0 };
@@ -161,6 +164,26 @@ describe("accounting:release, run as the operator runs it", () => {
     expect(world.requests).toEqual([]); // the arguments are checked before anything is asked of Accounting
   });
 
+  it("(SO-17) --defaults with a file of the old world (a VAT code, or the foreign-currency VAT code) exits 1 and changes nothing, before Accounting is asked", async () => {
+    const { ids } = await legacyRequest(["2026-03-02"]);
+    for (const [name, body] of [
+      ["entry-vat.json", { typeDefaults: { postal: { ledgerAccount: "6104", vatCode: "IPM81" } } }],
+      ["designation.json", { typeDefaults: { postal: { ledgerAccount: "6104" } }, foreignCurrencyVatCode: "IP00" }],
+    ] as const) {
+      const file = join(tmp, name);
+      writeFileSync(file, JSON.stringify(body));
+      const res = await cli("--defaults", file);
+      expect(res.exitCode).toBe(1);
+      expect(res.stderr).toContain("accounting:release failed, nothing was changed");
+      expect(res.stderr).toMatch(/vatCode|foreignCurrencyVatCode/);
+      expect(res.stdout).not.toContain("Accounting release completed");
+    }
+    expect(await released()).toBe(false);
+    expect(await numbers(ids)).toEqual([null]);
+    expect(await db.expenseTypeAccountingDefault.count()).toBe(0);
+    expect(world.requests).toEqual([]);
+  });
+
   it("--offsets with no value exits 1 and changes nothing", async () => {
     await legacyRequest(["2026-03-02"]);
     const res = await cli("--offsets");
@@ -185,7 +208,6 @@ describe("accounting:release, run as the operator runs it", () => {
     expect(await released()).toBe(false);
     expect(await numbers(ids)).toEqual([null, null]);
     expect(await db.expenseTypeAccountingDefault.count()).toBe(0);
-    expect(await db.foreignCurrencyVatDesignation.count()).toBe(0);
     expect(await db.receiptCounter.count()).toBe(0);
     // It did read Accounting: the report is what the real run would do.
     expect(world.requests.some((r) => r.includes("/reference-data"))).toBe(true);
@@ -200,7 +222,7 @@ describe("accounting:release, run as the operator runs it", () => {
     expect(await released()).toBe(true);
     expect(await numbers(ids)).toEqual(["MC26/001", "MC26/002"]); // by expense date: 03-02 first
     const classified = await db.refundLine.findMany({ where: { id: { in: ids } } });
-    expect(classified.every((l) => l.accountNumber === "5901" && l.vatCodeCopy === "IMP81")).toBe(true);
+    expect(classified.every((l) => l.accountNumber === "5901" && l.vatCodeCopy === null)).toBe(true); // an account, never a VAT code
     const it = await db.refundLine.findUniqueOrThrow({ where: { id: itId } });
     expect([it.receiptNumber, it.accountNumber, it.vatCodeCopy]).toEqual([null, null, null]); // AC-7.3
 
@@ -226,7 +248,6 @@ describe("accounting:release, run as the operator runs it", () => {
     expect(await released()).toBe(false);
     expect(await numbers(ids)).toEqual([null, null]);
     expect(await db.expenseTypeAccountingDefault.count()).toBe(0);
-    expect(await db.foreignCurrencyVatDesignation.count()).toBe(0);
     expect(await db.receiptCounter.count()).toBe(0);
     expect(await db.refundAuditEntry.count()).toBe(0);
     expect(await db.refundSetting.count()).toBe(0);
@@ -319,14 +340,14 @@ describe("accounting:release, run as the operator runs it", () => {
     }
   });
 
-  it("(AC-7.5) Accounting with no WellD CH entries: exit 0, every legacy line numbered and listed unclassified, with the warning", async () => {
+  it("(AC-7.5) Accounting with no WellD CH entries: exit 0, every legacy line numbered and listed without an account, with the warning", async () => {
     const { ids } = await legacyRequest(["2026-03-02", "2026-03-10"]);
     world.empty = true;
     const res = await cli();
     expect(res.exitCode).toBe(0);
     expect(await numbers(ids)).toEqual(["MC26/001", "MC26/002"]);
-    expect(res.stdout).toContain("Left unclassified, account or VAT code missing (2)");
-    expect(res.stdout).toContain("Accounting holds no active WellD CH ledger accounts or VAT codes");
+    expect(res.stdout).toContain("Left without an account (2)");
+    expect(res.stdout).toContain("Accounting holds no active WellD CH ledger accounts");
     expect(await released()).toBe(true);
     expect(await db.expenseTypeAccountingDefault.count()).toBe(0);
   });

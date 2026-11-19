@@ -198,25 +198,19 @@ async function call(router: Router, method: string, path: string, body?: unknown
 }
 
 const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
-const recordDefault = (type: string, account: [string, string] | null, vat: [string, string, number] | null) =>
+const recordDefault = (type: string, account: [string, string] | null) =>
   db.expenseTypeAccountingDefault.create({
     data: {
       entity: "welld_ch",
       type: type as never,
       ...(account ? { accountNumber: account[0], accountName: account[1] } : {}),
-      ...(vat ? { vatCode: vat[0], vatLabel: vat[1], vatRateBasisPoints: vat[2] } : {}),
       ...by,
     },
   });
 const TRAIN: [string, string] = ["5901", "Treno"];
-const IMP81: [string, string, number] = ["IMP81", "IVA 8.1%", 810];
-const NOVAT: [string, string, number] = ["NOVAT", "Senza IVA", 0];
 async function seedDefaults() {
-  await recordDefault("travel_train", TRAIN, IMP81);
-  await recordDefault("office_material", ["6101", "Ufficio"], IMP81);
-  await db.foreignCurrencyVatDesignation.create({
-    data: { entity: "welld_ch", vatCode: NOVAT[0], vatLabel: NOVAT[1], vatRateBasisPoints: NOVAT[2], ...by },
-  });
+  await recordDefault("travel_train", TRAIN);
+  await recordDefault("office_material", ["6101", "Ufficio"]);
 }
 
 let warn: ReturnType<typeof spyOn>;
@@ -394,7 +388,7 @@ describe("each listed operation reads Accounting afresh (AC-4.8, D2)", () => {
   });
 
   it("settings read and write: a default is checked against Accounting at the moment of the request", async () => {
-    await recordDefault("travel_train", TRAIN, IMP81);
+    await recordDefault("travel_train", TRAIN);
     const read1 = await measured(() => call(defaultsRouter, "GET", "/accounting/expense-type-defaults"));
     expect(read1.value.body.types.find((t: any) => t.type === "travel_train").account.state).toBe("active");
     expect([read1.reference, read1.rates]).toEqual([1, 0]);
@@ -403,7 +397,7 @@ describe("each listed operation reads Accounting afresh (AC-4.8, D2)", () => {
     expect(read2.value.body.types.find((t: any) => t.type === "travel_train").account.state).toBe("deactivated");
     expect(read2.reference).toBe(1);
 
-    const put = (account: string) => call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/postal", { accountNumber: account, vatCode: "IMP81" });
+    const put = (account: string) => call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/postal", { accountNumber: account });
     const w1 = await measured(() => put("7777"));
     expect(w1.value.status).toBe(422);
     expect(w1.value.body.code).toBe("ledger_account_not_found");
@@ -476,8 +470,8 @@ describe("each listed operation reads Accounting afresh (AC-4.8, D2)", () => {
 
   it("release: two runs are two reads, and an entry deactivated between them is not seeded by the second", async () => {
     await truncateRefundTables({ released: false });
-    const defaults = { typeDefaults: { travel_train: { ledgerAccount: "5901", vatCode: "IMP81" } }, foreignCurrencyVatCode: null };
-    const run = () => runAccountingRelease({ accounting: port, defaults: defaults as never, dryRun: true });
+    const defaults = { typeDefaults: { travel_train: { ledgerAccount: "5901" } } };
+    const run = () => runAccountingRelease({ accounting: port, defaults, dryRun: true });
 
     const first = await measured(run);
     expect(first.value.seeded.typeDefaults).toEqual(["travel_train"]);
@@ -485,7 +479,7 @@ describe("each listed operation reads Accounting afresh (AC-4.8, D2)", () => {
 
     accounting.accounts.get("5901")!.active = false;
     const second = await measured(run);
-    // The account half is no longer offered: it is not seeded and the report says so; the VAT half (still active) is.
+    // The account is no longer offered: it is not seeded and the report says so.
     expect(first.value.seeded.warnings).toEqual([]);
     expect(second.value.seeded.warnings.join(" ")).toContain("account 5901 is deactivated in Accounting, no default account seeded");
     expect([second.reference, second.rates]).toEqual([1, 0]);
@@ -596,8 +590,8 @@ describe("nothing is served after a failure (AC-6.1, AC-6.5; non-goal: approving
   });
 
   it("settings write: down after a good read is a 503 and writes nothing, even for an entry that was valid a moment ago", async () => {
-    const put = () => call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/postal", { accountNumber: "6101", vatCode: "IMP81" });
-    expect((await call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/stationery", { accountNumber: "6101", vatCode: "IMP81" })).status).toBe(200);
+    const put = () => call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/postal", { accountNumber: "6101" });
+    expect((await call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/stationery", { accountNumber: "6101" })).status).toBe(200);
     accounting.down = true;
     const out = await put();
     expect(out.status).toBe(503);

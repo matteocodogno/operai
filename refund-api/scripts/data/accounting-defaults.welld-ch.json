@@ -1,18 +1,19 @@
 {
-  "_note": "DRAFT read off accounting's 2026 register (plan D1, D13 of 20261118; split by 20261119 plan § Seed data split). The twelve type defaults and the foreign-currency VAT code of Refund, by natural key (the account's number, the VAT code's code). The release seeds each only where Refund holds no row yet, and only for an entry that is ACTIVE in Accounting at that moment (else it is skipped and reported). The ledger accounts and VAT codes themselves are Accounting's: `accounting-api/scripts/data/seed.welld-ch.json` (T14). Reviewed by accounting before the release: `bun run accounting:release --dry-run` prints what it would do.",
+  "_note": "Signed off by accounting on 2026-11-19 (20261118 plan, sign-off delta, SO-17). The default ACCOUNT of each of the fourteen expense types of Refund, by natural key (the account's number), and nothing else: there is no VAT default and no foreign-currency VAT code, and the release refuses a file that carries either. `representation_gifts` has no default account (accounting chooses one per line). The release seeds each type only where Refund holds no row yet, and only for an account that is ACTIVE in Accounting at that moment (else it is skipped and reported). The accounts themselves are Accounting's: `accounting-api/scripts/data/seed.welld-ch.json`, and a test keeps the two files in agreement. The accounts of the nine types accounting did not confirm one by one (travel_km, travel_highway, travel_parking, office_material, stationery, company_manuals, postal, telephone, travel_other_public_transport) stay the draft read off the 2026 register until it does. Reviewed before the release: `bun run accounting:release --dry-run` prints what it would do.",
   "typeDefaults": {
-    "travel_km": { "ledgerAccount": "5905", "vatCode": "NOVAT" },
-    "travel_train": { "ledgerAccount": "5901", "vatCode": "IMP81" },
-    "travel_other_public_transport": { "ledgerAccount": "5904", "vatCode": "IMP81" },
-    "travel_highway": { "ledgerAccount": "5906", "vatCode": "IMP81" },
-    "travel_parking": { "ledgerAccount": "5907", "vatCode": "IMP81" },
-    "representation_meals": { "ledgerAccount": "6701", "vatCode": "IMP81" },
-    "representation_gifts": { "ledgerAccount": null, "vatCode": "IMP81" },
-    "office_material": { "ledgerAccount": "6101", "vatCode": "IMP81" },
-    "stationery": { "ledgerAccount": "6101", "vatCode": "IMP81" },
-    "company_manuals": { "ledgerAccount": "6101", "vatCode": null },
-    "postal": { "ledgerAccount": "6104", "vatCode": "NOVAT" },
-    "telephone": { "ledgerAccount": "6102", "vatCode": "IMP81" }
-  },
-  "foreignCurrencyVatCode": "NOVAT"
+    "travel_highway": { "ledgerAccount": "5906" },
+    "travel_km": { "ledgerAccount": "5905" },
+    "travel_parking": { "ledgerAccount": "5907" },
+    "travel_train": { "ledgerAccount": "5901" },
+    "travel_other_public_transport": { "ledgerAccount": "5904" },
+    "travel_flight": { "ledgerAccount": "5902" },
+    "travel_taxi": { "ledgerAccount": "5903" },
+    "company_manuals": { "ledgerAccount": "6501" },
+    "stationery": { "ledgerAccount": "6101" },
+    "representation_meals": { "ledgerAccount": "6701" },
+    "representation_gifts": { "ledgerAccount": null },
+    "office_material": { "ledgerAccount": "6101" },
+    "postal": { "ledgerAccount": "6104" },
+    "telephone": { "ledgerAccount": "6102" }
+  }
 }

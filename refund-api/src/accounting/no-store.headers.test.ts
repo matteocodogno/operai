@@ -120,16 +120,22 @@ describe("the defaults routes", () => {
     expectNoStore(await call(defaultsRouter, "GET", "/accounting/expense-type-defaults"), 200);
   });
 
-  it("PUT type and PUT designation: 200, 422, 403, 401, 413 and 503", async () => {
+  it("PUT type: 200, 422 (bad key, and a body that still carries a VAT code), 403, 401, 413 and 503", async () => {
     const type = "/accounting/expense-type-defaults/travel_train";
-    const designation = "/accounting/foreign-currency-vat-code";
-    expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: "5901", vatCode: "IMP81" } }), 200);
-    expectNoStore(await call(defaultsRouter, "PUT", designation, { body: { vatCode: "IMP81" } }), 200);
+    expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: "5901" } }), 200);
     expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: 5 } }), 422);
-    expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: "5901", vatCode: null }, as: NO_GRANTS }), 403);
-    expectNoStore(await call(defaultsRouter, "PUT", designation, { body: { vatCode: null }, token: false }), 401);
-    expectNoStore(await call(defaultsRouter, "PUT", designation, { body: { vatCode: "x".repeat(8000) } }), 413);
+    expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: "5901", vatCode: "IMP81" } }), 422);
+    expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: "5901" }, as: NO_GRANTS }), 403);
+    expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: null }, token: false }), 401);
+    expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: "x".repeat(8000) } }), 413);
     fake.failWith("network");
-    expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: "5901", vatCode: "IMP81" } }), 503);
+    expectNoStore(await call(defaultsRouter, "PUT", type, { body: { accountNumber: "5901" } }), 503);
+  });
+
+  it("the designation route of 20261118 is gone: a plain 404 for everyone, not behind authentication", async () => {
+    const designation = "/accounting/foreign-currency-vat-code";
+    for (const token of [true, false]) {
+      expect((await call(defaultsRouter, "PUT", designation, { body: { vatCode: "IMP81" }, token })).status).toBe(404);
+    }
   });
 });

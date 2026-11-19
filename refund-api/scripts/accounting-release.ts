@@ -18,20 +18,21 @@
  * or the marker. Running it again later is safe.
  *
  * Then ALL in ONE transaction (a failure anywhere changes nothing):
- * 1. DEFAULTS. Refund's twelve type defaults and the foreign-currency VAT code, from `scripts/data/accounting-defaults.welld-ch.json`
- *    by natural key, each only where Refund holds no row yet (an admin's earlier choice, even "none", is never overridden) and only
- *    for an entry ACTIVE in Accounting (else skipped and reported). The rows are copies, as an admin's own choice would be (number
- *    and name, code, label and rate), written as `system:accounting-seed`.
+ * 1. DEFAULTS. Refund's fourteen type defaults, ACCOUNTS ONLY (20261118 SO-16, SO-17: there is no VAT default and no foreign-currency
+ *    VAT code, and the defaults file refuses both), from `scripts/data/accounting-defaults.welld-ch.json` by natural key, each only
+ *    where Refund holds no row yet (an admin's earlier choice, even "none", is never overridden) and only for an account ACTIVE in
+ *    Accounting (else skipped and reported). The rows are copies, as an admin's own choice would be (number and name), written as
+ *    `system:accounting-seed`.
  * 2. OFFSETS (`--offsets`, CSV `email,year,lastIssuedSeq`, never committed because it names employees): the counter of (employee,
  *    year) starts after `lastIssuedSeq`. Refused for a pair that already has numbers (D2).
  * 3. BACKFILL: every non-rejected WellD CH line of an approved or paid request that has no number is classified and numbered, per
  *    employee, by expense date, then creation time, then id (`classifyAndNumber`, cause `release`, actor
- *    `system:accounting-release`; AC-7.1). The classification is the COPY of the current default of its expense type, as Accounting
- *    holds the entry now; a foreign-currency line also gets the copy of the rate in effect for its month, or stays "rate pending" and
- *    is copied at the first export of its batch (AC-5.6). A line whose account or VAT code cannot be resolved (no default, or the
- *    entry is not active in Accounting, or Accounting holds no WellD CH entries at all, AC-7.5) is still numbered and keeps the half
- *    that did resolve; what is missing is listed in the report and blocks its export until accounting sets it (AC-7.2). WellD
- *    Italia lines are never touched (AC-7.3).
+ *    `system:accounting-release`; AC-7.1). The classification is the COPY of the current default ACCOUNT of its expense type, as
+ *    Accounting holds the entry now, and no VAT code (the VAT code is optional and never pre-set); a foreign-currency line also gets
+ *    the copy of the rate in effect for its month, or stays "rate pending" and is copied at the first export of its batch (AC-5.6).
+ *    A line whose account cannot be resolved (no default, or the entry is not active in Accounting, or Accounting holds no WellD CH
+ *    accounts at all, AC-7.5) is still numbered; the missing account is listed in the report and blocks its export until accounting
+ *    sets it (AC-7.2). An empty VAT code list refuses nothing (AC-7.5). WellD Italia lines are never touched (AC-7.3).
  * 4. MARKER: `accounting-release-completed-at`, which lets approvals through.
  *
  * `--dry-run` reads Accounting, runs all of it and rolls it back, so the report shows the exact numbers, classifications and rates the
@@ -85,12 +86,13 @@ export const RATE_CHUNK_MONTHS = 6;
 
 const EXPENSE_TYPES = Object.values(ExpenseType) as [ExpenseType, ...ExpenseType[]];
 
-const DefaultsSchema = z.object({
-  typeDefaults: z.partialRecord(
-    z.enum(EXPENSE_TYPES),
-    z.object({ ledgerAccount: z.string().trim().min(1).nullable(), vatCode: z.string().trim().min(1).nullable() }),
-  ),
-  foreignCurrencyVatCode: z.string().trim().min(1).nullable(),
+/**
+ * Accounts only, and strict at both levels: an entry with a `vatCode` and a file with `foreignCurrencyVatCode` are refused, so a
+ * stale file of the old world fails loudly instead of being half-read (20261118 SO-17). `_note` is the one free key.
+ */
+const DefaultsSchema = z.strictObject({
+  _note: z.string().optional(),
+  typeDefaults: z.partialRecord(z.enum(EXPENSE_TYPES), z.strictObject({ ledgerAccount: z.string().trim().min(1).nullable() })),
 });
 export type DefaultsData = z.infer<typeof DefaultsSchema>;
 
@@ -189,8 +191,6 @@ export interface ReleaseLineReport {
   readonly receiptNumber: string;
   /** The account number copied onto the line, or `null`. */
   readonly account: string | null;
-  /** The VAT code copied onto the line, or `null`. */
-  readonly vatCode: string | null;
   readonly missing: readonly string[];
   /** A foreign-currency line left with no rate: the first export of its batch copies it (AC-5.6). */
   readonly ratePending: boolean;
@@ -210,14 +210,12 @@ export interface ReleaseReport {
   };
   readonly seeded: {
     readonly typeDefaults: string[];
-    /** The code designated by this run, or `null` when Refund already had a designation row (or the file names none). */
-    readonly foreignCurrencyVatCode: string | null;
     readonly warnings: string[];
   };
   readonly offsets: { email: string; employeeRef: string; year: number; lastIssuedSeq: number; outcome: "applied" | "already-applied" }[];
   readonly numbered: { employee: string; employeeRef: string; year: number; count: number; first: string; last: string }[];
   readonly lines: ReleaseLineReport[];
-  /** Numbered lines whose account or VAT code could not be resolved (AC-7.2, AC-7.5). */
+  /** Numbered lines whose account could not be resolved (AC-7.2, AC-7.5). */
   readonly unclassified: ReleaseLineReport[];
   /** Numbered foreign-currency lines with no rate in effect: "rate pending" (AC-5.6). */
   readonly ratePending: ReleaseLineReport[];
@@ -395,7 +393,7 @@ export async function runAccountingRelease(options: ReleaseOptions = {}): Promis
 // ── 1. Defaults ──────────────────────────────────────────────────────────────
 
 async function seedDefaults(tx: Tx, defaults: DefaultsData, snapshot: ReferenceSnapshot): Promise<ReleaseReport["seeded"]> {
-  const out = { typeDefaults: [] as string[], foreignCurrencyVatCode: null as string | null, warnings: [] as string[] };
+  const out = { typeDefaults: [] as string[], warnings: [] as string[] };
   const actor = { createdByUserId: SEED_ACTOR.userId, createdByEmail: SEED_ACTOR.email };
 
   /** The entry as Accounting holds it, when it is active; else a warning and `null`: an entry Accounting no longer offers is never seeded. */
@@ -404,13 +402,6 @@ async function seedDefaults(tx: Tx, defaults: DefaultsData, snapshot: ReferenceS
     const found = snapshot.lookupAccount(number);
     if (found.state === "active") return { number: found.number, name: found.name };
     out.warnings.push(`${what}: account ${number} is ${found.state === "deactivated" ? "deactivated" : "not found"} in Accounting, no default account seeded`);
-    return null;
-  };
-  const usableVat = (code: string | null, what: string) => {
-    if (code === null) return null;
-    const found = snapshot.lookupVat(code);
-    if (found.state === "active") return { code: found.code, label: found.label, rateBasisPoints: found.rateBasisPoints };
-    out.warnings.push(`${what}: VAT code ${code} is ${found.state === "deactivated" ? "deactivated" : "not found"} in Accounting, none seeded`);
     return null;
   };
 
@@ -422,42 +413,18 @@ async function seedDefaults(tx: Tx, defaults: DefaultsData, snapshot: ReferenceS
     const existing = await tx.expenseTypeAccountingDefault.count({ where: { entity: DEFAULTS_ENTITY, type } });
     if (existing > 0) continue; // an admin's choice, even an explicit "none", is never overridden
     const account = usableAccount(entry.ledgerAccount, type);
-    const vat = usableVat(entry.vatCode, type);
-    if (account === null && vat === null) continue;
+    if (account === null) continue;
     await tx.expenseTypeAccountingDefault.create({
       data: {
         entity: DEFAULTS_ENTITY,
         type,
-        accountNumber: account?.number ?? null,
-        accountName: account?.name ?? null,
-        vatCode: vat?.code ?? null,
-        vatLabel: vat?.label ?? null,
-        vatRateBasisPoints: vat?.rateBasisPoints ?? null,
+        accountNumber: account.number,
+        accountName: account.name,
         createdAt: new Date(base + tick++),
         ...actor,
       },
     });
     out.typeDefaults.push(type);
-  }
-
-  if (defaults.foreignCurrencyVatCode !== null) {
-    const designations = await tx.foreignCurrencyVatDesignation.count({ where: { entity: DEFAULTS_ENTITY } });
-    if (designations === 0) {
-      const vat = usableVat(defaults.foreignCurrencyVatCode, "foreign-currency VAT code");
-      if (vat !== null) {
-        await tx.foreignCurrencyVatDesignation.create({
-          data: {
-            entity: DEFAULTS_ENTITY,
-            vatCode: vat.code,
-            vatLabel: vat.label,
-            vatRateBasisPoints: vat.rateBasisPoints,
-            createdAt: new Date(base + tick++),
-            ...actor,
-          },
-        });
-        out.foreignCurrencyVatCode = vat.code;
-      }
-    }
   }
   return out;
 }
@@ -564,7 +531,7 @@ async function backfillLegacyLines(
 
     const details = await tx.refundLine.findMany({
       where: { id: { in: result.lines.map((l) => l.lineId) } },
-      select: { id: true, date: true, type: true, currency: true, accountNumber: true, vatCodeCopy: true, fxRateMicros: true },
+      select: { id: true, date: true, type: true, currency: true, accountNumber: true, fxRateMicros: true },
     });
     const detailOf = new Map(details.map((d) => [d.id, d]));
     for (const numbered of result.lines) {
@@ -579,7 +546,6 @@ async function backfillLegacyLines(
         currency: d.currency,
         receiptNumber: numbered.receiptNumber,
         account: d.accountNumber,
-        vatCode: d.vatCodeCopy,
         missing: numbered.missing ?? [],
         ratePending: numbered.ratePending,
         rate: d.currency === "CHF" ? null : d.fxRateMicros !== null ? formatRate(d.fxRateMicros) : "pending",
@@ -636,16 +602,16 @@ export function formatReport(report: ReleaseReport, options: { readonly showEmai
     `  ledger accounts: ${a.ledgerAccounts.active} active of ${a.ledgerAccounts.total}`,
     `  VAT codes: ${a.vatCodes.active} active of ${a.vatCodes.total}`,
     `  exchange rates asked for ${a.ratePairsAsked} (currency, month) pairs of the legacy lines`,
-    ...(a.ledgerAccounts.active === 0 && a.vatCodes.active === 0
+    // No VAT code is needed to approve, release or export (AC-7.5): only an empty account list is worth a warning.
+    ...(a.ledgerAccounts.active === 0
       ? [
-          "  WARNING: Accounting holds no active WellD CH ledger accounts or VAT codes. Every legacy line is numbered but left unclassified,",
+          "  WARNING: Accounting holds no active WellD CH ledger accounts. Every legacy line is numbered but left without an account,",
           "  and every WellD CH approval is refused until accounting enters them in Accounting.",
         ]
       : []),
     "",
-    "Defaults of Refund (by natural key, each only where Refund held no row)",
+    "Default accounts of Refund (by natural key, each only where Refund held no row)",
     `  type defaults set (${s.typeDefaults.length}): ${s.typeDefaults.join(", ") || "none"}`,
-    `  foreign-currency VAT code designated: ${s.foreignCurrencyVatCode ?? "no (already designated, or none seeded)"}`,
     ...s.warnings.map((w) => `  WARNING: ${w}`),
     "",
     `Offsets (${report.offsets.length})`,
@@ -659,7 +625,7 @@ export function formatReport(report: ReleaseReport, options: { readonly showEmai
     `Rate pending: ${report.ratePending.length} lines (no rate in effect yet: the first export of their batch copies it)`,
     ...report.ratePending.map((l) => `  ${l.receiptNumber} ${who(l)} ${l.date} ${l.type} ${l.currency} (line ${l.lineId})`),
     "",
-    `Left unclassified, account or VAT code missing (${report.unclassified.length})`,
+    `Left without an account (${report.unclassified.length})`,
     ...report.unclassified.map(
       (l) => `  ${l.receiptNumber} ${who(l)} ${l.date} ${l.type} ${l.currency}: missing ${l.missing.join(" and ")} (line ${l.lineId})`,
     ),
@@ -671,11 +637,9 @@ export function formatReport(report: ReleaseReport, options: { readonly showEmai
     }`,
   );
   if (report.dryRun) {
-    out.push("", "Every line (receipt number, date, type, currency, account, VAT code, rate)");
+    out.push("", "Every line (receipt number, date, type, currency, account, rate)");
     for (const l of report.lines) {
-      out.push(
-        `  ${l.receiptNumber}  ${l.date}  ${l.type}  ${l.currency}  ${l.account ?? "-"}  ${l.vatCode ?? "-"}  ${l.rate ?? "-"}  ${who(l)}`,
-      );
+      out.push(`  ${l.receiptNumber}  ${l.date}  ${l.type}  ${l.currency}  ${l.account ?? "-"}  ${l.rate ?? "-"}  ${who(l)}`);
     }
   }
   return out.join("\n");

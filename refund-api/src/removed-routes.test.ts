@@ -1,5 +1,6 @@
 /**
- * The legacy surface is cut (T23, specs/20261119-accounting; AC-3.7, AC-4.6; plan § API contracts "Removed (404)").
+ * The legacy surface is cut (T23, specs/20261119-accounting; AC-3.7, AC-4.6; plan § API contracts "Removed (404)"; and, for the
+ * 2026-11-19 sign-off, T61: the foreign-currency VAT code route of 20261118 is gone too, 20261118 SO-16, retired AC-2.5 to AC-2.7).
  *
  * The ledger accounts, the VAT codes and the monthly exchange rates are Accounting's. refund-api no longer serves them: the
  * routes of 20261118 (`/accounting/ledger-accounts*`, `/accounting/vat-codes*`, `/exchange-rates*`) are not registered, so they
@@ -46,6 +47,8 @@ const SETTINGS_ADMIN = {
 const LEDGER = "/accounting/ledger-accounts";
 const VAT = "/accounting/vat-codes";
 const RATES = "/exchange-rates";
+/** The designation of the foreign-currency VAT code (20261118 AC-2.5 to AC-2.7), retired 2026-11-19: no VAT code is ever pre-set. */
+const DESIGNATION = "/accounting/foreign-currency-vat-code";
 
 /** Every route of 20261118's catalog and exchange-rate surface, and plausible sub-paths of each, in every method. */
 const REMOVED: Probe[] = [
@@ -65,6 +68,10 @@ const REMOVED: Probe[] = [
     { method, path: `${RATES}/2026-03/EUR` },
     { method, path: `${RATES}/2026-03` },
   ]),
+  ...["GET", "POST", "PUT", "PATCH", "DELETE"].flatMap((method) => [
+    { method, path: DESIGNATION },
+    { method, path: `${DESIGNATION}/history` },
+  ]),
   { method: "GET", path: `${LEDGER}?includeInactive=true` },
   { method: "GET", path: `${RATES}?month=2026-03` },
 ];
@@ -73,7 +80,7 @@ const REMOVED: Probe[] = [
 const KEPT: Probe[] = [
   { method: "GET", path: "/accounting/expense-type-defaults" },
   { method: "GET", path: "/accounting/options" },
-  { method: "PUT", path: "/accounting/foreign-currency-vat-code" },
+  { method: "PUT", path: "/accounting/expense-type-defaults/postal" },
 ];
 
 let dir = "";
@@ -164,7 +171,7 @@ describe("the catalog and exchange-rate routes of 20261118 are gone (AC-3.7, AC-
   it("every one answers 404 to a settings:manage holder, in every method: the ledger accounts, the VAT codes, the exchange rates and their sub-paths", () => {
     const wrong = REMOVED.map(keyOf).filter((key) => answers.removed[key]?.status !== 404);
     expect(wrong).toEqual([]);
-    expect(REMOVED.length).toBeGreaterThanOrEqual(70);
+    expect(REMOVED.length).toBeGreaterThanOrEqual(80);
   });
 
   it("they are not even behind authentication: with no token the answer is still 404, never 401 (there is no route to protect)", () => {
@@ -177,16 +184,26 @@ describe("the catalog and exchange-rate routes of 20261118 are gone (AC-3.7, AC-
     expect(answers.kept["GET /accounting/expense-type-defaults"]?.status).toBe(200);
     // The options need Accounting, which cannot be read here: 503, not 404 and not 403 (D16: settings:manage is allowed).
     expect(answers.kept["GET /accounting/options"]).toEqual({ status: 503, code: "accounting_unavailable" });
-    // The designation write is validated live: with Accounting unreachable it is 503, never 404.
-    expect(answers.kept["PUT /accounting/foreign-currency-vat-code"]?.status).not.toBe(404);
+    // A default write is validated live: with Accounting unreachable it is 503 (or 422 for this empty body), never 404.
+    expect(answers.kept["PUT /accounting/expense-type-defaults/postal"]?.status).not.toBe(404);
     // And without a token the same routes are 401: they exist and are protected.
     for (const probe of KEPT) expect(answers.unauthenticated[keyOf(probe)]?.status).toBe(401);
   });
 
+  it("(20261118 SO-16) the designation route answers 404 in every method, to a settings:manage holder and to no one alike", () => {
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
+      const key = keyOf({ method, path: DESIGNATION });
+      expect([key, answers.removed[key]?.status, answers.unauthenticated[key]?.status]).toEqual([key, 404, 404]);
+    }
+  });
+
   it("the OpenAPI document no longer lists them, and still lists what stayed", () => {
-    const listed = answers.paths.filter((path) => path.startsWith(LEDGER) || path.startsWith(VAT) || path.startsWith(RATES));
+    const listed = answers.paths.filter(
+      (path) => path.startsWith(LEDGER) || path.startsWith(VAT) || path.startsWith(RATES) || path.startsWith(DESIGNATION),
+    );
     expect(listed).toEqual([]);
     expect(answers.paths).toContain("/accounting/expense-type-defaults");
+    expect(answers.paths).toContain("/accounting/expense-type-defaults/{type}");
     expect(answers.paths).toContain("/accounting/options");
     expect(answers.paths).toContain("/batches/{id}/accounting-export");
   });

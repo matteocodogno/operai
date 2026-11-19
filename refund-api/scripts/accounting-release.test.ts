@@ -1,17 +1,19 @@
 /**
  * The release script against real Postgres (T11, specs/20261118-refund-accounting-export; AC-2.5, AC-7.1, AC-7.2, AC-7.3; plan D2,
- * D6, D13, IS-1; rewritten by T22, specs/20261119-accounting: AC-7.4, AC-7.5, AC-6.8, D20; plan § Release scripts).
+ * D6, D13, IS-1; rewritten by T22, specs/20261119-accounting: AC-7.4, AC-7.5, AC-6.8, D20; plan § Release scripts; reworked by T61 for
+ * the 2026-11-19 sign-off: default ACCOUNTS only, no VAT default, no designation, the 14-type defaults file; SO-17, SO-22).
  *
  * Accounting is a FAKE `AccountingPort` (no network): the script reads it first, and a fake that cannot be read proves what the
  * script writes then (nothing). The rows covered:
  *   AC-7.4  Accounting unreachable (each kind, reference data or rates, dry run too): the run ends with `AccountingUnavailableError`
- *           (the CLI maps it to exit 2) and NO number, copy, default, designation, counter, audit row or marker exists; a rerun with
+ *           (the CLI maps it to exit 2) and NO number, copy, default, counter, audit row or marker exists; a rerun with
  *           Accounting back works. The read comes first (the database is untouched when Accounting is asked), rates in chunks of 6
- *           months, one deadline per chunk. Legacy lines get the COPY of the default's entry as Accounting holds it now, and the rate
- *           copy when one is in effect, else "rate pending" (reported). A line that appears while the release runs is refused, not guessed.
- *   AC-7.5  Accounting holds no WellD CH entries: every legacy line is numbered and listed unclassified, and a later approval is 409.
- *   AC-2.5  Refund's defaults and designation are seeded by natural key, only where Refund holds no row and only for an active
- *           entry (else skipped and reported); the catalog is never seeded (it is Accounting's).
+ *           months, one deadline per chunk. Legacy lines get the COPY of the default account's entry as Accounting holds it now (and no
+ *           VAT code), and the rate copy when one is in effect, else "rate pending" (reported). A line that appears while the release runs is refused, not guessed.
+ *   AC-7.5  Accounting holds no WellD CH accounts: every legacy line is numbered and listed without an account, and a later approval is
+ *           409; an empty VAT code list refuses nothing.
+ *   AC-8.3 of 20261118  Refund's 14 default accounts are seeded by natural key, only where Refund holds no row and only for an active
+ *           account (else skipped and reported); no designation, no VAT; the catalog is never seeded (it is Accounting's).
  *   AC-7.1/7.2/7.3 of 20261118: numbering, unclassified lines and WellD Italia lines unchanged. SR-3, SR-4, D-1, offsets, dry run.
  */
 
@@ -62,9 +64,12 @@ const {
 
 const NOW = new Date("2026-11-20T08:00:00.000Z");
 
-/** What WellD CH's Accounting holds on release day: the 15 accounts and 3 VAT codes of the signed-off list. */
+/** What WellD CH's Accounting holds on release day: the 19 accounts and 6 VAT codes of the signed-off list (AC-7.6). */
 const ACCOUNTS: readonly [string, string][] = [
+  ["2620.1", "Altri debiti verso soci - CHF (CH)"],
   ["5901", "Spese viaggi in treno"],
+  ["5902", "Spese viaggi in aereo"],
+  ["5903", "Spese viaggi taxi"],
   ["5904", "Spese viaggi altri mezzi pubblici"],
   ["5905", "Spese rimborsi chilometrici (viaggi)"],
   ["5906", "Spese autostrade (viaggi)"],
@@ -76,14 +81,21 @@ const ACCOUNTS: readonly [string, string][] = [
   ["6102", "Spese telefoniche, fax, internet"],
   ["6104", "Spese postali"],
   ["6405", "Spese licenze software"],
+  ["6501", "Libri e manuali"],
   ["6701", "Spese pranzi e cene con clienti"],
   ["6720", "Spese pranzi e cene di lavoro (interni)"],
-  ["7122", "Spese anticipate per / succursali / altre società del gruppo"],
+  ["7122", "Spese da riaddebitare a WellD Italia"],
 ];
 function fullAccounting() {
   const accounting = createFakeAccounting();
   for (const [number, name] of ACCOUNTS) accounting.setAccount(number, name);
-  return accounting.setVatCode("IMP81", "IVA 8.1%", 810).setVatCode("IMP77", "IVA 7.7%", 770).setVatCode("NOVAT", "Senza IVA", 0);
+  return accounting
+    .setVatCode("IPM81", "IVA 8.1%", 810)
+    .setVatCode("IPM77", "IVA 7.7%", 770)
+    .setVatCode("IP00", "IVA 0%", 0)
+    .setVatCode("BZM81", "IVA 8.1% reverse charge (servizi dall'estero)", 810)
+    .setVatCode("IPM26", "IVA 2.6% (aliquota ridotta)", 260)
+    .setVatCode("IPM38", "IVA 3.8% (alloggio)", 380);
 }
 type Fake = ReturnType<typeof createFakeAccounting>;
 let fake: Fake = fullAccounting();
@@ -147,7 +159,6 @@ const line = (id: string) => db.refundLine.findUniqueOrThrow({ where: { id } });
 async function snapshot() {
   return {
     typeDefaults: await db.expenseTypeAccountingDefault.count(),
-    designations: await db.foreignCurrencyVatDesignation.count(),
     settings: await db.refundSetting.count(),
     counters: JSON.stringify(await db.receiptCounter.findMany({ orderBy: { year: "asc" } })),
     lines: JSON.stringify(
@@ -161,30 +172,49 @@ async function snapshot() {
 }
 
 describe("the defaults file", () => {
-  it("is valid, and is the plan's D1 draft: twelve types, NOVAT designated; every number and code it names is in the signed-off list", () => {
-    const defaults = parseDefaults(JSON.parse(readFileSync(DEFAULT_DEFAULTS_PATH, "utf8")));
-    expect(Object.keys(defaults.typeDefaults)).toHaveLength(12);
-    expect(defaults.typeDefaults.travel_km).toEqual({ ledgerAccount: "5905", vatCode: "NOVAT" });
-    expect(defaults.typeDefaults.representation_gifts).toEqual({ ledgerAccount: null, vatCode: "IMP81" });
-    expect(defaults.typeDefaults.company_manuals).toEqual({ ledgerAccount: "6101", vatCode: null });
-    expect(defaults.foreignCurrencyVatCode).toBe("NOVAT");
+  it("is valid, and is the signed-off list of SO-17: fourteen types, accounts only; every number it names is in the signed-off list", () => {
+    const raw = JSON.parse(readFileSync(DEFAULT_DEFAULTS_PATH, "utf8")) as Record<string, unknown>;
+    expect(Object.keys(raw).sort()).toEqual(["_note", "typeDefaults"]); // no foreignCurrencyVatCode
+    const defaults = parseDefaults(raw);
+    expect(Object.keys(defaults.typeDefaults)).toHaveLength(14);
+    expect(Object.fromEntries(Object.entries(defaults.typeDefaults).map(([type, entry]) => [type, entry!.ledgerAccount]))).toEqual({
+      travel_km: "5905",
+      travel_train: "5901",
+      travel_other_public_transport: "5904",
+      travel_flight: "5902",
+      travel_taxi: "5903",
+      travel_highway: "5906",
+      travel_parking: "5907",
+      representation_meals: "6701",
+      representation_gifts: null,
+      office_material: "6101",
+      stationery: "6101",
+      company_manuals: "6501",
+      postal: "6104",
+      telephone: "6102",
+    });
     const numbers = new Set(ACCOUNTS.map(([number]) => number));
-    const codes = new Set(["IMP81", "IMP77", "NOVAT"]);
     for (const entry of Object.values(defaults.typeDefaults)) {
-      if (entry.ledgerAccount !== null) expect(numbers.has(entry.ledgerAccount)).toBe(true);
-      if (entry.vatCode !== null) expect(codes.has(entry.vatCode)).toBe(true);
+      expect(Object.keys(entry!)).toEqual(["ledgerAccount"]);
+      if (entry!.ledgerAccount !== null) expect(numbers.has(entry!.ledgerAccount)).toBe(true);
     }
   });
 
-  it("refuses a file with an unknown type, an empty key, or a wrong shape; accepts none and an empty map", () => {
-    const base = { typeDefaults: {}, foreignCurrencyVatCode: null };
-    expect(() => parseDefaults({ ...base, typeDefaults: { not_a_type: { ledgerAccount: null, vatCode: null } } })).toThrow(ReleaseError);
-    expect(() => parseDefaults({ ...base, typeDefaults: { postal: { ledgerAccount: "", vatCode: null } } })).toThrow(ReleaseError);
-    expect(() => parseDefaults({ ...base, typeDefaults: { postal: { ledgerAccount: 6104, vatCode: null } } })).toThrow(ReleaseError);
-    expect(() => parseDefaults({ ...base, foreignCurrencyVatCode: "" })).toThrow(ReleaseError);
-    expect(() => parseDefaults({ typeDefaults: {} })).toThrow(ReleaseError);
-    expect(parseDefaults(base)).toBeTruthy();
-    expect(parseDefaults({ typeDefaults: { postal: { ledgerAccount: " 6104 ", vatCode: "NOVAT" } }, foreignCurrencyVatCode: "NOVAT" }).typeDefaults.postal).toEqual({ ledgerAccount: "6104", vatCode: "NOVAT" });
+  it("refuses a file with an unknown type, an empty key, a wrong shape, or any VAT key; accepts an empty map", () => {
+    expect(() => parseDefaults({ typeDefaults: { not_a_type: { ledgerAccount: null } } })).toThrow(ReleaseError);
+    expect(() => parseDefaults({ typeDefaults: { postal: { ledgerAccount: "" } } })).toThrow(ReleaseError);
+    expect(() => parseDefaults({ typeDefaults: { postal: { ledgerAccount: 6104 } } })).toThrow(ReleaseError);
+    expect(() => parseDefaults({})).toThrow(ReleaseError);
+    expect(parseDefaults({ typeDefaults: {} })).toBeTruthy();
+    expect(parseDefaults({ typeDefaults: { postal: { ledgerAccount: " 6104 " } } }).typeDefaults.postal).toEqual({ ledgerAccount: "6104" });
+  });
+
+  it("(SO-17) a file of the old world fails loudly: `vatCode` on an entry, or `foreignCurrencyVatCode` on the file, is refused, not ignored", () => {
+    expect(() => parseDefaults({ typeDefaults: { postal: { ledgerAccount: "6104", vatCode: "NOVAT" } } })).toThrow(ReleaseError);
+    expect(() => parseDefaults({ typeDefaults: { postal: { ledgerAccount: "6104", vatCode: null } } })).toThrow(/vatCode/);
+    expect(() => parseDefaults({ typeDefaults: {}, foreignCurrencyVatCode: null })).toThrow(ReleaseError);
+    expect(() => parseDefaults({ typeDefaults: {}, foreignCurrencyVatCode: "NOVAT" })).toThrow(/foreignCurrencyVatCode/);
+    expect(() => parseDefaults({ typeDefaults: {}, somethingElse: 1 })).toThrow(ReleaseError);
   });
 });
 
@@ -235,7 +265,7 @@ describe("Accounting is read first (AC-7.4, AC-6.8)", () => {
     await request("u2", [{ id: "paid", date: "2026-02-10", type: "office_material" }], { status: "paid", name: "Anna Rossi" });
   }
 
-  it("with Accounting unreachable, whatever the kind: the run stops with AccountingUnavailableError, and not a number, copy, default, designation, counter, audit row or marker exists", async () => {
+  it("with Accounting unreachable, whatever the kind: the run stops with AccountingUnavailableError, and not a number, copy, default, counter, audit row or marker exists", async () => {
     await legacy();
     const before = await snapshot();
     for (const kind of ACCOUNTING_FAILURE_KINDS) {
@@ -246,7 +276,7 @@ describe("Accounting is read first (AC-7.4, AC-6.8)", () => {
       expect(await snapshot()).toEqual(before);
     }
     expect(await db.$transaction((tx) => isAccountingReleased(tx))).toBe(false);
-    expect(before.typeDefaults + before.designations + before.settings + before.audit).toBe(0);
+    expect(before.typeDefaults + before.settings + before.audit).toBe(0);
   });
 
   it("the reference data failing alone, or the rates failing alone, is the same; a dry run stops too", async () => {
@@ -279,7 +309,6 @@ describe("Accounting is read first (AC-7.4, AC-6.8)", () => {
         (await db.refundSetting.count()) +
           (await db.receiptCounter.count()) +
           (await db.expenseTypeAccountingDefault.count()) +
-          (await db.foreignCurrencyVatDesignation.count()) +
           (await db.refundLine.count({ where: { receiptNumber: { not: null } } })),
       );
     });
@@ -359,7 +388,7 @@ describe("Accounting is read first (AC-7.4, AC-6.8)", () => {
 });
 
 describe("backfill (AC-7.1, AC-7.4)", () => {
-  it("classifies CHF lines with the type defaults and EUR lines with the type account plus the foreign-currency VAT code, as COPIES, and numbers by expense date across requests", async () => {
+  it("classifies CHF and EUR lines alike with the type's default account, as COPIES, and no VAT code, and numbers by expense date across requests", async () => {
     fake.setRate("EUR", "2026-03", 924_600);
     await request("u1", [{ id: "a-late", date: "2026-03-20", type: "travel_train" }, { id: "a-eur", date: "2026-03-05", type: "travel_train", currency: "EUR" }]);
     await request("u1", [{ id: "a-early", date: "2026-02-10", type: "office_material" }], { status: "paid" });
@@ -367,12 +396,12 @@ describe("backfill (AC-7.1, AC-7.4)", () => {
 
     expect(await Promise.all(["a-early", "a-eur", "a-late"].map(async (id) => (await line(id)).receiptNumber))).toEqual(["MC26/001", "MC26/002", "MC26/003"]);
     const chf = await line("a-late");
-    expect([chf.accountNumber, chf.accountName, chf.vatCodeCopy, chf.vatRateBasisPoints]).toEqual(["5901", "Spese viaggi in treno", "IMP81", 810]);
-    expect([chf.ledgerAccountIsDefault, chf.vatCodeIsDefault]).toEqual([true, true]);
+    expect([chf.accountNumber, chf.accountName, chf.vatCodeCopy, chf.vatRateBasisPoints]).toEqual(["5901", "Spese viaggi in treno", null, null]);
+    expect([chf.ledgerAccountIsDefault, chf.vatCodeIsDefault]).toEqual([true, null]);
     const eur = await line("a-eur");
-    expect([eur.accountNumber, eur.vatCodeCopy, eur.vatRateBasisPoints]).toEqual(["5901", "NOVAT", 0]);
+    expect([eur.accountNumber, eur.vatCodeCopy, eur.vatRateBasisPoints]).toEqual(["5901", null, null]);
     const early = await line("a-early");
-    expect([early.accountNumber, early.vatCodeCopy]).toEqual(["6101", "IMP81"]);
+    expect([early.accountNumber, early.vatCodeCopy]).toEqual(["6101", null]);
 
     const audit = await db.refundAuditEntry.findMany({ where: { action: { in: ["line_classified", "receipt_number_assigned"] } } });
     expect(audit).toHaveLength(6);
@@ -409,7 +438,7 @@ describe("backfill (AC-7.1, AC-7.4)", () => {
     const usd = await line("usd");
     expect([usd.fxRateMicros, usd.fxRateMonth, usd.fxRateCopiedAt]).toEqual([null, null, null]);
     // The numbering is the same either way: pending is not a refusal.
-    expect([usd.receiptNumber, usd.accountNumber, usd.vatCodeCopy]).toEqual(["MC26/003", "5901", "NOVAT"]);
+    expect([usd.receiptNumber, usd.accountNumber, usd.vatCodeCopy]).toEqual(["MC26/003", "5901", null]);
 
     const detailOf = async (id: string) =>
       (await db.refundAuditEntry.findFirstOrThrow({ where: { lineId: id, action: "line_classified" } })).detail as Record<string, any>;
@@ -421,14 +450,14 @@ describe("backfill (AC-7.1, AC-7.4)", () => {
     expect(report.unclassified).toEqual([]);
     const text = formatReport(report);
     expect(text).toContain("Rate pending: 1 lines");
-    expect(text).toContain("Left unclassified, account or VAT code missing (0)");
+    expect(text).toContain("Left without an account (0)");
   });
 
   it("(IS-1) classifies and numbers a legacy line of a PAID request, which the database then locks", async () => {
     await request("u1", [{ id: "p1", date: "2026-03-02" }], { status: "paid" });
     await run();
     const l = await line("p1");
-    expect([l.receiptNumber, l.accountNumber, l.vatCodeCopy]).toEqual(["MC26/001", "5901", "IMP81"]);
+    expect([l.receiptNumber, l.accountNumber, l.vatCodeCopy]).toEqual(["MC26/001", "5901", null]);
     // T16 (specs/20261119-accounting): guard v2 watches the COPY columns, no longer the old FK columns.
     await expect(
       Promise.resolve(db.$executeRawUnsafe(`UPDATE "refund_line" SET "accountNumber" = '9999', "accountName" = 'x' WHERE id = 'p1'`)),
@@ -443,9 +472,10 @@ describe("backfill (AC-7.1, AC-7.4)", () => {
     expect(await Promise.all(["x1", "x2", "y1", "z1"].map(async (id) => (await line(id)).receiptNumber))).toEqual(["MC25/001", "MC26/001", "MC26/001", "AR26/001"]);
   });
 
-  it("(AC-7.2) numbers but leaves unclassified a type without a default and an EUR line whose designation is inactive, and reports them", async () => {
-    // NOVAT is deactivated in Accounting: it is neither designated nor seeded as a default, and the EUR line has no VAT code
-    fake.setVatCodeActive("NOVAT", false).setRate("EUR", "2026-03", 924_600);
+  it("(AC-7.2, AC-8.3) numbers but leaves without an account the gifts line (no default account), and reports it; a missing VAT code never leaves a line unclassified", async () => {
+    // No VAT code is active in Accounting at all: nothing of it is needed.
+    for (const code of ["IPM81", "IPM77", "IP00", "BZM81", "IPM26", "IPM38"]) fake.setVatCodeActive(code, false);
+    fake.setRate("EUR", "2026-03", 924_600);
     await request("u1", [
       { id: "gift", date: "2026-03-02", type: "representation_gifts" },
       { id: "manual", date: "2026-03-03", type: "company_manuals" },
@@ -453,37 +483,33 @@ describe("backfill (AC-7.1, AC-7.4)", () => {
       { id: "ok", date: "2026-03-05", type: "travel_train" },
     ]);
     const report = await run();
-    expect(report.seeded.warnings.join("\n")).toContain("NOVAT");
-    expect(report.seeded.foreignCurrencyVatCode).toBeNull();
+    expect(report.seeded.warnings).toEqual([]);
 
     const gift = await line("gift");
-    expect([gift.receiptNumber, gift.accountNumber, gift.vatCodeCopy]).toEqual(["MC26/001", null, "IMP81"]);
+    expect([gift.receiptNumber, gift.accountNumber, gift.vatCodeCopy]).toEqual(["MC26/001", null, null]);
     const manual = await line("manual");
-    expect([manual.receiptNumber, manual.accountNumber, manual.vatCodeCopy]).toEqual(["MC26/002", "6101", null]);
+    expect([manual.receiptNumber, manual.accountNumber, manual.vatCodeCopy]).toEqual(["MC26/002", "6501", null]);
     const eur = await line("eur");
     expect([eur.receiptNumber, eur.accountNumber, eur.vatCodeCopy]).toEqual(["MC26/003", "5901", null]);
-    // The rate is copied all the same: a line missing its VAT code still has the rate of its month.
+    // The rate is copied all the same.
     expect(eur.fxRateMicros).toBe(924_600);
-    expect((await line("ok")).vatCodeCopy).toBe("IMP81");
+    expect((await line("ok")).vatCodeCopy).toBeNull();
 
-    expect(report.unclassified.map((l) => [l.lineId, l.missing])).toEqual([
-      ["gift", ["account"]],
-      ["manual", ["vatCode"]],
-      ["eur", ["vatCode"]],
-    ]);
-    expect(formatReport(report)).toContain("missing vatCode");
+    expect(report.unclassified.map((l) => [l.lineId, l.missing])).toEqual([["gift", ["account"]]]);
+    expect(formatReport(report)).toContain("missing account");
+    expect(formatReport(report)).not.toContain("missing vatCode");
   });
 
   it("(AC-7.2) a default whose account was deactivated in Accounting after Refund recorded it is numbered, left without that account, and reported", async () => {
     await db.expenseTypeAccountingDefault.create({
-      data: { entity: "welld_ch", type: "travel_train", accountNumber: "5901", accountName: "Spese viaggi in treno", vatCode: "IMP81", vatLabel: "IVA 8.1%", vatRateBasisPoints: 810, ...admin },
+      data: { entity: "welld_ch", type: "travel_train", accountNumber: "5901", accountName: "Spese viaggi in treno", ...admin },
     });
     fake.setAccountActive("5901", false);
     await request("u1", [{ id: "t", date: "2026-03-02", type: "travel_train" }]);
     const report = await run();
     const l = await line("t");
-    expect([l.receiptNumber, l.accountNumber, l.vatCodeCopy]).toEqual(["MC26/001", null, "IMP81"]);
-    expect(report.unclassified.map((u) => [u.lineId, u.missing, u.account, u.vatCode])).toEqual([["t", ["account"], null, "IMP81"]]);
+    expect([l.receiptNumber, l.accountNumber, l.vatCodeCopy]).toEqual(["MC26/001", null, null]);
+    expect(report.unclassified.map((u) => [u.lineId, u.missing, u.account])).toEqual([["t", ["account"], null]]);
   });
 
   it("(AC-7.3) leaves WellD Italia lines without number, classification, audit row or counter, and counts them", async () => {
@@ -509,7 +535,7 @@ describe("backfill (AC-7.1, AC-7.4)", () => {
   });
 });
 
-describe("Accounting holds no WellD CH entries (AC-7.5)", () => {
+describe("Accounting holds no WellD CH accounts (AC-7.5)", () => {
   const perms: ResolveResponse = {
     sub: "",
     epoch: 1,
@@ -522,7 +548,7 @@ describe("Accounting holds no WellD CH entries (AC-7.5)", () => {
     jobTitle: null,
   };
 
-  it("every legacy line is numbered and listed unclassified, nothing is seeded, the report says why; a later approval of a WellD CH request is refused 409 classification_missing", async () => {
+  it("every legacy line is numbered and listed without an account, nothing is seeded, the report says why; a later approval of a WellD CH request is refused 409 classification_missing", async () => {
     fake = createFakeAccounting();
     await request("u1", [
       { id: "chf", date: "2026-03-02" },
@@ -534,17 +560,15 @@ describe("Accounting holds no WellD CH entries (AC-7.5)", () => {
     expect(report.markerWritten).toBe(true);
     expect(report.lines.map((l) => l.receiptNumber)).toEqual(["MC26/001", "MC26/002"]);
     expect(report.unclassified.map((l) => [l.lineId, l.missing])).toEqual([
-      ["chf", ["account", "vatCode"]],
-      ["eur", ["account", "vatCode"]],
+      ["chf", ["account"]],
+      ["eur", ["account"]],
     ]);
     expect(report.seeded.typeDefaults).toEqual([]);
-    expect(report.seeded.foreignCurrencyVatCode).toBeNull();
     expect(report.seeded.warnings.length).toBeGreaterThan(0);
     expect(await db.expenseTypeAccountingDefault.count()).toBe(0);
-    expect(await db.foreignCurrencyVatDesignation.count()).toBe(0);
     const text = formatReport(report);
-    expect(text).toContain("Accounting holds no active WellD CH ledger accounts or VAT codes");
-    expect(text).toContain("Left unclassified, account or VAT code missing (2)");
+    expect(text).toContain("Accounting holds no active WellD CH ledger accounts");
+    expect(text).toContain("Left without an account (2)");
     const l = await line("chf");
     expect([l.accountNumber, l.vatCodeCopy]).toEqual([null, null]);
 
@@ -569,45 +593,51 @@ describe("Accounting holds no WellD CH entries (AC-7.5)", () => {
   });
 });
 
-describe("Refund's defaults and designation (AC-2.5, D20)", () => {
-  it("seeds the twelve type defaults where the file gave an answer and designates NOVAT, as COPIES by natural key, with the system actor", async () => {
+describe("Refund's default accounts (AC-8.3 of 20261118, SO-17, D20)", () => {
+  it("seeds the fourteen type defaults where the file names an account, as COPIES by natural key, with the system actor, and no designation", async () => {
     const report = await run();
-    expect(report.seeded.typeDefaults).toHaveLength(12);
+    expect(report.seeded.typeDefaults).toHaveLength(13); // gifts names no account: no row
+    expect(report.seeded.typeDefaults).not.toContain("representation_gifts");
+    for (const type of ["travel_flight", "travel_taxi", "company_manuals", "representation_meals"]) expect(report.seeded.typeDefaults).toContain(type);
     const km = await db.expenseTypeAccountingDefault.findFirstOrThrow({ where: { type: "travel_km" } });
     expect(km).toMatchObject({
       entity: "welld_ch",
       accountNumber: "5905",
       accountName: "Spese rimborsi chilometrici (viaggi)",
-      vatCode: "NOVAT",
-      vatLabel: "Senza IVA",
-      vatRateBasisPoints: 0,
       createdByUserId: "system:accounting-seed",
       createdByEmail: "system-accounting-seed@welld.ch",
     });
-    const gifts = await db.expenseTypeAccountingDefault.findFirstOrThrow({ where: { type: "representation_gifts" } });
-    expect([gifts.accountNumber, gifts.accountName, gifts.vatCode]).toEqual([null, null, "IMP81"]);
+    expect(Object.keys(km).filter((key) => /vat/i.test(key))).toEqual([]);
+    const byType = Object.fromEntries((await db.expenseTypeAccountingDefault.findMany()).map((r) => [r.type, [r.accountNumber, r.accountName]]));
+    expect(byType).toMatchObject({
+      travel_flight: ["5902", "Spese viaggi in aereo"],
+      travel_taxi: ["5903", "Spese viaggi taxi"],
+      company_manuals: ["6501", "Libri e manuali"],
+      representation_meals: ["6701", "Spese pranzi e cene con clienti"],
+    });
+    expect(await db.expenseTypeAccountingDefault.count({ where: { type: "representation_gifts" } })).toBe(0);
 
     const recorded = await loadRecordedDefaults();
-    expect(recorded.foreignCurrencyVatCode).toEqual({ code: "NOVAT", label: "Senza IVA", rateBasisPoints: 0 });
-    const designations = await db.foreignCurrencyVatDesignation.findMany();
-    expect(designations).toHaveLength(1);
-    expect(designations[0]).toMatchObject({ entity: "welld_ch", vatCode: "NOVAT", createdByUserId: "system:accounting-seed", createdByEmail: "system-accounting-seed@welld.ch" });
-    await expect(Promise.resolve(db.$executeRawUnsafe(`UPDATE "foreign_currency_vat_designation" SET "vatCode" = NULL WHERE id = $1`, designations[0]!.id))).rejects.toThrow();
+    expect(Object.keys(recorded)).toEqual(["defaults"]);
+    expect(recorded.defaults.representation_gifts).toBeUndefined();
     await expect(Promise.resolve(db.$executeRawUnsafe(`UPDATE "expense_type_accounting_default" SET "accountNumber" = NULL WHERE id = $1`, km.id))).rejects.toThrow();
+    const tables = await db.$queryRawUnsafe<{ tablename: string }[]>(`SELECT tablename FROM pg_tables WHERE tablename = 'foreign_currency_vat_designation'`);
+    expect(tables).toEqual([]);
+  });
+
+  it("(AC-8.3) on an empty database the release gives the gifts type no default account, so a gifts line is refused until an account is chosen", async () => {
+    await run();
+    expect(await db.expenseTypeAccountingDefault.findMany({ where: { type: "representation_gifts" } })).toEqual([]);
+    await request("u1", [{ id: "gift", date: "2026-03-02", type: "representation_gifts" }]);
+    const second = await run();
+    expect(second.alreadyReleased).toBe(true);
+    expect((await line("gift")).accountNumber).toBeNull(); // the second run numbers it, with no account: it is reported, never guessed
+    expect(second.unclassified.map((u) => [u.lineId, u.missing])).toEqual([["gift", ["account"]]]);
   });
 
   it("never creates anything in Accounting: it only reads (a reader's projection has no write at all)", async () => {
     await run();
     expect(fake.calls.every((c) => c.read === "referenceData" || c.read === "rates")).toBe(true);
-  });
-
-  it("an earlier designation row of Refund (even a cleared one) is never overridden, though the rest is still seeded", async () => {
-    await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", vatCode: "IMP77", vatLabel: "IVA 7.7%", vatRateBasisPoints: 770, ...admin } });
-    const report = await run();
-    expect(report.seeded.foreignCurrencyVatCode).toBeNull();
-    expect(report.seeded.typeDefaults).toHaveLength(12);
-    expect((await loadRecordedDefaults()).foreignCurrencyVatCode?.code).toBe("IMP77");
-    expect(await db.foreignCurrencyVatDesignation.count()).toBe(1);
   });
 
   it("an admin's earlier choice for a type (even an explicit none) is kept, and nothing is appended for it", async () => {
@@ -624,25 +654,30 @@ describe("Refund's defaults and designation (AC-2.5, D20)", () => {
     expect(telephone[0]!.accountName).toBe("My own name");
   });
 
-  it("does not seed a default whose entry is deactivated or missing in Accounting, keeps the other half, and says so", async () => {
-    fake.setAccountActive("6104", false).removeVatCode("IMP77");
+  it("does not seed a default whose account is deactivated or missing in Accounting, and says so", async () => {
+    fake.setAccountActive("6104", false);
     const report = await run();
     expect(report.seeded.warnings.join("\n")).toContain("6104");
     expect(report.seeded.warnings.join("\n")).toContain("deactivated");
-    const postal = await db.expenseTypeAccountingDefault.findFirstOrThrow({ where: { type: "postal" } });
-    expect([postal.accountNumber, postal.vatCode]).toEqual([null, "NOVAT"]);
+    expect(await db.expenseTypeAccountingDefault.count({ where: { type: "postal" } })).toBe(0);
+    expect(report.seeded.typeDefaults).not.toContain("postal");
 
-    // An entry the file names that Accounting does not hold at all is "not found" in the warning.
+    // An account the file names that Accounting does not hold at all is "not found" in the warning.
     await truncateRefundTables({ released: false });
     fake = fullAccounting();
-    fake.removeAccount("5905").setVatCodeActive("NOVAT", false);
+    fake.removeAccount("5905");
     const second = await run();
     expect(second.seeded.warnings.join("\n")).toMatch(/5905 is not found/);
-    expect(second.seeded.warnings.join("\n")).toMatch(/NOVAT is deactivated/);
-    expect(second.seeded.foreignCurrencyVatCode).toBeNull();
-    expect(await db.foreignCurrencyVatDesignation.count()).toBe(0);
-    const km = await db.expenseTypeAccountingDefault.count({ where: { type: "travel_km" } });
-    expect(km).toBe(0); // both halves were unusable: no row at all
+    expect(await db.expenseTypeAccountingDefault.count({ where: { type: "travel_km" } })).toBe(0);
+  });
+
+  it("(AC-7.5) a VAT code list that is empty, or has no active code, changes nothing of the seed or of the report's warnings", async () => {
+    for (const code of ["IPM81", "IPM77", "IP00", "BZM81", "IPM26", "IPM38"]) fake.removeVatCode(code);
+    const report = await run();
+    expect(report.seeded.typeDefaults).toHaveLength(13);
+    expect(report.seeded.warnings).toEqual([]);
+    expect(report.accounting.vatCodes).toEqual({ active: 0, total: 0 });
+    expect(formatReport(report)).not.toContain("WARNING");
   });
 });
 
@@ -656,7 +691,8 @@ describe("idempotence and dry run", () => {
     const second = await run();
     expect(await snapshot()).toEqual(before);
     expect(second).toMatchObject({ alreadyReleased: true, markerWritten: false, lines: [], unclassified: [], ratePending: [] });
-    expect(second.seeded).toMatchObject({ typeDefaults: [], foreignCurrencyVatCode: null });
+    expect(second.seeded).toMatchObject({ typeDefaults: [] });
+    expect(second.seeded).not.toHaveProperty("foreignCurrencyVatCode");
     expect(await db.refundSetting.count({ where: { key: "accounting-release-completed-at" } })).toBe(1);
   });
 
@@ -669,11 +705,11 @@ describe("idempotence and dry run", () => {
     expect(dry.dryRun).toBe(true);
     expect(fake.reads.total).toBeGreaterThan(0);
     expect(await db.$transaction((tx) => isAccountingReleased(tx))).toBe(false);
-    const view = (r: typeof dry) => r.lines.map((l) => [l.lineId, l.receiptNumber, l.account, l.vatCode, l.rate]);
+    const view = (r: typeof dry) => r.lines.map((l) => [l.lineId, l.receiptNumber, l.account, l.rate]);
     expect(view(dry)).toEqual([
-      ["l2", "MC26/001", "6104", "NOVAT", null],
-      ["l1", "MC26/002", "5901", "IMP81", null],
-      ["l3", "MC26/003", "5901", "NOVAT", "0.9246"],
+      ["l2", "MC26/001", "6104", null],
+      ["l1", "MC26/002", "5901", null],
+      ["l3", "MC26/003", "5901", "0.9246"],
     ]);
     expect(formatReport(dry)).toContain("DRY RUN");
     expect(formatReport(dry)).toContain("MC26/002");
@@ -717,7 +753,6 @@ describe("offsets (D2)", () => {
     await request("u1", [{ id: "l1", date: "2026-03-02" }], { email: "m@welld.ch" });
     await expect(run({ offsets: [{ email: "nobody@welld.ch", year: 2026, lastIssuedSeq: 5 }] })).rejects.toThrow(/n\*\*\*@welld\.ch/);
     expect(await db.expenseTypeAccountingDefault.count()).toBe(0);
-    expect(await db.foreignCurrencyVatDesignation.count()).toBe(0);
     expect(await db.refundSetting.count()).toBe(0);
     expect((await line("l1")).receiptNumber).toBeNull();
   });
@@ -768,7 +803,7 @@ describe("the report (D-1, SR-4)", () => {
   it("SR-4: the unclassified lines are listed by the same reference", async () => {
     await legacy();
     const text = formatReport(await run({ dryRun: true }));
-    expect(text).toMatch(/Left unclassified, account or VAT code missing \(1\)\n {2}MC26\/002 MC · u1 2026-03-03 representation_gifts/);
+    expect(text).toMatch(/Left without an account \(1\)\n {2}MC26\/002 MC · u1 2026-03-03 representation_gifts/);
     expect(text).not.toContain("@");
   });
 });

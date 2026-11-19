@@ -15,7 +15,7 @@
  *   - hold look-alikes: `06101` beside `6101`, `imp81` beside `IMP81`, an entry only WellD Italia has under a number WellD CH also
  *     uses, so that a lookup by anything but the exact key of WellD CH would answer with the wrong entry.
  *
- * Proven: saved defaults and the designation still resolve (and are shown as active) after re-entry; a default books Accounting's
+ * Proven: saved default accounts still resolve (and are shown as active) after re-entry; a default books Accounting's
  * entry AS IT IS when approved (the new name), a copy a person chose keeps the name it was chosen with; approved lines, the view
  * and the export file are byte-identical across re-entry; a gap in Accounting is a refusal that names the lines (never a 5xx),
  * and ends when the entry is back; the exact key decides (no trimming of look-alikes, no case folding, no numeric equality);
@@ -248,9 +248,8 @@ async function call(router: Router, method: string, path: string, body?: unknown
   return { status: res.status, body: parsed, headers: res.headers };
 }
 
-const saveDefault = (type: string, account: string | null, vat: string | null) =>
-  call(defaultsRouter, "PUT", `/accounting/expense-type-defaults/${type}`, { accountNumber: account, vatCode: vat });
-const designate = (vat: string | null) => call(defaultsRouter, "PUT", "/accounting/foreign-currency-vat-code", { vatCode: vat });
+const saveDefault = (type: string, account: string | null) =>
+  call(defaultsRouter, "PUT", `/accounting/expense-type-defaults/${type}`, { accountNumber: account });
 const getDefaults = () => call(defaultsRouter, "GET", "/accounting/expense-type-defaults");
 const approve = (id: string) => call(decideRouter, "POST", `/review/requests/${id}/approve`);
 const view = (id: string) => call(classificationRouter, "GET", `/review/requests/${id}/accounting`);
@@ -307,7 +306,6 @@ async function refundRowsAsText(): Promise<string> {
   return JSON.stringify({
     lines: await db.refundLine.findMany(),
     defaults: await db.expenseTypeAccountingDefault.findMany(),
-    designations: await db.foreignCurrencyVatDesignation.findMany(),
     audit: await db.refundAuditEntry.findMany(),
     exports: await db.refundBatchExport.findMany(),
     settings: await db.refundSetting.findMany(),
@@ -333,10 +331,9 @@ afterAll(async () => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe("saved defaults still resolve when Accounting enters its data again (D1)", () => {
-  it("every entry gets a new internal id and comes back in another order: the defaults, the designation and the options are the same", async () => {
-    expect((await saveDefault("travel_train", "5901", "IMP81")).status).toBe(200);
-    expect((await saveDefault("office_material", "6101", "NOVAT")).status).toBe(200);
-    expect((await designate("NOVAT")).status).toBe(200);
+  it("every entry gets a new internal id and comes back in another order: the defaults and the options are the same", async () => {
+    expect((await saveDefault("travel_train", "5901")).status).toBe(200);
+    expect((await saveDefault("office_material", "6101")).status).toBe(200);
     const before = await getDefaults();
     const optionsBefore = await options();
 
@@ -348,27 +345,25 @@ describe("saved defaults still resolve when Accounting enters its data again (D1
       expect(after.status).toBe(200);
       expect(after.body).toEqual(before.body); // numbers, names, codes, labels, rates, states, history, timestamps: all the same
       expect(typeRow(after, "travel_train").account).toEqual({ number: "5901", name: "Treno", state: "active" });
-      expect(typeRow(after, "office_material").vatCode).toMatchObject({ code: "NOVAT", state: "active" });
-      expect(after.body.foreignCurrencyVatCodeUsable).toBe(true);
+      expect(typeRow(after, "office_material").account).toMatchObject({ number: "6101", state: "active" });
       expect((await options()).body).toEqual(optionsBefore.body); // offered in one stable order, whatever order Accounting answers in
     }
   });
 
-  it("a request on the defaults is viewed and approved after the re-entry: the lines book the same number, code and rate", async () => {
-    await saveDefault("travel_train", "5901", "IMP81");
-    await saveDefault("office_material", "6101", "NOVAT");
-    await designate("NOVAT");
+  it("a request on the defaults is viewed and approved after the re-entry: the lines book the same account and rate, and no VAT code", async () => {
+    await saveDefault("travel_train", "5901");
+    await saveDefault("office_material", "6101");
     directory.renumber();
 
     const r = await createRequest([{ type: "travel_train" }, { type: "office_material", currency: "EUR", date: "2026-03-03" }]);
     const v = await view(r.id);
     expect(v.body.accounting).toBe("available");
-    expect(v.body.lines[0].classification).toMatchObject({ account: { number: "5901", state: "active" }, accountIsDefault: true, vatCode: { code: "IMP81", state: "active" } });
-    expect(v.body.lines[1].classification).toMatchObject({ account: { number: "6101", state: "active" }, vatCode: { code: "NOVAT", state: "active" } });
+    expect(v.body.lines[0].classification).toMatchObject({ account: { number: "5901", state: "active" }, accountIsDefault: true, vatCode: null });
+    expect(v.body.lines[1].classification).toMatchObject({ account: { number: "6101", state: "active" }, vatCode: null });
 
     expect((await approve(r.id)).status).toBe(200);
-    expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", accountName: "Treno", vatCodeCopy: "IMP81", vatRateBasisPoints: 810, ledgerAccountIsDefault: true });
-    expect(await lineOf(r.lineIds[1]!)).toMatchObject({ accountNumber: "6101", vatCodeCopy: "NOVAT", vatRateBasisPoints: 0, fxRateMicros: 924_600 });
+    expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: "5901", accountName: "Treno", vatCodeCopy: null, vatRateBasisPoints: null, ledgerAccountIsDefault: true });
+    expect(await lineOf(r.lineIds[1]!)).toMatchObject({ accountNumber: "6101", vatCodeCopy: null, vatRateBasisPoints: null, fxRateMicros: 924_600 });
   });
 
   it("a person's classification by number works across the re-entry, and copies the entry as it is then", async () => {
@@ -386,10 +381,11 @@ describe("saved defaults still resolve when Accounting enters its data again (D1
 
 describe("what was booked does not move when Accounting enters its data again (AC-5.3, AC-5.4, AC-4.7)", () => {
   it("the approved lines, the view and the export file are byte-for-byte the same after a re-entry with other names and another rate", async () => {
-    await saveDefault("travel_train", "5901", "IMP81");
-    await saveDefault("office_material", "6101", "NOVAT");
-    await designate("NOVAT");
+    await saveDefault("travel_train", "5901");
+    await saveDefault("office_material", "6101");
     const r = await createRequest([{ type: "travel_train" }, { type: "office_material", currency: "EUR", date: "2026-03-03" }]);
+    // The first line carries a VAT code chosen by hand: it is a copy too, and survives the re-entry as booked.
+    expect((await classify(r.id, r.lineIds[0]!, { vatCode: "IMP81" })).status).toBe(200);
     expect((await approve(r.id)).status).toBe(200);
     const batchId = await batchWith(r.id);
     const viewBefore = await view(r.id);
@@ -409,9 +405,10 @@ describe("what was booked does not move when Accounting enters its data again (A
 
     expect(JSON.stringify(await Promise.all(r.lineIds.map(lineOf)))).toBe(linesBefore);
     const viewAfter = await view(r.id);
-    expect(viewAfter.body.lines.map((l: any) => [l.classification.account.number, l.classification.account.name, l.classification.vatCode.code, l.chf])).toEqual(
-      viewBefore.body.lines.map((l: any) => [l.classification.account.number, l.classification.account.name, l.classification.vatCode.code, l.chf]),
-    );
+    const shown = (out: Out) => out.body.lines.map((l: any) => [l.classification.account.number, l.classification.account.name, l.classification.vatCode?.code ?? null, l.chf]);
+    expect(shown(viewAfter)).toEqual(shown(viewBefore));
+    expect(shown(viewAfter)[0]![2]).toBe("IMP81");
+    expect(shown(viewAfter)[1]![2]).toBeNull();
     const csvAfter = await call(exportRouter, "GET", `/batches/${batchId}/accounting-export/csv`);
     expect(csvAfter.status).toBe(200);
     expect(csvAfter.body).toBe(csvBefore.body); // AC-5.4: the same bytes
@@ -427,7 +424,7 @@ describe("what was booked does not move when Accounting enters its data again (A
 
 describe("a gap in Accounting, and the entry entered again (SA-3, AC-6.3)", () => {
   it("while an entry is not there the default is `not_found` and an approval names the line; once it is entered again the default works, with the entry as it is now", async () => {
-    await saveDefault("travel_train", "5901", "IMP81");
+    await saveDefault("travel_train", "5901");
     directory.leave("5901");
     const r = await createRequest([{ type: "travel_train" }]);
 
@@ -451,13 +448,13 @@ describe("a gap in Accounting, and the entry entered again (SA-3, AC-6.3)", () =
   });
 
   it("a copy a person chose is booked as chosen, whether its entry is missing, entered again or renamed", async () => {
-    await saveDefault("travel_train", "5901", "IMP81");
+    await saveDefault("travel_train", "5901");
     const chosen = { accountNumber: "6101", accountName: "Ufficio (as chosen)", ledgerAccountIsDefault: false };
 
     directory.leave("6101");
     const during = await createRequest([{ type: "travel_train", stored: chosen }]);
     expect((await approve(during.id)).status).toBe(200); // the gap does not refuse a line that holds its own copy (AC-1.4 of 20261118)
-    expect(await lineOf(during.lineIds[0]!)).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as chosen)", vatCodeCopy: "IMP81" });
+    expect(await lineOf(during.lineIds[0]!)).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as chosen)", vatCodeCopy: null });
 
     directory.enter("6101", "Ufficio (rientrato)");
     const after = await createRequest([{ type: "travel_train", stored: chosen }]);
@@ -466,21 +463,16 @@ describe("a gap in Accounting, and the entry entered again (SA-3, AC-6.3)", () =
   });
 
   it("deactivated and reactivated, across a re-entry: the default is `deactivated` and unusable, then `active` and usable", async () => {
-    await saveDefault("travel_train", "5901", "IMP81");
-    await designate("NOVAT");
+    await saveDefault("travel_train", "5901");
     const r = await createRequest([{ type: "travel_train", currency: "EUR" }]);
     directory.setActive("5901", false);
-    directory.setVatActive("NOVAT", false);
     expect(typeRow(await getDefaults(), "travel_train").account).toMatchObject({ state: "deactivated" });
-    expect((await getDefaults()).body.foreignCurrencyVatCodeUsable).toBe(false);
     expect((await approve(r.id)).status).toBe(409);
     expect((await options()).body.ledgerAccounts.map((a: any) => a.number)).toEqual(["6101"]);
 
     directory.renumber();
     directory.setActive("5901", true);
-    directory.setVatActive("NOVAT", true);
     expect(typeRow(await getDefaults(), "travel_train").account).toMatchObject({ state: "active" });
-    expect((await getDefaults()).body.foreignCurrencyVatCodeUsable).toBe(true);
     expect((await approve(r.id)).status).toBe(200);
   });
 });
@@ -493,22 +485,30 @@ describe("the exact natural key decides, and only WellD CH's", () => {
     directory.addItalianAccount("7777", "Solo Italia");
   });
 
-  it("`6101` is not `06101`, `IMP81` is not `imp81`, and a number is not its numeric value", async () => {
-    expect((await saveDefault("stationery", "6101", "IMP81")).body).toMatchObject({ account: { number: "6101", name: "Ufficio" }, vatCode: { code: "IMP81", ratePercent: "8.1" } });
-    expect((await saveDefault("postal", "06101", "imp81")).body).toMatchObject({ account: { number: "06101", name: "Ufficio con lo zero" }, vatCode: { code: "imp81", label: "iva minuscola" } });
+  it("`6101` is not `06101`, and a number is not its numeric value", async () => {
+    expect((await saveDefault("stationery", "6101")).body).toMatchObject({ account: { number: "6101", name: "Ufficio" } });
+    expect((await saveDefault("postal", "06101")).body).toMatchObject({ account: { number: "06101", name: "Ufficio con lo zero" } });
     for (const lookalike of ["6101.0", "61010", "６１０１", "0006101", "6101​"]) {
-      const out = await saveDefault("telephone", lookalike, null);
+      const out = await saveDefault("telephone", lookalike);
       expect(out.status).toBe(422);
       expect(out.body.code).toBe("ledger_account_not_found");
     }
-    for (const lookalike of ["Imp81", "IMP 81", "IMP81x"]) {
-      const out = await saveDefault("telephone", null, lookalike);
-      expect(out.status).toBe(422);
-      expect(out.body.code).toBe("vat_code_not_found");
-    }
     expect((await db.expenseTypeAccountingDefault.count({ where: { type: "telephone" } })).valueOf()).toBe(0);
     // Whitespace around a key the person typed is trimmed by the request schema (a typing slip, not a different entry).
-    expect((await saveDefault("telephone", " 6101 ", " NOVAT ")).body).toMatchObject({ account: { number: "6101" }, vatCode: { code: "NOVAT" } });
+    expect((await saveDefault("telephone", " 6101 ")).body).toMatchObject({ account: { number: "6101" } });
+  });
+
+  it("`IMP81` is not `imp81`: a VAT code chosen on a line is looked up by its exact key", async () => {
+    const r = await createRequest([{ type: "stationery" }]);
+    for (const lookalike of ["Imp81", "IMP 81", "IMP81x"]) {
+      const out = await classify(r.id, r.lineIds[0]!, { accountNumber: "6101", vatCode: lookalike });
+      expect([out.status, out.body.code]).toEqual([422, "vat_code_not_found"]);
+    }
+    expect(await lineOf(r.lineIds[0]!)).toMatchObject({ accountNumber: null, vatCodeCopy: null });
+    const exact = await classify(r.id, r.lineIds[0]!, { accountNumber: "6101", vatCode: "imp81" });
+    expect(exact.status).toBe(200);
+    expect(exact.body.classification.vatCode).toMatchObject({ code: "imp81", label: "iva minuscola", ratePercent: "1.23" });
+    expect((await classify(r.id, r.lineIds[0]!, { vatCode: "IMP81" })).body.classification.vatCode).toMatchObject({ code: "IMP81", ratePercent: "8.1" });
   });
 
   it("both look-alikes are offered, as two entries, in one stable order whatever order Accounting answers in", async () => {
@@ -537,15 +537,14 @@ describe("the exact natural key decides, and only WellD CH's", () => {
 });
 
 describe("the release seeds by natural key, whatever Accounting's ids are", () => {
-  it("a dry run before and after a re-entry gives the same report; the real run writes number and name, code and rate, no id", async () => {
+  it("a dry run before and after a re-entry gives the same report; the real run writes number and name, no id, no VAT", async () => {
     await truncateRefundTables({ released: false });
     const defaults = {
       typeDefaults: {
-        travel_train: { ledgerAccount: "5901", vatCode: "IMP81" },
-        office_material: { ledgerAccount: "6101", vatCode: "NOVAT" },
+        travel_train: { ledgerAccount: "5901" },
+        office_material: { ledgerAccount: "6101" },
       },
-      foreignCurrencyVatCode: "NOVAT",
-    } as never;
+    };
     const run = (dryRun: boolean) => runAccountingRelease({ accounting: port, defaults, dryRun, now: () => new Date("2026-11-20T08:00:00.000Z") });
 
     const before = await run(true);
@@ -554,14 +553,13 @@ describe("the release seeds by natural key, whatever Accounting's ids are", () =
     const after = await run(true);
     expect(after).toEqual(before);
     expect(after.seeded.typeDefaults).toEqual(["travel_train", "office_material"]);
-    expect(after.seeded.foreignCurrencyVatCode).toBe("NOVAT");
 
     const real = await run(false);
     expect(real.seeded).toEqual(after.seeded);
     const rows = (await db.expenseTypeAccountingDefault.findMany()).sort((a, b) => (a.type < b.type ? -1 : 1));
-    expect(rows.map((r) => [r.type, r.accountNumber, r.accountName, r.vatCode, r.vatLabel, r.vatRateBasisPoints])).toEqual([
-      ["office_material", "6101", "Ufficio", "NOVAT", "Senza IVA", 0],
-      ["travel_train", "5901", "Treno", "IMP81", "IVA 8.1%", 810],
+    expect(rows.map((r) => [r.type, r.accountNumber, r.accountName])).toEqual([
+      ["office_material", "6101", "Ufficio"],
+      ["travel_train", "5901", "Treno"],
     ]);
     expect(await refundRowsAsText()).not.toContain(ID_PREFIX);
   });
@@ -569,9 +567,8 @@ describe("the release seeds by natural key, whatever Accounting's ids are", () =
 
 describe("no id of Accounting is in Refund (D1)", () => {
   it("not in a stored row, not in an answer, whatever the operation, before and after a re-entry", async () => {
-    await saveDefault("travel_train", "5901", "IMP81");
-    await saveDefault("office_material", "6101", "NOVAT");
-    await designate("NOVAT");
+    await saveDefault("travel_train", "5901");
+    await saveDefault("office_material", "6101");
     const r = await createRequest([{ type: "travel_train" }, { type: "office_material", currency: "EUR", date: "2026-03-03" }, { type: "stationery" }]);
     await classify(r.id, r.lineIds[2]!, { accountNumber: "6101", vatCode: "IMP77" });
     await view(r.id);

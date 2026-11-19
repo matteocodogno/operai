@@ -1,25 +1,32 @@
 {
-  "_note": "DRAFT read off accounting's 2026 register (plan D1, D13 of 20261118). Reviewed by accounting before the release: `bun run seed:welld-ch --dry-run` prints what it would add. Applied only where nothing exists yet: an account number or a VAT code that is already there is never touched. Account names are taken verbatim from the WellD CH chart of accounts in the register (2026-11-19). The type defaults and the foreign-currency VAT code are Refund's own: refund-api/scripts/data/accounting-defaults.welld-ch.json.",
+  "_note": "Signed off by accounting on 2026-11-19 (20261119 plan, sign-off delta, SO-20; AC-7.6). Reviewed before the release: `bun run seed:welld-ch --dry-run` prints what it would add. Applied only where nothing exists yet: an account number or a VAT code that is already there is never touched. Account names are taken verbatim from the WellD CH chart of accounts in the register (2026-11-19). The VAT code labels and the names IPM26 and IPM38 (2.6 % and 3.8 %) are the operator's, written from the rates until accounting confirms them: a later change is a new code and a deactivation in the app (AC-1.7), no deploy. The codes of the first draft are retired and not in it. The default accounts of the expense types are Refund's own: refund-api/scripts/data/accounting-defaults.welld-ch.json, and a test keeps the two files in agreement.",
   "ledgerAccounts": [
+    { "number": "2620.1", "name": "Altri debiti verso soci - CHF (CH)" },
+    { "number": "5808", "name": "Contributo aziendale abbonamento mezzi pubblici personale" },
     { "number": "5901", "name": "Spese viaggi in treno" },
+    { "number": "5902", "name": "Spese viaggi in aereo" },
+    { "number": "5903", "name": "Spese viaggi taxi" },
     { "number": "5904", "name": "Spese viaggi altri mezzi pubblici" },
     { "number": "5905", "name": "Spese rimborsi chilometrici (viaggi)" },
     { "number": "5906", "name": "Spese autostrade (viaggi)" },
     { "number": "5907", "name": "Spese parcheggio (viaggi)" },
     { "number": "5909", "name": "Spese di alloggio (viaggi)" },
     { "number": "5999", "name": "Altre spese di viaggio" },
-    { "number": "5808", "name": "Contributo aziendale abbonamento mezzi pubblici personale" },
     { "number": "6101", "name": "Spese materiale ufficio" },
     { "number": "6102", "name": "Spese telefoniche, fax, internet" },
     { "number": "6104", "name": "Spese postali" },
     { "number": "6405", "name": "Spese licenze software" },
+    { "number": "6501", "name": "Libri e manuali" },
     { "number": "6701", "name": "Spese pranzi e cene con clienti" },
     { "number": "6720", "name": "Spese pranzi e cene di lavoro (interni)" },
-    { "number": "7122", "name": "Spese anticipate per / succursali / altre società del gruppo" }
+    { "number": "7122", "name": "Spese da riaddebitare a WellD Italia" }
   ],
   "vatCodes": [
-    { "code": "IMP81", "label": "IVA 8.1%", "ratePercent": "8.1" },
-    { "code": "IMP77", "label": "IVA 7.7%", "ratePercent": "7.7" },
-    { "code": "NOVAT", "label": "Senza IVA", "ratePercent": "0" }
+    { "code": "IPM81", "label": "IVA 8.1%", "ratePercent": "8.1" },
+    { "code": "IPM77", "label": "IVA 7.7%", "ratePercent": "7.7" },
+    { "code": "IP00", "label": "IVA 0%", "ratePercent": "0" },
+    { "code": "BZM81", "label": "IVA 8.1% reverse charge (servizi dall'estero)", "ratePercent": "8.1" },
+    { "code": "IPM26", "label": "IVA 2.6% (aliquota ridotta)", "ratePercent": "2.6" },
+    { "code": "IPM38", "label": "IVA 3.8% (alloggio)", "ratePercent": "3.8" }
   ]
 }

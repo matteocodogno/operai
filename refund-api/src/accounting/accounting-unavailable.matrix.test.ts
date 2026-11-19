@@ -224,27 +224,21 @@ async function call(router: Router, method: string, path: string, body?: unknown
 }
 
 const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
-const recordDefault = (type: string, account: [string, string] | null, vat: [string, string, number] | null) =>
+const recordDefault = (type: string, account: [string, string] | null) =>
   db.expenseTypeAccountingDefault.create({
     data: {
       entity: "welld_ch",
       type: type as never,
       ...(account ? { accountNumber: account[0], accountName: account[1] } : {}),
-      ...(vat ? { vatCode: vat[0], vatLabel: vat[1], vatRateBasisPoints: vat[2] } : {}),
       ...by,
     },
   });
 const TRAIN: [string, string] = ["5901", "Treno"];
 const OFFICE: [string, string] = ["6101", "Ufficio"];
-const IMP81: [string, string, number] = ["IMP81", "IVA 8.1%", 810];
-const NOVAT: [string, string, number] = ["NOVAT", "Senza IVA", 0];
 
 async function seedDefaults() {
-  await recordDefault("travel_train", TRAIN, IMP81);
-  await recordDefault("office_material", OFFICE, IMP81);
-  await db.foreignCurrencyVatDesignation.create({
-    data: { entity: "welld_ch", vatCode: NOVAT[0], vatLabel: NOVAT[1], vatRateBasisPoints: NOVAT[2], ...by },
-  });
+  await recordDefault("travel_train", TRAIN);
+  await recordDefault("office_material", OFFICE);
 }
 
 let warn: ReturnType<typeof spyOn>;
@@ -320,7 +314,7 @@ const batchOf = () =>
   db.refundBatch.create({
     data: { cutoff: new Date("2026-03-31"), status: "compiled", createdByUserId: "a", createdByEmail: "a@x", pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf` },
   });
-const TRAIN_COPY = { accountNumber: "5901", accountName: "Treno", ledgerAccountIsDefault: true, vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: true };
+const TRAIN_COPY = { accountNumber: "5901", accountName: "Treno", ledgerAccountIsDefault: true, vatCodeCopy: "IMP81", vatRateBasisPoints: 810, vatCodeIsDefault: false };
 
 // ─── The rows ────────────────────────────────────────────────────────────────
 
@@ -364,8 +358,8 @@ const rows: Row[] = [
     async healthy(r, out) {
       expect(out.status).toBe(200);
       const [hand, eur, it] = await Promise.all(r.lineIds.map(lineOf));
-      expect(hand).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as copied)", vatCodeCopy: "IMP81", receiptNumber: "MC26/001" });
-      expect(eur).toMatchObject({ accountNumber: "6101", vatCodeCopy: "NOVAT", fxRateMicros: 924_600, receiptNumber: "MC26/002" });
+      expect(hand).toMatchObject({ accountNumber: "6101", accountName: "Ufficio (as copied)", vatCodeCopy: null, receiptNumber: "MC26/001" });
+      expect(eur).toMatchObject({ accountNumber: "6101", vatCodeCopy: null, fxRateMicros: 924_600, receiptNumber: "MC26/002" });
       expect(it!.receiptNumber).toBe("MC26/003");
       expect(it!.accountNumber).toBeNull();
     },
@@ -503,8 +497,7 @@ const rows: Row[] = [
     operation: "defaults_read",
     readsRates: false,
     async arrange() {
-      await recordDefault("travel_train", TRAIN, IMP81);
-      await db.foreignCurrencyVatDesignation.create({ data: { entity: "welld_ch", vatCode: NOVAT[0], vatLabel: NOVAT[1], vatRateBasisPoints: NOVAT[2], ...by } });
+      await recordDefault("travel_train", TRAIN);
       return {};
     },
     act: () => call(defaultsRouter, "GET", "/accounting/expense-type-defaults"),
@@ -512,19 +505,16 @@ const rows: Row[] = [
       expect(out.status).toBe(200);
       expect(out.body.accounting).toBe("available");
       expect(out.body.types.find((t: any) => t.type === "travel_train").account).toEqual({ number: "5901", name: "Treno", state: "active" });
-      expect(out.body.foreignCurrencyVatCodeUsable).toBe(true);
+      expect(Object.keys(out.body).sort()).toEqual(["accounting", "entity", "types"]); // no designation, no VAT
     },
     async refused(_r, out) {
-      // The page opens, shows each default and the designation as recorded, and offers no new choice.
+      // The page opens, shows each default account as recorded, and offers no new choice.
       expect(out.status).toBe(200);
       expect(out.body.accounting).toBe("unavailable");
-      expect(out.body.types).toHaveLength(12);
+      expect(out.body.types).toHaveLength(14);
       const train = out.body.types.find((t: any) => t.type === "travel_train");
       expect(train.account).toEqual({ number: "5901", name: "Treno", state: "unverified" });
-      expect(train.vatCode).toMatchObject({ code: "IMP81", label: "IVA 8.1%", state: "unverified" });
-      expect(out.body.foreignCurrencyVatCode).toMatchObject({ code: "NOVAT", state: "unverified" });
-      expect(out.body.foreignCurrencyVatCodeUsable).toBe(false);
-      for (const t of out.body.types.filter((t: any) => t.type !== "travel_train")) expect([t.account, t.vatCode]).toEqual([null, null]);
+      for (const t of out.body.types.filter((t: any) => t.type !== "travel_train")) expect(t.account).toBeNull();
       expect(JSON.stringify(out.body)).not.toMatch(/options|ledgerAccounts"/);
     },
   },
@@ -533,7 +523,7 @@ const rows: Row[] = [
     operation: "defaults_write",
     readsRates: false,
     arrange: async () => ({ before: await db.expenseTypeAccountingDefault.count() }),
-    act: () => call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/stationery", { accountNumber: "6101", vatCode: "IMP81" }),
+    act: () => call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/stationery", { accountNumber: "6101" }),
     async healthy(ctx, out) {
       expect(out.status).toBe(200);
       expect(out.body.account).toEqual({ number: "6101", name: "Ufficio", state: "active" });
@@ -542,22 +532,6 @@ const rows: Row[] = [
     async refused(ctx, out) {
       expect503(out);
       expect(await db.expenseTypeAccountingDefault.count()).toBe(ctx.before);
-    },
-  },
-  {
-    label: "settings write, the foreign-currency VAT code (AC-6.9)",
-    operation: "defaults_write",
-    readsRates: false,
-    arrange: async () => ({ before: await db.foreignCurrencyVatDesignation.count() }),
-    act: () => call(defaultsRouter, "PUT", "/accounting/foreign-currency-vat-code", { vatCode: "NOVAT" }),
-    async healthy(ctx, out) {
-      expect(out.status).toBe(200);
-      expect(out.body.foreignCurrencyVatCodeUsable).toBe(true);
-      expect(await db.foreignCurrencyVatDesignation.count()).toBe(ctx.before + 1);
-    },
-    async refused(ctx, out) {
-      expect503(out);
-      expect(await db.foreignCurrencyVatDesignation.count()).toBe(ctx.before);
     },
   },
   {
@@ -623,7 +597,7 @@ const rows: Row[] = [
       try {
         const report = await runAccountingRelease({
           accounting: port,
-          defaults: { typeDefaults: { travel_train: { ledgerAccount: "5901", vatCode: "IMP81" } }, foreignCurrencyVatCode: "NOVAT" } as never,
+          defaults: { typeDefaults: { travel_train: { ledgerAccount: "5901" } } },
           now: () => new Date("2026-11-20T08:00:00.000Z"),
         });
         return { status: 0, body: report, headers: new Headers() };
@@ -635,13 +609,13 @@ const rows: Row[] = [
       expect(out.error).toBeUndefined();
       expect(await db.$transaction((tx) => isAccountingReleased(tx))).toBe(true);
       const [chf, eur] = await Promise.all(ctx.request.lineIds.map(lineOf));
-      expect(chf).toMatchObject({ accountNumber: "5901", vatCodeCopy: "IMP81" });
-      expect(eur).toMatchObject({ accountNumber: "5901", fxRateMicros: 924_600, vatCodeCopy: "NOVAT" });
+      expect(chf).toMatchObject({ accountNumber: "5901", vatCodeCopy: null });
+      expect(eur).toMatchObject({ accountNumber: "5901", fxRateMicros: 924_600, vatCodeCopy: null });
       expect([chf!.receiptNumber, eur!.receiptNumber].every((n) => n !== null)).toBe(true);
     },
     async refused(ctx, out, kind) {
       // The run ends with the typed error (the CLI maps it to exit 2) and has written nothing: no number, copy, default,
-      // designation, counter, audit row or marker. Running it again later is safe.
+      // counter, audit row or marker. Running it again later is safe.
       expect(out.error).toBeInstanceOf(AccountingUnavailableError);
       expect((out.error as InstanceType<typeof AccountingUnavailableError>).kind).toBe(kind);
       expect((out.error as Error).message).toBe("Accounting cannot be read");
@@ -654,7 +628,6 @@ const rows: Row[] = [
 async function releaseFootprint() {
   return {
     typeDefaults: await db.expenseTypeAccountingDefault.count(),
-    designations: await db.foreignCurrencyVatDesignation.count(),
     settings: await db.refundSetting.count(),
     counters: await db.receiptCounter.count(),
     audit: await db.refundAuditEntry.count(),
@@ -820,7 +793,7 @@ describe("Accounting down outranks a missing default (AC-6.3, AC-6.1)", () => {
       expect(up.status).toBe(409);
       expect(up.body.code).toBe("classification_missing");
       expect(up.body.lines).toHaveLength(1);
-      expect(up.body.lines[0].missing).toEqual(["account", "vatCode"]);
+      expect(up.body.lines[0].missing).toEqual(["account"]);
       // AC-6.10: the message names the cause with no internals (the lines are named by id, as the contract says).
       expect(String(up.body.detail)).not.toMatch(NO_INTERNALS);
       expect(await db.receiptCounter.count()).toBe(0);
@@ -942,11 +915,10 @@ describe("AC-6.10: every refusal of the story names the cause and carries no add
     // 422: an entry Accounting does not hold (a number and a code, direct requests)
     refusals.push(await call(classificationRouter, "PUT", `/review/requests/${review.id}/lines/${review.lineIds[1]}/classification`, { accountNumber: "0000" }));
     refusals.push(await call(classificationRouter, "PUT", `/review/requests/${review.id}/lines/${review.lineIds[1]}/classification`, { vatCode: "NOPE" }));
-    refusals.push(await call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/postal", { accountNumber: "0000", vatCode: null }));
-    refusals.push(await call(defaultsRouter, "PUT", "/accounting/foreign-currency-vat-code", { vatCode: "NOPE" }));
+    refusals.push(await call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/postal", { accountNumber: "0000" }));
     for (const out of refusals) expect(out.status).toBe(422);
 
-    // 409: the lines left without an account or a VAT code
+    // 409: the lines left without an account
     const missing = await call(decideRouter, "POST", `/review/requests/${review.id}/approve`);
     expect(missing.status).toBe(409);
     refusals.push(missing);
@@ -957,7 +929,7 @@ describe("AC-6.10: every refusal of the story names the cause and carries no add
       refusals.push(await call(decideRouter, "POST", `/review/requests/${review.id}/approve`));
       refusals.push(await call(classificationRouter, "PUT", `/review/requests/${review.id}/lines/${review.lineIds[1]}/classification`, { accountNumber: "6101" }));
       refusals.push(await call(classificationRouter, "GET", "/accounting/options"));
-      refusals.push(await call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/postal", { accountNumber: "6101", vatCode: "IMP81" }));
+      refusals.push(await call(defaultsRouter, "PUT", "/accounting/expense-type-defaults/postal", { accountNumber: "6101" }));
     }
     peer.mode = "ok";
 
