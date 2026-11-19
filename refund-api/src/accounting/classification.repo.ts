@@ -9,7 +9,7 @@
  * What a line shows, by the state of its request
  * - `submitted` (state `review`): LIVE. A line with nothing stored follows the
  *   current default of its type, the foreign-currency VAT code for a non-CHF
- *   line, through `resolveClassification`, the same function the approve freeze
+ *   line, through `resolveClassificationFk`, the same function the approve freeze
  *   and the release use. An override stored on the line wins and is no longer
  *   marked as a default.
  * - `approved` or `paid` (states `post_approval`, `locked`): FROZEN. Only what is
@@ -19,7 +19,7 @@
  *   live defaults are NOT consulted for an approved line, otherwise a default
  *   added next month would silently classify a booked line. Anything that
  *   decides "is this line classified" for an approved line (the export blockers,
- *   T18) must read it the same way: `resolveClassification` with NO defaults.
+ *   T18) must read it the same way: `resolveClassificationFk` with NO defaults.
  * - `draft`, `rejected` (state `none`): nothing is classified, nothing is shown.
  *
  * CHF and VAT amounts are derived on read from the rate in effect and the VAT
@@ -38,7 +38,7 @@ import { formatRate } from "../fx/fx.routes";
 import { fxService, rateKey } from "../fx/fx.service";
 import { chfCents, vatCents } from "./amounts";
 import { basisPointsToPercent, listLedgerAccounts, listVatCodes, loadActiveFlags } from "./catalog.repo";
-import { resolveClassification, type ClassifiableLine, type TypeDefaultsByType } from "./classification";
+import { classifiableInputFk, loadDefaultsSnapshotFk, resolveClassificationFk, type TypeDefaultsByTypeFk } from "./legacyFk";
 import type {
   AccountingLine,
   AccountingOptions,
@@ -46,7 +46,6 @@ import type {
   ClassifyBody,
   RequestAccounting,
 } from "./classification.schemas";
-import { loadDefaultsSnapshot } from "./defaults.repo";
 
 type Client = Prisma.TransactionClient;
 
@@ -102,26 +101,6 @@ export function classificationStateOf(status: string, batchStatus: string | null
   if (status === "approved") return batchStatus === "paid" ? "locked" : "post_approval";
   if (status === "paid") return "locked";
   return "none";
-}
-
-/** What `resolveClassification` needs of a line: its facts, and what is stored on it with the entry's current `active`. */
-export function classifiableInput(
-  line: AccountingLineRow,
-  accountFlags: ReadonlyMap<string, boolean>,
-  vatFlags: ReadonlyMap<string, boolean>,
-): ClassifiableLine {
-  return {
-    entity: line.entity,
-    currency: line.currency,
-    type: line.type,
-    rejected: line.rejectionReason !== null,
-    ledgerAccount: line.ledgerAccount
-      ? { ...line.ledgerAccount, active: accountFlags.get(line.ledgerAccount.id) ?? true }
-      : null,
-    ledgerAccountIsDefault: line.ledgerAccountIsDefault,
-    vatCode: line.vatCode ? { ...line.vatCode, active: vatFlags.get(line.vatCode.id) ?? true } : null,
-    vatCodeIsDefault: line.vatCodeIsDefault,
-  };
 }
 
 // ─── Building the view ───────────────────────────────────────────────────────
@@ -188,8 +167,8 @@ export async function buildAccountingView(
     subject.flatMap((l) => (l.vatCodeId ? [l.vatCodeId] : [])),
   );
   // The live defaults matter only while the request is under review.
-  const snapshot = state === "review" ? await loadDefaultsSnapshot(client) : null;
-  const defaults: TypeDefaultsByType = snapshot?.defaults ?? {};
+  const snapshot = state === "review" ? await loadDefaultsSnapshotFk(client) : null;
+  const defaults: TypeDefaultsByTypeFk = snapshot?.defaults ?? {};
   const foreignVat = snapshot?.foreignCurrencyVatCode ?? null;
 
   const needed = new Map<string, { currency: RateCurrency; month: string }>();
@@ -221,8 +200,8 @@ export async function buildAccountingView(
       return { ...base, classification: null, chf: { ...NO_CHF }, vatAmountCents: null };
     }
 
-    const input = classifiableInput(line, accountFlags, vatFlags);
-    const classification = resolveClassification(input, defaults, foreignVat);
+    const input = classifiableInputFk(line, accountFlags, vatFlags);
+    const classification = resolveClassificationFk(input, defaults, foreignVat);
     if (classification === null) return { ...base, classification: null, chf: { ...NO_CHF }, vatAmountCents: null };
 
     let chf: AccountingLine["chf"];
@@ -421,8 +400,8 @@ export async function classifyLine(
     // What the accountant saw before, for the audit row: live while under review, stored once approved.
     const accountFlags = await loadActiveFlags(tx, "ledger_account", line.ledgerAccountId ? [line.ledgerAccountId] : []);
     const vatFlags = await loadActiveFlags(tx, "vat_code", line.vatCodeId ? [line.vatCodeId] : []);
-    const snapshot = request.status === "submitted" ? await loadDefaultsSnapshot(tx) : null;
-    const before = resolveClassification(classifiableInput(line, accountFlags, vatFlags), snapshot?.defaults ?? {}, snapshot?.foreignCurrencyVatCode ?? null);
+    const snapshot = request.status === "submitted" ? await loadDefaultsSnapshotFk(tx) : null;
+    const before = resolveClassificationFk(classifiableInputFk(line, accountFlags, vatFlags), snapshot?.defaults ?? {}, snapshot?.foreignCurrencyVatCode ?? null);
 
     await tx.refundLine.update({
       where: { id: lineId },

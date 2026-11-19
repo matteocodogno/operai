@@ -26,10 +26,10 @@
  */
 
 import { Data, Effect } from "effect";
-import { loadDefaultsSnapshot } from "../accounting/defaults.repo";
+import { loadDefaultsSnapshotFk } from "../accounting/legacyFk";
 import { classifyAndNumber } from "../accounting/numbering.repo";
 import { isAccountingReleased } from "../accounting/release";
-import type { MissingPart } from "../accounting/classification";
+import type { MissingPartFk } from "../accounting/legacyFk";
 import type { ExpenseType } from "../lib/generated/prisma/enums";
 import { db } from "../lib/db";
 import { ownershipOwn, requestInScope, type EntityScope } from "../authz/conditions";
@@ -205,7 +205,7 @@ export class ClassificationMissingError extends Data.TaggedError("Classification
     readonly lineId: string;
     readonly date: string;
     readonly type: ExpenseType;
-    readonly missing: readonly MissingPart[];
+    readonly missing: readonly MissingPartFk[];
   }[];
 }> {}
 
@@ -284,7 +284,7 @@ function approveTransaction(
           requestIds: [requestId],
           cause: "approval",
           actor: { userId: actorUserId, email: actorEmail },
-          snapshot: await loadDefaultsSnapshot(tx),
+          snapshot: await loadDefaultsSnapshotFk(tx),
         });
         if (!numbered.ok) {
           throw new ApprovalRefused(

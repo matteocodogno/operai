@@ -15,7 +15,7 @@
  * What it does, in this order
  * 1. Locks the candidate lines (`FOR UPDATE`, by id) and re-reads them, so a
  *    line numbered by someone else a moment ago is skipped, never numbered twice.
- * 2. Resolves every WellD CH line through `resolveClassification`, the same
+ * 2. Resolves every WellD CH line through `resolveClassificationFk`, the same
  *    function the review view and the export use. With `cause: "approval"` a
  *    line that lacks an account or a VAT code REFUSES the whole call, before
  *    anything is written (AC-3.4). With `cause: "release"` such a line is
@@ -45,19 +45,19 @@ import type { Entity, ExpenseType } from "../lib/generated/prisma/enums";
 import { writeAuditEntry } from "../requests/audit";
 import { loadActiveFlags } from "./catalog.repo";
 import {
-  resolveClassification,
-  type AccountRef,
-  type Classification,
-  type MissingPart,
-  type TypeDefaultsByType,
-  type VatCodeRef,
-} from "./classification";
+  resolveClassificationFk,
+  type AccountRefFk,
+  type ClassificationFk,
+  type MissingPartFk,
+  type TypeDefaultsByTypeFk,
+  type VatCodeRefFk,
+} from "./legacyFk";
 import { formatReceiptNumber, initials } from "./receiptNumber";
 
 /** The live defaults a classification is resolved against: the type defaults and the foreign-currency VAT code, each with its current `active`. */
 export interface DefaultsSnapshot {
-  readonly defaults: TypeDefaultsByType;
-  readonly foreignCurrencyVatCode: VatCodeRef | null;
+  readonly defaults: TypeDefaultsByTypeFk;
+  readonly foreignCurrencyVatCode: VatCodeRefFk | null;
 }
 
 export type NumberingCause = "approval" | "release";
@@ -85,7 +85,7 @@ export interface MissingLine {
   /** `YYYY-MM-DD` */
   readonly date: string;
   readonly type: ExpenseType;
-  readonly missing: readonly MissingPart[];
+  readonly missing: readonly MissingPartFk[];
 }
 
 export interface NumberedLine {
@@ -96,7 +96,7 @@ export interface NumberedLine {
   readonly year: number;
   readonly seq: number;
   /** `null` for a WellD Italia line. `missing` is empty when the line is fully classified. */
-  readonly missing: readonly MissingPart[] | null;
+  readonly missing: readonly MissingPartFk[] | null;
 }
 
 export type ClassifyAndNumberResult =
@@ -106,8 +106,8 @@ export type ClassifyAndNumberResult =
 
 const isoDate = (date: Date): string => date.toISOString().slice(0, 10);
 
-const accountSummary = (a: Pick<AccountRef, "id" | "number"> | null) => (a ? { id: a.id, number: a.number } : null);
-const vatSummary = (v: Pick<VatCodeRef, "id" | "code" | "rateBasisPoints"> | null) =>
+const accountSummary = (a: Pick<AccountRefFk, "id" | "number"> | null) => (a ? { id: a.id, number: a.number } : null);
+const vatSummary = (v: Pick<VatCodeRefFk, "id" | "code" | "rateBasisPoints"> | null) =>
   v ? { id: v.id, code: v.code, rateBasisPoints: v.rateBasisPoints } : null;
 
 export async function classifyAndNumber(
@@ -170,10 +170,10 @@ export async function classifyAndNumber(
     lines.flatMap((l) => (l.vatCodeId ? [l.vatCodeId] : [])),
   );
 
-  const resolved = new Map<string, Classification | null>();
+  const resolved = new Map<string, ClassificationFk | null>();
   const missingLines: MissingLine[] = [];
   for (const line of lines) {
-    const classification = resolveClassification(
+    const classification = resolveClassificationFk(
       {
         entity: line.entity,
         currency: line.currency,

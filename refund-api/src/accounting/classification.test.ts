@@ -1,38 +1,34 @@
 /**
- * Unit tests for `resolveClassification` (T4, specs/20261118-refund-accounting-export;
- * AC-1.3, AC-1.6, AC-2.7, AC-3.1, AC-3.2, AC-3.4, AC-3.9 and the G3 reading of AC-1.3).
+ * Unit tests for `resolveClassification` on copies and a snapshot (T4 of specs/20261118-refund-accounting-export, reworked
+ * by T18 of specs/20261119-accounting; AC-4.5 with SA-3, AC-6.3, AC-6.9, AC-4.9, AC-5.3, AC-4.7 and the G3 / G8a readings).
+ *
+ * Pure: no DB, no env. The snapshot is built from wire data, so "active / deactivated / absent / unreadable" are the real
+ * states the real client yields.
  */
 
 import { describe, expect, it } from "bun:test";
+import type { ReferenceDataWire } from "./accountingWire";
 import {
+  basisPointsToPercent,
+  classifiableInput,
+  formatRate,
   resolveClassification,
-  type AccountRef,
   type ClassifiableLine,
-  type MissingPart,
+  type RecordedVat,
   type TypeDefaultsByType,
-  type VatCodeRef,
 } from "./classification";
+import { referenceSnapshot, UNVERIFIED_SNAPSHOT, type ReferenceSnapshot } from "./referenceSnapshot";
 import type { Currency, Entity, ExpenseType } from "../lib/generated/prisma/enums";
+import { readClassifiedDetail } from "../requests/audit";
 
-const account = (number: string, active = true): AccountRef => ({
-  id: `acc-${number}`,
-  number,
-  name: `Account ${number}`,
-  active,
-});
-const vat = (code: string, rateBasisPoints: number, active = true): VatCodeRef => ({
-  id: `vat-${code}`,
-  code,
-  label: `VAT ${code}`,
-  rateBasisPoints,
-  active,
-});
+const account = (number: string, name = `Account ${number}`) => ({ number, name });
+const recVat = (code: string, rateBasisPoints: number): RecordedVat => ({ code, label: `VAT ${code}`, rateBasisPoints });
 
 const ACC_TRAIN = account("5901");
 const ACC_OTHER = account("6101");
-const IMP81 = vat("IMP81", 810);
-const NOVAT = vat("NOVAT", 0);
-const IMP77 = vat("IMP77", 770);
+const IMP81 = recVat("IMP81", 810);
+const NOVAT = recVat("NOVAT", 0);
+const IMP77 = recVat("IMP77", 770);
 
 const DEFAULTS: TypeDefaultsByType = {
   travel_train: { account: ACC_TRAIN, vatCode: IMP81 },
@@ -41,53 +37,80 @@ const DEFAULTS: TypeDefaultsByType = {
   company_manuals: { account: ACC_OTHER, vatCode: null }, // no default VAT code
 };
 
+/** Accounting as it is: every account and VAT code above, active, unless listed in `off`. `absent` entries are not listed. */
+function accounting(off: string[] = [], absent: string[] = []): ReferenceSnapshot {
+  const data: ReferenceDataWire = {
+    entity: "welld_ch",
+    ownCurrency: "CHF",
+    ledgerAccounts: [ACC_TRAIN, ACC_OTHER, account("6104")]
+      .filter((a) => !absent.includes(a.number))
+      .map((a) => ({ ...a, active: !off.includes(a.number) })),
+    vatCodes: [IMP81, NOVAT, IMP77]
+      .filter((v) => !absent.includes(v.code))
+      .map((v) => ({ code: v.code, label: v.label, rateBasisPoints: v.rateBasisPoints, active: !off.includes(v.code) })),
+  };
+  return referenceSnapshot(data);
+}
+const LIVE = accounting();
+
 function line(overrides: Partial<ClassifiableLine> = {}): ClassifiableLine {
   return {
     entity: "welld_ch" as Entity,
     currency: "CHF" as Currency,
     type: "travel_train" as ExpenseType,
     rejected: false,
-    ledgerAccount: null,
-    ledgerAccountIsDefault: null,
+    account: null,
+    accountIsDefault: null,
     vatCode: null,
     vatCodeIsDefault: null,
     ...overrides,
   };
 }
 
-describe("CHF line: the type's defaults (AC-3.1)", () => {
-  it("shows the default account and the default VAT code of its type, both marked default", () => {
-    expect(resolveClassification(line(), DEFAULTS, NOVAT)).toEqual({
-      account: ACC_TRAIN,
+describe("CHF line: the type's defaults (AC-4.5, D11)", () => {
+  it("shows the default account and VAT code of its type, both marked default, active, with Accounting's values", () => {
+    expect(resolveClassification(line(), DEFAULTS, NOVAT, LIVE)).toEqual({
+      account: { number: "5901", name: "Account 5901", state: "active" },
       accountIsDefault: true,
-      vatCode: IMP81,
+      vatCode: { code: "IMP81", rateBasisPoints: 810, label: "VAT IMP81", state: "active" },
       vatCodeIsDefault: true,
+      bookable: { account: { number: "5901", name: "Account 5901" }, vatCode: { code: "IMP81", rateBasisPoints: 810 } },
       missing: [],
     });
   });
 
+  it("books Accounting's CURRENT name, not the recorded one (D11: a default's values taken from the snapshot)", () => {
+    const renamed = referenceSnapshot({
+      entity: "welld_ch",
+      ownCurrency: "CHF",
+      ledgerAccounts: [{ number: "5901", name: "Treno e bus", active: true }],
+      vatCodes: [{ code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, active: true }],
+    });
+    const result = resolveClassification(line(), DEFAULTS, null, renamed);
+    expect(result?.bookable.account).toEqual({ number: "5901", name: "Treno e bus" });
+    expect(result?.account).toMatchObject({ name: "Treno e bus", state: "active" });
+    expect(result?.vatCode).toMatchObject({ label: "IVA 8.1%" });
+  });
+
   it("ignores the foreign-currency designation entirely", () => {
-    const withIt = resolveClassification(line(), DEFAULTS, IMP77);
-    const without = resolveClassification(line(), DEFAULTS, null);
-    expect(withIt).toEqual(without);
-    expect(withIt?.vatCode).toBe(IMP81);
+    expect(resolveClassification(line(), DEFAULTS, IMP77, LIVE)).toEqual(resolveClassification(line(), DEFAULTS, null, LIVE));
   });
 
   it("uses each type's own defaults", () => {
-    const postal = resolveClassification(line({ type: "postal" }), DEFAULTS, null);
+    const postal = resolveClassification(line({ type: "postal" }), DEFAULTS, null, LIVE);
     expect(postal?.account?.number).toBe("6104");
     expect(postal?.vatCode?.code).toBe("NOVAT");
   });
 });
 
-describe("EUR / USD / GBP lines: the type's account and the foreign-currency VAT code (AC-3.2)", () => {
+describe("EUR / USD / GBP lines: the type's account and the foreign-currency VAT code (AC-3.2 of 20261118)", () => {
   for (const currency of ["EUR", "USD", "GBP"] as const) {
-    it(`${currency}: type account + designation, both marked default; the type's VAT default is NOT used`, () => {
-      const result = resolveClassification(line({ currency }), DEFAULTS, NOVAT);
-      expect(result).toEqual({
-        account: ACC_TRAIN,
+    it(`${currency}: type account + designation, both marked default; the type's own VAT default is NOT used`, () => {
+      const result = resolveClassification(line({ currency }), DEFAULTS, NOVAT, LIVE);
+      expect(result).toMatchObject({
+        account: { number: "5901", state: "active" },
         accountIsDefault: true,
-        vatCode: NOVAT, // not IMP81, which is the type's own default
+        vatCode: { code: "NOVAT", rateBasisPoints: 0, state: "active" },
         vatCodeIsDefault: true,
         missing: [],
       });
@@ -95,264 +118,237 @@ describe("EUR / USD / GBP lines: the type's account and the foreign-currency VAT
   }
 
   it("the designation is used even when the type has no default VAT code of its own", () => {
-    const result = resolveClassification(line({ currency: "EUR", type: "company_manuals" }), DEFAULTS, NOVAT);
-    expect(result?.vatCode).toBe(NOVAT);
+    const result = resolveClassification(line({ currency: "EUR", type: "company_manuals" }), DEFAULTS, NOVAT, LIVE);
+    expect(result?.vatCode?.code).toBe("NOVAT");
     expect(result?.missing).toEqual([]);
   });
 });
 
-describe("foreign-currency VAT code not usable (AC-2.7, AC-3.4)", () => {
-  for (const [label, designation] of [
-    ["unset or cleared (null)", null],
-    ["designated but deactivated", vat("NOVAT", 0, false)],
-  ] as const) {
-    it(`${label}: no VAT code, the default account stays, VAT is missing`, () => {
-      const result = resolveClassification(line({ currency: "EUR" }), DEFAULTS, designation);
-      expect(result).toEqual({
-        account: ACC_TRAIN,
-        accountIsDefault: true,
-        vatCode: null,
-        vatCodeIsDefault: false,
-        missing: ["vatCode"],
-      });
-    });
-
-    it(`${label}: a CHF line of the same type is unaffected`, () => {
-      const result = resolveClassification(line({ currency: "CHF" }), DEFAULTS, designation);
-      expect(result?.vatCode).toBe(IMP81);
-      expect(result?.missing).toEqual([]);
-    });
-  }
-
-  it("a reactivated designation is usable again with no further step (AC-1.10)", () => {
-    const inactive = vat("NOVAT", 0, false);
-    const reactivated = { ...inactive, active: true };
-    expect(resolveClassification(line({ currency: "USD" }), DEFAULTS, inactive)?.vatCode).toBeNull();
-    expect(resolveClassification(line({ currency: "USD" }), DEFAULTS, reactivated)?.vatCode).toBe(reactivated);
-  });
-
-  it("an accounting override on the line still makes the line complete", () => {
-    const result = resolveClassification(
-      line({ currency: "EUR", vatCode: IMP77, vatCodeIsDefault: false }),
-      DEFAULTS,
-      null,
-    );
-    expect(result?.vatCode).toBe(IMP77);
-    expect(result?.vatCodeIsDefault).toBe(false);
-    expect(result?.missing).toEqual([]);
-  });
-});
-
-describe("a type default that points at an inactive entry is no default (G3, AC-1.3)", () => {
-  it("inactive default ACCOUNT -> account null, missing account; the VAT half is unaffected", () => {
-    const defaults: TypeDefaultsByType = {
-      travel_train: { account: account("5901", false), vatCode: IMP81 },
-    };
-    expect(resolveClassification(line(), defaults, null)).toEqual({
-      account: null,
-      accountIsDefault: false,
-      vatCode: IMP81,
+describe("a default whose entry is not active is reported, with its state, and is no default for approval (G8a, AC-4.5, SA-3)", () => {
+  it("a deactivated default account: shown with state deactivated and isDefault true, never null; account is missing", () => {
+    const result = resolveClassification(line(), DEFAULTS, null, accounting(["5901"]));
+    expect(result).toMatchObject({
+      account: { number: "5901", name: "Account 5901", state: "deactivated" },
+      accountIsDefault: true,
+      vatCode: { code: "IMP81", state: "active" },
       vatCodeIsDefault: true,
       missing: ["account"],
     });
+    expect(result?.bookable.account).toBeNull();
+    expect(result?.bookable.vatCode).toEqual({ code: "IMP81", rateBasisPoints: 810 });
   });
 
-  it("inactive default VAT code of the type -> a CHF line has no VAT code", () => {
-    const defaults: TypeDefaultsByType = {
-      travel_train: { account: ACC_TRAIN, vatCode: vat("IMP81", 810, false) },
-    };
-    const result = resolveClassification(line(), defaults, NOVAT);
-    expect(result?.vatCode).toBeNull();
-    expect(result?.missing).toEqual(["vatCode"]);
-  });
-
-  it("an inactive type VAT default is irrelevant to a non-CHF line (the designation is used)", () => {
-    const defaults: TypeDefaultsByType = {
-      travel_train: { account: ACC_TRAIN, vatCode: vat("IMP81", 810, false) },
-    };
-    const result = resolveClassification(line({ currency: "EUR" }), defaults, NOVAT);
-    expect(result?.vatCode).toBe(NOVAT);
-    expect(result?.missing).toEqual([]);
-  });
-
-  it("both halves inactive -> both missing, account first", () => {
-    const defaults: TypeDefaultsByType = {
-      travel_train: { account: account("5901", false), vatCode: vat("IMP81", 810, false) },
-    };
-    const result = resolveClassification(line(), defaults, null);
-    expect(result?.missing).toEqual(["account", "vatCode"]);
-  });
-});
-
-describe("types with no default, and no default of a half (AC-3.4)", () => {
-  it("a type with no entry at all has nothing: both missing", () => {
-    const result = resolveClassification(line({ type: "telephone" }), DEFAULTS, NOVAT);
-    expect(result).toEqual({
-      account: null,
-      accountIsDefault: false,
-      vatCode: null,
-      vatCodeIsDefault: false,
+  it("a default no longer found in Accounting: state not_found, shown as recorded, missing (SA-3)", () => {
+    const result = resolveClassification(line(), DEFAULTS, null, accounting([], ["5901", "IMP81"]));
+    expect(result).toMatchObject({
+      account: { number: "5901", name: "Account 5901", state: "not_found" },
+      vatCode: { code: "IMP81", label: "VAT IMP81", rateBasisPoints: 810, state: "not_found" },
+      accountIsDefault: true,
+      vatCodeIsDefault: true,
       missing: ["account", "vatCode"],
     });
   });
 
-  it("a type with no default account (representation_gifts) is missing the account", () => {
-    const result = resolveClassification(line({ type: "representation_gifts" }), DEFAULTS, null);
-    expect(result?.account).toBeNull();
-    expect(result?.vatCode).toBe(IMP81);
-    expect(result?.missing).toEqual(["account"]);
+  it("Accounting unreadable: the recorded default is shown, state unverified, never bookable (AC-6.9)", () => {
+    const result = resolveClassification(line(), DEFAULTS, null, UNVERIFIED_SNAPSHOT);
+    expect(result).toMatchObject({
+      account: { number: "5901", name: "Account 5901", state: "unverified" },
+      vatCode: { code: "IMP81", label: "VAT IMP81", state: "unverified" },
+      accountIsDefault: true,
+      vatCodeIsDefault: true,
+      missing: ["account", "vatCode"],
+    });
+    expect(result?.bookable).toEqual({ account: null, vatCode: null });
   });
 
-  it("a type with no default VAT code (company_manuals) is missing the VAT code on a CHF line only", () => {
-    expect(resolveClassification(line({ type: "company_manuals" }), DEFAULTS, NOVAT)?.missing).toEqual(["vatCode"]);
-    expect(resolveClassification(line({ type: "company_manuals", currency: "EUR" }), DEFAULTS, NOVAT)?.missing).toEqual(
-      [],
-    );
+  it("a deactivated VAT code default: a CHF line has the code shown deactivated and missing; an EUR line uses the designation", () => {
+    const snapshot = accounting(["IMP81"]);
+    expect(resolveClassification(line(), DEFAULTS, NOVAT, snapshot)).toMatchObject({
+      vatCode: { code: "IMP81", state: "deactivated" },
+      missing: ["vatCode"],
+    });
+    expect(resolveClassification(line({ currency: "EUR" }), DEFAULTS, NOVAT, snapshot)).toMatchObject({
+      vatCode: { code: "NOVAT", state: "active" },
+      missing: [],
+    });
   });
 
-  it("an empty defaults table: everything is missing, no throw", () => {
-    expect(resolveClassification(line(), {}, null)?.missing).toEqual(["account", "vatCode"]);
+  for (const [label, designation, snapshot, state] of [
+    ["unset or cleared (null)", null, LIVE, null],
+    ["designated but deactivated", NOVAT, accounting(["NOVAT"]), "deactivated"],
+    ["designated but no longer found", NOVAT, accounting([], ["NOVAT"]), "not_found"],
+  ] as const) {
+    it(`foreign-currency designation ${label}: the account stays, the VAT code is missing${state ? `, shown ${state}` : ", null"}`, () => {
+      const result = resolveClassification(line({ currency: "EUR" }), DEFAULTS, designation, snapshot);
+      expect(result?.missing).toEqual(["vatCode"]);
+      expect(result?.account).toMatchObject({ number: "5901", state: "active" });
+      if (state === null) {
+        expect(result?.vatCode).toBeNull();
+        expect(result?.vatCodeIsDefault).toBe(false);
+      } else {
+        expect(result?.vatCode).toMatchObject({ code: "NOVAT", state });
+        expect(result?.vatCodeIsDefault).toBe(true);
+      }
+    });
+  }
+
+  it("reactivated, the same default is back with no further step (AC-1.9, AC-1.10)", () => {
+    expect(resolveClassification(line(), DEFAULTS, null, accounting(["5901"]))?.missing).toEqual(["account"]);
+    expect(resolveClassification(line(), DEFAULTS, null, accounting())?.missing).toEqual([]);
+  });
+
+  it("both halves unusable -> both missing, account first", () => {
+    expect(resolveClassification(line(), DEFAULTS, null, accounting(["5901", "IMP81"]))?.missing).toEqual(["account", "vatCode"]);
   });
 });
 
-describe("stored values are kept, exactly as stored (AC-1.3, AC-1.6, AC-3.3, AC-3.5)", () => {
-  it("an override on an INACTIVE account is kept, returned with active:false, and not missing", () => {
-    const retired = account("5999", false);
+describe("types with no default, and no default of a half (AC-6.3)", () => {
+  it("a type with no entry at all has nothing: both null, both missing", () => {
+    const result = resolveClassification(line({ type: "stationery" }), DEFAULTS, NOVAT, LIVE);
+    expect(result).toMatchObject({ account: null, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false, missing: ["account", "vatCode"] });
+  });
+
+  it("a type with no default account is missing the account only", () => {
+    const result = resolveClassification(line({ type: "representation_gifts" }), DEFAULTS, null, LIVE);
+    expect(result?.missing).toEqual(["account"]);
+    expect(result?.vatCode?.code).toBe("IMP81");
+  });
+
+  it("a type with no default VAT code is missing the VAT code on a CHF line only", () => {
+    expect(resolveClassification(line({ type: "company_manuals" }), DEFAULTS, NOVAT, LIVE)?.missing).toEqual(["vatCode"]);
+    expect(resolveClassification(line({ type: "company_manuals", currency: "USD" }), DEFAULTS, NOVAT, LIVE)?.missing).toEqual([]);
+  });
+
+  it("an empty defaults table: everything is missing, no throw", () => {
+    expect(resolveClassification(line(), {}, null, LIVE)?.missing).toEqual(["account", "vatCode"]);
+  });
+});
+
+describe("stored copies are kept, exactly as stored (AC-5.3, AC-5.7, AC-1.4 of 20261118)", () => {
+  it("a copy on a deactivated account is kept, bookable, shown with state deactivated, and not missing", () => {
     const result = resolveClassification(
-      line({ ledgerAccount: retired, ledgerAccountIsDefault: false }),
+      line({ account: account("5901", "Treno (old name)"), accountIsDefault: false }),
       DEFAULTS,
-      NOVAT,
+      null,
+      accounting(["5901"]),
     );
-    expect(result?.account).toBe(retired);
-    expect(result?.account?.active).toBe(false);
+    expect(result?.account).toEqual({ number: "5901", name: "Treno (old name)", state: "deactivated" });
     expect(result?.accountIsDefault).toBe(false);
+    expect(result?.bookable.account).toEqual({ number: "5901", name: "Treno (old name)" });
     expect(result?.missing).toEqual([]);
   });
 
-  it("an override on an INACTIVE VAT code is kept, active:false, not missing", () => {
-    const retired = vat("OLD", 800, false);
-    const result = resolveClassification(line({ vatCode: retired, vatCodeIsDefault: false }), DEFAULTS, NOVAT);
-    expect(result?.vatCode).toBe(retired);
-    expect(result?.vatCode?.active).toBe(false);
-    expect(result?.missing).toEqual([]);
-  });
-
-  it("an override wins over the default and is not marked default", () => {
+  it("a copy on a VAT code that vanished: kept, not_found, label unknown, not missing", () => {
     const result = resolveClassification(
-      line({ ledgerAccount: ACC_OTHER, ledgerAccountIsDefault: false, vatCode: IMP77, vatCodeIsDefault: false }),
+      line({ vatCode: { code: "IMP81", rateBasisPoints: 810 }, vatCodeIsDefault: false }),
       DEFAULTS,
-      NOVAT,
+      null,
+      accounting([], ["IMP81"]),
     );
-    expect(result).toEqual({
-      account: ACC_OTHER,
+    expect(result?.vatCode).toEqual({ code: "IMP81", rateBasisPoints: 810, label: null, state: "not_found" });
+    expect(result?.missing).toEqual([]);
+  });
+
+  it("a copy is shown as stored even if Accounting now holds another name or rate for that key", () => {
+    const reentered = referenceSnapshot({
+      entity: "welld_ch",
+      ownCurrency: "CHF",
+      ledgerAccounts: [{ number: "5901", name: "Something else", active: true }],
+      vatCodes: [{ code: "IMP81", label: "IVA", rateBasisPoints: 770, active: true }],
+    });
+    const result = resolveClassification(
+      line({ account: account("5901", "Treno"), accountIsDefault: false, vatCode: { code: "IMP81", rateBasisPoints: 810 }, vatCodeIsDefault: false }),
+      DEFAULTS,
+      null,
+      reentered,
+    );
+    expect(result?.account).toMatchObject({ name: "Treno", state: "active" });
+    expect(result?.vatCode).toMatchObject({ rateBasisPoints: 810, state: "active" });
+    expect(result?.bookable).toEqual({ account: account("5901", "Treno"), vatCode: { code: "IMP81", rateBasisPoints: 810 } });
+  });
+
+  it("a copy wins over the default and is not marked default; an unreadable Accounting leaves it bookable, state unverified", () => {
+    const result = resolveClassification(
+      line({ account: ACC_OTHER, accountIsDefault: false, vatCode: { code: "NOVAT", rateBasisPoints: 0 }, vatCodeIsDefault: false }),
+      DEFAULTS,
+      null,
+      UNVERIFIED_SNAPSHOT,
+    );
+    expect(result).toMatchObject({
+      account: { number: "6101", state: "unverified" },
       accountIsDefault: false,
-      vatCode: IMP77,
+      vatCode: { code: "NOVAT", label: null, state: "unverified" },
       vatCodeIsDefault: false,
       missing: [],
     });
   });
 
-  it("an override on one half leaves the other half following the live default", () => {
-    const result = resolveClassification(
-      line({ ledgerAccount: ACC_OTHER, ledgerAccountIsDefault: false }),
-      DEFAULTS,
-      NOVAT,
-    );
-    expect(result?.account).toBe(ACC_OTHER);
+  it("a copy on one half leaves the other half following the live default", () => {
+    const result = resolveClassification(line({ account: ACC_OTHER, accountIsDefault: false }), DEFAULTS, null, LIVE);
+    expect(result?.account).toMatchObject({ number: "6101" });
     expect(result?.accountIsDefault).toBe(false);
-    expect(result?.vatCode).toBe(IMP81);
+    expect(result?.vatCode?.code).toBe("IMP81");
     expect(result?.vatCodeIsDefault).toBe(true);
   });
 
-  it("an override fills a gap: a type with no default plus a chosen account/VAT code is complete", () => {
+  it("a copy fills a gap: a type with no default plus a chosen account and VAT code is complete", () => {
     const result = resolveClassification(
-      line({ type: "telephone", ledgerAccount: ACC_OTHER, ledgerAccountIsDefault: false, vatCode: IMP81, vatCodeIsDefault: false }),
+      line({ type: "stationery", account: ACC_OTHER, accountIsDefault: false, vatCode: { code: "IMP77", rateBasisPoints: 770 }, vatCodeIsDefault: false }),
       DEFAULTS,
       null,
+      LIVE,
     );
     expect(result?.missing).toEqual([]);
   });
 
-  it("a FROZEN classification keeps its is-default flags and ignores later changes to the defaults (AC-3.5, AC-2.3)", () => {
-    const frozen = line({
-      currency: "EUR",
-      ledgerAccount: ACC_TRAIN,
-      ledgerAccountIsDefault: true,
-      vatCode: NOVAT,
-      vatCodeIsDefault: true,
-    });
-    // The defaults changed, the designation was cleared: the line does not care.
-    const changedDefaults: TypeDefaultsByType = { travel_train: { account: ACC_OTHER, vatCode: IMP77 } };
-    const result = resolveClassification(frozen, changedDefaults, null);
-    expect(result).toEqual({
-      account: ACC_TRAIN,
-      accountIsDefault: true,
-      vatCode: NOVAT,
-      vatCodeIsDefault: true,
-      missing: [],
-    });
+  it("an approved line (no defaults passed) never follows a default again, and a half left unset stays missing", () => {
+    const booked = line({ account: ACC_TRAIN, accountIsDefault: true });
+    const result = resolveClassification(booked, {}, null, LIVE);
+    expect(result?.account).toMatchObject({ number: "5901" });
+    expect(result?.accountIsDefault).toBe(true);
+    expect(result?.vatCode).toBeNull();
+    expect(result?.missing).toEqual(["vatCode"]);
   });
 
-  it("a stored value whose flag is null counts as set by hand", () => {
-    const result = resolveClassification(line({ ledgerAccount: ACC_OTHER }), DEFAULTS, null);
+  it("a stored copy whose flag is null counts as set by hand", () => {
+    const result = resolveClassification(line({ account: ACC_OTHER, accountIsDefault: null }), DEFAULTS, null, LIVE);
     expect(result?.accountIsDefault).toBe(false);
   });
 });
 
-describe("no classification at all (AC-3.9)", () => {
-  it("a WellD Italia line -> null, in every currency, with or without stored values", () => {
+describe("no classification at all (AC-4.9)", () => {
+  it("a WellD Italia line -> null, in every currency, with or without stored copies", () => {
     for (const currency of ["CHF", "EUR", "USD", "GBP"] as const) {
-      expect(resolveClassification(line({ entity: "welld_it", currency }), DEFAULTS, NOVAT)).toBeNull();
+      expect(resolveClassification(line({ entity: "welld_it", currency }), DEFAULTS, NOVAT, LIVE)).toBeNull();
     }
-    expect(
-      resolveClassification(line({ entity: "welld_it", ledgerAccount: ACC_TRAIN, vatCode: IMP81 }), DEFAULTS, NOVAT),
-    ).toBeNull();
+    expect(resolveClassification(line({ entity: "welld_it", account: ACC_TRAIN }), DEFAULTS, NOVAT, LIVE)).toBeNull();
   });
 
-  it("a rejected WellD CH line -> null, even if it carries a stored classification", () => {
-    expect(resolveClassification(line({ rejected: true }), DEFAULTS, NOVAT)).toBeNull();
-    expect(
-      resolveClassification(
-        line({ rejected: true, ledgerAccount: ACC_TRAIN, ledgerAccountIsDefault: true, vatCode: IMP81, vatCodeIsDefault: true }),
-        DEFAULTS,
-        NOVAT,
-      ),
-    ).toBeNull();
-  });
-
-  it("a rejected WellD Italia line -> null", () => {
-    expect(resolveClassification(line({ entity: "welld_it", rejected: true }), DEFAULTS, NOVAT)).toBeNull();
+  it("a rejected WellD CH line -> null, even if it carries a stored copy", () => {
+    expect(resolveClassification(line({ rejected: true }), DEFAULTS, NOVAT, LIVE)).toBeNull();
+    expect(resolveClassification(line({ rejected: true, account: ACC_TRAIN, accountIsDefault: false }), DEFAULTS, NOVAT, LIVE)).toBeNull();
   });
 });
 
 describe("structural guarantees", () => {
-  it("`missing` is exactly the null halves, whatever the inputs", () => {
-    const accounts: (AccountRef | null)[] = [null, ACC_TRAIN, account("5901", false)];
-    const vats: (VatCodeRef | null)[] = [null, IMP81, vat("IMP81", 810, false)];
-    for (const storedAccount of accounts) {
-      for (const storedVat of vats) {
-        for (const defAccount of accounts) {
-          for (const defVat of vats) {
-            for (const designation of vats) {
-              for (const currency of ["CHF", "EUR"] as const) {
-                const result = resolveClassification(
-                  line({ currency, ledgerAccount: storedAccount, vatCode: storedVat }),
-                  { travel_train: { account: defAccount, vatCode: defVat } },
-                  designation,
-                );
-                expect(result).not.toBeNull();
-                const expected: MissingPart[] = [
-                  ...(result!.account === null ? (["account"] as const) : []),
-                  ...(result!.vatCode === null ? (["vatCode"] as const) : []),
-                ];
-                expect(result!.missing).toEqual(expected);
-                // A default is only ever an active entry; a stored value is whatever is stored.
-                if (storedAccount === null && result!.account !== null) expect(result!.account.active).toBe(true);
-                if (storedVat === null && result!.vatCode !== null) expect(result!.vatCode.active).toBe(true);
-                // A null half is never marked default.
-                if (result!.account === null) expect(result!.accountIsDefault).toBe(false);
-                if (result!.vatCode === null) expect(result!.vatCodeIsDefault).toBe(false);
-              }
+  it("`missing` is exactly the halves with nothing bookable, whatever the inputs", () => {
+    const snapshots = [LIVE, accounting(["5901", "IMP81"]), accounting([], ["5901", "IMP81", "NOVAT"]), UNVERIFIED_SNAPSHOT];
+    const stored = [
+      {},
+      { account: ACC_OTHER, accountIsDefault: false },
+      { vatCode: { code: "IMP77", rateBasisPoints: 770 }, vatCodeIsDefault: false },
+    ] as Partial<ClassifiableLine>[];
+    for (const snapshot of snapshots) {
+      for (const over of stored) {
+        for (const currency of ["CHF", "EUR"] as const) {
+          for (const type of ["travel_train", "stationery", "company_manuals"] as const) {
+            for (const designation of [null, NOVAT]) {
+              const result = resolveClassification(line({ ...over, currency, type }), DEFAULTS, designation, snapshot)!;
+              const expected = [result.bookable.account === null ? "account" : null, result.bookable.vatCode === null ? "vatCode" : null].filter(Boolean);
+              expect(result.missing).toEqual(expected as never);
+              // a bookable half is always shown; an unshown half is never bookable
+              if (result.account === null) expect(result.bookable.account).toBeNull();
+              if (result.vatCode === null) expect(result.bookable.vatCode).toBeNull();
             }
           }
         }
@@ -361,10 +357,102 @@ describe("structural guarantees", () => {
   });
 
   it("does not mutate its inputs", () => {
-    const l = line({ currency: "EUR" });
-    const d = structuredClone(DEFAULTS);
-    const before = JSON.stringify([l, d]);
-    resolveClassification(l, d, NOVAT);
-    expect(JSON.stringify([l, d])).toBe(before);
+    const l = line({ account: ACC_OTHER, accountIsDefault: false });
+    const before = JSON.stringify([l, DEFAULTS, NOVAT]);
+    resolveClassification(l, DEFAULTS, NOVAT, LIVE);
+    expect(JSON.stringify([l, DEFAULTS, NOVAT])).toBe(before);
+  });
+});
+
+describe("classifiableInput reads the copy columns, never the old foreign keys", () => {
+  const row = {
+    entity: "welld_ch" as Entity,
+    currency: "EUR" as Currency,
+    type: "postal" as ExpenseType,
+    rejectionReason: null,
+    accountNumber: "6104",
+    accountName: "Porto",
+    vatCodeCopy: "IMP81",
+    vatRateBasisPoints: 810,
+    ledgerAccountIsDefault: false,
+    vatCodeIsDefault: true,
+  };
+
+  it("maps the copies", () => {
+    expect(classifiableInput(row)).toEqual({
+      entity: "welld_ch",
+      currency: "EUR",
+      type: "postal",
+      rejected: false,
+      account: { number: "6104", name: "Porto" },
+      accountIsDefault: false,
+      vatCode: { code: "IMP81", rateBasisPoints: 810 },
+      vatCodeIsDefault: true,
+    });
+  });
+
+  it("a half with no copy is null; a rejection reason makes the line rejected", () => {
+    const empty = classifiableInput({ ...row, accountNumber: null, accountName: null, vatCodeCopy: null, vatRateBasisPoints: null, rejectionReason: "no receipt" });
+    expect(empty.account).toBeNull();
+    expect(empty.vatCode).toBeNull();
+    expect(empty.rejected).toBe(true);
+  });
+
+  it("the old foreign-key fields of a row are ignored", () => {
+    const withFk = { ...row, ledgerAccountId: "old-id", vatCodeId: "old-vat", ledgerAccount: { id: "x", number: "9999", name: "old" } };
+    expect(classifiableInput(withFk).account).toEqual({ number: "6104", name: "Porto" });
+  });
+});
+
+describe("display formats", () => {
+  it("basis points as a percentage", () => {
+    expect([810, 770, 805, 0, 10000].map(basisPointsToPercent)).toEqual(["8.1", "7.7", "8.05", "0", "100"]);
+    expect(() => basisPointsToPercent(-1)).toThrow(RangeError);
+  });
+  it("a rate has four to six decimals", () => {
+    expect([924600, 1_063_500, 780_800, 1_234_567, 5].map(formatRate)).toEqual(["0.9246", "1.0635", "0.7808", "1.234567", "0.000005"]);
+  });
+});
+
+describe("audit detail v2 and its readers (D34, AC-5.1, AC-5.2)", () => {
+  const v2 = {
+    v: 2,
+    cause: "approval",
+    account: { from: null, to: { number: "5901", name: "Treno" }, fromDefault: true, toDefault: true },
+    vatCode: { from: null, to: { code: "IMP81", rateBasisPoints: 810 }, fromDefault: true, toDefault: true },
+    fxRate: { rateMicros: 924600, month: "2026-03" },
+  };
+
+  it("reads a v2 row as it is, with its fx rate or its pending marker", () => {
+    expect(readClassifiedDetail(v2)).toEqual({
+      v: 2,
+      cause: "approval",
+      account: { from: null, to: { number: "5901", name: "Treno" }, fromDefault: true, toDefault: true },
+      vatCode: { from: null, to: { code: "IMP81", rateBasisPoints: 810 }, fromDefault: true, toDefault: true },
+      fxRate: { rateMicros: 924600, month: "2026-03" },
+    });
+    expect(readClassifiedDetail({ ...v2, fxRate: "pending" })?.fxRate).toBe("pending");
+    const { fxRate: _omitted, ...withoutFx } = v2;
+    expect(readClassifiedDetail(withoutFx)).not.toHaveProperty("fxRate");
+  });
+
+  it("accepts a v1 row of 20261118 (ids, no name, no version): the number is kept, the name is unknown", () => {
+    const v1 = {
+      cause: "review",
+      account: { from: { id: "x", number: "5901" }, to: { id: "y", number: "6101" }, fromDefault: true, toDefault: false },
+      vatCode: { from: { id: "v", code: "IMP81", rateBasisPoints: 810 }, to: { id: "v", code: "IMP81", rateBasisPoints: 810 }, fromDefault: true, toDefault: true },
+    };
+    expect(readClassifiedDetail(v1)).toEqual({
+      v: 1,
+      cause: "review",
+      account: { from: { number: "5901", name: null }, to: { number: "6101", name: null }, fromDefault: true, toDefault: false },
+      vatCode: { from: { code: "IMP81", rateBasisPoints: 810 }, to: { code: "IMP81", rateBasisPoints: 810 }, fromDefault: true, toDefault: true },
+    });
+  });
+
+  it("is null, never a throw, for anything that is not a classification detail", () => {
+    for (const bad of [null, undefined, 3, "x", [], {}, { cause: "review" }, { cause: 1, account: {}, vatCode: {} }]) {
+      expect(readClassifiedDetail(bad)).toBeNull();
+    }
   });
 });

@@ -1,48 +1,45 @@
 /**
- * Data access for the default classification of WellD CH (T7, specs/20261118-
- * refund-accounting-export; AC-1.9, AC-1.10, AC-2.1, AC-2.2, AC-2.4 to AC-2.8;
- * ADR 20260722-refund-settings-append-only-self-auditing-store, plan "Foreign-
- * currency VAT code rules").
+ * Data access for the default classification of WellD CH (T7, specs/20261118-refund-accounting-export; reworked by T18,
+ * specs/20261119-accounting; AC-4.4, AC-4.5, AC-4.7, AC-6.9, AC-3.7; ADR 20260722-refund-settings-append-only-self-
+ * auditing-store, ADR 20261119-accounting-reference-data-belongs-to-accounting-api-...).
  *
- * Two append-only stores, one derivation rule: the CURRENT value is the LATEST
- * row, and no row is ever updated.
- * - `expense_type_default`: one row per change of an expense type's default
- *   account and VAT code (`null` = no default for that half).
- * - the `refund_setting` key {@link FOREIGN_CURRENCY_VAT_CODE_KEY}: one row per
- *   designation of the VAT code applied to every non-CHF line. The key is NOT in
- *   the generic `/settings/{key}` registry, so this module is its only writer
- *   apart from the release script's seed (`system:accounting-seed`).
+ * Two append-only tables of COPIES, one derivation rule: the CURRENT value is the LATEST row, and no row is ever
+ * updated or deleted (triggers, T16).
+ * - `expense_type_accounting_default`: one row per change of an expense type's default account (number, name) and VAT
+ *   code (code, label, rate); `null` = no default for that half.
+ * - `foreign_currency_vat_designation`: one row per designation of the VAT code applied to every non-CHF line;
+ *   all-null = cleared.
  *
- * Only an ACTIVE catalog entry can be chosen (AC-2.4, AC-2.6); an entry
- * deactivated afterwards stays recorded and simply counts as "no default" when
- * a line is resolved (`classification.ts`, G3, AC-2.7), and comes back by itself
- * on reactivation (AC-1.9, AC-1.10).
+ * What a row holds is what the entry was when it was chosen, so the history reads the same whatever happens in Accounting
+ * afterwards (AC-4.7). Accounting's present state of an entry (`active`, `deactivated`, `not_found`, `unverified`) is
+ * added ON TOP at read time, from a snapshot the caller read (never from here); a default that is not `active` counts as
+ * no default for a new classification (`classification.ts`, AC-4.5, SA-3) and comes back by itself on reactivation.
  *
- * `loadDefaultsSnapshot(tx)` is the one read the approval freeze, the release
- * script, the accounting view and the export all resolve a line against.
+ * A write is validated against that snapshot: only an ACTIVE WellD CH entry can be chosen (AC-4.4). Entries are keyed by
+ * their natural key, so a number that exists only for WellD Italia is simply "not found" (AC-4.3).
  *
- * Writes lock the (entity, type) or the key with a transaction-scoped advisory
- * lock and stamp each new row strictly after the previous one, so "latest" is
- * the latest decision however the clocks of two requests compare. A same-value
- * write is suppressed (no row).
+ * Writes lock the (entity, type) or the designation with a transaction-scoped advisory lock and stamp each new row
+ * strictly after the previous one, so "latest" is the latest decision however the clocks of two requests compare. A write
+ * of what is already current (same natural keys and same copied values) is suppressed: no row.
  */
 
+import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { ExpenseType } from "../lib/generated/prisma/enums";
-import { db } from "../lib/db";
-import { basisPointsToPercent, CATALOG_ENTITY, isActiveFromStatus, loadActiveFlags, type Actor } from "./catalog.repo";
-import type { AccountRef, TypeDefaults, TypeDefaultsByType, VatCodeRef } from "./classification";
-import type {
-  DefaultsResponse,
-  ForeignCurrencyVatCodeState,
-  TypeDefaultRow,
-} from "./defaults.schemas";
-import type { DefaultsSnapshot } from "./numbering.repo";
+import { basisPointsToPercent, type RecordedDefaults, type RecordedVat, type TypeDefaultsByType } from "./classification";
+import type { ReferenceSnapshot, ReferenceState } from "./referenceSnapshot";
+import type { DefaultsResponse, ForeignCurrencyVatCodeState, TypeDefaultRow } from "./defaults.schemas";
 
 type Client = Prisma.TransactionClient;
 
-/** The `refund_setting` key holding the foreign-currency VAT code designation (a VAT code id, or `null` when cleared). */
-export const FOREIGN_CURRENCY_VAT_CODE_KEY = "accounting.welld_ch.foreign-currency-vat-code";
+/** The one entity Accounting's reference data is kept for in Refund (D19 of 20261119: WellD Italia has none). */
+export const DEFAULTS_ENTITY = "welld_ch" as const;
+
+/** The actor of a write: always from the verified JWT. */
+export interface Actor {
+  readonly userId: string;
+  readonly email: string;
+}
 
 /** The twelve expense types, in enum order. */
 export const EXPENSE_TYPES: readonly ExpenseType[] = Object.values(ExpenseType);
@@ -52,147 +49,144 @@ export const isExpenseType = (value: string): value is ExpenseType =>
 
 // ─── Reading ─────────────────────────────────────────────────────────────────
 
-interface AccountInfo { id: string; number: string; name: string }
-interface VatInfo { id: string; code: string; label: string; rateBasisPoints: number }
-
 const compareRows = (a: { createdAt: Date; id: string }, b: { createdAt: Date; id: string }) =>
   a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-async function loadAccounts(client: Client, ids: readonly string[]): Promise<Map<string, AccountRef>> {
-  const unique = [...new Set(ids)];
-  if (unique.length === 0) return new Map();
-  const rows = await client.ledgerAccount.findMany({ where: { id: { in: unique } }, select: { id: true, number: true, name: true } });
-  const flags = await loadActiveFlags(client, "ledger_account", unique);
-  return new Map(rows.map((r: AccountInfo) => [r.id, { ...r, active: flags.get(r.id) ?? true }]));
-}
-
-async function loadVatCodes(client: Client, ids: readonly string[]): Promise<Map<string, VatCodeRef>> {
-  const unique = [...new Set(ids)];
-  if (unique.length === 0) return new Map();
-  const rows = await client.vatCode.findMany({
-    where: { id: { in: unique } },
-    select: { id: true, code: true, label: true, rateBasisPoints: true },
-  });
-  const flags = await loadActiveFlags(client, "vat_code", unique);
-  return new Map(rows.map((r: VatInfo) => [r.id, { ...r, active: flags.get(r.id) ?? true }]));
-}
-
-/** The designation rows, oldest first. */
-async function designationRows(client: Client) {
-  const rows = await client.refundSetting.findMany({
-    where: { key: FOREIGN_CURRENCY_VAT_CODE_KEY },
-    select: { id: true, value: true, createdAt: true, createdByEmail: true },
-  });
-  return rows.sort(compareRows);
-}
-
-/** The latest default row of each type, folded from the full history (oldest first). */
+/** The full history of the type defaults, oldest first. */
 async function typeRows(client: Client) {
-  const rows = await client.expenseTypeDefault.findMany({ where: { entity: CATALOG_ENTITY } });
+  const rows = await client.expenseTypeAccountingDefault.findMany({ where: { entity: DEFAULTS_ENTITY } });
   return rows.sort(compareRows);
 }
+
+/** The designation history, oldest first. */
+async function designationRows(client: Client) {
+  const rows = await client.foreignCurrencyVatDesignation.findMany({ where: { entity: DEFAULTS_ENTITY } });
+  return rows.sort(compareRows);
+}
+
+interface VatCopyColumns {
+  readonly vatCode: string | null;
+  readonly vatLabel: string | null;
+  readonly vatRateBasisPoints: number | null;
+}
+interface AccountCopyColumns {
+  readonly accountNumber: string | null;
+  readonly accountName: string | null;
+}
+
+const recordedVat = (row: VatCopyColumns): RecordedVat | null =>
+  row.vatCode !== null && row.vatLabel !== null && row.vatRateBasisPoints !== null
+    ? { code: row.vatCode, label: row.vatLabel, rateBasisPoints: row.vatRateBasisPoints }
+    : null;
+
+const recordedAccount = (row: AccountCopyColumns) =>
+  row.accountNumber !== null && row.accountName !== null ? { number: row.accountNumber, name: row.accountName } : null;
 
 /**
- * The defaults a line is resolved against: the type defaults and the
- * foreign-currency VAT code, each with its current `active` flag. A default or a
- * designation that points at an inactive entry is returned AS IS (with
- * `active: false`); it is `resolveClassification` that treats it as "none".
+ * The defaults a line is resolved against: the latest recorded copy of each type and of the designation. They are
+ * returned AS RECORDED; whether an entry is still usable is the resolver's question, against a snapshot.
  */
-export async function loadDefaultsSnapshot(client: Client = db): Promise<DefaultsSnapshot> {
+export async function loadRecordedDefaults(client: Client = db): Promise<RecordedDefaults> {
   const rows = await typeRows(client);
-  const designations = await designationRows(client);
   const latestByType = new Map<ExpenseType, (typeof rows)[number]>();
   for (const row of rows) latestByType.set(row.type, row);
-  const designatedId = designations.length > 0 ? designations[designations.length - 1]!.value : null;
+  const designations = await designationRows(client);
+  const latestDesignation = designations[designations.length - 1];
 
-  const accounts = await loadAccounts(client, [...latestByType.values()].flatMap((r) => (r.ledgerAccountId ? [r.ledgerAccountId] : [])));
-  const vats = await loadVatCodes(client, [
-    ...[...latestByType.values()].flatMap((r) => (r.vatCodeId ? [r.vatCodeId] : [])),
-    ...(designatedId ? [designatedId] : []),
-  ]);
-
-  const defaults: Partial<Record<ExpenseType, TypeDefaults>> = {};
-  for (const [type, row] of latestByType) {
-    defaults[type] = {
-      account: row.ledgerAccountId ? (accounts.get(row.ledgerAccountId) ?? null) : null,
-      vatCode: row.vatCodeId ? (vats.get(row.vatCodeId) ?? null) : null,
-    };
-  }
-  const defaultsByType: TypeDefaultsByType = defaults;
-  return { defaults: defaultsByType, foreignCurrencyVatCode: designatedId ? (vats.get(designatedId) ?? null) : null };
+  const defaults: Partial<Record<ExpenseType, { account: { number: string; name: string } | null; vatCode: RecordedVat | null }>> = {};
+  for (const [type, row] of latestByType) defaults[type] = { account: recordedAccount(row), vatCode: recordedVat(row) };
+  const byType: TypeDefaultsByType = defaults;
+  return { defaults: byType, foreignCurrencyVatCode: latestDesignation ? recordedVat(latestDesignation) : null };
 }
 
-const vatView = (v: VatCodeRef) => ({
-  id: v.id,
-  code: v.code,
-  label: v.label,
-  ratePercent: basisPointsToPercent(v.rateBasisPoints),
-  active: v.active,
-});
+const stateOfAccount = (snapshot: ReferenceSnapshot, number: string): ReferenceState => snapshot.lookupAccount(number).state;
+const stateOfVat = (snapshot: ReferenceSnapshot, code: string): ReferenceState => snapshot.lookupVat(code).state;
 
-/** The foreign-currency VAT code state: the designation, whether it is usable, and its history (AC-2.5, AC-2.7). */
-export async function loadForeignCurrencyVatCodeState(client: Client = db): Promise<ForeignCurrencyVatCodeState> {
-  const rows = await designationRows(client);
-  const vats = await loadVatCodes(client, rows.flatMap((r) => (r.value ? [r.value] : [])));
-  const currentId = rows.length > 0 ? rows[rows.length - 1]!.value : null;
-  const current = currentId ? (vats.get(currentId) ?? null) : null;
+const historyVat = (v: RecordedVat) => ({ code: v.code, label: v.label, ratePercent: basisPointsToPercent(v.rateBasisPoints) });
+
+function foreignCurrencyState(
+  rows: Awaited<ReturnType<typeof designationRows>>,
+  snapshot: ReferenceSnapshot,
+): ForeignCurrencyVatCodeState {
+  const current = rows.length > 0 ? recordedVat(rows[rows.length - 1]!) : null;
+  const state = current ? stateOfVat(snapshot, current.code) : null;
   return {
-    foreignCurrencyVatCode: current ? vatView(current) : null,
-    foreignCurrencyVatCodeUsable: current !== null && current.active,
-    foreignCurrencyVatCodeHistory: rows.map((row) => ({
-      vatCode: row.value ? { id: row.value, code: vats.get(row.value)?.code ?? null } : null,
-      at: row.createdAt.toISOString(),
-      byEmail: row.createdByEmail,
-    })),
+    foreignCurrencyVatCode: current
+      ? { code: current.code, label: current.label, ratePercent: basisPointsToPercent(current.rateBasisPoints), state: state! }
+      : null,
+    foreignCurrencyVatCodeUsable: state === "active",
+    foreignCurrencyVatCodeHistory: rows.map((row) => {
+      const vat = recordedVat(row);
+      return { vatCode: vat ? historyVat(vat) : null, at: row.createdAt.toISOString(), byEmail: row.createdByEmail };
+    }),
   };
 }
 
-/** Everything `GET /accounting/expense-type-defaults` returns: always the twelve types, `null` where unset. */
-export async function loadDefaultsView(client: Client = db): Promise<DefaultsResponse> {
-  const rows = await typeRows(client);
-  const accounts = await loadAccounts(client, rows.flatMap((r) => (r.ledgerAccountId ? [r.ledgerAccountId] : [])));
-  const vats = await loadVatCodes(client, rows.flatMap((r) => (r.vatCodeId ? [r.vatCodeId] : [])));
+/** The foreign-currency VAT code state: the designation as recorded, its state, whether it is usable, its history. */
+export async function loadForeignCurrencyVatCodeState(
+  snapshot: ReferenceSnapshot,
+  client: Client = db,
+): Promise<ForeignCurrencyVatCodeState> {
+  return foreignCurrencyState(await designationRows(client), snapshot);
+}
 
-  const types: TypeDefaultRow[] = EXPENSE_TYPES.map((type) => {
+function buildTypeRows(rows: Awaited<ReturnType<typeof typeRows>>, snapshot: ReferenceSnapshot): TypeDefaultRow[] {
+  return EXPENSE_TYPES.map((type) => {
     const own = rows.filter((r) => r.type === type);
     const latest = own[own.length - 1];
-    const accountOf = (id: string | null) => (id ? (accounts.get(id) ?? null) : null);
-    const vatOf = (id: string | null) => (id ? (vats.get(id) ?? null) : null);
-    const account = accountOf(latest?.ledgerAccountId ?? null);
-    const vatCode = vatOf(latest?.vatCodeId ?? null);
+    const account = latest ? recordedAccount(latest) : null;
+    const vat = latest ? recordedVat(latest) : null;
     return {
       type,
-      account: account && { id: account.id, number: account.number, name: account.name, active: account.active },
-      vatCode: vatCode && vatView(vatCode),
+      account: account && { ...account, state: stateOfAccount(snapshot, account.number) },
+      vatCode: vat && {
+        code: vat.code,
+        label: vat.label,
+        ratePercent: basisPointsToPercent(vat.rateBasisPoints),
+        state: stateOfVat(snapshot, vat.code),
+      },
       updatedAt: latest ? latest.createdAt.toISOString() : null,
       updatedByEmail: latest ? latest.createdByEmail : null,
       history: own.map((row) => {
-        const a = accountOf(row.ledgerAccountId);
-        const v = vatOf(row.vatCodeId);
+        const rowAccount = recordedAccount(row);
+        const rowVat = recordedVat(row);
         return {
-          account: a && { id: a.id, number: a.number, name: a.name },
-          vatCode: v && { id: v.id, code: v.code, label: v.label, ratePercent: basisPointsToPercent(v.rateBasisPoints) },
+          account: rowAccount,
+          vatCode: rowVat && historyVat(rowVat),
           at: row.createdAt.toISOString(),
           byEmail: row.createdByEmail,
         };
       }),
     };
   });
-  return { entity: "welld_ch", ...(await loadForeignCurrencyVatCodeState(client)), types };
+}
+
+/**
+ * Everything `GET /accounting/expense-type-defaults` returns: always the twelve types, `null` where unset, each with
+ * Accounting's present state of its entries. `snapshot` is `UNVERIFIED_SNAPSHOT` when Accounting could not be read, and
+ * `accounting` says so (AC-6.9): the values are then exactly as recorded.
+ */
+export async function loadDefaultsView(snapshot: ReferenceSnapshot, client: Client = db): Promise<DefaultsResponse> {
+  const rows = await typeRows(client);
+  return {
+    entity: DEFAULTS_ENTITY,
+    accounting: snapshot.available ? "available" : "unavailable",
+    ...foreignCurrencyState(await designationRows(client), snapshot),
+    types: buildTypeRows(rows, snapshot),
+  };
 }
 
 /** One type's row, as `loadDefaultsView` shows it. */
-export async function loadTypeRow(client: Client, type: ExpenseType): Promise<TypeDefaultRow> {
-  const view = await loadDefaultsView(client);
-  return view.types.find((row) => row.type === type)!;
+async function loadTypeRow(client: Client, type: ExpenseType, snapshot: ReferenceSnapshot): Promise<TypeDefaultRow> {
+  return buildTypeRows(await typeRows(client), snapshot).find((row) => row.type === type)!;
 }
 
 // ─── Writing ─────────────────────────────────────────────────────────────────
 
 export type RefusalCode =
-  | "unknown_ledger_account"
+  | "ledger_account_not_found"
   | "ledger_account_inactive"
-  | "unknown_vat_code"
+  | "vat_code_not_found"
   | "vat_code_inactive";
 
 export type WriteOutcome<T> =
@@ -200,22 +194,26 @@ export type WriteOutcome<T> =
   | { readonly kind: "unchanged"; readonly value: T }
   | { readonly kind: "refused"; readonly code: RefusalCode; readonly detail: string };
 
-async function checkAccount(tx: Client, id: string): Promise<{ code: RefusalCode; detail: string } | null> {
-  const found = await tx.ledgerAccount.findFirst({ where: { id, entity: CATALOG_ENTITY }, select: { id: true, number: true } });
-  if (!found) return { code: "unknown_ledger_account", detail: "That ledger account does not exist" };
-  const status = await tx.accountingCatalogStatus.findMany({ where: { ledgerAccountId: id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { active: true } });
-  return isActiveFromStatus(status)
-    ? null
-    : { code: "ledger_account_inactive", detail: `Account ${found.number} is deactivated and cannot be chosen` };
+type Refusal = { code: RefusalCode; detail: string };
+
+/**
+ * The refusals are generic English with no number, code, name or id in them: the person chose the entry and knows
+ * which, and an echo of input is not needed (AC-6.10).
+ */
+export function accountRefusal(snapshot: ReferenceSnapshot, number: string): Refusal | null {
+  const found = snapshot.lookupAccount(number);
+  if (found.state === "active") return null;
+  return found.state === "deactivated"
+    ? { code: "ledger_account_inactive", detail: "That ledger account is deactivated in Accounting and cannot be chosen" }
+    : { code: "ledger_account_not_found", detail: "That ledger account was not found in Accounting for WellD CH" };
 }
 
-async function checkVatCode(tx: Client, id: string): Promise<{ code: RefusalCode; detail: string } | null> {
-  const found = await tx.vatCode.findFirst({ where: { id, entity: CATALOG_ENTITY }, select: { id: true, code: true } });
-  if (!found) return { code: "unknown_vat_code", detail: "That VAT code does not exist" };
-  const status = await tx.accountingCatalogStatus.findMany({ where: { vatCodeId: id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { active: true } });
-  return isActiveFromStatus(status)
-    ? null
-    : { code: "vat_code_inactive", detail: `VAT code ${found.code} is deactivated and cannot be chosen` };
+export function vatRefusal(snapshot: ReferenceSnapshot, code: string): Refusal | null {
+  const found = snapshot.lookupVat(code);
+  if (found.state === "active") return null;
+  return found.state === "deactivated"
+    ? { code: "vat_code_inactive", detail: "That VAT code is deactivated in Accounting and cannot be chosen" }
+    : { code: "vat_code_not_found", detail: "That VAT code was not found in Accounting for WellD CH" };
 }
 
 const strictlyAfter = (previous: Date | undefined): Date => {
@@ -223,67 +221,95 @@ const strictlyAfter = (previous: Date | undefined): Date => {
   return new Date(previous !== undefined && previous.getTime() >= now ? previous.getTime() + 1 : now);
 };
 
-/** Sets the default account and VAT code of one expense type (AC-2.1, AC-2.4). */
+/**
+ * Sets the default account and VAT code of one expense type (AC-4.4, AC-4.7). `snapshot` is Accounting as the route read
+ * it for this operation, and must be available: the route answers 503 before calling this otherwise.
+ */
 export async function setTypeDefault(
   type: ExpenseType,
-  input: { ledgerAccountId: string | null; vatCodeId: string | null },
+  input: { accountNumber: string | null; vatCode: string | null },
   actor: Actor,
+  snapshot: ReferenceSnapshot,
 ): Promise<WriteOutcome<TypeDefaultRow>> {
+  // Validated first, against the live read: nothing is locked while it is decided.
+  if (input.accountNumber !== null) {
+    const refusal = accountRefusal(snapshot, input.accountNumber);
+    if (refusal) return { kind: "refused", ...refusal };
+  }
+  if (input.vatCode !== null) {
+    const refusal = vatRefusal(snapshot, input.vatCode);
+    if (refusal) return { kind: "refused", ...refusal };
+  }
+  // What is copied is Accounting's entry as it is now (the snapshot just read), not the caller's text.
+  const account = input.accountNumber === null ? null : snapshot.lookupAccount(input.accountNumber);
+  const vat = input.vatCode === null ? null : snapshot.lookupVat(input.vatCode);
+  const accountCopy = account && account.state === "active" ? { number: account.number, name: account.name } : null;
+  const vatCopy = vat && vat.state === "active" ? { code: vat.code, label: vat.label, rateBasisPoints: vat.rateBasisPoints } : null;
+
   return db.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`expense-type-default:${CATALOG_ENTITY}:${type}`}))`;
-    if (input.ledgerAccountId !== null) {
-      const refusal = await checkAccount(tx, input.ledgerAccountId);
-      if (refusal) return { kind: "refused", ...refusal } as const;
-    }
-    if (input.vatCodeId !== null) {
-      const refusal = await checkVatCode(tx, input.vatCodeId);
-      if (refusal) return { kind: "refused", ...refusal } as const;
-    }
-    const rows = (await tx.expenseTypeDefault.findMany({ where: { entity: CATALOG_ENTITY, type } })).sort(compareRows);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`expense-type-accounting-default:${DEFAULTS_ENTITY}:${type}`}))`;
+    const rows = (await tx.expenseTypeAccountingDefault.findMany({ where: { entity: DEFAULTS_ENTITY, type } })).sort(compareRows);
     const latest = rows[rows.length - 1];
-    if ((latest?.ledgerAccountId ?? null) === input.ledgerAccountId && (latest?.vatCodeId ?? null) === input.vatCodeId) {
-      return { kind: "unchanged", value: await loadTypeRow(tx, type) } as const;
+    const sameAccount = latest ? sameAccountCopy(recordedAccount(latest), accountCopy) : accountCopy === null;
+    const sameVat = latest ? sameVatCopy(recordedVat(latest), vatCopy) : vatCopy === null;
+    if (sameAccount && sameVat) {
+      return { kind: "unchanged", value: await loadTypeRow(tx, type, snapshot) } as const;
     }
-    await tx.expenseTypeDefault.create({
+    await tx.expenseTypeAccountingDefault.create({
       data: {
-        entity: CATALOG_ENTITY,
+        entity: DEFAULTS_ENTITY,
         type,
-        ledgerAccountId: input.ledgerAccountId,
-        vatCodeId: input.vatCodeId,
+        accountNumber: accountCopy?.number ?? null,
+        accountName: accountCopy?.name ?? null,
+        vatCode: vatCopy?.code ?? null,
+        vatLabel: vatCopy?.label ?? null,
+        vatRateBasisPoints: vatCopy?.rateBasisPoints ?? null,
         createdByUserId: actor.userId,
         createdByEmail: actor.email,
         createdAt: strictlyAfter(latest?.createdAt),
       },
     });
-    return { kind: "recorded", value: await loadTypeRow(tx, type) } as const;
+    return { kind: "recorded", value: await loadTypeRow(tx, type, snapshot) } as const;
   });
 }
 
-/** Designates (or clears, with `null`) the foreign-currency VAT code (AC-2.5, AC-2.6). */
+/** Designates (or clears, with `null`) the foreign-currency VAT code (AC-4.4, AC-4.7). */
 export async function setForeignCurrencyVatCode(
-  vatCodeId: string | null,
+  vatCode: string | null,
   actor: Actor,
+  snapshot: ReferenceSnapshot,
 ): Promise<WriteOutcome<ForeignCurrencyVatCodeState>> {
+  if (vatCode !== null) {
+    const refusal = vatRefusal(snapshot, vatCode);
+    if (refusal) return { kind: "refused", ...refusal };
+  }
+  const vat = vatCode === null ? null : snapshot.lookupVat(vatCode);
+  const vatCopy = vat && vat.state === "active" ? { code: vat.code, label: vat.label, rateBasisPoints: vat.rateBasisPoints } : null;
+
   return db.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${FOREIGN_CURRENCY_VAT_CODE_KEY}))`;
-    if (vatCodeId !== null) {
-      const refusal = await checkVatCode(tx, vatCodeId);
-      if (refusal) return { kind: "refused", ...refusal } as const;
-    }
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`foreign-currency-vat-designation:${DEFAULTS_ENTITY}`}))`;
     const rows = await designationRows(tx);
     const latest = rows[rows.length - 1];
-    if ((latest?.value ?? null) === vatCodeId) {
-      return { kind: "unchanged", value: await loadForeignCurrencyVatCodeState(tx) } as const;
+    if (latest ? sameVatCopy(recordedVat(latest), vatCopy) : vatCopy === null) {
+      return { kind: "unchanged", value: foreignCurrencyState(rows, snapshot) } as const;
     }
-    await tx.refundSetting.create({
+    await tx.foreignCurrencyVatDesignation.create({
       data: {
-        key: FOREIGN_CURRENCY_VAT_CODE_KEY,
-        value: vatCodeId,
+        entity: DEFAULTS_ENTITY,
+        vatCode: vatCopy?.code ?? null,
+        vatLabel: vatCopy?.label ?? null,
+        vatRateBasisPoints: vatCopy?.rateBasisPoints ?? null,
         createdByUserId: actor.userId,
         createdByEmail: actor.email,
         createdAt: strictlyAfter(latest?.createdAt),
       },
     });
-    return { kind: "recorded", value: await loadForeignCurrencyVatCodeState(tx) } as const;
+    return { kind: "recorded", value: await loadForeignCurrencyVatCodeState(snapshot, tx) } as const;
   });
 }
+
+const sameAccountCopy = (a: { number: string; name: string } | null, b: { number: string; name: string } | null) =>
+  a === null || b === null ? a === b : a.number === b.number && a.name === b.name;
+
+const sameVatCopy = (a: RecordedVat | null, b: RecordedVat | null) =>
+  a === null || b === null ? a === b : a.code === b.code && a.label === b.label && a.rateBasisPoints === b.rateBasisPoints;

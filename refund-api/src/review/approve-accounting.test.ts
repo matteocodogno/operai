@@ -45,7 +45,7 @@ await harness.init();
 // @ts-expect-error -- the query suffix is a runtime-only cache-buster
 const { decideRouter } = (await import("./decide.routes?approve-accounting")) as typeof import("./decide.routes");
 const { db } = await import("../lib/db");
-const { setForeignCurrencyVatCode, setTypeDefault } = await import("../accounting/defaults.repo");
+const { FOREIGN_CURRENCY_VAT_CODE_KEY } = await import("../accounting/legacyFk");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { notifyTransport } = await import("../lib/notifyPost");
 
@@ -264,10 +264,11 @@ describe("approve: freeze and numbering", () => {
     const before = await Promise.all(r.lineIds.map(lineOf));
 
     const actor = { userId: "admin", email: "admin@welld.ch" };
-    expect((await setTypeDefault("travel_train", { ledgerAccountId: accountOffice.id, vatCodeId: novat.id }, actor)).kind).toBe("recorded");
-    expect((await setTypeDefault("office_material", { ledgerAccountId: accountTrain.id, vatCodeId: imp81.id }, actor)).kind).toBe("recorded");
-    expect((await setForeignCurrencyVatCode(imp81.id, actor)).kind).toBe("recorded");
-    expect((await setForeignCurrencyVatCode(null, actor)).kind).toBe("recorded");
+    const by = { createdByUserId: actor.userId, createdByEmail: actor.email };
+    await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "travel_train", ledgerAccountId: accountOffice.id, vatCodeId: novat.id, createdAt: new Date(Date.now() + 1000), ...by } });
+    await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "office_material", ledgerAccountId: accountTrain.id, vatCodeId: imp81.id, createdAt: new Date(Date.now() + 1000), ...by } });
+    await db.refundSetting.create({ data: { key: FOREIGN_CURRENCY_VAT_CODE_KEY, value: imp81.id, createdAt: new Date(Date.now() + 1000), ...by } });
+    await db.refundSetting.create({ data: { key: FOREIGN_CURRENCY_VAT_CODE_KEY, value: null, createdAt: new Date(Date.now() + 2000), ...by } });
 
     const after = await Promise.all(r.lineIds.map(lineOf));
     for (const [i, line] of after.entries()) {

@@ -53,7 +53,7 @@ import { db } from "../src/lib/db";
 import type { Prisma } from "../src/lib/generated/prisma/client";
 import { ExpenseType } from "../src/lib/generated/prisma/enums";
 import { CATALOG_ENTITY, loadActiveFlags, percentToBasisPoints } from "../src/accounting/catalog.repo";
-import { FOREIGN_CURRENCY_VAT_CODE_KEY, loadDefaultsSnapshot } from "../src/accounting/defaults.repo";
+import { FOREIGN_CURRENCY_VAT_CODE_KEY, loadDefaultsSnapshotFk } from "../src/accounting/legacyFk";
 import { classifyAndNumber } from "../src/accounting/numbering.repo";
 import { initials } from "../src/accounting/receiptNumber";
 import { isAccountingReleased, RELEASE_MARKER_KEY } from "../src/accounting/release";
@@ -461,7 +461,7 @@ async function backfillLegacyLines(tx: Tx): Promise<{
   const byOwner = new Map<string, typeof requests>();
   for (const request of requests) byOwner.set(request.ownerUserId, [...(byOwner.get(request.ownerUserId) ?? []), request]);
 
-  const snapshot = await loadDefaultsSnapshot(tx);
+  const snapshot = await loadDefaultsSnapshotFk(tx);
   const lines: ReleaseLineReport[] = [];
   for (const ownerUserId of [...byOwner.keys()].sort()) {
     const ownerRequests = byOwner.get(ownerUserId)!;

@@ -593,7 +593,7 @@ describe("PUT classification while submitted (AC-3.3)", () => {
 
   it("approving afterwards freezes the override as chosen (not-default), and audits the approval's own row after the review row", async () => {
     const { classifyAndNumber } = await import("./numbering.repo");
-    const { loadDefaultsSnapshot } = await import("./defaults.repo");
+    const { loadDefaultsSnapshotFk: loadDefaultsSnapshot } = await import("./legacyFk");
     const r = await createRequest([{ type: "travel_train" }]);
     await put(r.id, r.lineIds[0]!, { ledgerAccountId: accountOffice.id });
     const result = await db.$transaction(async (tx) =>

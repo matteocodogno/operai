@@ -48,8 +48,9 @@ export interface ReferenceSnapshot {
   activeVatCodes(): readonly VatEntry[];
 }
 
+/** Numbers compare as numbers first (`2620.1` after `2620`, `599` before `5905`), then as text; codes as text. */
 const byKey = <T>(key: (item: T) => string) => (a: T, b: T) =>
-  key(a).localeCompare(key(b), "en", { numeric: true, sensitivity: "base" }) || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+  Number(key(a)) - Number(key(b)) || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
 
 /** The snapshot of one entity's reference data, as Accounting answered it. */
 export function referenceSnapshot(data: ReferenceDataWire): ReferenceSnapshot {

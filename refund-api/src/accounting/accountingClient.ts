@@ -26,6 +26,7 @@
  */
 
 import { env } from "../lib/env";
+import { referenceSnapshot, type ReferenceSnapshot } from "./referenceSnapshot";
 import { serviceTokens, type ServiceTokenProvider } from "../lib/serviceToken";
 import {
   ratesWire,
@@ -356,4 +357,18 @@ export function accountingUnavailableProblem(path: string) {
     instance: path,
     code: "accounting_unavailable" as const,
   };
+}
+
+/**
+ * WellD CH's reference data of this operation as a snapshot, or `null` when Accounting cannot be read (never a stale or
+ * a partial snapshot). Any other failure is a bug and propagates. For the callers that still answer without Accounting:
+ * the review view and the settings read (AC-6.5, AC-6.9).
+ */
+export async function tryReferenceSnapshot(operation: AccountingOperation): Promise<ReferenceSnapshot | null> {
+  try {
+    return referenceSnapshot(await operation.referenceData("welld_ch"));
+  } catch (error) {
+    if (error instanceof AccountingUnavailableError) return null;
+    throw error;
+  }
 }

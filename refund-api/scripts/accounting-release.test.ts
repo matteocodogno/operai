@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { db } from "../src/lib/db";
 import { truncateRefundTables } from "../src/test-support/dbCleanup";
 import { setVatCodeActive } from "../src/accounting/catalog.repo";
-import { FOREIGN_CURRENCY_VAT_CODE_KEY, loadForeignCurrencyVatCodeState } from "../src/accounting/defaults.repo";
+import { FOREIGN_CURRENCY_VAT_CODE_KEY, loadForeignCurrencyVatCodeStateFk } from "../src/accounting/legacyFk";
 import { isAccountingReleased } from "../src/accounting/release";
 import {
   DEFAULT_SEED_PATH,
@@ -243,7 +243,7 @@ describe("seed (AC-2.5)", () => {
     const gifts = await db.expenseTypeDefault.findFirstOrThrow({ where: { type: "representation_gifts" } });
     expect([gifts.ledgerAccountId, gifts.vatCodeId === null]).toEqual([null, false]);
 
-    const state = await db.$transaction((tx) => loadForeignCurrencyVatCodeState(tx));
+    const state = await db.$transaction((tx) => loadForeignCurrencyVatCodeStateFk(tx));
     expect(state.foreignCurrencyVatCode).toMatchObject({ code: "NOVAT", active: true });
     expect(state.foreignCurrencyVatCodeUsable).toBe(true);
     expect(state.foreignCurrencyVatCodeHistory).toHaveLength(1);
@@ -260,7 +260,7 @@ describe("seed (AC-2.5)", () => {
     const report = await run();
     expect(report.seeded.foreignCurrencyVatCode).toBeNull();
     expect(report.seeded.vatCodes.sort()).toEqual(["IMP77", "IMP81", "NOVAT"]);
-    const state = await db.$transaction((tx) => loadForeignCurrencyVatCodeState(tx));
+    const state = await db.$transaction((tx) => loadForeignCurrencyVatCodeStateFk(tx));
     expect(state.foreignCurrencyVatCode?.code).toBe("ESTERO");
     expect(state.foreignCurrencyVatCodeHistory).toHaveLength(1);
     expect(state.foreignCurrencyVatCodeHistory[0]!.byEmail).toBe("admin@welld.ch");

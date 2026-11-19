@@ -23,7 +23,7 @@
  *
  * How a line is classified here (BINDING, as T13/T14 and the header of
  * `classification.repo.ts`): a batch holds only `approved` and `paid` requests,
- * whose classification is FROZEN, so it is read STORED-ONLY: `resolveClassification`
+ * whose classification is FROZEN, so it is read STORED-ONLY: `resolveClassificationFk`
  * with EMPTY defaults and NO foreign-currency VAT code. A half the approval or the
  * release could not resolve (AC-7.2) stays missing and blocks the export until
  * accounting sets it (AC-3.6); a default added next month never silently
@@ -44,8 +44,7 @@ import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { dateToMonth, type RateCurrency, type RateEntry } from "../fx/fx.repo";
 import { rateKey, type FxService } from "../fx/fx.service";
-import { classifiableInput } from "./classification.repo";
-import { resolveClassification } from "./classification";
+import { classifiableInputFk, resolveClassificationFk } from "./legacyFk";
 import { loadActiveFlags } from "./catalog.repo";
 import { compareCodePoints, employeeCell, type AccountingExportLine } from "./export";
 import type { ExportBlockers, ExportSummary } from "./export.schemas";
@@ -222,7 +221,7 @@ export async function computeExport(
     const employee = employeeCell(src);
     const date = isoDate(line.date);
 
-    const classification = resolveClassification(classifiableInput(line, accountFlags, vatFlags), {}, null);
+    const classification = resolveClassificationFk(classifiableInputFk(line, accountFlags, vatFlags), {}, null);
     const missing = classification?.missing ?? (["account", "vatCode"] as const);
     if (missing.length > 0) {
       unclassified.push({

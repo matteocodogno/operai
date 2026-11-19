@@ -18,7 +18,7 @@ import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import type { ResolveResponse } from "../authz/resolveClient";
 import { truncateRefundTables } from "../test-support/dbCleanup";
 import { setupTestAuth } from "../test-support/testAuth";
-import { resolveClassification, type AccountRef, type ClassifiableLine, type VatCodeRef } from "./classification";
+
 
 process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] = "http://localhost:3001/auth/jwks";
@@ -43,7 +43,6 @@ const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { createFxService } = await import("../fx/fx.service");
 const { setLedgerAccountActive, setVatCodeActive } = await import("./catalog.repo");
-const { setForeignCurrencyVatCode } = await import("./defaults.repo");
 const { notifyTransport } = await import("../lib/notifyPost");
 const { parseSeed, runAccountingRelease } = await import("../../scripts/accounting-release");
 
@@ -74,6 +73,7 @@ const ACCOUNTING: ResolveResponse = {
 
 const by = { createdByUserId: "admin", createdByEmail: "admin@welld.ch" };
 const ADMIN = { userId: "admin", email: "admin@welld.ch" };
+const FOREIGN_KEY = "accounting.welld_ch.foreign-currency-vat-code";
 
 let train: { id: string };
 let office: { id: string };
@@ -90,7 +90,7 @@ beforeEach(async () => {
   novat = await db.vatCode.create({ data: { entity: "welld_ch", code: "NOVAT", label: "Senza IVA", rateBasisPoints: 0, ...by } });
   await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "travel_train", ledgerAccountId: train.id, vatCodeId: imp81.id, ...by } });
   await db.expenseTypeDefault.create({ data: { entity: "welld_ch", type: "office_material", ledgerAccountId: office.id, vatCodeId: imp81.id, ...by } });
-  await setForeignCurrencyVatCode(novat.id, ADMIN);
+  await db.refundSetting.create({ data: { key: FOREIGN_KEY, value: novat.id, ...by } });
 });
 afterAll(async () => {
   await truncateRefundTables();
@@ -180,46 +180,6 @@ const lineOf = (id: string) => db.refundLine.findUniqueOrThrow({ where: { id } }
 const EMPTY_SEED = parseSeed({ ledgerAccounts: [], vatCodes: [], typeDefaults: {}, foreignCurrencyVatCode: null });
 
 // ═════════════════════════════════════════════════════════════════════════════
-
-describe("resolveClassification: the vector (G3)", () => {
-  const ref = (active: boolean): AccountRef => ({ id: "a1", number: "5901", name: "Treno", active });
-  const vat: VatCodeRef = { id: "v1", code: "IMP81", label: "IVA 8.1%", rateBasisPoints: 810, active: true };
-  const line = (over: Partial<ClassifiableLine> = {}): ClassifiableLine => ({
-    entity: "welld_ch",
-    currency: "CHF",
-    type: "travel_train",
-    rejected: false,
-    ledgerAccount: null,
-    ledgerAccountIsDefault: null,
-    vatCode: null,
-    vatCodeIsDefault: null,
-    ...over,
-  });
-
-  it("a type default pointing at an inactive account: account null, missing account, the VAT half untouched", () => {
-    const result = resolveClassification(line(), { travel_train: { account: ref(false), vatCode: vat } }, null);
-    expect(result).toMatchObject({ account: null, accountIsDefault: false, vatCode: vat, vatCodeIsDefault: true, missing: ["account"] });
-  });
-
-  it("a stored override on an inactive account is kept, with active:false, and is not missing", () => {
-    const result = resolveClassification(
-      line({ ledgerAccount: ref(false), ledgerAccountIsDefault: false }),
-      { travel_train: { account: ref(true), vatCode: vat } },
-      null,
-    );
-    expect(result?.account).toEqual(ref(false));
-    expect(result?.account?.active).toBe(false);
-    expect(result?.missing).toEqual([]);
-  });
-
-  it("reactivated, the same default is back", () => {
-    expect(resolveClassification(line(), { travel_train: { account: ref(true), vatCode: vat } }, null)).toMatchObject({
-      account: ref(true),
-      accountIsDefault: true,
-      missing: [],
-    });
-  });
-});
 
 describe("the review view and the approval agree (AC-3.4)", () => {
   it("a deactivated default account: the view shows account null, and approving is refused naming the line, its date and its type", async () => {
