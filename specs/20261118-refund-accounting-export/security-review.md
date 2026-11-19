@@ -38,3 +38,45 @@ The export is NOT reachable by a non-accounting principal (the plan's escalation
 ## Summary
 
 0 critical · 0 high · 2 medium · 6 low · 3 info
+
+---
+
+## Re-review after fix round 1 (2026-11-19)
+
+Scope: commits 7bccdde1, 2d4d62b1, 169d0711, 3030f38f (plus plan "Security review sync" SR-1..SR-10 and "Fix round 1"). Read-only static re-read of the current code; no test run, no service, no network.
+
+### Verdict: PASS (no open finding of medium or higher; 0 critical, 0 high, 0 medium)
+
+### Per-finding status
+
+| id | status | evidence |
+|---|---|---|
+| S-01 (medium) | **Closed** | `lineInScope(scope, entity)` (classification.repo.ts:142) is true only for the global scope or a string equal to the line's entity; `null` and `undefined` cover nothing. PUT: the scope used is the one of the grant THIS locked status needs (`set-approved-total` while submitted, `reclassify` once approved); after the line lookup `if (!lineInScope(scope, line.entity)) return not_found` (l.399) runs before the `welld_ch`, rejected and body checks, so an out-of-scope line is a plain 404. View: `buildAccountingView` takes the review scope; an out-of-scope line is returned with `inScope: false`, `classification: null`, `chf: null`, `vatAmountCents: null`, and it is excluded from the lines whose flags, defaults and exchange rates are read, so nothing leaks through the side channels either. The PUT answer is built with the gating grant's scope. `GET /accounting/options` now needs a review scope of global or `welld_ch` (403 `accounting_out_of_scope`; `null` refused). |
+| S-02 (medium) | **Closed** | `classificationSelfRestricted` (classification.repo.ts, l.~310) fires when the caller owns the request and: status `submitted` with an `approve` grant carrying `self-approval: deny`; status `approved` with a self-restricted `reclassify` OR `approve` grant (either-grant rule, fail closed). It runs inside the locked transaction, before any scope 404 (as approve does), returns 403 `self_approval_forbidden`, and writes an info-level structured event with ids only. The view exposes `selfRestricted` for the UI (3030f38f makes the panel read-only). `reclassify` now declares and is seeded with the same condition as each role's `approve` (2d4d62b1). |
+| S-03 (low) | **Closed** | `.gitignore:22-23` ignores `**/*offsets*.csv` and `**/accounting-offsets*` (verified with `git check-ignore` on two sample names); the script warns when the offsets path lies inside a git worktree; the runbook says to keep the file outside the repository. |
+| S-04 (low) | **Closed** | The report and error messages show employees as initials plus a user-id prefix; `maskEmail` masks emails in errors; full emails only with the explicit `--show-emails`. A dry run no longer claims the marker was written ("no (dry run: the real run would write it)"). |
+| S-05 (low) | Accepted (unchanged) | Summary not logged by spec (AC-6.10); no request id/IP added. Not a vulnerability; optional hardening. |
+| S-06 (low) | **Closed** | `Cache-Control: private, no-store` and `nosniff` are now set on the summary and on the blocked 409 (export.routes.ts:71) as well as on the CSV (l.245). |
+| S-07 (low) | Open, accepted | No plausibility check against the previous month's rate. Unchanged; backlog item. |
+| S-08 (low) | Open, accepted | Trigger-only immutability; the non-owner DB role and `REVOKE TRUNCATE` are an infra action. Unchanged. |
+| S-09, S-10 (info) | Open, accepted | Unchanged. |
+| S-11 (info) | Still holds | Owner path unchanged. |
+
+### Bypass checks
+
+- **Pre-approval path (`set-approved-total`)**: the PUT does not trust the grant name; while the request is `submitted` the self-restriction is read from the `approve` grant, so an owner barred from approving cannot classify their own submitted request even though `set-approved-total` itself is unconditioned (by design of the earlier self-approval spec). Mixed-scope: the line-level check uses the `set-approved-total` scope in that state, so a `welld_it` caller cannot touch a CH line there either.
+- **Status races**: both the status and the grant are chosen on the row locked by `SELECT ... FOR UPDATE`; approve, pay and withdraw serialize on the same row. A paid request is still refused by the route and by the DB trigger.
+- **Withdraw-clears-overrides** (lifecycle.repo.ts): applies only to a `submitted` request inside the withdraw transaction, and only to the owner's own withdrawal. It never touches an approved or numbered line, writes one audited `line_classified` row (cause `withdrawn`) per cleared line, and writes nothing that grants anyone new rights. It is not a way to change an approved booking. No issue.
+- **Release script**: runs as the named system actor, uses defaults only, takes no caller input beyond operator-supplied local files, and has no self-approval relevance. The new masking, worktree warning and ignore rules do not widen anything. No issue.
+- **Approve path**: unchanged in this round; the owner is blocked by the existing self-approval control.
+
+### Residual notes (info, no action required for release)
+
+- R-1: an owner who holds `set-approved-total` and/or `reclassify` but NO `approve` grant (a hand-built role) is not restricted by S-02, because the restriction is derived from `approve`/`reclassify` conditions on the caller. The seeded `accounting`, `refund-admin` and `admin` roles carry both grants, so the seeded configuration is covered. Keep it in mind when creating custom roles.
+- R-2: approval by an approver whose scope covers only one entity still numbers and freezes the other entity's lines of a mixed request with the live defaults (request-level approve semantics from the earlier ADR; no value chosen by the approver). That is the pre-existing approval model, not part of this change.
+
+No new issue was introduced by the fix.
+
+### Updated counts
+
+0 critical · 0 high · 0 medium · 3 low open (S-05 accepted, S-07, S-08) · 4 info

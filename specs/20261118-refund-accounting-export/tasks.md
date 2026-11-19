@@ -618,7 +618,7 @@ Reading the list:
     refund-api `bun test` + `typecheck`, refund-ui `pnpm test` + `typecheck` + `lint`, auth
     `bun test`, `mise run ui:check`, `cd shell && pnpm e2e refund-`.
 
-- [ ] T36: OWASP review (plan § Security, standard tier), in parallel with QE — refs: all ACs (nominal) — deps: T16, T19, T32, T33, T34
+- [x] T36: OWASP review (plan § Security, standard tier), in parallel with QE — refs: all ACs (nominal) — deps: T16, T19, T32, T33, T34
   - touch: `specs/20261118-refund-accounting-export/security-review.md`
   - agent: owasp-reviewer · release
   - Details: the eight surfaces of plan § Security. Escalate to the frontier tier only if the
