@@ -472,7 +472,7 @@ describe("backfill (AC-7.1, AC-7.4)", () => {
     expect(report.lines.find((l) => l.lineId === "eur")!.rate).toBe("0.9246");
     expect(report.unclassified).toEqual([]);
     const text = formatReport(report);
-    expect(text).toContain("Rate pending: 1 lines");
+    expect(text).toContain("Rate pending: 1 line (no rate");
     expect(text).toContain("Left without an account (0)");
   });
 
@@ -782,6 +782,9 @@ describe("the baseline list (T63: SO-13, SO-14 of 20261118; AC-4.11, AC-4.12, AC
     const text = formatReport(report);
     expect(text).toContain("not yet in Refund (N***@welld.ch) 2026: numbering continues after 40 (applied)");
     expect(text).toContain("MC · u1 2026: numbering continues after 10 (applied)");
+    // D-10: a group of one reads "1 line", never "1 lines"
+    expect(text).toContain("2026: 1 line, MC26/011 to MC26/011");
+    expect(text).not.toMatch(/\b1 lines\b/);
     expect(text).not.toContain("Newcomer");
     expect(formatReport(report, { showEmails: true })).toContain("not yet in Refund (Newcomer@welld.ch) 2026");
   });

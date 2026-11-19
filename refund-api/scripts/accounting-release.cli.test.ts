@@ -299,7 +299,7 @@ describe("accounting:release, run as the operator runs it", () => {
     expect(res.exitCode).toBe(0);
     const lines = await db.refundLine.findMany({ where: { id: { in: ids } }, orderBy: { date: "asc" } });
     expect(lines.map((l) => [l.fxRateMicros, l.fxRateMonth?.toISOString().slice(0, 7) ?? null])).toEqual([[924_600, "2026-03"], [null, null]]);
-    expect(res.stdout).toContain("Rate pending: 1 lines");
+    expect(res.stdout).toContain("Rate pending: 1 line (no rate");
     expect(world.mints).toBe(1);
     expect(world.requests.filter((r) => r.includes("/rates"))).toEqual(["GET /system/v1/entities/welld_ch/rates?pairs=EUR:2026-03,EUR:2026-04"]);
   });
@@ -314,7 +314,7 @@ describe("accounting:release, run as the operator runs it", () => {
     expect(world.requests.filter((r) => r.includes("/rates"))).toEqual(["GET /system/v1/entities/welld_ch/rates?pairs=EUR:2026-03"]);
     const lines = await db.refundLine.findMany({ where: { id: { in: ids } }, orderBy: { date: "asc" } });
     expect(lines.map((l) => [l.receiptNumber !== null, l.fxRateMicros])).toEqual([[true, null], [true, 924_600]]);
-    expect(res.stdout).toContain("Rate pending: 1 lines");
+    expect(res.stdout).toContain("Rate pending: 1 line (no rate");
   });
 
   it("(F-02) only dates before the floor: no rates call at all, exit 0", async () => {

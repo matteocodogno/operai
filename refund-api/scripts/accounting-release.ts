@@ -691,6 +691,9 @@ async function backfillLegacyLines(
 
 // ─── CLI ─────────────────────────────────────────────────────────────────────
 
+/** "1 line", "0 lines", "5 lines" (D-10 of the sign-off QE round: a group of one read "1 lines"). */
+const linesOf = (n: number): string => `${n} ${n === 1 ? "line" : "lines"}`;
+
 export function formatReport(report: ReleaseReport, options: { readonly showEmails?: boolean } = {}): string {
   const who = (entry: { employee: string; employeeRef: string }) => (options.showEmails === true ? entry.employee : entry.employeeRef);
   const out: string[] = [];
@@ -739,9 +742,9 @@ export function formatReport(report: ReleaseReport, options: { readonly showEmai
           })),
       "",
       `Numbered legacy WellD CH lines (${report.lines.length})`,
-      ...report.numbered.map((n) => `  ${who(n)} ${n.year}: ${n.count} lines, ${n.first} to ${n.last}`),
+      ...report.numbered.map((n) => `  ${who(n)} ${n.year}: ${linesOf(n.count)}, ${n.first} to ${n.last}`),
       "",
-      `Rate pending: ${report.ratePending.length} lines (no rate in effect yet: the first export of their batch copies it)`,
+      `Rate pending: ${linesOf(report.ratePending.length)} (no rate in effect yet: the first export of their batch copies it)`,
       ...report.ratePending.map((l) => `  ${l.receiptNumber} ${who(l)} ${l.date} ${l.type} ${l.currency} (line ${l.lineId})`),
       "",
       `Left without an account (${report.unclassified.length})`,

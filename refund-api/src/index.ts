@@ -109,7 +109,7 @@ app.route("/", defaultsRouter);
 // classificationRouter: a request's accounting view and the active classification options, gated by
 // request:review + entity scope — specs/20261118-refund-accounting-export (T13; T14 adds the PUT).
 app.route("/", classificationRouter);
-// exportRouter: the accounting export of a batch, summary + CSV, gated by request:review + a review scope covering
+// exportRouter: the accounting export of a batch, summary + XLSX file (`/accounting-export/file`; `/csv` is retired and answers 404), gated by request:review + a review scope covering
 // welld_ch — specs/20261118-refund-accounting-export (T18). Its paths (/batches/{id}/accounting-export…) collide with
 // no batch route, so the registration order does not matter.
 app.route("/", exportRouter);

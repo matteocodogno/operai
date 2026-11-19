@@ -4,7 +4,7 @@
  *
  * Domain enums mirror `prisma/schema.prisma` verbatim (T5) — kept here as the
  * single source of truth for the HTTP boundary so every router imports the
- * same value/type instead of re-declaring the twelve expense types etc.
+ * same value/type instead of re-declaring the fourteen expense types etc.
  */
 
 import { z } from "zod";
