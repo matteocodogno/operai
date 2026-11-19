@@ -226,7 +226,7 @@ commit message.
     (e) `mise run shared:check` passes (no group added); `grep -n "NO CACHE" hours-api/src/lib/identities.ts` prints nothing and the header cites ADR 20260807 § 3 and activities-api's copy; `git diff --name-only` shows nothing outside `hours-api/` and `specs/20261112-time-tracking/decisions.md`.
   - then: owasp-reviewer over T46's diff (the key, viewer independence, failures never cached); QE re-runs D-1's placements live (qe-report.md).
 
-- [ ] T40: Close: all gates green (typecheck, lint, unit, e2e, `env:doctor`, `shared:check`, `changeset:check`), owasp PASS (T37), QE PASS, eval, spec status → done via `/wellforge:done` — refs: all — deps: T35, T36, T37, T38, T39, T41, T42, T43, T44, T45, T46
+- [x] T40: Close: all gates green (typecheck, lint, unit, e2e, `env:doctor`, `shared:check`, `changeset:check`), owasp PASS (T37), QE PASS, eval, spec status → done via `/wellforge:done` — refs: all — deps: T35, T36, T37, T38, T39, T41, T42, T43, T44, T45, T46
   - touch: `specs/20261112-time-tracking/qe-report.md`, `specs/20261112-time-tracking/eval-report.md`, `specs/20261112-time-tracking/spec.md`
   - done when: `/wellforge:done 20261112-time-tracking` accepts the transition
 
