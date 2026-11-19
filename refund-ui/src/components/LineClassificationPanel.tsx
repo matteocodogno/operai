@@ -16,8 +16,11 @@
  *   - While one select saves it shows "Saving…", ignores further changes (`aria-busy`; it is NOT disabled, so it
  *     keeps focus) and shows the chosen value; a refusal puts the last saved value back and says why in an alert
  *     under it: 422 inactive (and the options reload), 403, or anything else. A 409 is the page's: `onConflict`.
- *   - Read-only (no capability for the state, or the batch is paid): the same values as plain text with their
- *     markers and a sentence saying why; paid adds a lock icon.
+ *   - Read-only (no capability for the state, the batch is paid, or the request is the caller's own and they may not
+ *     approve it, `selfRestricted`): the same values as plain text with their markers and a sentence saying why; paid
+ *     adds a lock icon. A 403 `self_approval_forbidden` on a save turns an editable panel into this one at once.
+ *   - Out of scope (`line.inScope === false`, plan.md SR-1): the server sent no account, VAT code or amounts, so the
+ *     panel is one short note: no figure, no control.
  *   - Amounts: a CHF line has only the VAT amount, with its rate; a foreign line has the rate used and its month, the
  *     CHF amount and the VAT amount. A missing rate is a *Rate missing* badge, "—" for both amounts (never 0) and, with
  *     `settings:read`, a link to that month in Settings. A VAT code of 0% shows a real `CHF 0.00`.
@@ -31,7 +34,13 @@ import { Link } from '@tanstack/react-router'
 import { Badge, FactList, Field, Icon, StatusBadge } from '@operai/ui'
 import type { Fact } from '@operai/ui'
 import { strings } from '../strings'
-import type { AccountingLine, AccountingOptions, ClassificationState, ClassifyBody } from '../lib/accountingApi'
+import type {
+  AccountingLine,
+  AccountingOptions,
+  ClassificationState,
+  ClassifyBody,
+  LineChf,
+} from '../lib/accountingApi'
 import { accountText, formatVatRate, vatCodeText } from '../lib/catalogLabels'
 import { formatMoney } from '../lib/money'
 import { monthLabel } from '../lib/monthLabel'
@@ -42,6 +51,9 @@ import CatalogSelect from './CatalogSelect'
 const t = strings.pages.reviewDetail.classification
 
 type FieldName = 'account' | 'vatCode'
+
+/** What an in-scope line without CHF data shows: "—" everywhere, never a figure of our own. */
+const NO_CHF: LineChf = { amountCents: null, rateMicros: null, rate: null, rateMonth: null, rateMissing: false }
 
 export type LineClassificationPanelProps = {
   /** The server's view of the line. `classification` is non-null: the page renders no panel otherwise. */
@@ -55,6 +67,8 @@ export type LineClassificationPanelProps = {
   options: AccountingOptions | null
   /** `settings:read`: "Open exchange rates" is offered when the rate is missing. */
   canOpenRates: boolean
+  /** The caller owns this request and may not approve it (the view's `selfRestricted`): read-only, with its own note. */
+  selfRestricted?: boolean
   /** The values a refused approval named for this line: shown as an error until a value is chosen. */
   missing?: { account: boolean; vatCode: boolean }
   /** Saves one value and answers with the line as the server now has it (the page merges it). Rejects with the `ApiError`. */
@@ -63,6 +77,10 @@ export type LineClassificationPanelProps = {
   onConflict: (error: ApiError) => void
   /** A 422 said an option was deactivated: load the options again. */
   onOptionsStale: () => void
+  /** A 403 `self_approval_forbidden`: the page makes every panel of the request read-only. */
+  onSelfRestricted?: () => void
+  /** A 404: the line is outside the caller's entity scope (the view was stale): the page loads the view again. */
+  onOutOfScope?: () => void
 }
 
 type FieldMessage = { field: FieldName; text: string }
@@ -74,21 +92,37 @@ export default function LineClassificationPanel({
   canChange,
   options,
   canOpenRates,
+  selfRestricted = false,
   missing,
   onClassify,
   onConflict,
   onOptionsStale,
+  onSelfRestricted,
+  onOutOfScope,
 }: LineClassificationPanelProps) {
   const classification = line.classification
   // The select that is saving, and the value it was changed to (shown until the server answers).
   const [pending, setPending] = useState<{ field: FieldName; value: string } | null>(null)
   const [errorMessage, setErrorMessage] = useState<FieldMessage | null>(null)
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
+  // A save was refused with 403 `self_approval_forbidden`: read-only from now on, even before the page reports it.
+  const [refusedAsOwner, setRefusedAsOwner] = useState(false)
 
+  if (!line.inScope) {
+    return (
+      <p
+        className="mt-1 border-t border-rule pt-3 text-xs text-soft"
+        data-testid={`classification-${line.lineId}-out-of-scope`}
+      >
+        {t.outOfScope}
+      </p>
+    )
+  }
   if (classification === null) return null
 
   const locked = state === 'locked'
-  const editable = canChange && !locked
+  const ownRequest = selfRestricted || refusedAsOwner
+  const editable = canChange && !locked && !ownRequest
 
   const handleChange = async (field: FieldName, value: string) => {
     if (pending !== null || value === '') return
@@ -115,6 +149,13 @@ export default function LineClassificationPanel({
       } else if (code === 'vat_code_inactive' || code === 'unknown_vat_code') {
         setErrorMessage({ field: 'vatCode', text: t.vatInactive })
         onOptionsStale()
+      } else if (code === 'self_approval_forbidden') {
+        // Not an error under the select: the whole panel turns read-only and says why. The select reverts by itself.
+        setRefusedAsOwner(true)
+        onSelfRestricted?.()
+      } else if (error instanceof ApiError && error.status === 404) {
+        setErrorMessage({ field, text: t.lineOutOfScope })
+        onOutOfScope?.()
       } else if (error instanceof ApiError && error.status === 403) {
         setErrorMessage({ field, text: t.forbidden })
       } else {
@@ -133,30 +174,31 @@ export default function LineClassificationPanel({
   // The amounts: the server's figures, "—" for one it could not give (never 0)
   // ---------------------------------------------------------------------------
 
+  const chf = line.chf ?? NO_CHF
   const isForeign = line.currency !== 'CHF'
-  const rateMonthText = monthLabel(line.chf.rateMonth ?? line.date.slice(0, 7))
+  const rateMonthText = monthLabel(chf.rateMonth ?? line.date.slice(0, 7))
   const facts: Fact[] = []
   if (isForeign) {
     facts.push({
       id: 'rate',
       term: t.rate,
-      value: line.chf.rateMissing ? (
+      value: chf.rateMissing ? (
         <span className="flex flex-col items-start gap-1" data-testid={`classification-${line.lineId}-rate-missing`}>
           <StatusBadge status={RATE_MISSING_MEANING}>{t.rateMissing}</StatusBadge>
           <span className="text-xs text-soft">{t.rateMissingHelp(line.currency, rateMonthText)}</span>
           {canOpenRates && (
             <Link
               to="/settings"
-              search={{ section: 'exchange-rates', month: line.chf.rateMonth ?? line.date.slice(0, 7) }}
+              search={{ section: 'exchange-rates', month: chf.rateMonth ?? line.date.slice(0, 7) }}
               className="link text-xs"
             >
               {t.openRates}
             </Link>
           )}
         </span>
-      ) : line.chf.rate !== null ? (
+      ) : chf.rate !== null ? (
         <span className="font-mono" data-testid={`classification-${line.lineId}-rate`}>
-          {t.rateValue(line.chf.rate, rateMonthText)}
+          {t.rateValue(chf.rate, rateMonthText)}
         </span>
       ) : (
         t.unavailable
@@ -167,7 +209,7 @@ export default function LineClassificationPanel({
       term: t.chfAmount,
       value: (
         <span className="font-mono tabular-nums" data-testid={`classification-${line.lineId}-chf`}>
-          {line.chf.amountCents === null ? t.unavailable : formatMoney(line.chf.amountCents, 'CHF')}
+          {chf.amountCents === null ? t.unavailable : formatMoney(chf.amountCents, 'CHF')}
         </span>
       ),
     })
@@ -238,7 +280,7 @@ export default function LineClassificationPanel({
         {amounts}
         <p className="flex items-center gap-1.5 text-xs text-soft" data-testid={`classification-${line.lineId}-why`}>
           {locked && <Icon name="lock" />}
-          {locked ? t.locked : t.readOnly}
+          {locked ? t.locked : ownRequest && canChange ? t.selfRestricted : t.readOnly}
         </p>
       </div>
     )

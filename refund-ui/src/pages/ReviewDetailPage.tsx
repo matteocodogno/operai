@@ -188,15 +188,22 @@ export default function ReviewDetailPage() {
     request !== null &&
     (request.status === 'submitted' || request.status === 'approved' || request.status === 'paid') &&
     request.lines.some(hasPanel)
+  const [ownerRefusedFor, setOwnerRefusedFor] = useState<string | null>(null)
   const accounting = useLoadedResource(() => accountingApi.getRequestAccounting(id), classifiable)
   const accountingState = accounting.status === 'loaded' && accounting.data.requestId === id ? accounting.data : null
   const classificationState = accountingState?.classificationState ?? 'none'
-  const canChangeClassification =
+  // The caller owns this request and may not approve it (SR-2): the view says so, and a 403 `self_approval_forbidden`
+  // on a save says it too, before the view is reloaded. Either way nothing on the page is editable.
+  const selfRestricted = (accountingState?.selfRestricted ?? false) || ownerRefusedFor === id
+  // The capability the state needs; the panel also gets `selfRestricted`, which makes it read-only with its own note.
+  const holdsClassificationCapability =
     classificationState === 'review'
       ? hasPermission('request', 'set-approved-total')
       : classificationState === 'post_approval'
         ? hasPermission('request', 'reclassify')
         : false
+  // Something can be changed (so the options are worth loading) only when the caller is not barred from their own request.
+  const canChangeClassification = holdsClassificationCapability && !selfRestricted
   // The options are needed only to change something, and are loaded once for the page.
   const options = useLoadedResource(accountingApi.getAccountingOptions, canChangeClassification)
   const reloadAccounting = accounting.reload
@@ -330,6 +337,12 @@ export default function ReviewDetailPage() {
     [t, reloadAccounting, reloadRequest],
   )
 
+  /** 403 `self_approval_forbidden` on a save: every panel of this request reads only, and the view loads again. */
+  const handleSelfRestricted = useCallback(() => {
+    setOwnerRefusedFor(id)
+    reloadAccounting()
+  }, [id, reloadAccounting])
+
   const handleClassificationRetry = useCallback(() => {
     reloadAccounting()
     reloadOptions()
@@ -349,20 +362,26 @@ export default function ReviewDetailPage() {
       )
     }
     const accountingLine = accountingState?.lines.find((candidate) => candidate.lineId === line.id)
-    if (!accountingState || !accountingLine || accountingLine.classification === null) return undefined
+    // A line out of scope (SR-1) has no classification either, and still gets its note.
+    if (!accountingState || !accountingLine) return undefined
+    if (accountingLine.inScope && accountingLine.classification === null) return undefined
     if (accountingState.classificationState === 'none') return undefined
     return (
       <LineClassificationPanel
         line={accountingLine}
         lineLabel={lineLabelOf(line)}
         state={accountingState.classificationState}
-        canChange={canChangeClassification}
+        // An options 403 (`accounting_out_of_scope`) means the review scope does not cover WellD CH: nothing to pick from.
+        canChange={holdsClassificationCapability && (selfRestricted || options.status !== 'forbidden')}
+        selfRestricted={selfRestricted}
         options={options.status === 'loaded' ? options.data : null}
         canOpenRates={canOpenRates}
         missing={missingFor(line.id)}
         onClassify={(body) => handleClassify(line.id, body)}
         onConflict={handleClassificationConflict}
         onOptionsStale={reloadOptions}
+        onSelfRestricted={handleSelfRestricted}
+        onOutOfScope={reloadAccounting}
       />
     )
   }

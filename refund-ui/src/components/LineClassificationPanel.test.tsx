@@ -41,6 +41,7 @@ const eurLine = (overrides: Partial<AccountingLine> = {}): AccountingLine => ({
   receiptNumber: null,
   employee: { name: 'Matteo', email: 'm@welld.ch' },
   rejected: false,
+  inScope: true,
   classification: { account: TRAIN, accountIsDefault: true, vatCode: NOVAT, vatCodeIsDefault: true },
   chf: { amountCents: 4808, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-03', rateMissing: false },
   vatAmountCents: 0,
@@ -415,5 +416,101 @@ describe('LineClassificationPanel: not for every line', () => {
       />,
     )
     expect(container.innerHTML).toBe('')
+  })
+})
+
+describe('LineClassificationPanel: segregation of duties and entity scope (plan.md SR-1, SR-2; AC-3.3, AC-3.6, AC-3.10)', () => {
+  const SELF_NOTE = "You can't classify your own request. Someone else has to do it."
+
+  it('selfRestricted: the values as text with markers, no select even with the capability, and the note that says why', async () => {
+    await renderPanel(
+      eurLine({ classification: { account: TRAIN, accountIsDefault: false, vatCode: NOVAT, vatCodeIsDefault: true } }),
+      { selfRestricted: true, canChange: true },
+    )
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.getByTestId('classification-l1').getAttribute('data-mode')).toBe('readOnly')
+    expect(screen.getByTestId('classification-l1-values').textContent).toContain('5901 — Spese viaggi in treno')
+    expect(screen.getByTestId('classification-l1-why').textContent).toBe(SELF_NOTE)
+    // The server's amounts stay visible: the caller may still read their own request's booking.
+    expect(screen.getByTestId('classification-l1-chf').textContent).toBe('CHF 48.08')
+  })
+
+  it('selfRestricted without the capability keeps the plain read-only sentence, and a paid batch keeps its lock', async () => {
+    await renderPanel(eurLine(), { selfRestricted: true, canChange: false })
+    expect(screen.getByTestId('classification-l1-why').textContent).toBe(
+      'You can view the classification but not change it.',
+    )
+    cleanup()
+    await renderPanel(eurLine(), { selfRestricted: true, canChange: true, state: 'locked' })
+    expect(screen.getByTestId('classification-l1-why').textContent).toBe('Locked: its batch has been paid.')
+  })
+
+  it('a 403 self_approval_forbidden reverts the select, turns the panel read-only with the note, tells the page, and shows no alert', async () => {
+    const onSelfRestricted = vi.fn()
+    const { onClassify, onConflict } = await renderPanel(eurLine(), { onSelfRestricted })
+    onClassify.mockRejectedValue(problem(403, 'self_approval_forbidden'))
+    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+
+    expect(await screen.findByTestId('classification-l1-why')).not.toBeNull()
+    expect(screen.getByTestId('classification-l1-why').textContent).toBe(SELF_NOTE)
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText("You don't have permission to change this classification.")).toBeNull()
+    // The value shown is the last saved one, not the one the user tried.
+    expect(screen.getByTestId('classification-l1-values').textContent).toContain('5901 — Spese viaggi in treno')
+    expect(screen.getByTestId('classification-l1-values').textContent).not.toContain('5902')
+    expect(onSelfRestricted).toHaveBeenCalledTimes(1)
+    expect(onConflict).not.toHaveBeenCalled()
+  })
+
+  it('the same 403 on the VAT select does the same', async () => {
+    const { onClassify } = await renderPanel(eurLine())
+    onClassify.mockRejectedValue(problem(403, 'self_approval_forbidden'))
+    fireEvent.change(vat(), { target: { value: 'vat-81' } })
+    expect((await screen.findByTestId('classification-l1-why')).textContent).toBe(SELF_NOTE)
+    expect(screen.getByTestId('classification-l1-values').textContent).toContain('NOVAT')
+  })
+
+  it('a 404 reverts, says the line is outside the entity scope, and asks the page to load the view again', async () => {
+    const onOutOfScope = vi.fn()
+    const { onClassify } = await renderPanel(eurLine(), { onOutOfScope })
+    onClassify.mockRejectedValue(problem(404, 'not_found'))
+    fireEvent.change(account(), { target: { value: 'acc-hotel' } })
+    const alert = await screen.findByText("This line is outside your entity scope, so you can't change it.")
+    expect(alert.getAttribute('role')).toBe('alert')
+    expect(account().value).toBe('acc-train')
+    expect(onOutOfScope).toHaveBeenCalledTimes(1)
+  })
+
+  it('an out-of-scope line is one short note: no select, no account, VAT code, rate, CHF or VAT figure', async () => {
+    window.history.pushState(null, '', '/')
+    render(
+      <LineClassificationPanel
+        line={eurLine({ inScope: false, classification: null, chf: null, vatAmountCents: null })}
+        lineLabel="x"
+        state="review"
+        canChange
+        options={OPTIONS}
+        canOpenRates
+        onClassify={vi.fn()}
+        onConflict={vi.fn()}
+        onOptionsStale={vi.fn()}
+      />,
+    )
+    const note = screen.getByTestId('classification-l1-out-of-scope')
+    expect(note.textContent).toBe(
+      'Not shown: this line is outside your entity scope. Ask a colleague with WellD CH access.',
+    )
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.queryByTestId('classification-l1')).toBeNull()
+    expect(screen.queryByTestId('classification-l1-chf')).toBeNull()
+    expect(screen.queryByTestId('classification-l1-vat-amount')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/5901|NOVAT|0\.9246|CHF \d/)
+  })
+
+  it('an in-scope line whose CHF block is missing shows "—", never a figure or a crash', async () => {
+    await renderPanel(eurLine({ chf: null, vatAmountCents: null }), { canChange: false })
+    expect(screen.getByTestId('classification-l1-chf').textContent).toBe('—')
+    expect(screen.getByTestId('classification-l1-vat-amount').textContent).toBe('—')
   })
 })

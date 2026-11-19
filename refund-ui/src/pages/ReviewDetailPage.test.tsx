@@ -754,6 +754,7 @@ describe('ReviewDetailPage — line classification panels', () => {
     receiptNumber: null,
     employee: { name: 'Alice', email: 'alice@welld.ch' },
     rejected: false,
+    inScope: true,
     classification: { account: TRAIN, accountIsDefault: true, vatCode: NOVAT, vatCodeIsDefault: true },
     chf: { amountCents: 924, rateMicros: 924600, rate: '0.9246', rateMonth: '2026-07', rateMissing: false },
     vatAmountCents: 0,
@@ -764,11 +765,13 @@ describe('ReviewDetailPage — line classification panels', () => {
     lines: AccountingLine[],
     classificationState: RequestAccounting['classificationState'] = 'review',
     status: RequestAccounting['status'] = 'submitted',
+    selfRestricted = false,
   ): RequestAccounting => ({
     requestId: 'req-1',
     status,
     batch: null,
     classificationState,
+    selfRestricted,
     lines,
   })
 
@@ -1234,6 +1237,108 @@ describe('ReviewDetailPage — line classification panels', () => {
       await screen.findByTestId('review-detail-rejected')
       expect(accountingApi.getRequestAccounting).not.toHaveBeenCalled()
       expect(panel('c1')).toBeNull()
+    })
+  })
+
+  // Plan.md "Security review sync" SR-1 and SR-2: the server marks what the caller may not see or change.
+  describe('segregation of duties and entity scope', () => {
+    const SELF_NOTE = "You can't classify your own request. Someone else has to do it."
+    const OUT_NOTE = 'Not shown: this line is outside your entity scope. Ask a colleague with WellD CH access.'
+    const outOfScopeLine = (lineId: string) =>
+      accLine(lineId, { inScope: false, classification: null, chf: null, vatAmountCents: null })
+
+    it('selfRestricted: every panel is read-only with the note, whatever the capability, and the options are never loaded (AC-3.6)', async () => {
+      vi.mocked(requestsApi.get).mockResolvedValue(withCh({ lines: [chLine('c1'), chLine('c2')] }))
+      vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(
+        view([accLine('c1'), accLine('c2')], 'review', 'submitted', true),
+      )
+      renderReviewDetailPage()
+
+      await screen.findByTestId('classification-c1')
+      expect(screen.queryByRole('combobox')).toBeNull()
+      expect(screen.getByTestId('classification-c1-why').textContent).toBe(SELF_NOTE)
+      expect(screen.getByTestId('classification-c2-why').textContent).toBe(SELF_NOTE)
+      expect(screen.getByTestId('classification-c1-values').textContent).toContain('5901')
+      expect(accountingApi.getAccountingOptions).not.toHaveBeenCalled()
+    })
+
+    it('selfRestricted after approval is read-only too', async () => {
+      vi.mocked(requestsApi.get).mockResolvedValue(
+        withCh({ status: 'approved', lines: [chLine('c1', { approvedTotalCents: 1000 })] }),
+      )
+      vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(
+        view([accLine('c1')], 'post_approval', 'approved', true),
+      )
+      renderReviewDetailPage()
+
+      await screen.findByTestId('classification-c1')
+      expect(screen.queryByRole('combobox')).toBeNull()
+      expect(screen.getByTestId('classification-c1-why').textContent).toBe(SELF_NOTE)
+    })
+
+    it('a line out of scope shows the note and no figure or control, while an in-scope line of the same request stays editable (AC-3.3)', async () => {
+      vi.mocked(requestsApi.get).mockResolvedValue(withCh({ lines: [chLine('c1'), chLine('c2')] }))
+      vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(view([accLine('c1'), outOfScopeLine('c2')]))
+      renderReviewDetailPage()
+
+      await readySelect('classification-c1-account')
+      const row = screen.getByTestId('expense-line-row-c2')
+      expect(screen.getByTestId('classification-c2-out-of-scope').textContent).toBe(OUT_NOTE)
+      expect(row.contains(screen.getByTestId('classification-c2-out-of-scope'))).toBe(true)
+      expect(panel('c2')).toBeNull()
+      expect(row.querySelector('select')).toBeNull()
+      expect(screen.queryByTestId('classification-c2-chf')).toBeNull()
+      expect(screen.queryByTestId('classification-c2-vat-amount')).toBeNull()
+      expect(row.textContent).not.toMatch(/5901|NOVAT|CHF \d/)
+    })
+
+    it('a 403 self_approval_forbidden on a save reverts, turns all panels read-only with the note, and keeps them so after the view reloads', async () => {
+      vi.mocked(requestsApi.get).mockResolvedValue(withCh({ lines: [chLine('c1'), chLine('c2')] }))
+      // The reloaded view still says selfRestricted: false (a stale cache, or a backend a step behind).
+      vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(view([accLine('c1'), accLine('c2')]))
+      vi.mocked(accountingApi.classifyLine).mockRejectedValue(problem(403, 'self_approval_forbidden'))
+      renderReviewDetailPage()
+
+      const select = await readySelect('classification-c1-account')
+      fireEvent.change(select, { target: { value: 'acc-hotel' } })
+
+      await waitFor(() => expect(screen.getByTestId('classification-c1-why').textContent).toBe(SELF_NOTE))
+      expect(screen.getByTestId('classification-c2-why').textContent).toBe(SELF_NOTE)
+      expect(screen.queryByRole('combobox')).toBeNull()
+      expect(screen.queryByRole('alert')).toBeNull()
+      await waitFor(() => expect(accountingApi.getRequestAccounting).toHaveBeenCalledTimes(2))
+      expect(screen.getByTestId('classification-c1-why').textContent).toBe(SELF_NOTE)
+      expect(screen.getByTestId('classification-c1-values').textContent).not.toContain('5902')
+    })
+
+    it('a 404 on a save says the line is outside the entity scope and loads the view again', async () => {
+      vi.mocked(requestsApi.get).mockResolvedValue(withCh({ lines: [chLine('c1'), chLine('c2')] }))
+      vi.mocked(accountingApi.getRequestAccounting)
+        .mockResolvedValueOnce(view([accLine('c1'), accLine('c2')]))
+        .mockResolvedValue(view([outOfScopeLine('c1'), accLine('c2')]))
+      vi.mocked(accountingApi.classifyLine).mockRejectedValue(problem(404, 'not_found'))
+      renderReviewDetailPage()
+
+      fireEvent.change(await readySelect('classification-c1-account'), { target: { value: 'acc-hotel' } })
+
+      await waitFor(() => expect(accountingApi.getRequestAccounting).toHaveBeenCalledTimes(2))
+      expect(await screen.findByTestId('classification-c1-out-of-scope')).not.toBeNull()
+      expect(panel('c1')).toBeNull()
+    })
+
+    it('a 403 accounting_out_of_scope on the options leaves the panels read-only, with no error banner', async () => {
+      vi.mocked(requestsApi.get).mockResolvedValue(withCh())
+      vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(view([accLine('c1')]))
+      vi.mocked(accountingApi.getAccountingOptions).mockRejectedValue(problem(403, 'accounting_out_of_scope'))
+      renderReviewDetailPage()
+
+      await screen.findByTestId('classification-c1')
+      await waitFor(() => expect(accountingApi.getAccountingOptions).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(screen.queryByRole('combobox')).toBeNull())
+      expect(screen.getByTestId('classification-c1-why').textContent).toBe(
+        'You can view the classification but not change it.',
+      )
+      expect(screen.queryByText('Could not load the classification.')).toBeNull()
     })
   })
 })

@@ -200,7 +200,7 @@ describe('classification', () => {
   it('PUTs only the key that changed and returns the line as sent', async () => {
     const line = { lineId: 'l1', vatAmountCents: 156 }
     vi.mocked(apiFetch).mockResolvedValueOnce(json(200, line))
-    await expect(classifyLine('r1', 'l1', { ledgerAccountId: 'a2' })).resolves.toEqual(line)
+    await expect(classifyLine('r1', 'l1', { ledgerAccountId: 'a2' })).resolves.toEqual({ ...line, inScope: true })
     expect(lastCall()).toEqual({
       url: `${BASE}/review/requests/r1/lines/l1/classification`,
       method: 'PUT',
@@ -215,6 +215,63 @@ describe('classification', () => {
       await expect(classifyLine('r1', 'l1', { vatCodeId: 'v1' })).rejects.toMatchObject({ status: 409, code })
     },
   )
+})
+
+describe('the accounting view: entity scope and segregation of duties (plan.md SR-1, SR-2)', () => {
+  const inScopeLine = {
+    lineId: 'l1',
+    inScope: true,
+    classification: { account: null, accountIsDefault: false, vatCode: null, vatCodeIsDefault: false },
+    chf: { amountCents: 100, rateMicros: null, rate: null, rateMonth: null, rateMissing: false },
+    vatAmountCents: 8,
+  }
+
+  it('reads inScope and selfRestricted as sent', async () => {
+    const outOfScope = { lineId: 'l2', inScope: false, classification: null, chf: null, vatAmountCents: null }
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      json(200, { requestId: 'r1', selfRestricted: true, lines: [inScopeLine, outOfScope] }),
+    )
+    const view = await getRequestAccounting('r1')
+    expect(view.selfRestricted).toBe(true)
+    expect(view.lines).toEqual([inScopeLine, outOfScope])
+  })
+
+  it('a body without the flags reads as in scope and not self-restricted (a backend a step behind)', async () => {
+    const legacy: Record<string, unknown> = { ...inScopeLine }
+    delete legacy.inScope
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { requestId: 'r1', lines: [legacy] }))
+    const view = await getRequestAccounting('r1')
+    expect(view.selfRestricted).toBe(false)
+    expect(view.lines[0].inScope).toBe(true)
+  })
+
+  it('strips any accounting data a server sent for an out-of-scope line, in the view and in a PUT answer', async () => {
+    const leaky = { ...inScopeLine, inScope: false }
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { requestId: 'r1', selfRestricted: false, lines: [leaky] }))
+    expect((await getRequestAccounting('r1')).lines[0]).toMatchObject({
+      inScope: false,
+      classification: null,
+      chf: null,
+      vatAmountCents: null,
+    })
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, leaky))
+    await expect(classifyLine('r1', 'l1', { vatCodeId: 'v1' })).resolves.toMatchObject({
+      inScope: false,
+      classification: null,
+      chf: null,
+      vatAmountCents: null,
+    })
+  })
+
+  it.each([
+    ['PUT', 403, 'self_approval_forbidden'],
+    ['PUT', 404, 'not_found'],
+    ['GET options', 403, 'accounting_out_of_scope'],
+  ])('passes %s %i %s through as an ApiError', async (which, status, code) => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(json(status, { title: 'x', status, code }))
+    const call = which === 'PUT' ? classifyLine('r1', 'l1', { vatCodeId: 'v1' }) : getAccountingOptions()
+    await expect(call).rejects.toMatchObject({ status, code })
+  })
 })
 
 describe('classificationMissingLines', () => {

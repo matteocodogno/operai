@@ -132,10 +132,16 @@ export type AccountingLine = {
   receiptNumber: string | null
   employee: { name: string | null; email: string }
   rejected: boolean
-  /** `null` for a WellD Italia line and for a rejected line. */
+  /**
+   * `false` when the caller's entity scope does not cover this line (plan.md SR-1): `classification`, `chf` and
+   * `vatAmountCents` are then all `null`, and the page shows no figure and no control for it.
+   */
+  inScope: boolean
+  /** `null` for a WellD Italia line, for a rejected line and for a line out of scope. */
   classification: LineClassification | null
-  chf: LineChf
-  /** `null` when the CHF amount is unknown or there is no VAT code (never a computed zero). */
+  /** `null` for a line out of scope. */
+  chf: LineChf | null
+  /** `null` when the CHF amount is unknown or there is no VAT code (never a computed zero), and out of scope. */
   vatAmountCents: number | null
 }
 
@@ -144,6 +150,11 @@ export type RequestAccounting = {
   status: RequestStatus
   batch: { id: string; status: string } | null
   classificationState: ClassificationState
+  /**
+   * `true` when the caller owns this request and their grant bars them from approving it (plan.md SR-2): the
+   * classification is read-only for them, whatever capability they hold.
+   */
+  selfRestricted: boolean
   lines: AccountingLine[]
 }
 
@@ -221,24 +232,47 @@ export const putForeignCurrencyVatCode = (vatCodeId: string | null): Promise<For
 // Classification of a request's lines (request:review)
 // ---------------------------------------------------------------------------
 
-/** `GET /accounting/options` (`request:review`, any scope): the active accounts and VAT codes. */
+/**
+ * `GET /accounting/options` (`request:review`, scope covering WellD CH): the active accounts and VAT codes.
+ * 403 `accounting_out_of_scope` when the caller's review scope does not cover WellD CH (plan.md SR-1).
+ */
 export const getAccountingOptions = (): Promise<AccountingOptions> => getJson<AccountingOptions>('/accounting/options')
 
-/** `GET /review/requests/:id/accounting`: 403 / 404 outside the reviewer's scope. */
+/**
+ * One line as the wire sends it, made safe to render. A line outside the caller's scope (`inScope: false`) is
+ * stripped of any accounting data even if a server sent some, so no figure can reach the screen; a body that
+ * predates the flag (`inScope` absent) is an in-scope line, as before. The server enforces the scope: this only
+ * keeps the UI from showing what it must not.
+ */
+const readLine = (raw: AccountingLine): AccountingLine =>
+  raw.inScope === false
+    ? { ...raw, inScope: false, classification: null, chf: null, vatAmountCents: null }
+    : { ...raw, inScope: true }
+
+/**
+ * `GET /review/requests/:id/accounting`: 404 outside the reviewer's scope. A line outside it is
+ * `inScope: false` without figures; `selfRestricted` (absent reads as `false`) makes the classification read-only.
+ */
 export const getRequestAccounting = (requestId: string): Promise<RequestAccounting> =>
-  getJson<RequestAccounting>(`/review/requests/${encodeURIComponent(requestId)}/accounting`)
+  getJson<RequestAccounting>(`/review/requests/${encodeURIComponent(requestId)}/accounting`).then((raw) => ({
+    ...raw,
+    selfRestricted: raw.selfRestricted === true,
+    lines: Array.isArray(raw.lines) ? raw.lines.map(readLine) : raw.lines,
+  }))
 
 /**
  * `PUT /review/requests/:id/lines/:lineId/classification`: at least one key; ids only (there is no "back to default").
- * Answers with the whole line, amounts included: merge it, never recompute. 409 `classification_locked` (paid),
- * `not_classifiable_status`, `line_rejected`; 422 `line_not_welld_ch`, `ledger_account_inactive`, `vat_code_inactive`, `unknown_…`.
+ * Answers with the whole line, amounts included: merge it, never recompute. 403 `self_approval_forbidden` (the
+ * caller owns the request and may not shape its booking, plan.md SR-2), 404 for a line outside the caller's entity
+ * scope; 409 `classification_locked` (paid), `not_classifiable_status`, `line_rejected`; 422 `line_not_welld_ch`,
+ * `ledger_account_inactive`, `vat_code_inactive`, `unknown_…`.
  */
 export const classifyLine = (requestId: string, lineId: string, body: ClassifyBody): Promise<AccountingLine> =>
   sendJson<AccountingLine>(
     `/review/requests/${encodeURIComponent(requestId)}/lines/${encodeURIComponent(lineId)}/classification`,
     'PUT',
     body,
-  )
+  ).then(readLine)
 
 // ---------------------------------------------------------------------------
 // Reading the approve refusal
