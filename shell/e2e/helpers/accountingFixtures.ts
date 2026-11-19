@@ -102,6 +102,15 @@ export function createVatCode(
   return accountingApi<VatCode>(token, 'POST', `/v1/entities/${entity}/vat-codes`, input)
 }
 
+/** Deactivates a ledger account (a manager's action; the entry stays listed, inactive, and can be reactivated). */
+export function deactivateLedgerAccount(token: string, number: string, entity: AccountingEntity = 'welld_ch'): Promise<LedgerAccount> {
+  return accountingApi<LedgerAccount>(token, 'POST', `/v1/entities/${entity}/ledger-accounts/${encodeURIComponent(number)}/deactivate`)
+}
+
+export function reactivateLedgerAccount(token: string, number: string, entity: AccountingEntity = 'welld_ch'): Promise<LedgerAccount> {
+  return accountingApi<LedgerAccount>(token, 'POST', `/v1/entities/${entity}/ledger-accounts/${encodeURIComponent(number)}/reactivate`)
+}
+
 /**
  * A monthly average rate typed by hand: `rate` is the own currency (CHF) for 1 unit of `currency`, e.g. "0.9246". Only a
  * completed month is accepted. Typing the value already in effect writes nothing and answers the month row all the same.
