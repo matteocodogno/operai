@@ -999,7 +999,7 @@ tasks share an edge or a path, except the declared `lerna.json` line-level touch
   - touch: `.changeset/accounting-module.md`, `AGENTS.md`, `accounting-api/README.md`, `accounting-api/.dockerignore`, `accounting-api/Dockerfile`, `.github/workflows/shared-copies.yml`, `infra/README.md`
   - done when: grep finds no false statement; `shared-copies.yml` filter test (if any) green; `docker build` of accounting-api excludes test files (or comment corrected).
 
-- [ ] T56: accounting-ui — mirror T53's server rules in `lib/limits.ts` (a name/label of only blanks or invisible characters is empty; length in code points) and handle 409 `catalog_full` (with `limit`) in the add dialogs with its own message (en + it), axe-checked — refs: AC-1.2, AC-1.5 — deps: T53
+- [x] T56: accounting-ui — mirror T53's server rules in `lib/limits.ts` (a name/label of only blanks or invisible characters is empty; length in code points) and handle 409 `catalog_full` (with `limit`) in the add dialogs with its own message (en + it), axe-checked — refs: AC-1.2, AC-1.5 — deps: T53
   - touch: `accounting-ui/src/lib/*`, `accounting-ui/src/components/*`, `accounting-ui/src/strings.ts`, `accounting-ui/src/**/*.test.tsx`
   - done when: tests for both rules and the 409 green; accounting-ui tsc -b, lint, tests, build green.
 
