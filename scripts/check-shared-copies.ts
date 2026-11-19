@@ -109,6 +109,13 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
     ],
     why: "the request logger; it must keep logging no business data (data residency)",
   },
+  // The wire of accounting-api's two /system/v1 answers (specs/20261119-accounting T7, D23): the producer validates what it
+  // sends and the consumer parses what it receives with the same code, so the two sides cannot each read the wire their own way.
+  {
+    name: "accountingWire",
+    files: ["accounting-api/src/system/accountingWire.ts", "refund-api/src/accounting/accountingWire.ts"],
+    why: "the producer/consumer wire schema of accounting-api's /system/v1 answers (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…, D23); change both files in one commit",
+  },
   {
     name: "manDays",
     files: ["crm-api/src/offers/scope.ts", "estimai-api/src/system/manDays.ts"],

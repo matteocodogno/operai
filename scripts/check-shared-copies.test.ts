@@ -160,6 +160,13 @@ describe("the committed registry", () => {
     }
   });
 
+  test("registers the accountingWire schema of accounting-api and refund-api (specs/20261119-accounting T7)", () => {
+    const g = SHARED_COPIES.find((x) => x.name === "accountingWire");
+    expect(g?.files).toEqual(["accounting-api/src/system/accountingWire.ts", "refund-api/src/accounting/accountingWire.ts"]);
+    expect(g?.mode ?? "region").toBe("region");
+    expect(checkGroups(g ? [g] : [], repoRoot)).toEqual([]);
+  });
+
   test("registers meetings-api's other copies (specs/20261104-meetings T43)", () => {
     for (const name of ["s3ResidencyAllowlist", "s3ResidencyAddressing", "problem", "logger"]) {
       const g = SHARED_COPIES.find((x) => x.name === name);
