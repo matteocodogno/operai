@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "settings:seed": "bun run scripts/seed-setting.ts",
-    "accounting:release": "bun run scripts/accounting-release.ts"
+    "accounting:release": "bun run scripts/accounting-release.ts",
+    "receipt-baseline:from-register": "bun run scripts/receipt-baseline-from-register.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1088.0",
