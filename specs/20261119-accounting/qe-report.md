@@ -2,7 +2,7 @@
 spec: 20261119
 task: T46
 date: 2026-11-19
-verdict: PASS (after fix round 1; first pass FAIL at 99c0e863)
+verdict: PASS for the original module (after fix round 1); sign-off round (T77) FAIL, one low defect (D-9)
 tested: 99c0e863 (branch feat/accounting-module, T1-T45 done, T47's security-review.md already committed) plus the QE tests of this pass (7d7e435d and the two before it)
 ---
 
@@ -337,3 +337,127 @@ Closed, with the evidence:
 New behaviour checked: the per-entity catalog cap (`catalog.cap.test.ts`, `catalog_full` 409; the add dialogs show their own en/it message, tests in both dialogs and `catalogApi`), `Cache-Control: no-store` on every user route (probed on list, add, `/v1/me`, errors and 404s) and, in refund-api, `no-store` and `nosniff` on the options, view and classification routes and the defaults routes (mutant removing it on the options route: 3 tests fail), the 2000-01 month floor (a pre-2000 line no longer fails the whole rates read; mutant at 1900-01: 4 tests fail), and the quiet Prisma client of the release script (a CLI test with fake credentials shows no host or path; mutant that logs again: 1 test fails).
 
 Defects after the round: none. T46 is checked in `tasks.md`.
+
+## Sign-off round (T77; HEAD a88a23b1)
+
+Scope: both specs' 2026-11-19 sign-off amendments, the sample-file sync (20261118 AC-3.11 to 3.13, 4.11 to 4.13, 6.13 to 6.17, 7.4, 8.1 to 8.5 and the adjusted and retired ACs; 20261119 AC-2.12, 7.6 and the adjusted ACs), both plans' "Accounting sign-off delta", T58 to T76, and `release-rehearsal.md`. Database: the new isolated `operai-accounting-test-pg` on 127.0.0.1:5446 only (scratch databases `accounting_qe77` and `refund_qe77`, created and dropped by this pass). `db:generate` and `db:deploy` were run first in every package. Not staged: the modified `.envrc` of the tree.
+
+### Verdict: FAIL (one low defect, D-9; everything else holds)
+
+Every added or adjusted AC has executed evidence, the retired ones are retired in code, API, UI, seed and docs, the workbook matches the accountant's template, and every gate is green except `--randomize` seed 424242 on refund-api, where the new sign-off migration test depends on test order (D-9). That is the same class of defect as D-5, which fix round 1 closed for `migration.accounting-move.test.ts`; the new file repeats it. The fix is small; re-run on the delta only.
+
+| Check | Threshold | Actual | Result |
+|---|---|---|---|
+| accounting-api `bun test`, `tsc` | 0 fail, clean | 658 pass, 1 skip (the opt-in AFC test), 0 fail, 30 files; `--randomize --seed 424242`: 658 pass; on a database migrated from zero: 658 pass; tsc clean | ✓ |
+| AFC live test, once (`ACCOUNTING_LIVE_RATES=1`) | EUR 0.9246 for 2026-03 | pass (a real call to the AFC/ESTV XML channel; EUR 924600 micros) | ✓ (AC-2.12) |
+| refund-api `bun test`, `tsc` | 0 fail, clean | 1918 pass, 0 fail, 77 files; on a database migrated from zero: 1918 pass; tsc clean | ✓ |
+| refund-api `--randomize` seed 77 | 0 fail | 1918 pass | ✓ |
+| refund-api `--randomize` seed 424242 | 0 fail | 1916 pass, **2 fail**, both in `src/lib/migration.accounting-signoff.test.ts`; that file alone: seeds 1 and 424242 fail 2 (13 pass), seeds 2 and 3 pass | ✗ D-9 |
+| auth `bun test`, `tsc` | 0 fail, clean | tsc clean. In this tree: 1495 pass, 36 skip, **2 fail** (`legalEntities/write.routes.test.ts` "the throttle (F3)", a file this branch does not touch), caused by an untracked dotenv file of the checkout (see Environment faults); in a copy of `auth` without it the throttle tests pass | ✓ (environment fault, not a defect) |
+| accounting-ui `tsc -b`, lint, vitest, build | green | clean, clean, 564 pass, builds | ✓ |
+| refund-ui `tsc -b`, lint, vitest, build | green | clean, clean, 1331 pass, builds | ✓ |
+| operai-ui typecheck, lint, test | green | clean, clean, 300 pass | ✓ |
+| shell build, lint, vitest | green | build, lint, 685 pass | ✓ |
+| shell e2e `tsc`; `playwright test --list` | clean; listed | clean; 239 tests in 53 files; 115 test ids referenced, all present in the sources (three absent ids are negative `toHaveCount(0)` assertions of retired UI) | ✓ |
+| `shared:check`, `react:skew`, `env:doctor`, `changeset:check` (local main and origin/main) | green | 34 groups in sync; 12 frontends on one version; all checks passed; OK, OK | ✓ |
+| Migrations from zero (accounting, refund) | no drift | all migrations apply (refund: 13, the last three are the sign-off ones); `migrate diff --exit-code` "No difference detected" on both; the full suites are green on them | ✓ |
+| Secret scan of the delta 86114dc6..HEAD (10,613 added lines) | none | no hit of any pattern; the only added key-like file is `accounting-api/.env.example` (a template) | ✓ |
+| Critical CVEs | 0 | no lockfile changed (`refund-api/package.json` gained one script line); `bun audit`: refund-api 16 (9 high, 5 moderate, 2 low, none critical), accounting-api 4 (2 high, 2 moderate), as before | ✓ |
+| Golden workbook against the accountant's template | same structure | see "The workbook" | ✓ |
+| Golden workbook in LibreOffice headless | opens | `soffice` is not installed here: listed for T81 (Excel or Numbers) | PENDING T81 |
+| Live e2e, browser pass | green | not run (owner, T81) | PENDING |
+| Mutation sample (this round) | killed | 14 of 14 killed (table below) | ✓ |
+| Retired ACs retired | nothing left | see "Retired ACs" | ✓ |
+| Docs and release rehearsal vs code | consistent | the rehearsal agrees with the code; two known cosmetic items and further info items (D-10 to D-15) | ✓ with notes |
+
+### Defects of the round
+
+| id | AC / check | severity | evidence | suspected owner |
+|---|---|---|---|---|
+| D-9 | test hygiene; the D-5 class again | low | `migration.accounting-signoff.test.ts`, describe "the sign-off migrations carry a 20261119130000 database with realistic data": the tests share one scratch database `refund_mig_so` and some of them write to it ("the new enum values can be written after the migration (a line, a default)", "receipt_number_baseline starts empty, takes a 2026 row ..."), while others compare it with digests taken before ("every default row keeps its id ...", "line copies, audit history, receipt counters ... are unchanged"). Shuffled so that a writer runs first, the comparisons fail: whole suite `--randomize --seed 424242` (2 fail); the file alone, seeds 1 and 424242 (2 fail), seeds 2 and 3 green; default order green in every run. CI does not randomize, but the gate list (and fix round 1) says it must hold. Fix: give the writing tests their own scratch database (as T54 did for the move test) or make the file serial. | dev (tests) |
+| D-10 | cosmetic (known) | info | `refund-api/scripts/accounting-release.ts` line 742 and the "Rate pending" line print `1 lines` for a group of one (rehearsal D-1): `${n.count} lines` in `formatReport`. No effect on numbers. | dev |
+| D-11 | stale comments (known) | info | `refund-api/src/index.ts` line 112 still says the export router serves "summary + CSV"; the route is `/file` (XLSX) and `/csv` is 404 (`export.routes.test.ts`). Also `refund-api/src/requests/requests.schemas.ts` line 7 says "the twelve expense types" (fourteen since T59). | dev |
+| D-12 | AC-6.15 wording against the plan | info | The Description (and a non-canonical Debit) is passed through `sanitizeText`, which turns each control character into a space **and** collapses runs of spaces and trims (probe: `"Foo  bar"` gives `"Foo bar"`, `" =lead"` gives `"=lead"`). AC-6.15 says "exactly as written apart from the line breaks of AC-6.13"; plan SO-9 chose the collapse and the test says so (`exportFormat.test.ts`, "turns each control character into a space, and collapses and trims"). Harmless for accounting, but the spec text and the code differ. | spec (say "collapsed") or dev |
+| D-13 | workbook vs template | info | The accountant's template is an Excel table (`Table1` over A1:H201 with an autofilter), and its empty Tax and Note cells have the General format; the generated workbook has no table part and gives those cells the text format. Sheet name, header, column order and widths, the date format, number types, `0.00` on Amount, Credit 5832, Currency CHF, Debit numeric except `2620.10` as text, and the descending date order all match. Whether Accrio needs the table is for the trial import (T80). | owner (T80) |
+| D-14 | privacy hygiene | info | `docs/refund-accounting-backlog.md` line 74 names four client companies that come from the accountant's sample. No row, Description or amount of the sample is in the repository (136 template descriptions: none appears verbatim in the diff; the golden fixture is synthetic), but the owner may prefer generic wording. | owner / dev (docs) |
+| D-15 | info, no action | info | `refund_line.vatCodeIsDefault` stays in the table, written `false` or `null` and read by nothing (SO-2; `classification.repo.ts` line 548 says so). `shared-copies.yml` lists only selected groups (accounting-api's `systemAuth`, `problem` and `logger` copies are not listed, like the other services'; pre-existing policy). accounting-api and accounting-ui tests still use `IMP81` as an arbitrary code (Accounting keeps any code; only the seed, the defaults and the docs must not name it, and they do not). | none |
+
+Environment faults (no dev round):
+
+- **Stale generated Prisma client** in this checkout (no `travel_flight`): fixed by `bun run db:generate` in the three APIs before any test, as the caller said.
+- **An untracked dotenv file in `auth/`** (not mine, not read: a hook protects such files). It makes `bun test` in `auth` exit at once ("BOOTSTRAP_ADMIN_EMAIL must be a valid email address") and, with that one variable supplied on the command line, makes the two legal-entity throttle tests fail (they expect the default limits). A copy of `auth` made without it passes the throttle tests (its only other failures are two tests that read a fixture by a path outside `auth/`, which a copy cannot reach). Nothing under `auth/` changed in this round. Whoever owns that file should know it changes the result of the suite.
+- `.envrc` is modified in the tree and was never staged.
+- No `soffice` on this machine.
+
+### Retired ACs are retired (no VAT default, no designation)
+
+- **Code:** `git grep` over refund-api, refund-ui, accounting-ui, shell/e2e, infra and tools for `foreignCurrencyVat`, `foreign-currency VAT`, `vatCodeIsDefault` (outside the vestigial column above), `NOVAT`, `IMP81`, `IMP77` and `designat*` finds only tests that assert absence, the retirement notes and the migration. The Prisma schema has no designation model; migration `20261119200200_vat_defaults_retired` drops the table and the VAT columns of the defaults (`migration.accounting-signoff.test.ts`: the table and its triggers are gone, the defaults keep ids, actors, times and accounts, the shared raising function stays).
+- **API:** `PUT /accounting/foreign-currency-vat-code` is 404 (`removed-routes.test.ts`); the defaults GET and PUT are accounts only and refuse a `vatCode` body with 422 (`defaults.routes.test.ts`); `/accounting-export/csv` is 404.
+- **UI:** the Settings defaults card, dialog and view have no VAT column, select or designation block (`ExpenseTypeDefaultsCard`, `DefaultClassificationDialog`, `DefaultsSettingsView`); the e2e asserts that none of their test ids exists.
+- **Seed and release data:** `seed.welld-ch.json` holds 19 accounts and 6 VAT codes (`IPM81`, `IPM77`, `IP00`, `BZM81`, `IPM26`, `IPM38`), compared by hand with AC-7.6: all six accounts of the amendment are present with their names; `accounting-defaults.welld-ch.json` holds the 14 types, accounts only, `representation_gifts` empty, no `vatCode` and no `foreignCurrencyVatCode`; both parsers refuse the old shape (`accounting-release.test.ts`, `.cli.test.ts`).
+- **Docs:** AGENTS.md, `infra/README.md`, `accounting-api/README.md` and the changeset say accounts only, no VAT default, no designation, the XLSX file, `IPM81`.
+
+### The workbook against the accountant's template
+
+The template was copied to the scratchpad and read with `openpyxl` (read-only, `python -I`); no row of it was copied anywhere. Compared as structure only: one sheet `Sheet 1`; header `Date, Description, Debit, Credit, Amount, Currency, Tax, Note` (bold); Date a real date with the format `yyyy\-mm\-dd;@`; Description text; Debit and Credit numbers in the General format; Amount a number with `0.00`; Currency text; Tax and Note empty; column widths close to the template's (12, 70, 10, 10, 12, 10, 10, 39 against 11.8, 70.5, 7.8, 8.5, 11.8, 11.5, 9.3, 39); Credit is 5832 and Currency CHF on every template row; the template's dates run latest first (AC-6.16); its Debit is an integer on 198 of 200 rows and a decimal such as `2620.1` on 2, which is the case AC-6.17 handles. The golden workbook (`accounting-export.golden.xlsx`) has the same in 11 synthetic rows: zip intact, no formula element in any part, Debit numeric for `6101`, `5907`, `6701`, `2620.1` and text for `2620.10`, read back by `openpyxl` as such. The Description of the real sample is free text without a receipt number, as the plan expected (the pattern of AC-6.13 stays provisional until the accountant answers). Differences: D-13.
+
+### Evidence for the added and adjusted ACs
+
+Executed and green; each group was also mutated (table below). Files are under `refund-api/src/accounting/` unless shown.
+
+| AC | Evidence |
+|---|---|
+| 20261118 AC-3.11 (no VAT code never blocks) | `classification.test.ts`, `approve-accounting.test.ts` (an EUR request with accounts and no VAT code approves and numbers), `export.test.ts` and `export.routes.test.ts` (exported like any line), UI `LineClassificationPanel` and `ReviewDetailPage`, e2e `refund-accounting` (pending) |
+| 3.12 (at most one VAT code per line) | the classification body takes one `vatCode` (`classification.schemas.ts`, strict); UI `ExpenseLineComposer.test.tsx` offers one VAT field and the split-receipt hint |
+| 3.13 (foreign line: nothing pre-set, any active code, `BZM81` included) | `classification.test.ts`, `classification.routes.test.ts`, `approve-accounting.test.ts`, UI `CatalogSelect`, `LineClassificationPanel` |
+| 4.11, 4.12, 4.13 (2026 baseline N + 1, none = 001, other years ignore it, 2027 restarts) | `receipt.baseline.test.ts`, `numbering.repo.test.ts`, `db.accounting-signoff.test.ts` (table CHECKs, immutability), `receipt-baseline-from-register.test.ts` (helper: duplicates, wrong year, malformed numbers, maxima per initials); mutants SM1, SM1b killed |
+| 6.2, 6.3, 6.12 (eight columns, Credit 5832, Currency CHF, Amount the CHF amount, 9.62, 0.00) | `exportFormat.test.ts`, `export.test.ts` (byte for byte against the golden workbook and its cell list), `xlsx.test.ts`, `export.routes.test.ts` through the route; mutant SM3 killed |
+| 6.13 (Description pattern) | `exportFormat.test.ts`, `export.test.ts`; mutant SM6 killed |
+| 6.14 (Tax and Note present and empty) | `export.test.ts` ("Tax and Note are empty", cell types `empty`) |
+| 6.15 (text, never a formula, eight cells) | `exportFormat.test.ts`, `xlsx.test.ts`, `export.test.ts`; no formula element in any part (checked again here); mutant SM7 killed; wording gap D-12 |
+| 6.16 (latest first, fixed tie-breaks, identical files) | `exportFormat.test.ts`, `export.test.ts`, `export.routes.test.ts` (two downloads identical, same SHA-256); mutant SM5 killed |
+| 6.17 (`2620.10` as text, `5905` and `2620.1` numbers) | `export.test.ts` ("AC-6.17"), `exportFormat.test.ts`; verified in the golden workbook; mutant SM2 killed |
+| 6.4 and the CSV (retired) | `export.routes.test.ts` "(AC-6.4, retired) ... the file carries no VAT at all" and "the CSV route is gone" (404) |
+| 7.1, 7.4 (release: account only, the list required; exit 3 and nothing written; header-only list accepted; rerun is a no-op) | `accounting-release.test.ts`, `accounting-release.cli.test.ts`; the rehearsal; mutant SM8 killed |
+| 8.1, 8.2 (14 types with labels; meals renamed, existing lines keep the type) | `labels.test.ts`, `suggestions.*`, `lines.routes.test.ts`, `exportPdf.test.ts`, `pdf.test.ts`, the migration test for the enum order, UI `expenseTypes.test.ts` and its parity test with `document-labels.json` |
+| 8.3 (14 defaults; gifts none) | `accounting-release.test.ts`, `defaults.routes.test.ts`, the defaults file; mutants SM11, SM12 killed |
+| 8.4 (a gifts line is refused until an account is chosen) | `classification.test.ts`, `approve-accounting.test.ts`; mutant SM4 killed |
+| 8.5 (7122 and 2620.1 choosable, never a default) | the defaults file is compared exactly (mutant SM12: 7122 as a default is caught); the seed test holds both accounts; the classification PUT accepts any active account |
+| 20261119 AC-2.1, 2.12 (AFC/ESTV named; EUR 0.9246) | `afc.live.test.ts` run once live: pass; `parse.test.ts` fixture; accounting-ui source labels |
+| 20261119 AC-7.6 (the exact accounts and six VAT codes, no `IMP81` or `NOVAT`) | `seed-welld-ch.test.ts` (exact list, names, no retired code, every default account in the seed); mutants SM9, SM10 killed |
+| 20261119 AC-3.7, 4.4 to 4.7, 5.1 to 5.3, 6.3, 6.9, 7.2, 7.5 (adjusted: no VAT default, no designation) | `defaults.routes.test.ts`, `removed-routes.test.ts`, `classification*.test.ts`, `approve-accounting.test.ts`, refund-ui settings and panel tests; the retirement checks above |
+| 20261119 AC-5.5 (Amount 9.62) | `amounts.test.ts`, `export.test.ts`; the first pass's mutant on CHF rounding is still killed |
+
+Live evidence pending (T81): the live e2e, and the workbook opened in Excel or Numbers (LibreOffice is not installed here). For every AC above, unit, integration and component evidence is sufficient on its own, as before.
+
+### Release rehearsal (`release-rehearsal.md`)
+
+Read against the code: exit 3 and `BLOCKED: list missing` (`EXIT_BASELINE_MISSING = 3`, `accounting-release.ts` lines 102 and 698 to 702), the dry-run report lines, the baseline row, 13 defaults (14 types less gifts), the rate-pending and missing-account lists, the idempotent rerun and exit 2 for an unreadable Accounting all correspond to code paths that the CLI tests assert; a mutant that makes exit 3 a 0 is killed by `accounting-release.cli.test.ts`. The two environment notes (stale client, `bun` off the `PATH`) are the ones met here. Its single defect is D-10.
+
+### Mutation sample of the round
+
+Mutants were applied to copies of the packages, the covering tests run, the file restored; control runs green.
+
+| id | Mutation | AC | Result |
+|---|---|---|---|
+| SM1 | the baseline applied to every year | 4.12, 4.13 | killed (2) |
+| SM1b | the baseline ignored | 4.11 | killed (10) |
+| SM2 | Debit `2620.10` written as a number | 6.17 | killed (4) |
+| SM3 | Credit account 5832 -> 5831 | 6.2 | killed (5) |
+| SM4 | approval needs no account | 8.4 | killed (16) |
+| SM5 | rows oldest first | 6.16 | killed (6) |
+| SM6 | Description without the receipt number | 6.13 | killed (18) |
+| SM7 | control characters kept in text | 6.15 | killed (13) |
+| SM8 | release exit code for the missing list 3 -> 0 | 7.4 | killed (2) |
+| SM9 | seed VAT code `IPM81` -> `IMP81` | 7.6 | killed (7) |
+| SM10 | seed account 7122 -> 7123 | 7.6 | killed (2) |
+| SM11 | gifts get a default account | 8.3, 8.4 | killed (1) |
+| SM12 | postal default becomes 7122 | 8.5 | killed (4) |
+| UM6 | the export file name `.csv` instead of `.xlsx` (refund-ui) | 6.2 | killed (2) |
+
+### Fix list and notes
+
+- D-9: a separate scratch database for the writing tests of `migration.accounting-signoff.test.ts`; then `--randomize` seeds 424242 and 77 on refund-api, and seeds 1, 2, 3 on that file alone.
+- D-10, D-11: cosmetic edits (`1 line` in the singular; the `index.ts` and `requests.schemas.ts` comments).
+- D-12 to D-14 are for the spec owner, the owner's trial import (T80) and the docs; none blocks.
+- T77 is not checked in `tasks.md` (done-when requires PASS). The OWASP re-review runs separately (T78).
