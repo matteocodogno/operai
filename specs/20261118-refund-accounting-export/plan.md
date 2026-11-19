@@ -133,10 +133,13 @@ It prints a report: counts per employee and year, lines left unclassified, offse
 
 **auth**
 
-`catalogs/refund.ts` gains `request:reclassify` (`supportedConditions: ["entity"]`). `seed.ts`
-grants it like `approve`: `accounting` entity-conditioned, `refund-admin` unconditioned, `admin` per
-its existing pattern. This is the fallback for open question 5 (D5): accounting holds it today, and
-restricting it later is a role edit in admin-ui, with no deploy.
+`catalogs/refund.ts` gains `request:reclassify` with `supportedConditions: ["entity",
+"self-approval"]`. The self-approval condition was added by the security review sync (SR-2). `seed.ts`
+grants it like `approve`, **with the same conditions object as that role's `approve` grant**:
+`accounting` entity-conditioned (plus `self-approval: deny` wherever `approve` carries it),
+`refund-admin` unconditioned, `admin` per its existing pattern. This is the fallback for open
+question 5 (D5): accounting holds it today, and restricting it later is a role edit in admin-ui,
+with no deploy.
 
 **refund-ui**
 
@@ -280,9 +283,18 @@ reviewing their own request is a self-approval question, already handled by ADR
 
 ### Entity scope
 
-- Classification routes and the accounting view use the existing request-level predicate
+- Classification routes and the accounting view first use the existing request-level predicate
   (`requestInScope`, ADR 20260716-entity-scoped-abac-refund-api), the same as approve and
   set-approved-total.
+- **Then a line-level rule (security review sync, SR-1).** A line's accounting data is read or
+  written only when the caller's scope for the action covers **that line's** entity: global, or
+  equal to `line.entity`, which in practice means `welld_ch`. The scope comes from `request:review`
+  for the view, `request:set-approved-total` for a classification change while submitted, and
+  `request:reclassify` once approved.
+  - In the view, an uncovered line keeps its non-accounting fields but has `inScope: false`,
+    `classification: null`, `chf: null` and `vatAmountCents: null`.
+  - A PUT on an uncovered line answers **404**, as for a stranger.
+  - `GET /accounting/options` requires a `request:review` scope covering `welld_ch`.
 - The **export** additionally requires that the caller's `request:review` scope covers `welld_ch`
   (global, or entity = `welld_ch`). Otherwise it answers 403 `accounting_export_out_of_scope`. Batch
   reads stay unscoped (D1 of specs/20260719-refund-monthly-processing), but the export is WellD CH's
@@ -641,32 +653,40 @@ PUT /accounting/foreign-currency-vat-code        { vatCodeId: string|null }     
 ### Accounting (classification)
 
 ```
-GET /accounting/options                          // request:review (any scope); active entries only (AC-1.3/1.6/2.4)
+GET /accounting/options                          // request:review with a scope covering welld_ch (SR-1), else 403
+                                                 // { code:"accounting_out_of_scope" }; active entries only (AC-1.3/1.6/2.4)
   200 { ledgerAccounts: [ { id, number, name } ], vatCodes: [ { id, code, label, ratePercent } ] }
 
 GET /review/requests/{id}/accounting             // request:review + requestInScope; else 403 / 404
+                                                 // + line-level scope (SR-1): uncovered lines carry no accounting data
   200 { requestId, status,
         batch: { id, status } | null,
         classificationState: "review" | "post_approval" | "locked" | "none",   // none = draft/rejected
+        selfRestricted: boolean,         // SR-2: the caller owns the request and may not classify it
         lines: [ {
           lineId, entity, date, type, currency,
           amountCents,                     // approvedTotalCents ?? requestedAmountCents (provisional before approval)
           receiptNumber | null,
           employee: { name, email },       // AC-4.6
           rejected: boolean,               // rejected lines are returned, with classification null (G4)
+          inScope: boolean,                // SR-1: false → classification, chf and vatAmountCents are null
           classification: null | {         // null for WellD Italia (AC-3.9) and for rejected lines
             account: { id, number, name, active } | null,  accountIsDefault: boolean,
             vatCode: { id, code, label, ratePercent, active } | null,  vatCodeIsDefault: boolean },
-          chf: { amountCents: number | null, rateMicros: number | null, rate: "0.9246" | null,
-                 rateMonth: "2026-03" | null, rateMissing: boolean },
+          chf: null | { amountCents: number | null, rateMicros: number | null, rate: "0.9246" | null,
+                 rateMonth: "2026-03" | null, rateMissing: boolean },               // null when !inScope
           vatAmountCents: number | null   // null when CHF amount unknown or no VAT code (AC-3.8)
         } ] }
 
 PUT /review/requests/{id}/lines/{lineId}/classification
   body { ledgerAccountId?: string, vatCodeId?: string }   // at least one key; ids only, no "back to default" (G8)
   gate: status submitted → request:set-approved-total; approved → request:reclassify (D5); both + requestInScope
+        + the line-level scope of that same grant (SR-1) + segregation of duties (SR-2)
   200 the line object above (same shape)
-  403 capability     404 out of scope / unknown line
+  403 capability
+  403 { code:"self_approval_forbidden" }   // SR-2: caller owns the request and is self-restricted;
+                                           // checked before the 404s, as approve does
+  404 out of scope (request OR line, SR-1) / unknown line
   409 { code:"classification_locked" }            // paid (AC-3.7)
   409 { code:"not_classifiable_status" }          // draft / rejected
   409 { code:"line_rejected" }
@@ -970,7 +990,8 @@ Surfaces to review:
    - body size cap and timeout (A10, A05, A04);
    - the parsed rate range checked (> 0, < 1000).
 4. **`PUT …/classification`**: the status-dependent gate (`set-approved-total` vs `reclassify`),
-   `FOR UPDATE` on the request, the IT-line refusal, no change to money fields (A01, A04).
+   `FOR UPDATE` on the request, the IT-line refusal, no change to money fields (A01, A04); since
+   the security review sync also the line-level scope (SR-1) and segregation of duties (SR-2).
 5. **`GET /review/requests/{id}/accounting` vs `GET /requests/{id}`**: confirm the owner path never
    carries accounting fields (A01, AC-3.10).
 6. **Management routes** (`/accounting/*`, `/exchange-rates*`): `settings:read`/`settings:manage`
@@ -992,7 +1013,7 @@ it.
 | **D2** | **Sequence offset** (open question 2): numbering starts at **001** as the spec says. Per-(employee, year) offsets can be loaded once, before any number exists, by `accounting:release --offsets file.csv`. | Follows the spec text, keeps the paper-era fix available, and never renumbers anything. | Supply the CSV at release; no code change. |
 | **D3** | **CSV dialect** (open question 3): UTF-8 with BOM, `;`, `.` decimal, CRLF, ISO dates, English headers and expense-type labels, `formatVersion 1`. | `;` + BOM opens correctly in Excel/Numbers under CH and IT locales; `.` is the Swiss decimal mark and cannot clash with `;`; English matches the 2026-09-08 documents decision (`labels.ts`). | Constants in `exportFormat.ts`; bump `FORMAT_VERSION`. |
 | **D4** | **Foreign-currency VAT code** (now spec domain term, amendment A2) is stored as an append-only `refund_setting` key with its own route, history and admin-only gate. Unset, cleared or inactive → no default VAT code for non-CHF lines → approval asks (AC-2.7). | The spec names one code for all foreign currencies; the self-auditing store gives AC-2.5's history for free; "inactive = none" is the safe reading and matches how type defaults are resolved. | Settings UI. |
-| **D5** | **Post-approval reclassification** (open question 5): a new `request:reclassify` action, granted to the same holders as `approve`. | Behaviour equals the spec today; restricting it later is a role edit with no deploy. | admin-ui role grants. |
+| **D5** | **Post-approval reclassification** (open question 5): a new `request:reclassify` action, granted to the same holders as `approve` **with the same conditions, `self-approval` included** (amended by SR-2). | Behaviour equals the spec today; restricting it later is a role edit with no deploy; segregation of duties follows approve's. | admin-ui role grants. |
 | **D6** | **Release gate**: approvals are refused (409 `accounting_release_pending`) until `accounting:release` has run. | Guarantees legacy lines are numbered first and in expense-date order, and that offsets can still be applied. No ordering hazard between deploy and backfill. | Remove the gate check once released (it is one `refund_setting` read). |
 | **D7** | **IT legacy lines are not numbered** by the release script; IT lines approved after release are (AC-4.1 applies to every line). Now spec text: AC-7.3 and a Non-goal. | AC-7.1 scopes the backfill to WellD CH. | — (specified) |
 | **D8** | **Export needs WellD CH review scope**, not just the capability. | The file is WellD CH's books; a WellD Italia-scoped accountant has no business exporting it. | One check in `export.routes.ts`. |
@@ -1020,6 +1041,68 @@ above is synced with them:
 
 Still a plan-level reading, not spec text: AC-6.11's capability is `request:review` (the compile
 gate), narrowed to WellD CH scope (D8). No further amendment is proposed.
+
+## Security review sync (2026-11-19)
+
+`security-review.md` (T36, commit b81b1eb8) reports 0 critical, 0 high, 2 medium, 6 low and 3 info
+findings. The recommended option is taken for each, unattended. Status stays `approved`: no AC
+changes. The two mediums tighten access within what the spec already asks (AC-3.3, AC-3.6, D8).
+
+| # | Finding | Decision |
+|---|---|---|
+| SR-1 | **S-01 (medium)**: entity scope is checked per request ("any line matches"), so a `welld_it`-scoped reviewer can read and change the WellD CH line of a mixed request. | **Line-level scope** (§ Entity scope, API contracts). Accounting data of a line is read or written only when the caller's scope for that action is global or equal to the line's entity. A PUT on an uncovered line → 404. In the view, an uncovered line has `inScope: false` and no accounting data. `GET /accounting/options` needs a scope covering `welld_ch`. Approval stays request-level (ADR 20260716-entity-scoped-abac-refund-api, unchanged). A `welld_it`-scoped approver who gets `classification_missing` for a CH line needs a WellD CH colleague to classify it; the 409 shows only line id, date and type, which `GET /requests/{id}` already shows them. |
+| SR-2 | **S-02 (medium)**: `request:reclassify` has no self-approval condition, so an accountant can change the booking of their own request after a colleague approves it, and before that through `set-approved-total`. | **Segregation of duties, the same as approve.** <br>• **auth (T2 contract amended):** `reclassify` declares `supportedConditions: ["entity", "self-approval"]`, and the seed grants it with the same conditions object as the role's `approve` grant. <br>• **refund-api, after approval:** when the caller's `reclassify` grant carries `self-approval: deny` (`approveSelfRestricted`) and the caller owns the request → 403 `self_approval_forbidden`. <br>• **refund-api, while submitted:** the same 403 when the caller's **`approve`** grant is self-restricted and the caller owns the request. Whoever may not approve their own request may not shape its booking. `set-approved-total` itself stays unconditioned (specs/20260721-self-approval-control D3). <br>• **Order:** the check runs before the scope 404s, as approve does. It is logged at info level (actor id, request id, no personal data). <br>• **View:** `selfRestricted: true`, so the panel is read-only with its own copy. <br>• **Seed:** if a deployment has no `self-approval` condition on `approve`, there is none on `reclassify` either. The policy is the same knob. |
+| SR-3 | S-03 (low): nothing stops the offsets CSV (employee emails) from being committed. | **Fix.** `.gitignore` gains `**/*offsets*.csv` and `**/accounting-offsets*`. `accounting-release` prints a warning when the `--offsets` path resolves inside a git worktree. The runbook says the file lives outside the repository. |
+| SR-4 | S-04 (low): the release script prints employee emails, and in `--dry-run` per-line financial data, to stdout. | **Fix.** The report identifies an employee as `<initials> · <first 8 chars of the user id>`. Full emails only with an explicit `--show-emails` flag. Error messages mask the email (`m***@welld.ch`). Runbook: run only from an operator shell, never from CI or a job whose output is shipped to a log service. |
+| SR-5 | S-06 (low): the summary and the 409 blocked body set no cache header. | **Fix.** `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff` on the summary 200 and on the `accounting_export_blocked` 409, as the CSV already has. |
+| SR-6 | S-05 (low): the summary is not logged, and the export-log row has no request id or IP. | **Accepted.** AC-6.10 logs downloads, and the summary shows nothing the batch page does not. **Follow-up FU-S1:** a request id (and optionally the client IP) on `refund_batch_export`; this needs a migration. |
+| SR-7 | S-07 (low): a plausible but wrong fetched rate stays in effect until an admin notices. | **Accepted for this release.** The source was verified against the register (D10), the parser is strict, and corrections always win. **Follow-up FU-S2:** a plausibility band against the previous month (for example ±25 %, failing as `implausible`), which changes what AC-5.1 records and so needs accounting's agreement; and showing discrepancies in Settings (design follow-up F3). |
+| SR-8 | S-08 (low): immutability is by row triggers only (TRUNCATE and DISABLE TRIGGER remain to the table owner); no DB rule keeps classification off `welld_it` lines. | **Accepted, follow-up.** <br>• This is the suite-wide posture of every Tier 1 table (ADR 20260716-immutable-financial-audit-trail-refund): the service connects as the owner today. <br>• **FU-S3 (infra, all services):** a non-owner runtime role without TRUNCATE/ALTER, owner credentials for migrations only. <br>• **FU-S4:** a CHECK that `ledgerAccountId`/`vatCodeId` are NULL when `entity <> 'welld_ch'`, in the next refund-api migration. The route already refuses it (422 `line_not_welld_ch`), and IS-1 shows such a write books nothing. |
+| SR-9 | S-09 (info): the fetch-attempt `trigger` is client-supplied. | **Accepted, follow-up FU-S5:** derive it server-side. The permission (`settings:manage`) and the actor (JWT) are already server-side, so only the label is the caller's claim. |
+| SR-10 | S-10 (info): the formula guard does not cover a leading LF or a trigger after leading whitespace. | **Accepted, follow-up FU-S6:** add `\n` and a whitespace-trimmed check to `FORMULA_TRIGGERS`, with a golden-file case. Excel does not evaluate those today. |
+| — | S-11 (info): AC-3.10 verified OK. | Nothing to do. |
+
+**Fix list for development** (the S-01, S-02, S-03, S-04 and S-06 fixes, each with its test):
+
+1. **refund-api `src/accounting/classification.repo.ts` / `classification.routes.ts` (SR-1):**
+   - add the line-level check `scope === GLOBAL_ENTITY_SCOPE || scope === line.entity` after the
+     line lookup in `classifyLine` (404 otherwise), using the scope of the grant that gates the
+     status;
+   - in the view, `inScope` plus nulling of the accounting fields for uncovered lines;
+   - `GET /accounting/options` requires a `welld_ch`-covering review scope (403
+     `accounting_out_of_scope`).
+
+   Tests: a `welld_it`-scoped caller on a mixed request → PUT on the CH line 404 (submitted and
+   approved); the view shows the CH line with `inScope: false` and no account/VAT/CHF; options →
+   403; a global caller is unchanged.
+2. **auth `catalogs/refund.ts`, `seed.ts` + tests (SR-2):** `reclassify` with
+   `supportedConditions: ["entity","self-approval"]`, seeded with the role's `approve` conditions.
+3. **refund-api `classification.repo.ts` / `classification.routes.ts` (SR-2):**
+   - the self-restriction check, run before the scope checks: `reclassify` grant for an approved
+     request, `approve` grant for a submitted one; owner → 403 `self_approval_forbidden` with an
+     info log;
+   - `selfRestricted` in the view.
+
+   Tests: owner with a self-restricted grant → 403 in both states; owner without the restriction
+   → 200; a non-owner → 200.
+4. **refund-ui `LineClassificationPanel` / `ReviewDetailPage` (SR-1, SR-2):**
+   - read-only with a short note when `selfRestricted`;
+   - no panel content for `inScope: false` lines (same as a WellD Italia line);
+   - map 403 `self_approval_forbidden` to that note;
+   - new copy in `strings.ts` (en + it).
+5. **`.gitignore` + `scripts/accounting-release.ts` (SR-3, SR-4):**
+   - the ignore patterns;
+   - the warning for an offsets path inside the worktree;
+   - masked employee references, `--show-emails`, masked emails in errors.
+
+   Tests: the report contains no `@` without `--show-emails`; a path inside the repo prints the
+   warning.
+6. **refund-api `export.routes.ts` (SR-5):** `no-store` + `nosniff` on the summary and the blocked
+   409. Test: both headers on both responses.
+7. **`infra/README.md` runbook (SR-3, SR-4):** the offsets file stays outside the repository; the
+   script runs from an operator shell only.
+
+Follow-ups not planned (FU-S1 to FU-S6) are listed in the table above.
 
 ## Implementation sync (2026-11-19)
 
