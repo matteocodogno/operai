@@ -47,17 +47,17 @@ export function createAppRouter(basepath?: string) {
 
   /**
    * The `/settings` route's component: the page is a plain component with props (it also renders outside a
-   * router), and this keeps its open view and the exchange-rates deep-link month in the URL
-   * (specs/20261118-refund-accounting-export UX-1). Picking a tab REPLACES the history entry, so Back does not walk through
-   * tab clicks, and drops `month` (it only means something on the rates view).
+   * router), and this keeps its open view in the URL (specs/20261118-refund-accounting-export UX-1). Picking a
+   * tab REPLACES the history entry, so Back does not walk through tab clicks and drops `month`. The page no
+   * longer reads `month` (the exchange rates live in Accounting, specs/20261119-accounting T34); the search
+   * validation keeps accepting it until the last link that carries it is replaced (T36, T37).
    */
   const SettingsRoute = () => {
-    const { section, month } = settingsRouteApi.useSearch()
+    const { section } = settingsRouteApi.useSearch()
     const navigate = useNavigate()
     return (
       <SettingsPage
         section={section}
-        month={month}
         onSectionChange={(next: SettingsSection) =>
           void navigate({ to: '/settings', search: { section: next }, replace: true })
         }

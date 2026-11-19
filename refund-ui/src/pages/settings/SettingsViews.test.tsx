@@ -1,9 +1,10 @@
 /**
  * @vitest-environment jsdom
  *
- * The Settings views (T23, specs/20261118-refund-accounting-export, design UX-1 / S1; AC-1.7, AC-2.8, AC-5.7 UI side):
- * a tab list only when the user can open more than one view, only the open view mounted, the view and the
- * exchange-rates month in the URL (`?section=`, `&month=`), and the page working outside a router.
+ * The Settings views (T23, specs/20261118-refund-accounting-export, design UX-1 / S1; AC-1.7 UI side; T34,
+ * specs/20261119-accounting, UX-16, AC-4.6): two views, General and Default classification; a tab list only when the
+ * user can open more than one view, only the open view mounted, the view in the URL (`?section=`), a legacy
+ * `accounting` or `exchange-rates` value showing General, and the page working outside a router.
  *
  * The page is mounted through the real route tree (`createAppRouter`), so the search validation and the
  * tab-to-URL wiring under test are the shipped ones. The mileage-rate and email APIs are mocked: the General
@@ -93,7 +94,7 @@ afterEach(() => {
   window.history.pushState(null, '', '/')
 })
 
-describe('which views a user gets (AC-1.7, AC-2.8, AC-5.7, UI side)', () => {
+describe('which views a user gets (AC-1.7 of 20261118, UI side)', () => {
   it('without settings:read there is no tab list at all: the page is today’s page', async () => {
     vi.mocked(session.usePermissions).mockReturnValue(RATE_ONLY)
     await openSettings()
@@ -101,8 +102,7 @@ describe('which views a user gets (AC-1.7, AC-2.8, AC-5.7, UI side)', () => {
     expect(screen.queryByRole('tablist')).toBeNull()
     expect(screen.queryByRole('tabpanel')).toBeNull()
     expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
-    expect(screen.queryByTestId('refund-settings-accounting')).toBeNull()
-    expect(screen.queryByTestId('refund-settings-exchange-rates')).toBeNull()
+    expect(screen.queryByTestId('refund-settings-defaults')).toBeNull()
     expect(
       screen.getByText('The per-km mileage rate of each entity and the address that receives the monthly batch.'),
     ).not.toBeNull()
@@ -121,36 +121,32 @@ describe('which views a user gets (AC-1.7, AC-2.8, AC-5.7, UI side)', () => {
     expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
   })
 
-  it.each(['?section=accounting', '?section=exchange-rates&month=2026-03'])(
-    'without settings:read, a deep link %s still shows only General, and nothing of the other views mounts',
+  it.each(['?section=defaults', '?section=accounting', '?section=exchange-rates&month=2026-03'])(
+    'without settings:read, a deep link %s still shows only General, and nothing of the other view mounts',
     async (search) => {
       vi.mocked(session.usePermissions).mockReturnValue(RATE_ONLY)
       await openSettings(search)
 
       expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
-      expect(screen.queryByTestId('refund-settings-accounting')).toBeNull()
-      expect(screen.queryByTestId('refund-settings-exchange-rates')).toBeNull()
+      expect(screen.queryByTestId('refund-settings-defaults')).toBeNull()
+      expect(accountingApi.getExpenseTypeDefaults).not.toHaveBeenCalled()
     },
   )
 
-  it('with settings:read the three views are offered, in order, in a labelled tab list', async () => {
+  it('with settings:read the two views are offered, in order, in a labelled tab list: no Accounts and VAT, no Exchange rates (AC-4.6)', async () => {
     vi.mocked(session.usePermissions).mockReturnValue(SETTINGS_READER)
     await openSettings()
 
     expect(screen.getByRole('tablist', { name: 'Settings sections' })).not.toBeNull()
-    expect(tabNames()).toEqual(['General', 'Accounts and VAT', 'Exchange rates'])
+    expect(tabNames()).toEqual(['General', 'Default classification'])
     expect(screen.getByRole('tab', { name: 'General' }).getAttribute('aria-selected')).toBe('true')
-    expect(
-      screen.getByText(
-        'The mileage rates, the accounting setup (ledger accounts, VAT codes and default classification) and the monthly exchange rates.',
-      ),
-    ).not.toBeNull()
+    expect(screen.getByText('The mileage rates and the default classification of expense types.')).not.toBeNull()
   })
 
   it('a user with settings:read but no rate grant still gets the views (the General cards handle their own 403)', async () => {
     vi.mocked(session.usePermissions).mockReturnValue(grant(['settings', 'read']))
     await openSettings()
-    expect(tabNames()).toHaveLength(3)
+    expect(tabNames()).toHaveLength(2)
   })
 })
 
@@ -159,37 +155,44 @@ describe('?section= picks the view, and only that view is mounted', () => {
     await openSettings()
     expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
     await waitFor(() => expect(ratesApi.listRates).toHaveBeenCalled())
-    expect(screen.queryByTestId('refund-settings-accounting')).toBeNull()
-    expect(screen.queryByTestId('refund-settings-exchange-rates')).toBeNull()
-    expect(accountingApi.listLedgerAccounts).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('refund-settings-defaults')).toBeNull()
+    expect(accountingApi.getExpenseTypeDefaults).not.toHaveBeenCalled()
   })
 
-  it('?section=exchange-rates mounts only the exchange-rates view: General, with its fetches, never mounts', async () => {
-    await openSettings('?section=exchange-rates')
+  it('?section=defaults mounts only the default classification view: General, with its fetches, never mounts', async () => {
+    await openSettings('?section=defaults')
 
-    expect(screen.getByTestId('refund-settings-exchange-rates')).not.toBeNull()
-    expect(screen.queryByTestId('refund-settings-accounting')).toBeNull()
+    expect(screen.getByTestId('refund-settings-defaults')).not.toBeNull()
+    expect(await screen.findByTestId('settings-defaults-card')).not.toBeNull()
+    expect(screen.getByTestId('settings-accounting-link-note')).not.toBeNull()
     expect(screen.queryByTestId('rates-section-welld_ch')).toBeNull()
-    expect(screen.getByRole('tab', { name: 'Exchange rates' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: 'Default classification' }).getAttribute('aria-selected')).toBe('true')
     expect(ratesApi.listRates).not.toHaveBeenCalled()
     expect(settingsApi.getSetting).not.toHaveBeenCalled()
+    // The catalog cards moved to the Accounting app (AC-4.6): their lists are never read from here.
+    expect(accountingApi.listLedgerAccounts).not.toHaveBeenCalled()
+    expect(accountingApi.listVatCodes).not.toHaveBeenCalled()
   })
 
-  it('?section=accounting mounts only the accounting view, with its cards', async () => {
-    await openSettings('?section=accounting')
-    expect(screen.getByTestId('refund-settings-accounting')).not.toBeNull()
-    expect(await screen.findByTestId('settings-accounts-card')).not.toBeNull()
-    expect(screen.getByTestId('settings-vat-codes-card')).not.toBeNull()
-    expect(screen.queryByTestId('refund-settings-exchange-rates')).toBeNull()
-    expect(ratesApi.listRates).not.toHaveBeenCalled()
-  })
+  it.each(['?section=accounting', '?section=exchange-rates', '?section=exchange-rates&month=2026-03'])(
+    'the 20261118 view %s no longer exists: General is shown, with no error (AC-4.6)',
+    async (search) => {
+      await openSettings(search)
+
+      expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
+      expect(screen.getByRole('tab', { name: 'General' }).getAttribute('aria-selected')).toBe('true')
+      expect(screen.queryByTestId('refund-settings-defaults')).toBeNull()
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(accountingApi.getExpenseTypeDefaults).not.toHaveBeenCalled()
+    },
+  )
 
   it.each([
     '?section=bogus',
     '?section=',
     '?section=General',
     '?section=%3Cscript%3E',
-    '?section=1&section=accounting',
+    '?section=1&section=defaults',
   ])('an unknown section (%s) falls back to the first view, with no error', async (search) => {
     await openSettings(search)
     expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
@@ -197,9 +200,9 @@ describe('?section= picks the view, and only that view is mounted', () => {
   })
 
   it('the open tab’s panel is labelled by it', async () => {
-    await openSettings('?section=accounting')
+    await openSettings('?section=defaults')
     const panel = screen.getByRole('tabpanel')
-    expect(panel.getAttribute('aria-labelledby')).toBe(screen.getByRole('tab', { name: 'Accounts and VAT' }).id)
+    expect(panel.getAttribute('aria-labelledby')).toBe(screen.getByRole('tab', { name: 'Default classification' }).id)
   })
 })
 
@@ -209,24 +212,23 @@ describe('switching views', () => {
     await waitFor(() => expect(ratesApi.listRates).toHaveBeenCalled())
     const historyLength = window.history.length
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Accounts and VAT' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Default classification' }))
 
-    await waitFor(() => expect(screen.getByTestId('refund-settings-accounting')).not.toBeNull())
+    await waitFor(() => expect(screen.getByTestId('refund-settings-defaults')).not.toBeNull())
     expect(screen.queryByTestId('rates-section-welld_ch')).toBeNull()
     expect(screen.queryByTestId('refund-settings-view-general')).toBeNull()
-    expect(router.state.location.search).toEqual({ section: 'accounting' })
-    expect(window.location.search).toBe('?section=accounting')
+    expect(router.state.location.search).toEqual({ section: 'defaults' })
+    expect(window.location.search).toBe('?section=defaults')
     expect(window.history.length).toBe(historyLength)
   })
 
-  it('leaving the exchange-rates view drops the month from the URL', async () => {
-    const router = await openSettings('?section=exchange-rates&month=2026-03')
-    expect(router.state.location.search).toEqual({ section: 'exchange-rates', month: '2026-03' })
+  it('leaving a leftover 20261118 rates deep link for another view drops its ?month= from the URL', async () => {
+    await openSettings('?section=exchange-rates&month=2026-03')
+    expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'General' }))
-
-    await waitFor(() => expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull())
-    expect(window.location.search).toBe('?section=general')
+    fireEvent.click(screen.getByRole('tab', { name: 'Default classification' }))
+    await waitFor(() => expect(screen.getByTestId('refund-settings-defaults')).not.toBeNull())
+    expect(window.location.search).toBe('?section=defaults')
   })
 
   it('arrow keys and End move between the tabs and open the focused view', async () => {
@@ -235,28 +237,13 @@ describe('switching views', () => {
     general.focus()
 
     fireEvent.keyDown(general, { key: 'ArrowRight' })
-    await waitFor(() => expect(screen.getByTestId('refund-settings-accounting')).not.toBeNull())
-    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Accounts and VAT' }))
+    await waitFor(() => expect(screen.getByTestId('refund-settings-defaults')).not.toBeNull())
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Default classification' }))
 
-    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'End' })
-    await waitFor(() => expect(screen.getByTestId('refund-settings-exchange-rates')).not.toBeNull())
-    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Exchange rates' }))
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Home' })
+    await waitFor(() => expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull())
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'General' }))
   })
-})
-
-describe('?month= is the exchange-rates deep link', () => {
-  it('reaches the exchange-rates view when it is a YYYY-MM month', async () => {
-    await openSettings('?section=exchange-rates&month=2026-03')
-    expect(screen.getByTestId('refund-settings-exchange-rates').getAttribute('data-month')).toBe('2026-03')
-  })
-
-  it.each(['2026-13', '2026-3', 'march', '2026-03-01', '', '2026-00', '%22%3E%3Cb%3E'])(
-    'drops %j: a malformed month never reaches the view',
-    async (month) => {
-      await openSettings(`?section=exchange-rates&month=${month}`)
-      expect(screen.getByTestId('refund-settings-exchange-rates').hasAttribute('data-month')).toBe(false)
-    },
-  )
 })
 
 describe('outside a router', () => {
@@ -265,15 +252,15 @@ describe('outside a router', () => {
     render(<SettingsPage />)
 
     expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
-    fireEvent.click(screen.getByRole('tab', { name: 'Exchange rates' }))
-    expect(screen.getByTestId('refund-settings-exchange-rates')).not.toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: 'Default classification' }))
+    expect(screen.getByTestId('refund-settings-defaults')).not.toBeNull()
     expect(screen.queryByTestId('refund-settings-view-general')).toBeNull()
   })
 
   it('SettingsPage starts on the section it was given', () => {
     vi.mocked(session.usePermissions).mockReturnValue(SETTINGS_READER)
-    render(<SettingsPage section="accounting" />)
-    expect(screen.getByTestId('refund-settings-accounting')).not.toBeNull()
+    render(<SettingsPage section="defaults" />)
+    expect(screen.getByTestId('refund-settings-defaults')).not.toBeNull()
   })
 
   it('a controlled SettingsPage reports the pick and does not switch by itself', () => {
@@ -281,9 +268,9 @@ describe('outside a router', () => {
     const onSectionChange = vi.fn()
     render(<SettingsPage section="general" onSectionChange={onSectionChange} />)
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Accounts and VAT' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Default classification' }))
 
-    expect(onSectionChange).toHaveBeenCalledWith('accounting')
+    expect(onSectionChange).toHaveBeenCalledWith('defaults')
     expect(screen.getByTestId('refund-settings-view-general')).not.toBeNull()
   })
 })

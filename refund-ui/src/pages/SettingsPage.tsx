@@ -32,8 +32,7 @@ import AddRateEntryModal from '../components/AddRateEntryModal'
 import SuccessBanner from '../components/SuccessBanner'
 import { validateRate, validateValidFrom } from '../lib/rateValidation'
 import { strings } from '../strings'
-import AccountingSettingsView from './settings/AccountingSettingsView'
-import ExchangeRatesView from './settings/ExchangeRatesView'
+import DefaultsSettingsView from './settings/DefaultsSettingsView'
 
 const t = strings.settings
 
@@ -599,20 +598,20 @@ function GeneralSettingsView() {
 // ---------------------------------------------------------------------------
 
 /** The Settings views, in tab order; `?section=` carries these ids. */
-const SETTINGS_SECTIONS = ['general', 'accounting', 'exchange-rates'] as const
+const SETTINGS_SECTIONS = ['general', 'defaults'] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 const SECTION_LABEL: Record<SettingsSection, string> = {
   general: t.sections.general,
-  accounting: t.sections.accounting,
-  'exchange-rates': t.sections.exchangeRates,
+  defaults: t.sections.defaults,
 }
 
 export type SettingsPageProps = {
-  /** The requested view (`?section=`). Unknown, or one the user cannot open: the first available view is shown. */
+  /**
+   * The requested view (`?section=`). Unknown (including the 20261118 `accounting` and `exchange-rates`, which no
+   * longer exist: Accounting keeps those lists now), or one the user cannot open: the first available view is shown.
+   */
   section?: string
-  /** The month an exchange-rates deep link points at (`&month=YYYY-MM`); only that view reads it. */
-  month?: string
   /**
    * Called with the view the user picked. With it, the page is controlled by `section` (the router keeps it in the
    * URL); without it the page keeps its own choice, so it also works outside a router.
@@ -621,17 +620,17 @@ export type SettingsPageProps = {
 }
 
 /**
- * SettingsPage — the refund tool's configuration, in same-page views (UX-1, specs/20261118-refund-accounting-export):
- * General (today's page), Accounts and VAT, Exchange rates. Only the open view is mounted, so an auto-fetch
- * of exchange rates runs only when an admin looks at them. A view the user cannot open is left out of
- * the tab list, never disabled (design-system § Tool frame): the accounting views need `settings:read`;
- * General stays for everyone who reaches the page (its own cards handle a 403). With a single view there is
- * no tab list and the page is exactly today's. UX only: refund-api enforces every grant.
+ * SettingsPage — the refund tool's configuration, in same-page views (UX-16, specs/20261119-accounting; UX-1 of
+ * 20261118): General (today's page) and Default classification. Only the open view is mounted. A view the user
+ * cannot open is left out of the tab list, never disabled (design-system § Tool frame): Default classification
+ * needs `settings:read`; General stays for everyone who reaches the page (its own cards handle a 403). With a
+ * single view there is no tab list and the page is exactly today's. The ledger accounts, VAT codes and
+ * exchange rates are kept in the Accounting app (AC-4.6). UX only: refund-api enforces every grant.
  *
  * Capabilities fail CLOSED until the shell resolves them, so a deep link to a gated view first shows
  * General for an instant and then switches.
  */
-export default function SettingsPage({ section, month, onSectionChange }: SettingsPageProps) {
+export default function SettingsPage({ section, onSectionChange }: SettingsPageProps) {
   const { permissions } = usePermissions()
   const canReadSettings = hasCapability(permissions, 'settings', 'read')
   const [ownSection, setOwnSection] = useState<string | undefined>(section)
@@ -672,8 +671,7 @@ export default function SettingsPage({ section, month, onSectionChange }: Settin
         data-testid={`refund-settings-view-${active}`}
       >
         {active === 'general' && <GeneralSettingsView />}
-        {active === 'accounting' && <AccountingSettingsView />}
-        {active === 'exchange-rates' && <ExchangeRatesView month={month} />}
+        {active === 'defaults' && <DefaultsSettingsView />}
       </div>
     </section>
   )

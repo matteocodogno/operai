@@ -144,8 +144,7 @@ const en = {
     },
     dismiss: 'Dismiss',
     /** specs/20261118-refund-accounting-export: the page description once it has more than the mileage rates. */
-    descriptionAll:
-      'The mileage rates, the accounting setup (ledger accounts, VAT codes and default classification) and the monthly exchange rates.',
+    descriptionAll: 'The mileage rates and the default classification of expense types.',
     /** The Settings views (UX-1). */
     sections: {
       label: 'Settings sections',
@@ -1315,8 +1314,7 @@ const it: Strings = {
       historyItem: (value: string, by: string, at: string) => `${value} — ${by} — ${at}`,
     },
     dismiss: 'Chiudi',
-    descriptionAll:
-      'Le tariffe chilometriche, la configurazione contabile (conti contabili, codici IVA e classificazione predefinita) e i tassi di cambio mensili.',
+    descriptionAll: 'Le tariffe chilometriche e la classificazione predefinita dei tipi di spesa.',
     sections: {
       label: 'Sezioni delle impostazioni',
       general: 'Generale',
