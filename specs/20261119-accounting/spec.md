@@ -34,6 +34,7 @@ approved: 2026-11-19
   every AC id is unchanged.
 
 - **Amendment 2026-11-19 (accounting sign-off; decided by the owner):** the company accountant
+  **Approved by the owner on 2026-11-19**, with the open questions below accepted as risk on their stated fallbacks. Owner decisions at approval: if AFC offers no automatic channel, keep the existing automatic monthly-average feed as long as its values match AFC's (March 2026 does), naming AFC as the authority, and accounting corrects a month by hand if it ever differs; receipts with several VAT rates are split into several lines by the employee (the expense form says so), and accounting may reject a line that needs splitting.
   answered the open questions of specs/20261118-refund-accounting-export and of this spec, and the
   owner (Matteo Codogno) took four decisions on 2026-11-19 (see the same-dated amendment of
   20261118, which carries the Refund side). Wording by the product-owner agent. Status stays
