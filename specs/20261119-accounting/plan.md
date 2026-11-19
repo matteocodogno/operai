@@ -96,7 +96,10 @@ has the details.
 - the remote entry (`ACCOUNTING_REMOTE_URL`, build-time and runtime config, `RuntimeRemoteEntry`), and
   the ambient module types and stubs;
 - `getAccountingApiBaseUrl()` and its trusted origin (`VITE_ACCOUNTING_API_URL`);
-- the tool name in both languages, and `useRemoteVersions`;
+- the tool name in both languages ("Accounting" / "Contabilità"), `useRemoteVersions`, and the Sidebar
+  icon: `TOOL_ICONS` is a `Record<ToolId, ReactNode>`, so the new id needs `accounting: <Icon
+  name="list-ordered" …/>` to compile. The entry goes last in the main list, after Projects (design
+  UX-14, G1);
 - CSP in `shell/vercel.json`: `script-src` gains `https://accounting.operai.welld.io`; `connect-src`
   gains it and `https://accounting-api.operai.welld.io`.
 
@@ -408,7 +411,9 @@ model ExchangeRateFetchAttempt {
   entity        Entity
   month         DateTime @db.Date
   trigger       String                          // manager | consumer — derived server-side (closes FU-S5)
-  outcome       String                          // ok | failed | disabled
+  outcome       String                          // ok | failed | not_fetchable | disabled (not_fetchable only for
+                                                  // the manager trigger; a consumer call writes no row for a
+                                                  // not-yet-published or throttled month, G5)
   errorCode     String?                         // timeout | http_<status> | parse | month_mismatch | currency_missing
   recorded      Json?
   discrepancies Json?
@@ -575,7 +580,8 @@ GET  /v1/entities/{entity}/ledger-accounts
                                                                            // empty list = nothing entered yet (AC-8.3)
 POST /v1/entities/{entity}/ledger-accounts            { number, name }     // manage
   201 { number, name, active: true }
-  409 { code: "ledger_account_duplicate", number }                         // active OR deactivated, also from P2002 (AC-1.3)
+  409 { code: "ledger_account_duplicate", number, reactivate: boolean }    // active OR deactivated, also from P2002 (AC-1.3);
+                                                                           // reactivate = the existing entry is deactivated (G9, G11)
   422 { code: "invalid_ledger_account", fields: [ { field: "number"|"name", reason: "empty"|"format"|"too_long" } ] }  // AC-1.2
 POST /v1/entities/{entity}/ledger-accounts/{number}/deactivate              // manage; 200 item | 409 already_inactive
 POST /v1/entities/{entity}/ledger-accounts/{number}/reactivate              // manage; 200 item | 409 already_active
@@ -585,7 +591,7 @@ GET  /v1/entities/{entity}/vat-codes
   200 { entity, items: [ { code, label, ratePercent: "8.1", rateBasisPoints: 810, active } ] }
 POST /v1/entities/{entity}/vat-codes                  { code, label, ratePercent }   // ^\d{1,3}(\.\d{1,2})?$, 0..100
   201 item
-  409 { code: "vat_code_duplicate", vatCode, reactivate: true }            // case-insensitive (AC-1.6)
+  409 { code: "vat_code_duplicate", vatCode, reactivate: boolean }         // case-insensitive; reactivate = existing is deactivated (AC-1.6, G9)
   422 { code: "invalid_vat_code", fields: [ { field: "code"|"label"|"ratePercent", reason } ] }
 POST /v1/entities/{entity}/vat-codes/{code}/deactivate | /reactivate       // {code} upper-cased before lookup
 
@@ -603,7 +609,10 @@ GET  /v1/entities/{entity}/exchange-rates?from=YYYY-MM&to=YYYY-MM
         fetchDue: boolean }                                                // managers' view auto-fetch (D26)
   Rate = { status: "missing" } | { status: "fetched" | "corrected", rateMicros, rate: "0.9246" }
 POST /v1/entities/{entity}/exchange-rates/fetch       { months?: ["2026-10"] }   // manage (AC-2.9)
-  200 { attempts: [ { month, outcome, errorCode | null } ], lastFetch }    // a source failure is 200 with outcome failed
+  200 { attempts: [ { month, outcome, errorCode | null, recorded } ],     // the 20261118 shape kept (G5): outcome is
+        deferredMonths: ["2026-01"], lastFetch }                           // ok | failed | not_fetchable | disabled | throttled;
+                                                                           // recorded = { EUR: 924600, … } newly recorded;
+                                                                           // a source failure is 200 with outcome failed
   422 { code: "no_rate_source" }                                           // welld_it: nothing attempted (AC-2.11)
 PUT  /v1/entities/{entity}/exchange-rates/{month}/{currency}   { rate: "0.9300" }   // manage
   200 the month row
@@ -621,9 +630,10 @@ GET /system/v1/entities/{entity}/reference-data
   Cache-Control: no-store
 
 GET /system/v1/entities/{entity}/rates?pairs=EUR:2026-03,USD:2026-11       // 1..36 distinct pairs, months ≥ 2000-01
-  200 { entity, rates: [ { currency, month, status: "in_effect", rateMicros, origin }
-                       | { currency, month, status: "missing",
+  200 { entity, rates: [ { currency, month, status: "in_effect", rateMicros, origin, attempted }
+                       | { currency, month, status: "missing", attempted,
                            reason: "not_published" | "fetch_failed" | "no_source" } ] }   // each pair once, in asked order
+  // attempted: this call asked the source for that month (feeds refund-api's fetchAttempted, G10)
   // Missing + fetchable → consumer fetch first (≤ 6 months, 6 s budget, throttle), then answer (AC-2.10)
   400 malformed pairs   422 { code: "currency_not_convertible" }
 401 (identical body) for: no token, user JWT, wrong aud, expired, bad signature, scope missing,
@@ -643,6 +653,7 @@ GET  /accounting/options                    // request:review covering welld_ch 
 
 GET  /review/requests/{id}/accounting       // gate unchanged (request:review + request and line scope)
   200 { …as 20261118…, accounting: "available" | "unavailable",
+        viewer: { canOpenAccountingRates: boolean },                       // as on the export summary (G8b, D17)
         lines: [ { …,
           classification: null | {
             account: { number, name, state } | null, accountIsDefault,
@@ -652,6 +663,9 @@ GET  /review/requests/{id}/accounting       // gate unchanged (request:review + 
                         rateStatus: "copied" | "in_effect" | "missing" | "pending" | "unavailable" | "not_applicable" },
           vatAmountCents | null } ] }
           // approved + pending → rateStatus "pending", amountCents and vatAmountCents null (AC-5.6)
+          // a type default (or designation) whose entry is deactivated or not found is returned WITH its
+          // state and accountIsDefault / vatCodeIsDefault true, never as null; null means "no default set" (G8a).
+          // Approval still refuses it server-side (AC-6.3).
 
 PUT  /review/requests/{id}/lines/{lineId}/classification
   body { accountNumber?: string, vatCode?: string }                        // at least one; natural keys (D1)
@@ -679,7 +693,10 @@ PUT  /accounting/foreign-currency-vat-code      { vatCode: string | null }      
 GET  /batches/{id}/accounting-export        // gate unchanged (request:review covering welld_ch)
   200 { …as 20261118…,
         ratePendingLineCount,
-        blockers: { missingRates, unclassifiedLines, unnumberedLines,
+        fetchAttempted: boolean,                                           // any pair `attempted` in this call (G10)
+        blockers: { missingRates: [ { currency, month,
+                                      reason: "not_published" | "fetch_failed" | "no_source" } ],   // reason added (G7)
+                    unclassifiedLines, unnumberedLines,
                     accountingUnavailable: boolean },                      // AC-6.6: true, missingRates []
         viewer: { canOpenAccountingRates: boolean } }                      // accounting:read|manage covering welld_ch (AC-7.3, D17)
 GET  /batches/{id}/accounting-export/csv
@@ -715,29 +732,47 @@ The designer finalises the wording.
   - `/accounting` redirects to `/accounting/ledger-accounts`.
   - `/accounting/ledger-accounts`, `/accounting/vat-codes` and `/accounting/exchange-rates`, each with
     `validateSearch` `{ entity?: "welld_ch" | "welld_it", month?: "YYYY-MM" }`.
-  - The three views are `Tabs` (UX-1 lineage), and only the active one is mounted.
-  - An entity outside `/v1/me` falls back to the first covered entity.
+  - The three views are routes, so they are a **`TabNav`** of links in `ToolLayout`'s `nav` slot, with
+    `wrap` (design UX-1, G2). `?entity=` is carried from tab to tab; `?month=` is dropped when leaving
+    Exchange rates.
+  - `?entity=` (design UX-12, G3):
+    - a value that is not an entity id falls back, with `replace`, to the first covered entity;
+    - a known entity the person does not cover shows the **not-found view** (`StatePanel`, focus on
+      its heading, a link back), never the other entity's data;
+    - a 404 from a list during the session (a grant narrowed) re-reads `/v1/me`, falls back, and says
+      so once in an info note.
 - **Entity** (AC-8.2).
-  - With two or more covered entities, a labelled `Select` "Entity" sits above the tabs; the choice
-    is kept in `?entity=`.
-  - Every card title names the entity ("Ledger accounts — WellD CH").
+  - With two or more covered entities, one labelled native `<select>` "Entity" (`EntitySwitch`) sits
+    in each page header's `actions`; the choice is written to `?entity=` with `replace`, and a polite
+    status says "Showing WellD Italia" (UX-2).
+  - Write controls come from `/v1/me`'s `canManage` for the displayed entity, never from
+    `usePermissions()`. A reader gets one read-only sentence per card. A 403 on a write re-reads
+    `/v1/me` (UX-4, UX-15).
+  - Every card title, table caption and dialog title names the entity ("Ledger accounts — WellD CH",
+    UX-3).
   - With one entity there is no switcher, but the titles still name it.
 - **Ledger accounts and VAT codes.** The moved cards: list with an active or deactivated badge, an
   add dialog (`FormDialog`), **Deactivate** as a `ConfirmDialog` and **Reactivate** acting at once
   (UX-3). There is no edit control (AC-1.7, AC-1.12). Who-added and history are not shown (D18). Write
   controls only when `canManage`. Empty: `StatePanel` "Nothing entered yet for WellD Italia" (AC-8.3).
-  The duplicate message names the number or code. For a VAT code it offers "Reactivate" when the
-  duplicate is deactivated (AC-1.6).
+  The duplicate message names the number or code. For both accounts and VAT codes it offers
+  "Reactivate" when the duplicate is deactivated (`reactivate: true`; AC-1.6, G9, G11). Rows, toggles
+  and URLs are keyed by number or code (UX-5). The Deactivate copy names no consumer (UX-7).
 - **Exchange rates.** The moved card: months by EUR, USD and GBP, an origin badge (fetched, corrected
   or missing), the persistent last-fetch-failed banner (AC-2.8), **Fetch now** and the correction
   dialog for managers. The auto-fetch runs once per visit for managers (UX-11). `&month=` scrolls to
   and focuses the month (the AC-7.3 deep link). For WellD Italia a `StatePanel` says there is no
-  official source yet (AC-2.11).
+  official source yet (AC-2.11), distinct from the lists' "nothing entered yet" (UX-13). The card has
+  no history drawer (UX-8). It shows a "Source" fact and the last fetch's outcome in words (UX-9). The
+  correction dialog's copy says what was already booked keeps its rate, and its limit is AC-2.5's
+  (UX-10). A deep-linked month that is not in the table gets a status note, not silence (UX-11).
 - **Forms and a11y** (AC-8.4).
   - Each control has a visible `Field` label.
-  - On a 422 the dialog shows an `ErrorSummary`, moves focus to the first refused field and marks each
-    with `aria-invalid` and its message. The server's `fields[]` drives this, as does the client
-    check.
+  - On a refused value the dialog moves focus to the first refused field, marks it `aria-invalid`,
+    and its own `role="alert"` error says which value and why. There is **no `ErrorSummary`** inside
+    the two add dialogs and the correction dialog (design UX-6, which overrides this plan's earlier
+    wording). The server's `fields[]` and the client check in `lib/limits.ts` (a mirror of the
+    server's limits) give the same messages.
   - Keyboard: everything is reachable, dialogs trap focus and return it.
   - Axe: a test helper (`src/test-support/axe.ts`, test-only, same API as refund-ui's T44 helper)
     runs on every state of every card and dialog.
@@ -787,6 +822,18 @@ The designer finalises the wording.
   `RateInEffectBadge` stays: the mileage rates use it. `ChangeHistoryDrawer` stays: the defaults use
   it. A grep before deleting confirms each file has no other consumer.
 - **Kept:** the axe checks (T44) on every changed state, with the new states added.
+- **Design deltas** (UX-16 to UX-23):
+  - one state vocabulary for an entry shown in Refund: `deactivated` → `StatusBadge voided`;
+    `not_found` → `attention`; `unverified` → no badge, with the page note (UX-18);
+  - "Accounting unreachable" is one page `Banner` with Retry; below it, values read "as recorded",
+    the controls are `aria-disabled` with their reason, and History still opens (UX-19);
+  - "Rate pending" is a badge and "—", never 0 (UX-20);
+  - each refusal has its "what stayed" sentence (UX-21);
+  - after a download the export card re-reads its summary quietly (UX-22);
+  - a Retry that removes its banner returns focus to a named anchor and announces the result
+    (UX-23);
+  - cross-app links are plain `<a className="link" href="/accounting…">` (UX-17);
+  - the review panel's rate link uses `viewer.canOpenAccountingRates` from the review view (G8b).
 
 ### shell
 
@@ -982,7 +1029,7 @@ Levels:
 | AC-1.3 | int-A | Same number in the same entity → 409 naming it, both when active and when deactivated; the same number in the other entity → 201. `Promise.all` of 2 POSTs, 20 iterations → exactly one 201 and one 409 (P2002 mapped). |
 | AC-1.4 | int-A, int-R | Deactivate → listed `active: false`, and `active: false` in the system read. int-R: the fake answers it deactivated → absent from `/accounting/options`. |
 | AC-1.5 | unit, int-A, ui-A | `"8.1"` → 810; `"0"` and `"100"` ok; `"-1"`, `"100.01"`, `"8.123"` → 422; `imp81` → `IMP81`; `IMP 81`, 17 characters, label 0 or 81 characters → 422 naming the field; nothing saved. |
-| AC-1.6 | int-A | `imp81` when `IMP81` exists, active or deactivated → 409 `vat_code_duplicate` with `vatCode` and `reactivate: true`; the other entity → 201; concurrent 2 × 20 → one 201. |
+| AC-1.6 | int-A | `imp81` when `IMP81` exists, active or deactivated → 409 `vat_code_duplicate` with `vatCode`, `reactivate: true` when the existing code is deactivated and `false` when it is active (G9); the other entity → 201; concurrent 2 × 20 → one 201. |
 | AC-1.7 | int-A, db, ui-A | PUT and PATCH on `…/vat-codes/IMP81` → 404; raw `UPDATE vat_code SET "rateBasisPoints"` raises; the card renders no edit control. |
 | AC-1.8 | int-A, int-R | Deactivated code → `active: false` in the system read; int-R: absent from options and refused by PUT classification and PUT defaults (422). |
 | AC-1.9 | int-A | Deactivate then reactivate an account → `active: true`, same number and name; active again in the system read; two status rows with actor, time and entity. |
@@ -998,14 +1045,14 @@ Levels:
 | AC-2.6 | int-A | Correct, then fetch with the fake returning another value → the correction stays in effect. |
 | AC-2.7 | int-A, ui-A | A month and currency with no row → `{status:"missing"}` even when neighbouring months have rates; the UI shows "missing". |
 | AC-2.8 | int-A, ui-A | The fake throws, times out, or returns the wrong `<monat>` → no rate row; `lastFetch.outcome = "failed"` with `at`, visible to a reader; a persistent banner. |
-| AC-2.9 | int-A | Manager POST fetch → attempts only for months without a recorded rate; a reader → 403 with no attempt row. |
+| AC-2.9 | int-A | Manager POST fetch → attempts only for months without a recorded rate, with `recorded`, `deferredMonths` and the five outcomes (G5); a reader → 403 with no attempt row. |
 | AC-2.10 | int-A | System rates call for a fetchable month with no row → the fake source is called, a row is recorded (trigger `consumer`, actor `system:refund-api`), answer `in_effect`. The fake failing → `missing`, `fetch_failed`. The fake hanging 30 s → answer `missing` in under 7 s. The token carries no user, so no Accounting capability is involved. A not-yet-fetchable month → `not_published` with no outbound call. |
 | AC-2.11 | int-A, ui-A | A WellD CH fetch or correction leaves the WellD Italia row and attempt counts unchanged. WellD Italia GET → `source: null`, `currencies: []`. WellD Italia POST fetch → 422 `no_rate_source`, no attempt. The UI shows the "no official source" panel. |
 | AC-3.1 | auth, e2e | Catalog test: `accounting` declares `read` and `manage` with `["entity"]` and is in `DECLARED_CATALOGS`; the unique-key test passes. A role rule with the entity condition passes `findRuleViolations`. e2e: the access journey grants through the admin API like any capability. |
 | AC-3.2 | unit, int-A | `coverage.ts` vectors: manage covers read. A manage-only grant → GETs 200. |
 | AC-3.3 | auth | Seed test: `admin` holds both unconditioned; `accounting` holds both with `{entity: user}`; no other system role holds either; a re-seed leaves an admin-edited grant unchanged. |
 | AC-3.4 | int-A | A reader (read only): POST account, VAT code, deactivate, reactivate, PUT correction and POST fetch → 403 `accounting_manage_required`; entry, status, rate and attempt counts unchanged. No token → 401. |
-| AC-3.5 | int-A, ui-A, e2e | A user attributed to `welld_ch` with conditioned grants: `/v1/me` lists only welld_ch; any `/v1/entities/welld_it/...` route (list, add, deactivate an existing IT entry, rates) → 404, the same body as an unknown entry. UI: no switcher. |
+| AC-3.5 | int-A, ui-A, e2e | A user attributed to `welld_ch` with conditioned grants: `/v1/me` lists only welld_ch; any `/v1/entities/welld_it/...` route (list, add, deactivate an existing IT entry, rates) → 404, the same body as an unknown entry. UI: no switcher; `?entity=welld_it` shows the not-found view, `?entity=xyz` falls back (UX-12). |
 | AC-3.6 | int-A, shell, e2e | No grant: a matrix over every `/v1/*` route → 403 with no reference data in the body. Shell: no Sidebar entry, and `/accounting` is refused by the guard. |
 | AC-3.7 | int-R, int-A | `settings:manage` holder: refund-api `/accounting/ledger-accounts`, `/accounting/vat-codes` and `/exchange-rates` → 404; the same user at accounting-api → 403. An Accounting-manage holder without `settings:manage`: PUT defaults and PUT designation → 403. |
 | AC-3.8 | int-A, unit | A service JWT (scope, `system:refund-api`) → 200, equal to the reader projection of the same entity (same entries, values, `active`, rates in effect). 401 with one identical body for: no token, a user JWT, wrong `aud`, expired, missing scope, `system:crm-api`. POST, PUT and DELETE on `/system/v1/*` → 404. Contract test: both bodies parse with `accountingWire`; `shared:check` passes. |
@@ -1014,7 +1061,7 @@ Levels:
 | AC-4.2 | int-R | A `welld_it`-scoped reviewer → options 403 `accounting_out_of_scope`; the view's CH lines `inScope: false` with no classification. |
 | AC-4.3 | int-R | PUT classification with a deactivated number, an unknown number, and a number that exists only in the fake's WellD Italia data → 422; the line's columns and the audit count are unchanged. Same for VAT codes. |
 | AC-4.4 | int-R, ui-R | `settings:manage` holder without an Accounting grant → options 200; PUT defaults and designation with a deactivated or unknown entry → 422, no new row. The dialogs list only options. |
-| AC-4.5 | unit, int-R, ui-R | `referenceSnapshot` vectors: a default's number active / deactivated / absent → `active` / `deactivated` / `not_found`, and the resolver gives `null` for the last two. GET defaults returns the 12 types with copies and states. UI: the warning badge, and "None" for unset. |
+| AC-4.5 | unit, int-R, ui-R | `referenceSnapshot` vectors: a default's number active / deactivated / absent → `active` / `deactivated` / `not_found`, and the resolver gives `null` for the last two. GET defaults returns the 12 types with copies and states; the review view returns such a default with its state and `isDefault: true`, not `null` (G8a). UI: the warning badge, and "None" for unset. |
 | AC-4.6 | ui-R, int-R, e2e | SettingsPage renders General and Default classification only; `?section=exchange-rates` → General. `AccountingLinkNote` shows a link with `apps ∋ accounting` and the text without it. The removed routes → 404 (as AC-3.7). |
 | AC-4.7 | int-R, db | Set a default, then the fake answers that entry deactivated, then a different name for the same number, then unreachable → `history` still shows the number, name and code as saved, with `byEmail` and `at`. The two new tables are immutable. |
 | AC-4.8 | int-R, unit | The client keeps no state between operations: two consecutive options calls with the fake changed between them → the second reflects the change, and the fake counts two reads. A test asserts each listed operation performs a fresh read (call counter), so no cache exists to outlive 60 s. |
@@ -1032,13 +1079,13 @@ Levels:
 | AC-6.4 | int-R | An IT-only request, and a request whose CH lines are all rejected, approve with the fake unreachable; the fake has 0 calls. |
 | AC-6.5 | int-R, ui-R | Unreachable: the view is 200, `accounting: "unavailable"`, lines show their copies or the recorded defaults (`unverified`); options 503; PUT 503 and the line unchanged. UI: no selects, the note. |
 | AC-6.6 | int-R | A pending line + unreachable → summary `blockers.accountingUnavailable: true`, `missingRates: []`; CSV 409 with the same; no `refund_batch_export` row; compile, mark-paid and discard of the batch are 2xx. |
-| AC-6.7 | int-R | Reachable, the fake answers `missing` for EUR 2026-10 → blocked, listing `{EUR, 2026-10}`; compile, pay and discard unaffected. |
+| AC-6.7 | int-R, ui-R | Reachable, the fake answers `missing` for EUR 2026-10 → blocked, listing `{EUR, 2026-10, reason}` (G7) with `fetchAttempted` as the fake reports it (G10); compile, pay and discard unaffected. UI: a `not_published` item says "not published yet". |
 | AC-6.8 | unit, int-R | Client: `ACCOUNTING_DEADLINE_MS === 10_000`; with an injected 200 ms deadline, a 250 ms answer → unavailable and a 150 ms answer → ok. Each of these → unavailable: 500, 503, 403, 401 twice (one re-mint), redirect, non-JSON, body over 256 KiB, schema mismatch, wrong entity echo, a missing pair, a token mint failure. A parameterised int-R test runs one failure kind through approve, classify, view, options, settings write, export and release. |
 | AC-6.9 | int-R, ui-R | Unreachable: GET defaults 200 with the recorded copies, states `unverified`, `accounting: "unavailable"`; PUT → 503. UI: the banner, Change disabled with its reason. |
 | AC-6.10 | int-R, ui-R | Every refusal body (503, 422, 409) matches no `http`, `localhost`, private-domain, cuid or stack pattern. Strings: each code's message exists in `en` and `it` (parity test) and names cause and remedy (snapshot of keys). |
 | AC-7.1 | int-R | Regression: the 20261118 suites for its US-2, US-3, US-4, US-6 and US-7 stay green, adapted to the fake (classification, numbering, export, release, receipt lifecycle, race). Each changed assertion is listed in the task. |
 | AC-7.2 | unit, int-R | The 20261118 golden CSV is compared byte for byte, unchanged (header, column order, values); the receipt-numbering suites are unchanged; the owner key-set test of `GET /requests/{id}` is unchanged. |
-| AC-7.3 | int-R, ui-R | Summary `viewer.canOpenAccountingRates` is true for `accounting:read` (or manage) covering `welld_ch`, false for none or IT-only. The card links to `/accounting/exchange-rates?entity=welld_ch&month=2026-03`, or shows the "ask an accounting manager" copy. |
+| AC-7.3 | int-R, ui-R | Summary `viewer.canOpenAccountingRates` is true for `accounting:read` (or manage) covering `welld_ch`, false for none or IT-only. The same flag is on the review view (G8b). The card links to `/accounting/exchange-rates?entity=welld_ch&month=2026-03`, or shows the "ask an accounting manager" copy. |
 | AC-7.4 | script | Legacy approved and paid CH lines, CHF and EUR (a month with a rate in the fake and one without) → copies from the defaults, the rate copied, or pending; numbered as in 20261118. The fake unreachable → exit 2, the message, and no number, copy, default row or marker; a rerun with the fake back works. IT lines untouched. `--dry-run` writes nothing. |
 | AC-7.5 | script, int-R | The fake holds no WellD CH entries → the release numbers the legacy lines and the report lists them as unclassified; a later approval of a CH request → 409 `classification_missing`. |
 | AC-8.1 | auth, shell, e2e | `/authz/me` `apps` contains `accounting` for read-only, manage-only and both, and not for: no grant, a conditioned grant with the user's entity null, an unknown condition. Shell: the Sidebar shows it only with `apps ∋ accounting`; the route mounts the remote; it is denied otherwise. |
@@ -1203,6 +1250,65 @@ Each is the safest option available on 2026-11-19. "Change" says what reversing 
 | **Who enters WellD CH's initial accounts and VAT codes** | The operator runs `seed:welld-ch` from the list accounting signs off (the 20261118 seed draft, D1/D13 there) on the release day, before the Refund release; or accounting types them in the app. AC-7.5's outcome applies if neither happens. | Runbook steps 0, 6; amendment SA-1 |
 | **WellD Italia** (source, chart, VAT, managers) | Modelled, empty, no source, no currencies (D19). Per AC-3.3, members of the `accounting` role attributed to welld_it hold Accounting manage for WellD Italia, and admins hold it for both (R19). | `entities.ts` |
 | Carried from 20261118 (its open questions 1, 4, 6; owner accounting) | Q1 source: BAZG, now in Accounting (D10 there, D27 here). Q4 initial list and defaults: the two seed files. Q6 designation: `NOVAT` in Refund's defaults seed (D13 there). Q2, Q3 and Q5 are unchanged in Refund. | Seed files; `exportFormat.ts` |
+
+## Post-approval sync with design.md and ADRs (2026-11-19)
+
+design.md (commit 97e89ac2) found 14 gaps and took 23 UX decisions. The ADR writer (commit 5dbdab41)
+wrote three ADRs and six amendments and made two assumptions. The PO applied SA-1 to SA-3 (commit
+eeb63165). The recommended option was taken for each, unattended. The plan stays `approved`: nothing
+here adds scope, and every AC keeps its tests (the table stays total over the 68 ACs; the rows of
+AC-1.6, AC-2.9, AC-3.5, AC-4.5, AC-6.7 and AC-7.3 were extended). Earlier wording that conflicted has
+been edited in place, and this section is the record.
+
+| Gap | Taken | Where in this plan |
+|---|---|---|
+| G1 | The Sidebar icon is `list-ordered` (`TOOL_ICONS` needs one per `ToolId`); the entry goes last in the main list; no library change. A "book" icon in `@operai/ui` is a follow-up. | § Components, shell |
+| G2 | The three views are a **`TabNav`** (routes), not `Tabs`. | § UI, accounting-ui |
+| G3 | `?entity=`: a garbage value falls back; a known **uncovered** entity shows the **not-found view**; a 404 during the session re-reads `/v1/me` and falls back with a note. | § UI; AC-3.5 row |
+| G4 | **The move list is completed.** Moved with `git mv`: the six components, `useCatalogToggle`, `lib/exchangeRatesApi.ts`, the catalog half of `lib/accountingApi.ts`. **Copied** (hooks and helpers, D29): `useLoadedResource` (its `ApiError` import pointed at accounting-ui's `lib/api.ts`), `monthLabel`, `formatVatRate`, `statusMeaning`, `test-support/axe.ts` + its self-test. **Not copied:** `ErrorBanner`, `SuccessBanner`, `ConfirmDeleteModal`; accounting-ui uses `Banner` and `ConfirmDialog` through letterheads-ui's `LoadState`, `PermissionDenied`, `NotFoundPage` and `Saved` (copied). Lifting `useLoadedResource` and the axe helper into a shared package is follow-up F-A1. | § Components, accounting-ui; tasks |
+| G5 | The 20261118 fetch response shape is **kept**: `recorded` per attempt, `deferredMonths`, outcomes `ok`, `failed`, `not_fetchable`, `disabled`, `throttled`. The attempt log records `not_fetchable` only for the manager trigger. | § API (fetch); § Data model |
+| G6 | `lastFetch` may come from a consumer-triggered fetch; the banner does not say who fetched. No change; noted for QE. | — |
+| G7 | Each `missingRates` item carries `reason` (`not_published`, `fetch_failed`, `no_source`), taken from the consumer rates answer. | § API (export summary); AC-6.7 row |
+| G8 | (a) The review view returns an unusable type default or designation **with its state and `isDefault: true`**, never `null`; AC-6.3's refusal stays server-side. (b) `viewer.canOpenAccountingRates` is added to `GET /review/requests/{id}/accounting`, with the same rule as the export summary (D17). | § API (review view); AC-4.5, AC-7.3 rows |
+| G9 | `reactivate` on a duplicate means "the existing entry is deactivated", for **both** `vat_code_duplicate` and `ledger_account_duplicate`. | § API (catalog); AC-1.6 row |
+| G10 | `fetchAttempted` is kept on the export summary (and on the blocked 409, same schema). The consumer rates answer gains `attempted` per pair; refund-api sets `fetchAttempted` when any pair was attempted. | § API (system rates, export summary) |
+| G11 | The reactivation pointer applies to accounts as well as VAT codes; no spec change. | § UI |
+| G12 | Catalog labels: resource "Accounting", actions "Read" and "Manage". They are English only, like every catalog, because the admin GUI has no label translations. Italian catalog labels, suite-wide, are follow-up F-A3. "Manage includes Read" (AC-3.2) is written in AGENTS.md's Identity section, not in the catalog. | § Components, auth |
+| G13 | Rates show the origin, not who or when (D18, non-goal). Nothing to do. | — |
+| G14 | **Follow-ups, not planned here:** A-1 and A-2 of 20261118's browser pass (20261118's T43 reports A-1 done; QE re-checks both on the changed screens and opens a 20261118 fix-round task if either is still open); A-4 (focus return in the approve dialog after busy) as follow-up F-A2. A-7 is closed by UX-9; A-3 is designed in by UX-23. | § Follow-ups below |
+
+**UX decisions taken as designed:**
+
+| Group | Decisions |
+|---|---|
+| Accounting app frame and entity | UX-1 `TabNav`; UX-2 the `EntitySwitch` select in the header actions; UX-3 the entity named in title, caption and dialog title; UX-4 write controls from `/v1/me` `canManage`, with a reader sentence; UX-5 natural keys in rows and URLs; UX-12 entity URL resolution; UX-15 one failure ladder, with a 403 re-reading `/v1/me` |
+| Accounting app content | UX-6 no `ErrorSummary` in dialogs, focus on the first refused field, `lib/limits.ts` mirrors the server (supersedes this plan's earlier "ErrorSummary" wording); UX-7 neutral deactivate copy; UX-8 no history or who-added; UX-9 auto-fetch kept, no client `trigger`, the outcome in words, the Source fact; UX-10 new correction copy and the AC-2.5 limit; UX-11 deep link and the "month not listed" note; UX-13 two different WellD Italia empty states |
+| Shell | UX-14 "Accounting" / "Contabilità", `list-ordered`, last in the main list |
+| Refund | UX-16 Settings `Tabs` General / Default classification, with the link note as plain text; UX-17 plain `href` links; UX-18 the state vocabulary; UX-19 the unreachable banner, with controls `aria-disabled` plus their reason; UX-20 rate pending is not a failure; UX-21 the 503 inside the approve dialog, with "what stayed" sentences; UX-22 the export blocker, the pending sentence and the quiet re-read; UX-23 the focus anchor after Retry |
+
+**Two assumptions of the ADR writer: both confirmed.**
+
+- **The manager-triggered fetch keeps the 10 s total budget** (`FX_FETCH_BUDGET_MS = 10_000`, 5 s per
+  call, ≤ 6 months, in parallel). Confirmed. The manager's request is a user request with no outer
+  deadline. Only the consumer path is constrained by refund-api's 10 s, so only it has the 6 s budget
+  (D4; amendment A1, point 5; ADR 20261119-on-demand-outbound-work-…). Both constants live in
+  `rates.service.ts`, with a test of each.
+- **Withdraw-to-draft still clears the hand-made copies** (D12 of 20261118; amendment A3, point 7):
+  one `line_classified` row per cleared line, cause `withdrawn`. Confirmed. The hand copies are
+  exactly what the overrides were. A draft line never holds an fx copy (fx is written only at approval
+  or export), and the guard does not lock unnumbered lines, so the clear is allowed. The int-R test of
+  withdraw (20261118 T14) is adapted to assert the copy columns are null afterwards.
+
+**Spec amendments SA-1 to SA-3** are now spec text, "owner to confirm". D20, D27 and the AC-4.5
+state `not_found` follow them; no plan change was needed.
+
+**Follow-ups (not planned):**
+- F-A1: lift `useLoadedResource` and `expectNoAxeViolations` into a shared package once a third app
+  needs them.
+- F-A2: A-4 focus return in the approve dialog.
+- F-A3: catalog labels in Italian, suite-wide.
+- F-A4: a "book" icon in `@operai/ui`.
+- A-1 and A-2 of 20261118, if QE finds them still open.
 
 ## Spec amendments proposed (not applied)
 
