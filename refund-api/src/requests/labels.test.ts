@@ -9,6 +9,7 @@
 
 import { describe, it, expect } from "bun:test";
 import labels from "./document-labels.json";
+import { EXPENSE_TYPE_VALUES } from "./requests.schemas";
 import { entityLabel, entityHeaderLabel, expenseTypeLabel, requestStatusLabel } from "./labels";
 
 describe("document labels", () => {
@@ -22,8 +23,17 @@ describe("document labels", () => {
     }
   });
 
-  it("covers all twelve expense types from the domain table", () => {
-    expect(Object.keys(labels.expenseType)).toHaveLength(12);
+  it("covers all fourteen expense types, in the order of EXPENSE_TYPE_VALUES (20261118 AC-8.1)", () => {
+    expect(Object.keys(labels.expenseType)).toHaveLength(14);
+    expect(Object.keys(labels.expenseType)).toEqual([...EXPENSE_TYPE_VALUES]);
+  });
+
+  it("(20261118 AC-8.1, AC-8.2) names flight, taxi and the relabelled meals type", () => {
+    expect(expenseTypeLabel("travel_flight")).toBe("Travel — flight");
+    expect(expenseTypeLabel("travel_taxi")).toBe("Travel — taxi");
+    expect(expenseTypeLabel("representation_meals")).toBe("Meals with clients");
+    // The gifts type keeps its id and its label.
+    expect(expenseTypeLabel("representation_gifts")).toBe("Representation — gifts");
   });
 
   it("renders both entities and every status as display labels", () => {

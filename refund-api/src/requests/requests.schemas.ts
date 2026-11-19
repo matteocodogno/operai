@@ -20,6 +20,8 @@ export const EXPENSE_TYPE_VALUES = [
   "travel_parking",
   "travel_train",
   "travel_other_public_transport",
+  "travel_flight",
+  "travel_taxi",
   "company_manuals",
   "stationery",
   "representation_meals",

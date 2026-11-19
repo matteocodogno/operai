@@ -122,6 +122,61 @@ describe("POST /requests/:id/lines", () => {
     expect(row.currency).toBe("CHF");
   });
 
+  // 20261118 AC-8.1: flight and taxi are ordinary non-mileage types, for both entities.
+  for (const type of ["travel_flight", "travel_taxi"] as const) {
+    for (const entity of ["welld_it", "welld_ch"] as const) {
+      it(`(AC-8.1) creates and updates a ${type} line for ${entity}`, async () => {
+        const request = await makeRequest();
+        const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+        const currency = entity === "welld_ch" ? "CHF" : "EUR";
+
+        const created = await linesRouter.request(`/requests/${request.id}/lines`, {
+          method: "POST",
+          headers: authHeaders(token),
+          body: JSON.stringify(validLineBody({ type, entity, currency, requestedAmountCents: 12345 })),
+        });
+        expect(created.status).toBe(201);
+        const createdBody = (await created.json()) as { id: string; type: string; km: number | null };
+        expect(createdBody.type).toBe(type);
+        expect(createdBody.km).toBeNull();
+        const row = await db.refundLine.findUniqueOrThrow({ where: { id: createdBody.id } });
+        expect(row.type).toBe(type);
+        expect(row.entity).toBe(entity);
+
+        // Updating from another type to the new one, and the new one onwards.
+        const other = type === "travel_flight" ? "travel_taxi" : "travel_flight";
+        const updated = await linesRouter.request(
+          `/requests/${request.id}/lines/${createdBody.id}`,
+          {
+            method: "PUT",
+            headers: authHeaders(token),
+            body: JSON.stringify(validLineBody({ type: other, entity, currency, requestedAmountCents: 999 })),
+          },
+        );
+        expect(updated.status).toBe(200);
+        expect(((await updated.json()) as { type: string }).type).toBe(other);
+        const back = await linesRouter.request(`/requests/${request.id}/lines/${createdBody.id}`, {
+          method: "PUT",
+          headers: authHeaders(token),
+          body: JSON.stringify(validLineBody({ type, entity, currency, requestedAmountCents: 999 })),
+        });
+        expect(back.status).toBe(200);
+        expect(((await back.json()) as { type: string }).type).toBe(type);
+      });
+    }
+  }
+
+  it("(AC-8.1) km on a flight line is rejected like on any non-mileage type", async () => {
+    const request = await makeRequest();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+    const res = await linesRouter.request(`/requests/${request.id}/lines`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(validLineBody({ type: "travel_flight", km: 10 })),
+    });
+    expect(res.status).toBe(422);
+  });
+
   it("an invalid currency value → 422", async () => {
     const request = await makeRequest();
     const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });

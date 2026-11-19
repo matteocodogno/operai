@@ -226,6 +226,37 @@ describe("renderBatchPdf", () => {
     expect(buffer.length).toBeLessThan(100_000);
   });
 
+  // 20261118 AC-8.2 names the batch PDF among the places a type's name shows.
+  // The batch document lists employees and requests, never a line's type, so
+  // there is no label to render; what it must never do is leak the raw enum of
+  // a sign-off type (a future line-level listing has to go through labels.ts).
+  it("never carries a raw expense-type id for the sign-off types (AC-8.2)", async () => {
+    const employee: BatchPdfEmployee = {
+      owner: { userId: "u-t", email: "t@welld.ch", name: "Tess Traveller" },
+      requests: [
+        {
+          id: "req-t-1",
+          decidedAt: new Date("2026-07-10T22:30:00Z"),
+          lines: (["travel_flight", "travel_taxi", "representation_meals"] as const).map((type, i) =>
+            line({ id: `t${i}`, type, requestedAmountCents: 100, approvedTotalCents: 100 }),
+          ),
+        },
+      ],
+    };
+    const text = await extractPdfText(
+      await renderBatchPdf({
+        employees: [employee],
+        cutoff: CUTOFF,
+        generatedAt: GENERATED_AT,
+        batchId: BATCH_ID,
+        generatedByEmail: GENERATED_BY_EMAIL,
+      }),
+    );
+    for (const id of ["travel_flight", "travel_taxi", "representation_meals"]) {
+      expect(text).not.toContain(id);
+    }
+  });
+
   it("is a deterministic pure function — two renders of the same input are byte-identical", async () => {
     const input = {
       batchId: BATCH_ID,

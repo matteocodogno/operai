@@ -73,12 +73,14 @@ describe("SuggestionsQuerySchema (AC-4.3)", () => {
   });
 
   it("(AC-2.3) rejects any expense type other than travel_km", () => {
-    // The other eleven types are an explicit spec Non-goal — a caller must not
+    // The other thirteen types are an explicit spec Non-goal — a caller must not
     // be able to reach a fill set that was never designed.
     for (const type of [
       "travel_train",
       "office_material",
       "representation_meals",
+      "travel_flight",
+      "travel_taxi",
       "TRAVEL_KM",
       "travel-km",
       "",

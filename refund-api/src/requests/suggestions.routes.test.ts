@@ -369,7 +369,14 @@ describe("authorization (AC-4.3)", () => {
   });
 
   it("400 on a missing or non-travel_km type", async () => {
-    for (const query of ["", "?type=", "?type=office_material", "?type=travel_train"]) {
+    for (const query of [
+      "",
+      "?type=",
+      "?type=office_material",
+      "?type=travel_train",
+      "?type=travel_flight",
+      "?type=travel_taxi",
+    ]) {
       __resetAuthzCacheForTests();
       const res = await callAs(OWNER, EMPLOYEE, query);
       expect(res.status).toBe(400);
