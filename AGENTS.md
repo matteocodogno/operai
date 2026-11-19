@@ -87,8 +87,8 @@ operai/
 │                        # monthly batch compile/pay (specs/20260716-refund-service, 008), and the Settings tab: mileage rates and the
 │                        # accounting distribution email (specs/20260720-mileage-rate, 011; moved from admin-ui, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition amendment);
 │                        # + WellD CH accounting (specs/20261118-refund-accounting-export): Settings has two views, selected by `?section=` (`general`: mileage rates and the distribution email;
-│                        # `defaults`: the default classification per expense type and the VAT code for foreign-currency lines, chosen among Accounting's active entries), a classification panel on each
-│                        # line of the review page, receipt numbers on lines and batches, and an accounting export card (CSV download) on the batch page. The two views need `settings:read`, their
+│                        # `defaults`: the default ledger account of each of the 14 expense types, chosen among Accounting's active entries; no VAT default of any kind), a classification panel on each
+│                        # line of the review page (the VAT code is optional, "None" is a choice), receipt numbers on lines and batches, and an accounting export card (Excel workbook download) on the batch page. The two views need `settings:read`, their
 │                        # writes `settings:manage`. The ledger accounts, VAT codes and exchange-rate views moved to accounting-ui (specs/20261119-accounting): the retired `?section=accounting` and
 │                        # `?section=exchange-rates` fall back to `general`, and a note on the defaults view points to the Accounting app
 ├── admin-ui/            # Admin tool — federated remote: roles/departments/users/permissions/invitations GUI
@@ -147,13 +147,13 @@ operai/
 │                        # resource server + EU object storage for receipts (specs/20260716-refund-service, ADR 20260716-refund-api-authorization-enforcing-resource-server/0015/0016);
 │                        # + batch compile/PDF/paid lifecycle (specs/20260719-refund-monthly-processing, ADR 20260716-immutable-financial-audit-trail-refund–0022), mileage rates
 │                        # (specs/20260720-mileage-rate, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition/0024/0025), settings store (specs/20260722-refund-settings, ADR 20260722-refund-settings-append-only-self-auditing-store/0028/0029)
-│                        # + WellD CH accounting export (specs/20261118-refund-accounting-export): `src/accounting/` (ledger accounts, VAT codes, defaults, classification, receipt numbers, the CSV export) and
-│                        # the one-off, operator-run `scripts/accounting-release.ts` (`bun run accounting:release [--dry-run] [--offsets <csv>] [--defaults <json>]`), not in the Docker image
+│                        # + WellD CH accounting export (specs/20261118-refund-accounting-export): `src/accounting/` (ledger accounts, VAT codes, defaults, classification, receipt numbers, the XLSX journal export) and
+│                        # the one-off, operator-run `scripts/accounting-release.ts` (`bun run accounting:release [--dry-run] --offsets <csv> [--defaults <json>]`; `--offsets` is required, without it nothing is written and it exits 3), not in the Docker image
 │                        # (infra/README.md § Release runbook)
 │                        # + since specs/20261119-accounting refund-api keeps NO ledger accounts, VAT codes or exchange rates of its own: `src/accounting/accountingClient.ts` reads them live from
 │                        # accounting-api (`ACCOUNTING_INTERNAL_URL`, required at startup; 10 s deadline, no cache across requests), a line carries a copy by natural key (account number and name,
 │                        # VAT code and rate, exchange rate and month), `GET /accounting/options` feeds the pickers, and the fetch from the federal source moved to accounting-api
-│                        # (`REFUND_FX_SOURCE` is removed). Per-type defaults and the foreign-currency VAT code designation stay here
+│                        # (`REFUND_FX_SOURCE` is removed). The per-type default accounts stay here (14 types, accounts only; since the 2026-11-19 sign-off there is no VAT default and no foreign-currency VAT designation)
 ├── inventory-api/       # Bun + Hono + TypeScript backend (port 8083, DB `inventory`) — hardware register; authorization-enforcing
 │                        # resource server, entity-scoped (ADR 20260716-refund-api-authorization-enforcing-resource-server/0015 lineage); depreciation derived on read, closed years
 │                        # snapshotted (ADR 20261006-depreciation-derived-on-read-closed-years-snapshotted); invoice files in its own EU bucket; pushes to notify-api with a scoped
@@ -187,11 +187,11 @@ operai/
 │                        # ADR 20261110-activities-service-access-delegated-to-host/0082/0083). No UI: backend-only
 ├── accounting-api/      # Bun + Hono + TypeScript backend (port 8089, DB `accounting`) — the accounting reference data of each legal entity: ledger accounts and VAT codes
 │                        # (identified by number / code within an entity, never edited or deleted, only deactivated and reactivated) and the monthly average exchange rates (fetched on demand
-│                        # from the federal source BAZG, or typed and corrected by a manager; `ACCOUNTING_FX_SOURCE=bazg|off`); authorization-enforcing (`accounting:read` / `accounting:manage`,
+│                        # from the AFC/ESTV's monthly average rates for VAT, served by the BAZG backend, or typed and corrected by a manager; `ACCOUNTING_FX_SOURCE=bazg|off`); authorization-enforcing (`accounting:read` / `accounting:manage`,
 │                        # entity condition, no `access` action; `GET /v1/me` says which entities the caller covers and whether it manages them); user routes `/v1/entities/{entity}/…`;
 │                        # one service-only read `GET /system/v1/entities/{entity}/reference-data` and `/rates` behind a scoped service JWT (scope `accounting.reference.read`, `sub`
 │                        # allowlist, `aud=SERVICE_AUDIENCE`, one identical 401), the only consumer being refund-api. `scripts/seed-welld-ch.ts` (`bun run seed:welld-ch [--dry-run]`) is the
-│                        # one-off, operator-run, optional load of WellD CH's list from `scripts/data/seed.welld-ch.json`; in the Docker image (`scripts/` is copied, its tests are not), so it runs inside the service
+│                        # one-off, operator-run, optional load of WellD CH's signed-off list (19 ledger accounts, 6 VAT codes: IPM81, IPM77, IP00, BZM81, IPM26, IPM38) from `scripts/data/seed.welld-ch.json`; in the Docker image (`scripts/` is copied, its tests are not), so it runs inside the service
 │                        # with `railway ssh` or from a checkout. Per-entity catalog cap (`CATALOG_CAPS`): at most 200 ledger accounts and 50 VAT codes per entity,
 │                        # deactivated ones included; since entries are never deleted it is a lifetime limit, reached → 409 `catalog_full` {limit} (keeps the
 │                        # reference-data answer well under refund-api's 256 KiB read cap; the operator seed does not check it)
@@ -404,9 +404,9 @@ Per-service specifics:
   `auth` outage (ADR 20260716-refund-api-authorization-enforcing-resource-server); entity-scoped ABAC (ADR 20260716-entity-scoped-abac-refund-api); EU-region S3-compatible object
   storage for receipts, reached only via presigned URLs (ADR 20260716-eu-object-storage-refund-attachments); DB-level append-only
   audit/rate/settings tables (ADR 20260716-immutable-financial-audit-trail-refund/0024/0027); WellD CH lines carry an accounting
-  classification, a receipt number and a CHF amount, and a batch has a CSV export for accounting (specs/20261118-refund-accounting-export,
+  classification (an account; the VAT code is optional and never pre-set), a receipt number and a CHF amount, and a batch has an Excel (XLSX) journal export for accounting (specs/20261118-refund-accounting-export,
   the 20261118 ADRs at the end of this file). Approvals answer 409 `accounting_release_pending` until `bun run accounting:release` has run
-  once against the refund database; the e2e global setup runs it (see § Running locally, e2e). Since specs/20261119-accounting the ledger
+  once against the refund database, with the list of last hand-issued 2026 receipt numbers (`--offsets`, required: without it nothing is written, exit 3; the 2026 numbering continues the paper register); the e2e global setup runs it (see § Running locally, e2e). Since specs/20261119-accounting the ledger
   accounts, VAT codes and monthly rates are **not** Refund's: it reads them live from `accounting-api` as `system:refund-api`
   (`ACCOUNTING_INTERNAL_URL`, required at startup, scope `accounting.reference.read` in auth's `SERVICE_CLIENTS`, one 10 s deadline per operation, no cache),
   answers 503 `accounting_unavailable` when it cannot read them rather than guess, and approves, classifies and exports from the **copy** each line carries
@@ -416,9 +416,9 @@ Per-service specifics:
   outage; `manage` includes `read`; both carry the `entity` condition, so a manager of WellD CH only sees and changes WellD CH, and a request for an entity the
   caller does not cover is a 404. Its service read (`/system/v1/*`) takes only a scoped service JWT, never a user token: `aud=SERVICE_AUDIENCE` (required, different from
   `AUTH_AUDIENCE`), scope `accounting.reference.read`, `sub` allowlisted to `system:refund-api`, GET only, `Cache-Control: no-store`. Fetches the monthly rates on demand
-  from the one fixed BAZG host (`ACCOUNTING_FX_SOURCE=bazg`, default; `off` makes no outbound call and records every attempt as `disabled`, for the e2e and offline dev;
+  from the one fixed BAZG host, the channel of the AFC/ESTV's monthly average rates for VAT (`ACCOUNTING_FX_SOURCE=bazg`, default; `off` makes no outbound call and records every attempt as `disabled`, for the e2e and offline dev;
   the host is a constant, never configuration), on a budget of 6 s inside refund-api's 10 s. Port 8089, DB `accounting`; the one-off `bun run seed:welld-ch`
-  loads WellD CH's list and is optional (accounting may type it in the app)
+  loads WellD CH's signed-off list (19 accounts, 6 VAT codes) and is optional (accounting may type it in the app)
 
 ---
 
@@ -508,13 +508,14 @@ Use these terms consistently in code, API contracts, and UI copy.
 | `mileage rate` | Per-entity, effective-dated €/km series; a `travel_km` line snapshots it at submit (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition) |
 | `line rejection` | A reviewer refuses ONE line of a `submitted` request, with a required reason: approved total 0, restorable until the request is decided, cleared on withdraw; a request whose every line is rejected cannot be approved (specs/20260716-refund-service, 2026-11-10) |
 | `ledger account` | One account of WellD CH's chart of accounts a line is booked to (`5905`, `2620.1`), **kept in Accounting** (added, deactivated and reactivated there by an accounting manager, never edited or deleted); a line keeps a copy of the number and name it was classified with (ADR 20261118 classification, specs/20261119-accounting) |
-| `VAT code` | A code with one fixed rate (`IMP81` = 8.1 %), **kept in Accounting** with the same lifecycle as a ledger account; the rate is never edited, a new rate is a new code; a line keeps a copy of the code and rate |
-| `classification` | The ledger account and VAT code of a WellD CH line: the live defaults of its expense type until approval, frozen in the approval transaction as a copy, changed afterwards only with `request:reclassify` and never once the request is paid; WellD Italia lines have none. The options offered are Accounting's active WellD CH entries; when Accounting cannot be read, a change or approval is refused, never guessed |
-| `foreign-currency VAT code` | The one VAT code a WellD CH line in a currency other than CHF gets by default, designated by an admin in Settings (append-only history); unset or deactivated means none, so approval asks (the type's own default VAT code is not used for such a line) |
+| `VAT code` | A code with one fixed rate (`IPM81` = 8.1 %; the signed-off six are `IPM81`, `IPM77`, `IP00`, `BZM81`, `IPM26`, `IPM38`), **kept in Accounting** with the same lifecycle as a ledger account; the rate is never edited, a new rate is a new code. **Optional on a line and never pre-set**: nothing defaults it, a line without one is approved, released and exported like any other, and the VAT amount exists only with a code; a line keeps a copy of the code and rate when one is set |
+| `classification` | The ledger account (required) and the optional VAT code of a WellD CH line: the account is the live default of its expense type until approval, the VAT code only what was set by hand, frozen in the approval transaction as a copy, changed afterwards only with `request:reclassify` and never once the request is paid; WellD Italia lines have none. The options offered are Accounting's active WellD CH entries; when Accounting cannot be read, a change or approval is refused, never guessed |
+| `expense type` | One of the 14 fixed types of a line (the paper form's, plus `travel_flight` and `travel_taxi`; `representation_meals` is labelled "Meals with clients" / "Pranzi/cene con clienti"); each has a default ledger account in Settings (account only), `representation_gifts` has none |
 | `receipt number` | `MC26/014`: the employee's two initials, the year of the expense date, a running number per employee and year, issued when the request is approved, never reused or changed (ADR 20261118 receipt numbers) |
-| `monthly average rate` | CHF for 1 unit of EUR, USD or GBP in a completed month, **kept in Accounting**: from the federal source (BAZG) fetched on demand or typed by an accounting manager; a fetched rate is recorded once, a correction is an appended row that wins (ADR 20261118 exchange rates); a line keeps a copy of the rate and its month |
-| `accounting export` | The CSV of the approved WellD CH lines of a compiled or paid batch, generated on request and never stored, every download logged; refused with 409 while a rate, a classification or a number is missing; needs `request:review` with a scope covering `welld_ch` |
-| `accounting release` | The one-off `bun run accounting:release` after refund-api is deployed: reads Accounting first (exits 2 and writes nothing when it cannot), seeds Refund's type defaults and foreign-currency designation from `--defaults <json>` where nothing exists (it no longer creates a catalog; the list is loaded in Accounting by `seed:welld-ch`), numbers the legacy WellD CH lines by expense date, writes the marker that lets approvals through; idempotent, `--dry-run` first |
+| `monthly average rate` | CHF for 1 unit of EUR, USD or GBP in a completed month, **kept in Accounting**: from the AFC/ESTV's monthly average rates for VAT (the "XML-File" the BAZG serves; the id `bazg` names the channel) fetched on demand or typed by an accounting manager; a fetched rate is recorded once, a correction is an appended row that wins (ADR 20261118 exchange rates); a line keeps a copy of the rate and its month |
+| `accounting export` | The XLSX journal workbook (`Date, Description, Debit, Credit, Amount, Currency, Tax, Note`; one row per approved WellD CH line, `FORMAT_VERSION` 2, deterministic bytes from an in-repo writer, text never a formula) of a compiled or paid batch, generated on request and never stored, every download logged; refused with 409 while a rate, a classification or a number is missing; needs `request:review` with a scope covering `welld_ch` |
+| `accounting release` | The one-off `bun run accounting:release` after refund-api is deployed: reads Accounting first (exits 2 and writes nothing when it cannot), seeds Refund's 14 type default accounts from `--defaults <json>` where nothing exists (no VAT default, no designation; it creates no catalog: the list is loaded in Accounting by `seed:welld-ch`), loads the **2026 numbering baseline** from `--offsets <csv>` (**required**: without it nothing is written and it exits 3; a header-only file says "no employee has a hand-issued number"), numbers the legacy WellD CH lines by expense date, writes the marker that lets approvals through; idempotent, `--dry-run` first |
+| `2026 baseline` | The last receipt number each employee issued by hand in the paper register for 2026, supplied by email address at release (the list is a release input kept outside the repository; `receipt-baseline:from-register` helps derive it): the first 2026 number Refund issues is that sequence plus one (`MC26/082` after 81). Only 2026 is continued; 2027 starts at `001` (ADR 20261118 receipt numbers) |
 | `copy` | The values Refund records on a line when it classifies or approves it: ledger account number and name, VAT code and rate and, for a foreign-currency line, the exchange rate with its month. A copy never changes when Accounting changes; the CHF and VAT amounts and the export are computed from it (specs/20261119-accounting) |
 | `rate pending` | An approved WellD CH line in a currency other than CHF whose month had no rate in effect at approval, so no rate is copied yet; it is copied at the first successful export, which is refused with the missing rate named until then |
 | `Manage includes Read` | Whoever may manage Accounting's data may also read it: `accounting:manage` covers every entity `accounting:read` would (see Accounting below). Refund shows its Accounting links and rate links by this rule (`viewer.canOpenAccountingRates`) |
@@ -890,7 +891,7 @@ The suite's global setup (`shell/e2e/global-setup.ts`) then does three things be
 3. Runs `direnv exec . bun run accounting:release` in `refund-api/` (specs/20261118-refund-accounting-export, T12). refund-api answers every approval with 409
    `accounting_release_pending` until that script has run once against the database it uses, so without it every journey that approves a request fails. The script reads
    Accounting first (step 2 must have run, and accounting-api be reachable; otherwise it exits 2 and writes nothing), is idempotent, seeds Refund's type defaults, and prints
-   one summary line, which the setup logs. It needs refund-api's migrations applied (`cd refund-api && bun run db:deploy`).
+   one summary line, which the setup logs. The release needs the baseline list (`--offsets`, exit 3 without it), so the setup passes a header-only file (no hand-issued number) written in a temp directory (T73). It needs refund-api's migrations applied (`cd refund-api && bun run db:deploy`).
    `E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1` skips it, for a run of specs that never approve a refund request; a run that skips it proves nothing about approvals.
 
 Both scripts run under `direnv exec`, so each writes to the database its service's `.envrc` names (the shared dev one). To aim them at another database set

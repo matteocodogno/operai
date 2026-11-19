@@ -1088,18 +1088,33 @@ The feature adds a migration, a permission, a shell formatter and one operator-r
 names the check that lets the next one start.
 
 *Before anything:* T39 (the owner's task, the accounting sign-off) gates T40, and T50 of specs/20261119-accounting does the same
-for what moved. They settle what a release would otherwise freeze:
-- the lists. The catalog (ledger accounts and VAT codes `IMP81`, `IMP77`, `NOVAT`) is Accounting's since specs/20261119-accounting and is
-  loaded by `seed:welld-ch` from `accounting-api/scripts/data/seed.welld-ch.json`; Refund's twelve type defaults and its
-  foreign-currency VAT code are `refund-api/scripts/data/accounting-defaults.welld-ch.json` (the former `accounting-seed.welld-ch.json` no
-  longer exists), read by `accounting:release --defaults <json>` (the old `--seed` option is gone). **Both files are drafts read off the
-  2026 register until accounting signs them off**: account names are taken from the WellD CH chart of accounts; the type defaults and
-  the foreign-currency VAT code, today the placeholder `NOVAT`, are still open questions of 20261118 (Q4, Q6) and of 20261119 (T50);
-- the CSV dialect (`refund-api/src/accounting/exportFormat.ts`: separator, decimal mark, encoding; a change bumps `FORMAT_VERSION`
-  and the golden file `src/accounting/fixtures/accounting-export.golden.csv`);
-- the source of the exchange rates (now `ACCOUNTING_FX_SOURCE` on accounting-api);
-- the per-employee sequence offsets (a CSV `email,year,lastIssuedSeq`, prepared for the run and never committed: it names people, so it
-  lives OUTSIDE the repository, see step 5).
+for what moved. The accounting sign-off of 2026-11-19 settled the lists and the export format, so the release now has **three
+inputs**, and each is checked before step 5:
+- **The seed** (Accounting's catalog): `accounting-api/scripts/data/seed.welld-ch.json`, loaded by `seed:welld-ch`, holds the signed-off
+  **19 ledger accounts** (among them 5902, 5903, 6501, 2620.1, and 7122 "Spese da riaddebitare a WellD Italia") and **6 VAT codes**
+  (`IPM81`, `IPM77`, `IP00`, `BZM81`, `IPM26`, `IPM38`; there is no `IMP81`, `IMP77` or `NOVAT`). The labels of the VAT codes are the
+  operator's, written from the rates, until accounting confirms them; a later change is a new code and a deactivation in the app.
+- **The defaults**: `refund-api/scripts/data/accounting-defaults.welld-ch.json` (the former `accounting-seed.welld-ch.json` no longer
+  exists), read by `accounting:release --defaults <json>` (the old `--seed` option is gone). It holds the default **account** of each of
+  the **14 expense types** and nothing else: there is no VAT default and no foreign-currency VAT code, and the script refuses a file that
+  carries either. Settings changes them afterwards.
+- **The 2026 baseline list** (`--offsets <csv>`, **required**): the last receipt number each employee issued by hand in 2026, so that
+  Refund continues the paper register (an employee whose last number is 81 gets `MC26/082` next). It is a CSV `email,year,lastIssuedSeq`,
+  year 2026 only, one row per employee, and a **header-only file** (`email,year,lastIssuedSeq`) is the explicit statement that no employee
+  has a hand-issued number. It names people, so it is a release input **kept outside the repository** (see step 5, personal data), never
+  committed. To derive it from the accounting register, export the register's sheet to CSV (outside the repository, with a `receiptNumber`
+  column and optionally `expenseDate`) and run `bun run receipt-baseline:from-register --register <csv>` in `refund-api/` (T64): it prints
+  the highest 2026 sequence per initials and the anomalies (duplicates, wrong-year numbers, malformed cells) and reads no name or email. The
+  operator maps initials to email addresses (two employees may share initials: that needs a person) and writes the list; accounting
+  confirms the anomalies and the list before the dry run;
+- the source of the exchange rates (now `ACCOUNTING_FX_SOURCE` on accounting-api): the AFC/ESTV's monthly average rates for VAT, read
+  from the "XML-File" the BAZG serves. Check the channel once per release, from a networked machine (never in CI):
+  `cd accounting-api && ACCOUNTING_LIVE_RATES=1 bun test src/rates/afc.live.test.ts` expects EUR 0.9246 for 2026-03. Without the flag the
+  test is skipped.
+
+The export is an **Excel workbook** (`.xlsx`: one sheet, header `Date, Description, Debit, Credit, Amount, Currency, Tax, Note`;
+`refund-api/src/accounting/exportFormat.ts` holds every choice, a change bumps `FORMAT_VERSION`, now 2, and the golden files in
+`src/accounting/fixtures/`).
 
 The defaults are applied only where Refund holds no row, a receipt number is never reissued, and the classification of a numbered line of
 a paid request can never change, so a wrong list is corrected in Accounting (the catalog) and in Refund's Settings (the defaults)
@@ -1129,9 +1144,10 @@ afterwards, for new approvals and for unpaid lines, not for those paid ones.
 
    ```bash
    bun run accounting:release --dry-run                       # reads Accounting, writes nothing; prints what the real run would do
-   bun run accounting:release --dry-run --offsets <file.csv>  # the same with the offsets, only if T39 supplies a file
+   bun run accounting:release --dry-run --offsets <file.csv>  # the dry run WITH the baseline list: this is the one accounting reads
    # accounting reads the report: numbers per employee and year, lines left unclassified, rate pending, Italian lines left alone
-   bun run accounting:release [--offsets <file.csv>]          # the real run, one transaction, with the same arguments as the dry run
+   bun run accounting:release --offsets <file.csv>            # the real run, one transaction, with the same arguments as the dry run
+   # without --offsets (a dry run too) nothing is written and the exit code is 3
    # --defaults <json> replaces the committed defaults file (scripts/data/accounting-defaults.welld-ch.json), e.g. for a rehearsal
    ```
 
@@ -1149,12 +1165,18 @@ afterwards, for new approvals and for unpaid lines, not for those paid ones.
      "left unclassified" list: those legacy lines get a number and keep what resolved, but their export stays blocked
      until accounting sets the missing value (a holder of `request:reclassify`), and a line of an already paid request cannot be
      reclassified at all. Set the type defaults first if that is not acceptable.
-   - `--offsets` is refused for an employee and year that already has a number, so it only works on the run that writes
-     the first numbers. Do not run the real script without it first and add it later.
+   - `--offsets` is **required** (AC-7.4). Without it the run writes nothing at all (no number, no default, no marker), prints "the list of last
+     hand-issued 2026 numbers is missing: nothing was numbered" and **exits 3**; approvals stay refused, so no number is consumed meanwhile, and a
+     rerun with the list is safe. A dry run without it reads Accounting, writes nothing, reports `BLOCKED: list missing` and exits 3 too. Rows are
+     refused (exit 1, nothing written) when the year is not 2026, an email appears twice, the sequence is not 1 to 99999, or the employee already has
+     2026 numbers with another start; a baseline can only be loaded before an employee's first 2026 number. The report shows, per row, the initials
+     Refund will use: **check them against the register's** (a wrong set of initials would continue the wrong series), and an employee who is "not yet in
+     Refund" still gets the baseline for their first approval.
    - A second run changes nothing (no second marker). A failure anywhere rolls the whole run back
      (`accounting:release failed, nothing was changed: …`, exit code 1). **Exit code 2** is Accounting unreadable (the read did not come back clean and
      complete: accounting-api not live or not reachable at `ACCOUNTING_INTERNAL_URL`, or the scope `accounting.reference.read` not yet granted to refund-api): the message is `Accounting cannot be read: nothing was
-     numbered or classified; run again later`, and nothing was written, not a number, a copy, a default or the marker. Fix the cause and run it again.
+     numbered or classified; run again later`, and nothing was written, not a number, a copy, a default or the marker. Fix the cause and run it again. Accounting is read **first**, so
+     when both problems exist the exit code is 2, not 3. **Exit code 3** is the baseline list missing (above).
    - File the report. Check afterwards: an approval no longer answers 409 `accounting_release_pending`, and a compiled batch's
      export card says how many rows it will export.
 
@@ -2941,10 +2963,13 @@ pairing must fail closed during the window:
 is minutes (R1). Do not start step 3 until step 2 is complete and `mise run env:doctor -- --env production` is green.
 
 **Step 0 — Before.**
-- Accounting has signed off the lists and the defaults (T50 of this spec, T39 of 20261118): `accounting-api/scripts/data/seed.welld-ch.json`,
-  `refund-api/scripts/data/accounting-defaults.welld-ch.json`, and the open questions of the plan (the seed or typing by hand, the 12 type
-  defaults and the foreign-currency VAT code, the offsets). Both files are drafts until then.
-- The offsets CSV, if one is used, is prepared **outside the repository** (it names people; § Release runbook — refund accounting export, step 5).
+- Accounting signed off the lists and the defaults on 2026-11-19 (T50 of this spec, T39 of 20261118): `accounting-api/scripts/data/seed.welld-ch.json`
+  (19 ledger accounts, 6 VAT codes) and `refund-api/scripts/data/accounting-defaults.welld-ch.json` (the default account of each of the 14 expense types; no VAT
+  default). What stays open: the seed or typing by hand, and the VAT code labels, written by the operator until accounting confirms them.
+- **The 2026 baseline list is a release input** (`--offsets <csv>`, required; § Release runbook — refund accounting export, "Before anything"): prepared
+  **outside the repository** (it names people), derived with `bun run receipt-baseline:from-register --register <csv>` (T64) and confirmed by accounting.
+  Without it step 7 writes nothing and exits 3. A header-only file states that no employee has a hand-issued number.
+- The AFC live check, once from a networked machine: `cd accounting-api && ACCOUNTING_LIVE_RATES=1 bun test src/rates/afc.live.test.ts` (EUR 0.9246 for 2026-03).
 - From a checkout of the release commit (the one whose `.railway/railway.ts` declares `accounting-api`), at the repository root:
   `mise run env:doctor -- --env production` is green, and `railway link -p 3bafd4c0-226f-4621-821b-a063976498a2 -e production` is done.
 
@@ -3012,7 +3037,7 @@ held on one side only): add `accounting.reference.read` to refund-api's `require
 - An accounting user sees **Accounting** in the menu, and a user without the capability does not.
 
 **Step 6 — Seed Accounting** (optional: accounting may type the list in the app instead). `bun run seed:welld-ch [--dry-run]` adds each account and VAT code of
-`seed.welld-ch.json` that does not exist yet, as `system:accounting-seed`, in one transaction; it never deactivates, reactivates or renames anything, never touches
+`seed.welld-ch.json` (the signed-off **19 accounts and 6 VAT codes**) that does not exist yet, as `system:accounting-seed`, in one transaction; it never deactivates, reactivates or renames anything, never touches
 WellD Italia, and prints counts and the numbers and codes added, no personal data. The accounting-api image **contains `scripts/` and their data**, so it runs
 inside the service with its own `DATABASE_URL`, over private networking (the activities-api and auth precedent):
 
@@ -3033,6 +3058,10 @@ the service client included; it reaches three things that the private hosts of t
 (public connection string), accounting-api and `auth` (their public hosts). The credentials are injected by `railway run`, never typed. Operator shell only, never CI or any
 job whose output is shipped to a log service (SR-4). Offsets and personal data: § Release runbook — refund accounting export, step 5.
 
+**The release has three inputs**: the seed (step 6: 19 accounts, 6 VAT codes), the defaults (`accounting-defaults.welld-ch.json`: the 14 expense types' accounts, read by
+default, `--defaults <json>` replaces it) and the **baseline list** (`--offsets <file.csv>`, required, kept outside the repository). Put the list in a path outside any
+git worktree (for example `~/accounting-offsets-2026.csv`) and delete it after the run.
+
 ```bash
 cd refund-api && bun install && bun run db:generate
 # the refund database through the shared Postgres's PUBLIC url (kept in this shell only; never echoed, never on a command line). (unverified)
@@ -3040,22 +3069,23 @@ export REFUND_PUBLIC_DATABASE_URL="$(railway run --service Postgres --environmen
 echo "${REFUND_PUBLIC_DATABASE_URL##*/}"      # the database NAME only: "refund"
 
 railway run --service refund-api --environment production -- sh -c \
-  'DATABASE_URL="$REFUND_PUBLIC_DATABASE_URL" ACCOUNTING_INTERNAL_URL=https://accounting-api.operai.welld.io AUTH_BASE_URL=https://auth.operai.welld.io bun run accounting:release --dry-run'
-echo "exit $?"   # 0: read it. 2: Accounting cannot be read, nothing written (see below). 1: failed, rolled back.
+  'DATABASE_URL="$REFUND_PUBLIC_DATABASE_URL" ACCOUNTING_INTERNAL_URL=https://accounting-api.operai.welld.io AUTH_BASE_URL=https://auth.operai.welld.io bun run accounting:release --dry-run --offsets ~/accounting-offsets-2026.csv'
+echo "exit $?"   # 0: read it. 2: Accounting cannot be read, nothing written (see below). 3: the baseline list is missing, nothing written. 1: failed, rolled back.
 ```
 
 Accounting reads the dry-run report: numbers per employee and year, the defaults **skipped** because the entry is not active in Accounting, "rate pending: N lines", and "left unclassified".
 A paid legacy line left unclassified stays locked (R2), so the owner decides whether to set the defaults or the catalog first. **Run the real one only after a clean, read dry run**, with the same
-arguments (`--offsets <file.csv>` only on this first run):
+arguments (the same `--offsets <file.csv>`; the baseline can only be loaded on this first run):
 
 ```bash
 railway run --service refund-api --environment production -- sh -c \
-  'DATABASE_URL="$REFUND_PUBLIC_DATABASE_URL" ACCOUNTING_INTERNAL_URL=https://accounting-api.operai.welld.io AUTH_BASE_URL=https://auth.operai.welld.io bun run accounting:release'
+  'DATABASE_URL="$REFUND_PUBLIC_DATABASE_URL" ACCOUNTING_INTERNAL_URL=https://accounting-api.operai.welld.io AUTH_BASE_URL=https://auth.operai.welld.io bun run accounting:release --offsets ~/accounting-offsets-2026.csv'
 echo "exit $?"; unset REFUND_PUBLIC_DATABASE_URL
 ```
 
 Exit **2** prints `Accounting cannot be read: nothing was numbered or classified; run again later` and wrote nothing: check accounting-api's health, that `ACCOUNTING_INTERNAL_URL` is the public host
-here, and that step 4 is done, then run it again. A second run finds nothing to do and writes no second marker. File the report.
+here, and that step 4 is done, then run it again. Exit **3** prints `the list of last hand-issued 2026 numbers is missing: nothing was numbered (AC-7.4)` and wrote nothing: pass `--offsets <file.csv>` (a
+header-only file if no employee has a hand-issued number) and run it again; no number was consumed meanwhile. A second run finds nothing to do and writes no second marker. File the report.
 
 **Step 8 — Check.** The first production approval of a WellD CH request succeeds (it no longer answers 409 `accounting_release_pending`), the line carries the copied account and VAT code,
 and a compiled batch's export card says how many rows it will export. From here approvals are open again.

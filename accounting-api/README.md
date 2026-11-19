@@ -79,6 +79,12 @@ bun run seed:welld-ch --dry-run   # report what would be added, change nothing
 bun run seed:welld-ch             # load WellD CH's accounts and VAT codes from scripts/data/seed.welld-ch.json
 ```
 
+The file holds the list signed off by accounting on 2026-11-19: **19 ledger accounts** (2620.1, 5808,
+5901 to 5907, 5909, 5999, 6101, 6102, 6104, 6405, 6501, 6701, 6720 and 7122 "Spese da riaddebitare a
+WellD Italia") and **6 VAT codes** (`IPM81` 8.1, `IPM77` 7.7, `IP00` 0, `BZM81` 8.1 reverse charge,
+`IPM26` 2.6, `IPM38` 3.8). There is no `IMP81`, `IMP77` or `NOVAT`. The VAT code labels are the
+operator's, written from the rates until accounting confirms them.
+
 Adds the entries that do not exist yet, in one transaction, as `system:accounting-seed`; never changes or
 deactivates an existing entry; idempotent. It is not a feature for users, and it is optional when accounting
 prefers to type the list in the app. It is in the Docker image (the Dockerfile copies `scripts/` and the data it
