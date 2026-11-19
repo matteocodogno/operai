@@ -8,7 +8,7 @@
  * so no number can be issued before the legacy lines are numbered and any
  * starting offset is loaded.
  *
- *   bun run accounting:release [--dry-run] [--offsets <csv>] [--seed <json>]
+ *   bun run accounting:release [--dry-run] [--offsets <csv>] [--seed <json>] [--show-emails]
  *
  * All in ONE transaction (a failure anywhere changes nothing):
  * 1. SEED the catalog, the twelve type defaults and the foreign-currency VAT
@@ -36,9 +36,18 @@
  * The script is not part of the production image (as `settings:seed`): the
  * operator runs it from a checkout against the production database (runbook in
  * infra/README.md).
+ *
+ * Personal data (security review S-03, S-04; plan SR-3, SR-4). The offsets file
+ * names employees by email: keep it OUTSIDE the repository (the script warns when
+ * the path is inside a git worktree, and `.gitignore` refuses the usual names).
+ * The report names an employee as `<initials> · <first 8 characters of the user id>`;
+ * full emails only with `--show-emails`, and error messages mask them as
+ * `m***@welld.ch`. Run it from an operator shell, never from CI or any job whose
+ * output is shipped to a log service.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { db } from "../src/lib/db";
 import type { Prisma } from "../src/lib/generated/prisma/client";
@@ -46,6 +55,7 @@ import { ExpenseType } from "../src/lib/generated/prisma/enums";
 import { CATALOG_ENTITY, loadActiveFlags, percentToBasisPoints } from "../src/accounting/catalog.repo";
 import { FOREIGN_CURRENCY_VAT_CODE_KEY, loadDefaultsSnapshot } from "../src/accounting/defaults.repo";
 import { classifyAndNumber } from "../src/accounting/numbering.repo";
+import { initials } from "../src/accounting/receiptNumber";
 import { isAccountingReleased, RELEASE_MARKER_KEY } from "../src/accounting/release";
 import {
   AddLedgerAccountBodySchema,
@@ -92,6 +102,47 @@ export function parseSeed(raw: unknown): SeedData {
   return parsed.data;
 }
 
+// ─── Personal data in output (SR-3, SR-4) ────────────────────────────────────
+
+/** `matteo.codogno@welld.ch` → `m***@welld.ch`; a value with no local part or no `@` keeps one character at most. */
+export function maskEmail(value: string): string {
+  const at = value.lastIndexOf("@");
+  if (at === 0) return "***";
+  if (at < 0) return `${value.slice(0, 1)}***`;
+  return `${value.slice(0, 1)}***${value.slice(at)}`;
+}
+
+/** `MC · 1a2b3c4d`: the initials and the first eight characters of the user id; no email, no name. */
+export function employeeRef(initialsValue: string, userId: string): string {
+  return `${initialsValue} · ${userId.slice(0, 8)}`;
+}
+
+/**
+ * A warning when `path` lies inside a git worktree (a directory with `.git`, a directory in a clone or a file in a
+ * linked worktree, at any level above it), else `null`. The offsets file holds employee emails and must never be
+ * committed (SR-3). The check follows symlinks of the directory, and says nothing about the file's content.
+ */
+export function offsetsPathWarning(path: string): string | null {
+  const absolute = resolve(path);
+  let dir = dirname(absolute);
+  try {
+    dir = realpathSync(dir);
+  } catch {
+    // a directory that does not exist yet: the read will fail on its own
+  }
+  for (;;) {
+    if (existsSync(join(dir, ".git"))) {
+      return (
+        `WARNING: the offsets file ${absolute} is inside a git worktree (${dir}). It lists employee emails and must ` +
+        "never be committed: keep it outside the repository and delete it after the release (infra/README.md)."
+      );
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 export interface OffsetRow {
   readonly email: string;
   readonly year: number;
@@ -99,7 +150,8 @@ export interface OffsetRow {
 }
 
 /** `email,year,lastIssuedSeq` per line; a header line, blank lines and `#` comments are allowed. */
-export function parseOffsetsCsv(text: string): OffsetRow[] {
+export function parseOffsetsCsv(text: string, options: { readonly showEmails?: boolean } = {}): OffsetRow[] {
+  const shown = (value: string) => (options.showEmails === true ? value : maskEmail(value));
   const rows: OffsetRow[] = [];
   const seen = new Set<string>();
   const lines = text.replace(/^﻿/, "").split(/\r?\n/);
@@ -111,11 +163,11 @@ export function parseOffsetsCsv(text: string): OffsetRow[] {
     const where = `offsets line ${index + 1}`;
     if (cells.length !== 3) throw new ReleaseError("offsets_invalid", `${where}: expected email,year,lastIssuedSeq`);
     const [email, yearText, seqText] = cells as [string, string, string];
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ReleaseError("offsets_invalid", `${where}: "${email}" is not an email`);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ReleaseError("offsets_invalid", `${where}: "${shown(email)}" is not an email`);
     if (!/^\d{4}$/.test(yearText) || Number(yearText) < 2000) throw new ReleaseError("offsets_invalid", `${where}: year must be four digits`);
     if (!/^\d{1,5}$/.test(seqText) || Number(seqText) < 1) throw new ReleaseError("offsets_invalid", `${where}: lastIssuedSeq must be a whole number from 1 to 99999`);
     const key = `${email.toLowerCase()}|${yearText}`;
-    if (seen.has(key)) throw new ReleaseError("offsets_invalid", `${where}: ${email} ${yearText} appears twice`);
+    if (seen.has(key)) throw new ReleaseError("offsets_invalid", `${where}: ${shown(email)} ${yearText} appears twice`);
     seen.add(key);
     rows.push({ email, year: Number(yearText), lastIssuedSeq: Number(seqText) });
   });
@@ -127,7 +179,10 @@ export function parseOffsetsCsv(text: string): OffsetRow[] {
 export interface ReleaseLineReport {
   readonly lineId: string;
   readonly requestId: string;
+  /** The employee's email: printed only with `--show-emails` (SR-4). */
   readonly employee: string;
+  /** `MC · 1a2b3c4d`: what the report prints instead of the email. */
+  readonly employeeRef: string;
   readonly date: string;
   readonly type: string;
   readonly currency: string;
@@ -149,13 +204,14 @@ export interface ReleaseReport {
     readonly foreignCurrencyVatCode: string | null;
     readonly warnings: string[];
   };
-  readonly offsets: { email: string; year: number; lastIssuedSeq: number; outcome: "applied" | "already-applied" }[];
-  readonly numbered: { employee: string; year: number; count: number; first: string; last: string }[];
+  readonly offsets: { email: string; employeeRef: string; year: number; lastIssuedSeq: number; outcome: "applied" | "already-applied" }[];
+  readonly numbered: { employee: string; employeeRef: string; year: number; count: number; first: string; last: string }[];
   readonly lines: ReleaseLineReport[];
   /** Numbered lines whose account or VAT code could not be resolved (AC-7.2). */
   readonly unclassified: ReleaseLineReport[];
   /** WellD Italia lines of approved or paid requests, left without a number (AC-7.3). */
   readonly itLinesLeftUnnumbered: number;
+  /** The marker was written by this run; in a dry run, the marker the real run WOULD write (nothing is written). */
   readonly markerWritten: boolean;
 }
 
@@ -183,6 +239,8 @@ export interface ReleaseOptions {
   readonly offsets?: readonly OffsetRow[];
   readonly seed?: SeedData;
   readonly now?: () => Date;
+  /** Emails in error messages unmasked (SR-4). */
+  readonly showEmails?: boolean;
 }
 
 type Tx = Prisma.TransactionClient;
@@ -197,7 +255,7 @@ export async function runAccountingRelease(options: ReleaseOptions = {}): Promis
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('accounting-release'))`;
         const alreadyReleased = await isAccountingReleased(tx);
         const seeded = await seedCatalog(tx, seed);
-        const offsets = await applyOffsets(tx, options.offsets ?? []);
+        const offsets = await applyOffsets(tx, options.offsets ?? [], options.showEmails === true);
         const backfill = await backfillLegacyLines(tx);
         let markerWritten = false;
         if (!alreadyReleased) {
@@ -327,40 +385,43 @@ async function seedCatalog(tx: Tx, seed: SeedData): Promise<ReleaseReport["seede
 
 // ── 2. Offsets ───────────────────────────────────────────────────────────────
 
-async function applyOffsets(tx: Tx, offsets: readonly OffsetRow[]): Promise<ReleaseReport["offsets"]> {
+async function applyOffsets(tx: Tx, offsets: readonly OffsetRow[], showEmails: boolean): Promise<ReleaseReport["offsets"]> {
   const out: ReleaseReport["offsets"] = [];
   for (const offset of offsets) {
+    const who = showEmails ? offset.email : maskEmail(offset.email);
     const owners = await tx.refundRequest.findMany({
       where: { ownerEmail: { equals: offset.email, mode: "insensitive" } },
       distinct: ["ownerUserId"],
-      select: { ownerUserId: true },
+      orderBy: { createdAt: "desc" },
+      select: { ownerUserId: true, ownerName: true, ownerEmail: true },
     });
     if (owners.length === 0) {
       throw new ReleaseError(
         "offset_unknown_employee",
-        `offsets: ${offset.email} has no refund request, so the employee cannot be identified. Remove the row, or run the release after their first request.`,
+        `offsets: ${who} has no refund request, so the employee cannot be identified. Remove the row, or run the release after their first request.`,
       );
     }
     if (owners.length > 1) {
-      throw new ReleaseError("offset_ambiguous_employee", `offsets: ${offset.email} belongs to more than one user id`);
+      throw new ReleaseError("offset_ambiguous_employee", `offsets: ${who} belongs to more than one user id`);
     }
     const ownerUserId = owners[0]!.ownerUserId;
+    const employeeRefOfOffset = employeeRef(initials(owners[0]!.ownerName, owners[0]!.ownerEmail), ownerUserId);
     const counter = await tx.receiptCounter.findUnique({ where: { ownerUserId_year: { ownerUserId, year: offset.year } } });
     if (counter) {
       const same =
         counter.startAfter === offset.lastIssuedSeq && counter.lastSeq === offset.lastIssuedSeq && counter.startAfterSetBy !== null;
       if (same) {
-        out.push({ ...offset, outcome: "already-applied" });
+        out.push({ ...offset, employeeRef: employeeRefOfOffset, outcome: "already-applied" });
         continue;
       }
       throw new ReleaseError(
         "offset_pair_has_numbers",
-        `offsets: ${offset.email} already has receipt numbers for ${offset.year} (last ${counter.lastSeq}); an offset can only be loaded before the first one`,
+        `offsets: ${who} already has receipt numbers for ${offset.year} (last ${counter.lastSeq}); an offset can only be loaded before the first one`,
       );
     }
     const numbered = await tx.refundLine.count({ where: { receiptOwnerUserId: ownerUserId, receiptYear: offset.year } });
     if (numbered > 0) {
-      throw new ReleaseError("offset_pair_has_numbers", `offsets: ${offset.email} already has receipt numbers for ${offset.year}`);
+      throw new ReleaseError("offset_pair_has_numbers", `offsets: ${who} already has receipt numbers for ${offset.year}`);
     }
     await tx.receiptCounter.create({
       data: {
@@ -371,7 +432,7 @@ async function applyOffsets(tx: Tx, offsets: readonly OffsetRow[]): Promise<Rele
         startAfterSetBy: RELEASE_ACTOR.userId,
       },
     });
-    out.push({ ...offset, outcome: "applied" });
+    out.push({ ...offset, employeeRef: employeeRefOfOffset, outcome: "applied" });
   }
   return out;
 }
@@ -436,6 +497,7 @@ async function backfillLegacyLines(tx: Tx): Promise<{
         lineId: numbered.lineId,
         requestId: numbered.requestId,
         employee: latest.ownerEmail,
+        employeeRef: employeeRef(numbered.receiptNumber.match(/^[A-Z]{2}/)?.[0] ?? "??", ownerUserId),
         date: d.date.toISOString().slice(0, 10),
         type: d.type,
         currency: d.currency,
@@ -450,12 +512,19 @@ async function backfillLegacyLines(tx: Tx): Promise<{
   const groups = new Map<string, ReleaseReport["numbered"][number]>();
   for (const line of lines) {
     const year = Number(line.receiptNumber.slice(2, 4)) + 2000;
-    const key = `${line.employee}|${year}`;
+    const key = `${line.employeeRef}|${line.employee}|${year}`;
     const group = groups.get(key);
     if (group) {
       groups.set(key, { ...group, count: group.count + 1, last: line.receiptNumber });
     } else {
-      groups.set(key, { employee: line.employee, year, count: 1, first: line.receiptNumber, last: line.receiptNumber });
+      groups.set(key, {
+        employee: line.employee,
+        employeeRef: line.employeeRef,
+        year,
+        count: 1,
+        first: line.receiptNumber,
+        last: line.receiptNumber,
+      });
     }
   }
 
@@ -476,7 +545,8 @@ async function backfillLegacyLines(tx: Tx): Promise<{
 
 // ─── CLI ─────────────────────────────────────────────────────────────────────
 
-export function formatReport(report: ReleaseReport): string {
+export function formatReport(report: ReleaseReport, options: { readonly showEmails?: boolean } = {}): string {
+  const who = (entry: { employee: string; employeeRef: string }) => (options.showEmails === true ? entry.employee : entry.employeeRef);
   const out: string[] = [];
   out.push(report.dryRun ? "DRY RUN: nothing was written. This is what the real run would do." : "Accounting release completed.");
   if (report.alreadyReleased) out.push("The release marker was already set: this run only completed what was left.");
@@ -491,23 +561,28 @@ export function formatReport(report: ReleaseReport): string {
     ...s.warnings.map((w) => `  WARNING: ${w}`),
     "",
     `Offsets (${report.offsets.length})`,
-    ...report.offsets.map((o) => `  ${o.email} ${o.year}: numbering continues after ${o.lastIssuedSeq} (${o.outcome})`),
+    ...report.offsets.map(
+      (o) => `  ${options.showEmails === true ? o.email : o.employeeRef} ${o.year}: numbering continues after ${o.lastIssuedSeq} (${o.outcome})`,
+    ),
     "",
     `Numbered legacy WellD CH lines (${report.lines.length})`,
-    ...report.numbered.map((n) => `  ${n.employee} ${n.year}: ${n.count} lines, ${n.first} to ${n.last}`),
+    ...report.numbered.map((n) => `  ${who(n)} ${n.year}: ${n.count} lines, ${n.first} to ${n.last}`),
     "",
     `Left unclassified, account or VAT code missing (${report.unclassified.length})`,
     ...report.unclassified.map(
-      (l) => `  ${l.receiptNumber} ${l.employee} ${l.date} ${l.type} ${l.currency}: missing ${l.missing.join(" and ")} (line ${l.lineId})`,
+      (l) => `  ${l.receiptNumber} ${who(l)} ${l.date} ${l.type} ${l.currency}: missing ${l.missing.join(" and ")} (line ${l.lineId})`,
     ),
     "",
     `WellD Italia lines of approved or paid requests left without a number: ${report.itLinesLeftUnnumbered}`,
-    `Release marker written: ${report.markerWritten ? "yes" : "no"}`,
+    // D-1: `markerWritten` means "would be written" in a dry run, and a dry run writes nothing: say so.
+    `Release marker written: ${
+      !report.markerWritten ? "no (already set)" : report.dryRun ? "no (dry run: the real run would write it)" : "yes"
+    }`,
   );
   if (report.dryRun) {
     out.push("", "Every line (receipt number, date, type, currency, account, VAT code)");
     for (const l of report.lines) {
-      out.push(`  ${l.receiptNumber}  ${l.date}  ${l.type}  ${l.currency}  ${l.account ?? "-"}  ${l.vatCode ?? "-"}  ${l.employee}`);
+      out.push(`  ${l.receiptNumber}  ${l.date}  ${l.type}  ${l.currency}  ${l.account ?? "-"}  ${l.vatCode ?? "-"}  ${who(l)}`);
     }
   }
   return out.join("\n");
@@ -523,19 +598,28 @@ async function main(argv: readonly string[]): Promise<void> {
     if (value === undefined || value.startsWith("--")) throw new ReleaseError("usage", `${flag} needs a value`);
     return value;
   };
+  const showEmails = args.includes("--show-emails");
   const offsetsPath = take("--offsets");
   const seedPath = take("--seed");
-  const known = new Set(["--dry-run", "--offsets", "--seed", ...(offsetsPath ? [offsetsPath] : []), ...(seedPath ? [seedPath] : [])]);
+  const known = new Set(["--dry-run", "--show-emails", "--offsets", "--seed", ...(offsetsPath ? [offsetsPath] : []), ...(seedPath ? [seedPath] : [])]);
   const unknown = args.filter((a) => !known.has(a));
   if (unknown.length > 0) {
-    throw new ReleaseError("usage", `unknown argument ${unknown[0]}. Usage: bun run accounting:release [--dry-run] [--offsets <csv>] [--seed <json>]`);
+    throw new ReleaseError(
+      "usage",
+      `unknown argument ${unknown[0]}. Usage: bun run accounting:release [--dry-run] [--offsets <csv>] [--seed <json>] [--show-emails]`,
+    );
+  }
+  if (offsetsPath) {
+    const warning = offsetsPathWarning(offsetsPath);
+    if (warning) console.warn(warning);
   }
   const report = await runAccountingRelease({
     dryRun,
-    ...(offsetsPath ? { offsets: parseOffsetsCsv(readFileSync(offsetsPath, "utf8")) } : {}),
+    showEmails,
+    ...(offsetsPath ? { offsets: parseOffsetsCsv(readFileSync(offsetsPath, "utf8"), { showEmails }) } : {}),
     ...(seedPath ? { seed: parseSeed(JSON.parse(readFileSync(seedPath, "utf8"))) } : {}),
   });
-  console.log(formatReport(report));
+  console.log(formatReport(report, { showEmails }));
 }
 
 if (import.meta.main) {

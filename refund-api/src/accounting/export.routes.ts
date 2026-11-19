@@ -32,6 +32,7 @@
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import type { Context } from "hono";
 import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { GLOBAL_ENTITY_SCOPE } from "../authz/conditions";
@@ -61,6 +62,15 @@ const json = <T extends z.ZodType>(schema: T, description: string) => ({
   description,
 });
 const problemResponse = (description: string) => json(ExportProblemSchema, description);
+
+/**
+ * SR-5 (security review S-06): the summary and the blocked 409 name employees and receipt numbers, so, like the file,
+ * they are never kept by a cache or a proxy and never sniffed into another type.
+ */
+function noStore(c: Context): void {
+  c.header("Cache-Control", "private, no-store");
+  c.header("X-Content-Type-Options", "nosniff");
+}
 
 const summaryRoute = createRoute({
   method: "get",
@@ -177,6 +187,7 @@ export function createExportRouter(deps: ExportRouterDeps = {}) {
     if (result.kind === "discarded") {
       return c.json(problem(409, "Conflict", c.req.path, "The batch is discarded: it has no accounting export", "batch_discarded"), 409);
     }
+    noStore(c);
     return c.json(result.summary, 200);
   });
 
@@ -200,6 +211,7 @@ export function createExportRouter(deps: ExportRouterDeps = {}) {
         ...problem(409, "Conflict", c.req.path, "The accounting export is blocked: resolve the listed items first"),
         code: "accounting_export_blocked" as const,
       };
+      noStore(c);
       return c.json(blocked, 409);
     }
 

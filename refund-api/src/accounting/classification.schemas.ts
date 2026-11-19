@@ -59,10 +59,18 @@ export const AccountingLineSchema = z.object({
   receiptNumber: z.string().nullable(),
   employee: z.object({ name: z.string().nullable(), email: z.string() }),
   rejected: z.boolean(),
-  /** `null` for a WellD Italia line (AC-3.9), a rejected line, and a request that is not classifiable (draft, rejected). */
+  /**
+   * Line-level entity scope (SR-1, S-01): `false` when the caller's `request:review` scope (for a PUT's answer: the scope
+   * of the grant that gated the change) is neither global nor the line's own entity. Such a line keeps the fields above,
+   * which `GET /requests/{id}` shows a reviewer anyway, and carries NO accounting data: `classification`, `chf` and
+   * `vatAmountCents` are `null`.
+   */
+  inScope: z.boolean(),
+  /** `null` for a WellD Italia line (AC-3.9), a rejected line, a line out of scope, and a request that is not classifiable (draft, rejected). */
   classification: LineClassificationSchema.nullable(),
-  chf: LineChfSchema,
-  /** `null` when the CHF amount is unknown or there is no VAT code (AC-3.8): unknown is never 0. */
+  /** `null` for a line out of scope (SR-1); otherwise an object, with null members when no CHF figure applies. */
+  chf: LineChfSchema.nullable(),
+  /** `null` when the CHF amount is unknown or there is no VAT code (AC-3.8): unknown is never 0. Also `null` out of scope. */
   vatAmountCents: z.number().int().nullable(),
 });
 export type AccountingLine = z.infer<typeof AccountingLineSchema>;
@@ -79,6 +87,12 @@ export const RequestAccountingSchema = z.object({
    * `request:reclassify` may. `locked`: paid. `none`: draft or rejected, nothing to classify.
    */
   classificationState: z.enum(CLASSIFICATION_STATES),
+  /**
+   * SR-2, S-02: the caller owns this request and holds a grant carrying `self-approval: deny` for the action that would
+   * change it (`approve` while submitted, `reclassify` or `approve` once approved). The panel is then read-only, and a
+   * PUT answers 403 `self_approval_forbidden`. Always `false` for a paid, draft or rejected request: nothing can change there.
+   */
+  selfRestricted: z.boolean(),
   lines: z.array(AccountingLineSchema),
 });
 export type RequestAccounting = z.infer<typeof RequestAccountingSchema>;

@@ -3,8 +3,8 @@
  * plan § API contracts "Accounting (classification)"; AC-1.3, AC-1.6, AC-2.7,
  * AC-3.1, AC-3.2, AC-3.8, AC-3.9, AC-3.10, AC-4.6).
  *
- *   GET /review/requests/{id}/accounting   request:review + entity scope
- *   GET /accounting/options                request:review (any scope)
+ *   GET /review/requests/{id}/accounting   request:review + entity scope (request level, then line level: SR-1)
+ *   GET /accounting/options                request:review with a scope that covers welld_ch (SR-1)
  *   PUT /review/requests/{id}/lines/{lineId}/classification
  *                                          set-approved-total while submitted, reclassify once approved (T14)
  *
@@ -21,11 +21,19 @@ import { createRoute, OpenAPIHono, type z } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import { authzMiddleware, type AuthzContext, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
-import { entityScopeForPermission, findPermission, hasCapability, requestInScope } from "../authz/conditions";
+import {
+  approveSelfRestricted,
+  entityScopeForPermission,
+  findPermission,
+  GLOBAL_ENTITY_SCOPE,
+  hasCapability,
+  requestInScope,
+} from "../authz/conditions";
 import { LineIdParamSchema, RequestIdParamSchema } from "../requests/requests.schemas";
 import { scopeForReviewAction } from "../review/review.service";
 import {
   buildAccountingView,
+  classificationSelfRestricted,
   classifyLine,
   loadAccountingOptions,
   readAccountingRequest,
@@ -100,17 +108,32 @@ const optionsRoute = createRoute({
   summary: "The accounts and VAT codes a line can be classified with",
   description:
     "Active entries only (AC-1.3, AC-1.6, AC-2.4). A deactivated entry is absent here, and a line that already " +
-    "carries one keeps it and shows it with `active: false` in its accounting view. Any `request:review` scope.",
+    "carries one keeps it and shows it with `active: false` in its accounting view. Needs `request:review` with a " +
+    "scope that covers WellD CH (global, or entity `welld_ch`): these are WellD CH's books (SR-1).",
   security: [{ Bearer: [] }],
   responses: {
     200: json(AccountingOptionsSchema, "Active accounts by number, active VAT codes by code"),
-    403: problemResponse("Caller lacks `request:review`"),
+    403: problemResponse("Caller lacks `request:review`, or `accounting_out_of_scope`"),
   },
 });
 
 classificationRouter.openapi(optionsRoute, async (c) => {
-  if (!hasCapability(c.get("authz").permissions, "request", "review")) {
+  const scope = scopeForReviewAction(c.get("authz"), "review");
+  if (scope === undefined) {
     return c.json(problem(403, "Forbidden", c.req.path, "You do not have permission to review refund requests"), 403);
+  }
+  // `null` is a conditioned grant with no entity on the caller: it covers nothing (SR-1, as the export).
+  if (scope !== GLOBAL_ENTITY_SCOPE && scope !== "welld_ch") {
+    return c.json(
+      problem(
+        403,
+        "Forbidden",
+        c.req.path,
+        "The accounts and VAT codes are WellD CH's books: your review scope does not cover WellD CH",
+        "accounting_out_of_scope",
+      ),
+      403,
+    );
   }
   return c.json(await loadAccountingOptions(), 200);
 });
@@ -128,7 +151,9 @@ const viewRoute = createRoute({
     "only what is stored on the line is shown. WellD Italia and rejected lines carry `classification: null` " +
     "(AC-3.9). `amountCents` is `approvedTotalCents ?? requestedAmountCents`. `chf` and `vatAmountCents` are " +
     "derived on read; a month with no rate is `rateMissing: true` and a `null` CHF and VAT amount, never 0 " +
-    "(AC-3.8). 404 for anyone who is not an in-scope reviewer of the request, its owner included (AC-3.10).",
+    "(AC-3.8). 404 for anyone who is not an in-scope reviewer of the request, its owner included (AC-3.10). " +
+    "The scope also applies per line (SR-1): a line whose entity the caller's scope does not cover has `inScope: false` " +
+    "and no classification, CHF or VAT figure. `selfRestricted` says the caller owns the request and may not classify it (SR-2).",
   security: [{ Bearer: [] }],
   request: { params: RequestIdParamSchema },
   responses: {
@@ -146,7 +171,9 @@ classificationRouter.openapi(viewRoute, async (c) => {
   const row = await readAccountingRequest(id);
   if (!row || !requestInScope(row.lines, scope)) return notFound();
 
-  return c.json(await buildAccountingView(row), 200);
+  const authz = c.get("authz");
+  const selfRestricted = classificationSelfRestricted(row, selfRestrictionOf(authz, c.get("userId")));
+  return c.json(await buildAccountingView(row, { scope, selfRestricted }), 200);
 });
 
 // ─── PUT /review/requests/{id}/lines/{lineId}/classification ─────────────────
@@ -156,6 +183,27 @@ function scopeOf(authz: AuthzContext, action: string): ActionScope {
   if (!hasCapability(authz.permissions, "request", action)) return undefined;
   const grant = findPermission(authz.permissions, "request", action);
   return entityScopeForPermission(grant?.conditions ?? null, authz.entity);
+}
+
+/** SR-2: which of the caller's grants carry `self-approval: deny`. */
+function selfRestrictionOf(authz: AuthzContext, userId: string) {
+  return {
+    userId,
+    approveSelfRestricted: approveSelfRestricted(findPermission(authz.permissions, "request", "approve")?.conditions ?? null),
+    reclassifySelfRestricted: approveSelfRestricted(findPermission(authz.permissions, "request", "reclassify")?.conditions ?? null),
+  };
+}
+
+/** specs/20261118 SR-2: an info-level, parseable event per refusal; ids only, no personal data (as `refund.self_approval_denied`). */
+function logClassificationSelfApprovalDenied(actorUserId: string, requestId: string): void {
+  console.info(
+    JSON.stringify({
+      event: "refund.classification_self_approval_denied",
+      actorUserId,
+      requestId,
+      timestamp: new Date().toISOString(),
+    }),
+  );
 }
 
 const classifyRoute = createRoute({
@@ -171,7 +219,10 @@ const classifyRoute = createRoute({
     "refused. Only the named value changes: the approved total, the status and the decision are never touched " +
     "(AC-3.6). An inactive or unknown entry is a 422 (AC-1.3, AC-1.6); a value the line already stores is a no-op. " +
     "Every change writes one `line_classified` audit row (cause `review` or `post_approval`). " +
-    "Answers with the line, as in the accounting view.",
+    "Answers with the line, as in the accounting view. Two rules from the security review: the line's entity must be " +
+    "covered by the scope of the grant the status needs, else 404 as for a stranger (SR-1); and the owner of a request " +
+    "who may not approve it (`self-approval: deny` on `approve`, or on `reclassify` once approved) may not change its " +
+    "classification, 403 `self_approval_forbidden`, answered before the scope 404s (SR-2).",
   security: [{ Bearer: [] }],
   request: {
     params: LineIdParamSchema,
@@ -179,8 +230,8 @@ const classifyRoute = createRoute({
   },
   responses: {
     200: json(AccountingLineSchema, "The line after the change"),
-    403: problemResponse("The grant the request's current status needs is missing"),
-    404: problemResponse("No such request or line, or out of the caller's entity scope"),
+    403: problemResponse("The grant the request's current status needs is missing, or `self_approval_forbidden` (SR-2)"),
+    404: problemResponse("No such request or line, or the request or the line is out of the caller's entity scope (SR-1)"),
     409: problemResponse("`classification_locked` (paid), `not_classifiable_status` (draft, rejected), `line_rejected`"),
     422: problemResponse(
       "`line_not_welld_ch`, `ledger_account_inactive`, `vat_code_inactive`, `unknown_ledger_account`, `unknown_vat_code`, `invalid_classification`",
@@ -192,12 +243,15 @@ classificationRouter.openapi(classifyRoute, async (c) => {
   const { id, lineId } = c.req.valid("param");
   const body = c.req.valid("json");
   const authz = c.get("authz");
+  const restriction = selfRestrictionOf(authz, c.get("userId"));
 
   const outcome = await classifyLine(id, lineId, body, {
     userId: c.get("userId"),
     email: c.get("email"),
     setApprovedTotal: scopeOf(authz, "set-approved-total"),
     reclassify: scopeOf(authz, "reclassify"),
+    approveSelfRestricted: restriction.approveSelfRestricted,
+    reclassifySelfRestricted: restriction.reclassifySelfRestricted,
   });
 
   switch (outcome.kind) {
@@ -208,6 +262,18 @@ classificationRouter.openapi(classifyRoute, async (c) => {
     case "forbidden":
       return c.json(
         problem(403, "Forbidden", c.req.path, `You do not have permission to change this line's classification (${outcome.needs})`),
+        403,
+      );
+    case "self_restricted":
+      logClassificationSelfApprovalDenied(c.get("userId"), id);
+      return c.json(
+        problem(
+          403,
+          "Forbidden",
+          c.req.path,
+          "You cannot change the classification of a refund request you submitted yourself.",
+          "self_approval_forbidden",
+        ),
         403,
       );
     case "locked":

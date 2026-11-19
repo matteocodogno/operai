@@ -1084,12 +1084,14 @@ the type defaults, the VAT codes `IMP81`/`IMP77` and the name of the placeholder
 foreign-currency VAT code until accounting names the real one, are drafts read off the 2026 register), the CSV dialect (`refund-api/src/accounting/exportFormat.ts`:
 separator, decimal mark, encoding; a change bumps `FORMAT_VERSION` and the golden file `src/accounting/fixtures/accounting-export.golden.csv`),
 the source of the exchange rates, and the per-employee sequence offsets (a CSV `email,year,lastIssuedSeq`, prepared for
-the run and never committed: it names people). The seed is applied only where nothing exists, a receipt number is
+the run and never committed: it names people, so it lives OUTSIDE the repository, see step 5). The seed is applied only where nothing exists, a receipt number is
 never reissued, and the classification of a numbered line of a paid request can never change, so a wrong seed is
 corrected in Settings afterwards for new approvals and for unpaid lines, not for those paid ones.
 
 1. **auth.** Its `preDeploy` (`db:release`) migrates and seeds the permission catalog, so `request:reclassify` exists
-   (granted to the holders of `request:approve`). Check: `auth` is live on the new version. If refund-api goes first,
+   (granted to the holders of `request:approve`, with the same conditions: if a role's approve carries `self-approval:
+   deny`, its reclassify does too, and its holders cannot classify the requests they submitted themselves, 403
+   `self_approval_forbidden`). Check: `auth` is live on the new version. If refund-api goes first,
    changing a classification after approval answers 403 until auth is live; nothing else breaks.
 2. **The shell** (Vercel), which carries `formatMonth` from `@operai/ui`. Check: `curl -s https://operai.welld.io/version.json`
    shows the new version. refund-ui shows months as `YYYY-MM` until it is live.
@@ -1112,7 +1114,17 @@ corrected in Settings afterwards for new approvals and for unpaid lines, not for
    bun run accounting:release [--offsets <file.csv>]          # the real run, one transaction, with the same arguments as the dry run
    ```
 
-   - `--dry-run` runs everything and rolls it back; the report is the exact result of the real run. Read the
+   - **Personal data (security review S-03, S-04).** The offsets file names employees by email: keep it **outside the
+     repository** (for example in the operator's home directory), never `git add` it, and delete it after the run. The
+     script prints a warning if the path is inside a git worktree, and `.gitignore` refuses `**/*offsets*.csv` and
+     `**/accounting-offsets*` as a second line of defence, not as the rule. Run the script **only from an operator
+     shell**, never from CI or any job whose output is shipped to a log service: the report is financial and personal
+     data. It names an employee as `<initials> · <first 8 characters of the user id>` (for example `MC · 1a2b3c4d`); add
+     `--show-emails` only when you need the full address, in a terminal that is not logged. Errors mask the email as
+     `m***@welld.ch`.
+   - `--dry-run` runs everything and rolls it back; the report is the exact result of the real run, and its marker line
+     says `Release marker written: no (dry run: the real run would write it)`: a dry run never releases, and every
+     approval still answers 409 `accounting_release_pending` until the real run. Read the
      "left unclassified" list: those legacy lines get a number and keep what resolved, but their export stays blocked
      until accounting sets the missing value (a holder of `request:reclassify`), and a line of an already paid request cannot be
      reclassified at all. Set the type defaults first if that is not acceptable.

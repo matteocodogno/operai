@@ -17,3 +17,8 @@ notes.md
 # Railway IaC cutover snapshot (railway config migrate undo) — local only
 .railway/.cac-migration.json
 .forge/design/
+
+# refund accounting release (specs/20261118-refund-accounting-export, SR-3): the offsets file names employees by
+# email and must never be committed. Keep it outside the repository (infra/README.md); these refuse the usual names.
+**/*offsets*.csv
+**/accounting-offsets*

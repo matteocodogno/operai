@@ -28,7 +28,7 @@
  * reported as `rateMissing`, and only the export fetches on demand.
  */
 
-import { requestInScope, type EntityScope } from "../authz/conditions";
+import { GLOBAL_ENTITY_SCOPE, requestInScope, type EntityScope } from "../authz/conditions";
 import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { writeAuditEntry } from "../requests/audit";
@@ -126,6 +126,23 @@ export function classifiableInput(
 
 // ─── Building the view ───────────────────────────────────────────────────────
 
+/**
+ * What the caller may do, per action: `undefined` = no such grant at all, `null` = a conditioned grant with no
+ * resolved entity (matches nothing), otherwise the entity scope of the grant.
+ */
+export type ActionScope = EntityScope | null | undefined;
+
+/**
+ * SR-1 (security review S-01): the LINE-level entity rule. The request-level predicate (`requestInScope`, ADR
+ * 20260716-entity-scoped-abac-refund-api) decides whether a request is visible at all; the accounting data of one line
+ * (account, VAT code, CHF and VAT amounts, and any change of them) is the books of that line's entity, so it is read or
+ * written only when the scope of the grant for the action is global or equal to the line's own entity. `null` (a scope
+ * with no entity) and `undefined` (no grant) cover nothing.
+ */
+export function lineInScope(scope: ActionScope, lineEntity: string): boolean {
+  return scope === GLOBAL_ENTITY_SCOPE || (typeof scope === "string" && scope === lineEntity);
+}
+
 export type RatesInEffect = (
   pairs: readonly { currency: RateCurrency; month: string }[],
 ) => Promise<Map<string, RateEntry | null>>;
@@ -140,15 +157,24 @@ const NO_CHF = { amountCents: null, rateMicros: null, rate: null, rateMonth: nul
  */
 export async function buildAccountingView(
   row: AccountingRequestRow,
-  options: { client?: Client; ratesInEffect?: RatesInEffect } = {},
+  options: {
+    /** The caller's scope for the action behind this view: `request:review` for the GET, the gating grant for a PUT's answer (SR-1). */
+    scope: ActionScope;
+    /** SR-2: the caller owns the request and may not classify it. */
+    selfRestricted?: boolean;
+    client?: Client;
+    ratesInEffect?: RatesInEffect;
+  },
 ): Promise<RequestAccounting> {
   const client = options.client ?? db;
+  const scope = options.scope;
   const ratesInEffect = options.ratesInEffect ?? ((pairs) => fxService.ratesInEffect(pairs));
   const state = classificationStateOf(row.status, row.batch?.status ?? null);
 
-  // Which lines carry a classification at all: WellD CH, not rejected, in a classifiable request.
+  // Which lines carry a classification at all: WellD CH, not rejected, in a classifiable request, and covered by the
+  // caller's scope (SR-1): for a line outside it nothing is read, so nothing can leak, not even through the rates.
   const classifiable = (line: AccountingLineRow) =>
-    state !== "none" && line.entity === "welld_ch" && line.rejectionReason === null;
+    state !== "none" && line.entity === "welld_ch" && line.rejectionReason === null && lineInScope(scope, line.entity);
   const subject = row.lines.filter(classifiable);
 
   const accountFlags = await loadActiveFlags(
@@ -186,7 +212,11 @@ export async function buildAccountingView(
       receiptNumber: line.receiptNumber,
       employee: { name: row.ownerName, email: row.ownerEmail },
       rejected: line.rejectionReason !== null,
+      inScope: lineInScope(scope, line.entity),
     };
+    if (!base.inScope) {
+      return { ...base, classification: null, chf: null, vatAmountCents: null };
+    }
     if (!classifiable(line)) {
       return { ...base, classification: null, chf: { ...NO_CHF }, vatAmountCents: null };
     }
@@ -236,6 +266,7 @@ export async function buildAccountingView(
     status: row.status,
     batch: row.batch ? { id: row.batch.id, status: row.batch.status } : null,
     classificationState: state,
+    selfRestricted: options.selfRestricted === true,
     lines,
   };
 }
@@ -256,12 +287,6 @@ export async function loadAccountingOptions(client: Client = db): Promise<Accoun
 
 // ─── Changing a line's classification (T14) ──────────────────────────────────
 
-/**
- * What the caller may do, per action: `undefined` = no such grant at all, `null` = a conditioned grant with no
- * resolved entity (matches nothing), otherwise the entity scope of the grant.
- */
-export type ActionScope = EntityScope | null | undefined;
-
 export interface ClassifyCaller {
   readonly userId: string;
   readonly email: string;
@@ -269,6 +294,28 @@ export interface ClassifyCaller {
   readonly setApprovedTotal: ActionScope;
   /** `request:reclassify`: what may change a line once the request is `approved` (D5). */
   readonly reclassify: ActionScope;
+  /** SR-2: the caller's `request:approve` grant carries `self-approval: deny`. */
+  readonly approveSelfRestricted: boolean;
+  /** SR-2: the caller's `request:reclassify` grant carries `self-approval: deny`. */
+  readonly reclassifySelfRestricted: boolean;
+}
+
+/**
+ * SR-2 (security review S-02), segregation of duties: whoever may not approve their own request may not shape its
+ * booking. True when the caller OWNS the request and the grant of the action that would change it is self-restricted:
+ * `approve` while the request is `submitted` (`set-approved-total` itself stays unconditioned, specs/20260721-self-
+ * approval-control D3), `reclassify` once it is `approved`. Once approved, an `approve` restriction counts too: the
+ * seed gives both grants the same conditions, so they differ only in a hand-edited role, and then the stricter reading
+ * (fail closed) is the one that keeps the control. A paid, draft or rejected request cannot change anyway: false.
+ */
+export function classificationSelfRestricted(
+  request: { readonly status: string; readonly ownerUserId: string },
+  caller: Pick<ClassifyCaller, "userId" | "approveSelfRestricted" | "reclassifySelfRestricted">,
+): boolean {
+  if (request.ownerUserId !== caller.userId) return false;
+  if (request.status === "submitted") return caller.approveSelfRestricted;
+  if (request.status === "approved") return caller.reclassifySelfRestricted || caller.approveSelfRestricted;
+  return false;
 }
 
 export type ClassifyRefusal =
@@ -283,6 +330,8 @@ export type ClassifyOutcome =
   | { readonly kind: "not_found" }
   /** The grant the request's CURRENT status needs is missing (403). */
   | { readonly kind: "forbidden"; readonly needs: "request:set-approved-total" | "request:reclassify" }
+  /** SR-2: the caller owns the request and is barred from approving it, so from classifying it (403 `self_approval_forbidden`). */
+  | { readonly kind: "self_restricted" }
   /** The request is paid (409 `classification_locked`). */
   | { readonly kind: "locked" }
   /** The request is a draft or rejected (409 `not_classifiable_status`). */
@@ -321,11 +370,15 @@ export async function classifyLine(
     return { kind: "forbidden", needs: "request:set-approved-total" };
   }
 
-  const outcome = await db.$transaction(async (tx): Promise<ClassifyOutcome | { kind: "written"; changed: boolean }> => {
+  const outcome = await db.$transaction(async (tx): Promise<ClassifyOutcome | { kind: "written"; changed: boolean; scope: ActionScope }> => {
     const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "refund_request" WHERE "id" = ${requestId} FOR UPDATE`;
     if (locked.length === 0) return { kind: "not_found" };
     const request = await readAccountingRequest(requestId, tx);
     if (!request) return { kind: "not_found" };
+
+    // SR-2, before every scope 404 as approve does (the caller provably owns the record, so a 403 reveals nothing):
+    // the owner of a request they may not approve does not shape its booking, in either state.
+    if (classificationSelfRestricted(request, caller)) return { kind: "self_restricted" };
 
     // Visible at all? In scope under one of the two grants the caller holds, else it is a stranger's request.
     const inScope = (scope: ActionScope) => scope !== undefined && scope !== null && requestInScope(request.lines, scope);
@@ -342,6 +395,8 @@ export async function classifyLine(
 
     const line = request.lines.find((l) => l.id === lineId);
     if (!line) return { kind: "not_found" };
+    // SR-1: the scope of the grant THIS status needs must cover THIS line's entity, else it is a stranger's line (404).
+    if (!lineInScope(scope, line.entity)) return { kind: "not_found" };
     if (line.entity !== "welld_ch") return { kind: "not_welld_ch" };
     if (line.rejectionReason !== null) return { kind: "line_rejected" };
 
@@ -361,7 +416,7 @@ export async function classifyLine(
       if (!vat) return { kind: "refused", code: "unknown_vat_code" };
       if (!(await loadActiveFlags(tx, "vat_code", [vat.id])).get(vat.id)) return { kind: "refused", code: "vat_code_inactive" };
     }
-    if (account === null && vat === null) return { kind: "written", changed: false };
+    if (account === null && vat === null) return { kind: "written", changed: false, scope };
 
     // What the accountant saw before, for the audit row: live while under review, stored once approved.
     const accountFlags = await loadActiveFlags(tx, "ledger_account", line.ledgerAccountId ? [line.ledgerAccountId] : []);
@@ -398,12 +453,13 @@ export async function classifyLine(
         },
       },
     });
-    return { kind: "written", changed: true };
+    return { kind: "written", changed: true, scope };
   });
 
   if (outcome.kind !== "written") return outcome;
   const row = await readAccountingRequest(requestId);
-  const line = row ? (await buildAccountingView(row)).lines.find((l) => l.lineId === lineId) : undefined;
+  // The scope of the grant that gated the change (decided on the locked status): the line passed `lineInScope` under it.
+  const line = row ? (await buildAccountingView(row, { scope: outcome.scope })).lines.find((l) => l.lineId === lineId) : undefined;
   if (!line) return { kind: "not_found" };
   return { kind: "ok", line, changed: outcome.changed };
 }

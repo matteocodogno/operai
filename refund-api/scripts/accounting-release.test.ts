@@ -375,7 +375,7 @@ describe("offsets (D2)", () => {
 
 describe("the report (D-1, SR-4)", () => {
   async function legacy() {
-    await request("u1", [{ id: "l1", date: "2026-03-02" }, { id: "l2", date: "2026-03-03", type: "stationery" }], { email: "matteo.codogno@welld.ch" });
+    await request("u1", [{ id: "l1", date: "2026-03-02" }, { id: "l2", date: "2026-03-03", type: "representation_gifts" }], { email: "matteo.codogno@welld.ch" });
   }
 
   it("D-1: a dry run never says the marker was written; the real run says yes; a later run says it was already set", async () => {
@@ -402,7 +402,7 @@ describe("the report (D-1, SR-4)", () => {
   it("SR-4: the unclassified lines are listed by the same reference", async () => {
     await legacy();
     const text = formatReport(await run({ dryRun: true }));
-    expect(text).toMatch(/Left unclassified, account or VAT code missing \(1\)\n {2}MC26\/002 MC · u1 2026-03-03 stationery/);
+    expect(text).toMatch(/Left unclassified, account or VAT code missing \(1\)\n {2}MC26\/002 MC · u1 2026-03-03 representation_gifts/);
     expect(text).not.toContain("@");
   });
 });
