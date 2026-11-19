@@ -1,6 +1,7 @@
 import 'shell/tokens.css'
 import { useState, useSyncExternalStore } from 'react'
 import { RouterProvider } from '@tanstack/react-router'
+import AccountingShell from './components/AccountingShell'
 import { createAppRouter, type AppRouter } from './router'
 
 // The exposed remote MUST NOT import its own index.css: the shell owns the one
@@ -33,7 +34,7 @@ const BASEPATH = '/accounting'
  * is destroyed, which is when the module unmounts, and React's cleanup of it is a no-op.
  */
 function createOwnRouter(): AppRouter {
-  const router = createAppRouter(BASEPATH)
+  const router = createAppRouter(BASEPATH, AccountingShell)
   const { history } = router
   const subscribe = history.subscribe
   const destroy = history.destroy
@@ -91,8 +92,9 @@ function ownRouterMount() {
 /**
  * App — accounting-ui's gated tool root, exposed via Module Federation as `./App`
  * (vite.config.ts) and mounted by the shell at the access-gated `/accounting/*`
- * (specs/20261119-accounting, AC-8.1). An inner TanStack Router rebased to `/accounting`; no auth guard and
- * no chrome (the shell owns both). The mount discipline below is copied from letterheads-ui's `App.tsx` (commit a8448b6f).
+ * (specs/20261119-accounting, AC-8.1). An inner TanStack Router rebased to `/accounting`, with
+ * `AccountingShell` as its root layout; no auth guard and no chrome (the shell owns both).
+ * The mount discipline above is copied from letterheads-ui's `App.tsx` (commit a8448b6f).
  */
 export default function App() {
   const [mount] = useState(ownRouterMount)
