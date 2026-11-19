@@ -84,7 +84,8 @@ run = "bun tools/env-doctor/index.ts"
 # Bearer + the base URL crm-ui / projects-ui call). Defaulted here so a fresh checkout works without editing
 # the shell's dotenv file; an exported value (or that file) still wins. Vite bakes it at BUILD time, so
 # dev:preview exports it before the build too. VITE_LETTERHEADS_API_URL (specs/20261116-letterhead-service) is the same for
-# letterhead-api (:8088), which letterheads-ui (:5182) reaches through the shell.
+# letterhead-api (:8088), which letterheads-ui (:5182) reaches through the shell. VITE_ACCOUNTING_API_URL
+# (specs/20261119-accounting) is the same for accounting-api (:8089), which accounting-ui (:5183) reaches through the shell.
 #
 # Run the WHOLE Operai suite locally (Module Federation, specs/20260709-suite-shell + specs/20260713-notification-center
 # + specs/20260716-refund-service + specs/20261006-hardware-inventory): Postgres + MinIO (local S3 for refund receipts and
@@ -92,7 +93,8 @@ run = "bun tools/env-doctor/index.ts"
 # command. Ports: auth 3001, estimai-api 8080, notify-api 8081, refund-api
 # 8082, inventory-api 8083, crm-api 8084, meetings-api 8085, projects-api 8086, activities-api 8087, shell 5173,
 # estimai-ui 5174, refund-ui 5175, notify-ui 5176, admin-ui 5177, inventory-ui 5178, crm-ui 5179,
-# meetings-ui 5180, projects-ui 5181, letterheads-ui 5182 (frontend ports pinned in each app's vite.config.ts); letterhead-api 8088 (Rust, specs/20261116-letterhead-service); MinIO S3
+# meetings-ui 5180, projects-ui 5181, letterheads-ui 5182, accounting-ui 5183 (frontend ports pinned in each app's vite.config.ts); letterhead-api 8088 (Rust, specs/20261116-letterhead-service);
+# accounting-api 8089 (Bun, own database `accounting`, specs/20261119-accounting); MinIO S3
 # 9000 + console 9001. Open
 # http://localhost:5173 (the shell).
 # `trap 'kill 0'` reaps every child (backends + vite) on Ctrl-C. Postgres +
@@ -103,6 +105,13 @@ run = "bun tools/env-doctor/index.ts"
 # so only the infra services (postgres, minio) are named on the compose line.
 #
 # letterhead-api needs no .envrc: `mise run dev:letterhead` carries the local values (see that task).
+#
+# accounting-api (specs/20261119-accounting) has its own `.envrc` like refund-api (`direnv allow accounting-api`; its dotenv file
+# is copied from accounting-api's example file). Its logical database `accounting` is made by the compose one-shot
+# `accounting-createdb` (named on the `docker compose up` lines below and run by `db:migrate`). refund-api now REQUIRES
+# ACCOUNTING_INTERNAL_URL at startup (it exits 1 without it) and its service client must hold the scope
+# `accounting.reference.read` in auth's SERVICE_CLIENTS: the tasks below default the URL to accounting-api's local port for
+# refund-api only, and a value in refund-api's own dotenv file wins.
 #
 # Backend env: auth + estimai-api + notify-api + refund-api + inventory-api load
 # their secrets from their own `.envrc` (direnv + 1Password — refund-api's own .envrc has no
@@ -136,21 +145,23 @@ run = "bun tools/env-doctor/index.ts"
 # federation plugin adds is incompatible with React Fast Refresh's
 # consistent-exports rule); edits deeper in a remote's tree Fast-Refresh normally.
 [tasks.dev]
-description = "Run the FULL suite locally with HMR — Postgres + MinIO (S3 :9000, console :9001) + auth :3001 + estimai-api :8080 + notify-api :8081 + refund-api :8082 + inventory-api :8083 + crm-api :8084 + meetings-api :8085 + projects-api :8086 + activities-api :8087 + letterhead-api :8088 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182"
+description = "Run the FULL suite locally with HMR — Postgres + MinIO (S3 :9000, console :9001) + auth :3001 + estimai-api :8080 + notify-api :8081 + refund-api :8082 + inventory-api :8083 + crm-api :8084 + meetings-api :8085 + projects-api :8086 + activities-api :8087 + letterhead-api :8088 + accounting-api :8089 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182 + accounting-ui :5183"
 run = """
 export VITE_ACTIVITIES_API_URL="${VITE_ACTIVITIES_API_URL:-http://localhost:8087}"
 export VITE_LETTERHEADS_API_URL="${VITE_LETTERHEADS_API_URL:-http://localhost:8088}"
-docker compose up -d postgres minio minio-createbucket letterhead-createdb
+export VITE_ACCOUNTING_API_URL="${VITE_ACCOUNTING_API_URL:-http://localhost:8089}"
+docker compose up -d postgres minio minio-createbucket letterhead-createdb accounting-createdb
 trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
 (cd estimai-api && direnv exec . bun run dev) &
 (cd notify-api && direnv exec . bun run dev) &
-(cd refund-api && direnv exec . bun run dev) &
+(cd refund-api && ACCOUNTING_INTERNAL_URL="${ACCOUNTING_INTERNAL_URL:-http://localhost:8089}" direnv exec . bun run dev) &
 (cd inventory-api && direnv exec . bun run dev) &
 (cd crm-api && direnv exec . bun run dev) &
 (cd meetings-api && direnv exec . bun run dev) &
 (cd projects-api && direnv exec . bun run dev) &
 (cd activities-api && direnv exec . bun run dev) &
+(cd accounting-api && direnv exec . bun run dev) &
 mise run dev:letterhead &
 pnpm --dir shell dev &
 pnpm --dir estimai-ui dev &
@@ -160,6 +171,7 @@ pnpm --dir crm-ui dev &
 pnpm --dir meetings-ui dev &
 pnpm --dir projects-ui dev &
 pnpm --dir letterheads-ui dev &
+pnpm --dir accounting-ui dev &
 (cd admin-ui && direnv exec . pnpm dev) &
 pnpm --dir notify-ui dev &
 node scripts/open-when-ready.mjs http://localhost:5173 http://localhost:3001/health &
@@ -169,33 +181,35 @@ wait
 # Frontends only (HMR) — for when the backends are already running elsewhere
 # (e.g. you started auth/estimai-api/notify-api/refund-api/inventory-api in their own terminals).
 [tasks."dev:web"]
-description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182 (backends run separately)"
-run = "export VITE_ACTIVITIES_API_URL=\"${VITE_ACTIVITIES_API_URL:-http://localhost:8087}\"; export VITE_LETTERHEADS_API_URL=\"${VITE_LETTERHEADS_API_URL:-http://localhost:8088}\"; trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir inventory-ui dev & pnpm --dir crm-ui dev & pnpm --dir meetings-ui dev & pnpm --dir projects-ui dev & pnpm --dir letterheads-ui dev & (cd admin-ui && direnv exec . pnpm dev) & pnpm --dir notify-ui dev & node scripts/open-when-ready.mjs http://localhost:5173 & wait"
+description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182 + accounting-ui :5183 (backends run separately)"
+run = "export VITE_ACTIVITIES_API_URL=\"${VITE_ACTIVITIES_API_URL:-http://localhost:8087}\"; export VITE_LETTERHEADS_API_URL=\"${VITE_LETTERHEADS_API_URL:-http://localhost:8088}\"; export VITE_ACCOUNTING_API_URL=\"${VITE_ACCOUNTING_API_URL:-http://localhost:8089}\"; trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir inventory-ui dev & pnpm --dir crm-ui dev & pnpm --dir meetings-ui dev & pnpm --dir projects-ui dev & pnpm --dir letterheads-ui dev & pnpm --dir accounting-ui dev & (cd admin-ui && direnv exec . pnpm dev) & pnpm --dir notify-ui dev & node scripts/open-when-ready.mjs http://localhost:5173 & wait"
 
 # Full stack, but the frontends run build + preview instead of dev: no HMR, but
 # deterministic and mirrors the Vercel deploy shape (independently built + served
 # remotes) — the same mode the e2e uses (shell/playwright.config.ts). Builds gate
 # the previews. Same prereqs + ports as `dev`.
 [tasks."dev:preview"]
-description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + projects-api + activities-api + letterhead-api + built frontends"
+description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + projects-api + activities-api + letterhead-api + accounting-api + built frontends"
 run = """
 export VITE_ACTIVITIES_API_URL="${VITE_ACTIVITIES_API_URL:-http://localhost:8087}"
 export VITE_LETTERHEADS_API_URL="${VITE_LETTERHEADS_API_URL:-http://localhost:8088}"
-docker compose up -d postgres minio minio-createbucket letterhead-createdb
+export VITE_ACCOUNTING_API_URL="${VITE_ACCOUNTING_API_URL:-http://localhost:8089}"
+docker compose up -d postgres minio minio-createbucket letterhead-createdb accounting-createdb
 # admin-ui builds through direnv: Vite bakes `import.meta.env.VITE_*` at BUILD
 # time, so without its .envrc here the preview bundle ships with no Maps key and
 # address autocomplete degrades silently (AC-3.2, specs/20260803-employee-address) — invisibly.
-pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && pnpm --dir inventory-ui build && pnpm --dir crm-ui build && pnpm --dir meetings-ui build && pnpm --dir projects-ui build && pnpm --dir letterheads-ui build && (cd admin-ui && direnv exec . pnpm build) && pnpm --dir notify-ui build
+pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && pnpm --dir inventory-ui build && pnpm --dir crm-ui build && pnpm --dir meetings-ui build && pnpm --dir projects-ui build && pnpm --dir letterheads-ui build && pnpm --dir accounting-ui build && (cd admin-ui && direnv exec . pnpm build) && pnpm --dir notify-ui build
 trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
 (cd estimai-api && direnv exec . bun run dev) &
 (cd notify-api && direnv exec . bun run dev) &
-(cd refund-api && direnv exec . bun run dev) &
+(cd refund-api && ACCOUNTING_INTERNAL_URL="${ACCOUNTING_INTERNAL_URL:-http://localhost:8089}" direnv exec . bun run dev) &
 (cd inventory-api && direnv exec . bun run dev) &
 (cd crm-api && direnv exec . bun run dev) &
 (cd meetings-api && direnv exec . bun run dev) &
 (cd projects-api && direnv exec . bun run dev) &
 (cd activities-api && direnv exec . bun run dev) &
+(cd accounting-api && direnv exec . bun run dev) &
 mise run dev:letterhead &
 pnpm --dir shell preview &
 pnpm --dir estimai-ui preview &
@@ -205,6 +219,7 @@ pnpm --dir crm-ui preview &
 pnpm --dir meetings-ui preview &
 pnpm --dir projects-ui preview &
 pnpm --dir letterheads-ui preview &
+pnpm --dir accounting-ui preview &
 pnpm --dir admin-ui preview &
 pnpm --dir notify-ui preview &
 node scripts/open-when-ready.mjs http://localhost:5173 http://localhost:3001/health &
@@ -252,7 +267,7 @@ exec cargo run -p letterhead-api
 # an empty migrations directory is a no-op, not an error, so this stays safe
 # to run today.
 [tasks."db:migrate"]
-description = "Apply DB migrations for auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + projects-api + activities-api + letterhead-api (needs backend env configured)"
+description = "Apply DB migrations for auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + projects-api + activities-api + accounting-api + letterhead-api (needs backend env configured)"
 run = """
 docker compose up -d postgres
 (cd auth && direnv exec . bun run db:deploy)
@@ -264,6 +279,10 @@ docker compose up -d postgres
 (cd meetings-api && direnv exec . bun run db:deploy)
 (cd projects-api && direnv exec . bun run db:deploy)
 (cd activities-api && direnv exec . bun run db:deploy)
+# accounting-api: its logical database is made by the idempotent one-shot first (specs/20261119-accounting), then Prisma applies
+# the init migration. Like letterhead's, so a fresh volume works whether or not `migrate deploy` would create the database itself.
+docker compose run --rm accounting-createdb
+(cd accounting-api && direnv exec . bun run db:deploy)
 # letterhead-api (Rust): its logical database is made by the one-shot, then its own binary applies the embedded
 # migrations (`letterhead-api migrate`; DATABASE_URL is the only variable it reads).
 docker compose run --rm letterhead-createdb
