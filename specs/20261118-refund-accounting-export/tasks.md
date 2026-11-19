@@ -543,7 +543,7 @@ Reading the list:
     Added to `helpers/refundFixtures.ts` (in `touch:`): `freshToken`, catalog/default/rate API
     helpers, `snapshotAccountingDefaults` (puts defaults back), `parseAccountingCsv` (also T32).
 
-- [ ] T32: shell/e2e — accounting journey: submit CHF + EUR CH lines → review shows defaults → change a VAT code → approve → employee sees numbers → compile → export CSV parsed — refs: AC-3.1, AC-3.3, AC-3.4, AC-4.9, AC-6.1, AC-6.2, AC-6.3, AC-6.4 — deps: T12, T14, T15, T18, T27, T28, T29, T30, T31
+- [x] T32: shell/e2e — accounting journey: submit CHF + EUR CH lines → review shows defaults → change a VAT code → approve → employee sees numbers → compile → export CSV parsed — refs: AC-3.1, AC-3.3, AC-3.4, AC-4.9, AC-6.1, AC-6.2, AC-6.3, AC-6.4 — deps: T12, T14, T15, T18, T27, T28, T29, T30, T31
   - touch: `shell/e2e/refund-accounting.spec.ts`, `shell/e2e/helpers/refundFixtures.ts`
   - agent: qe · e2e
   - Details: plan § Test strategy "e2e journey", plus one refused approval (a type without a
@@ -551,6 +551,12 @@ Reading the list:
     (columns, `9.62`, `1.56`).
   - done when: `cd shell && pnpm e2e refund-accounting` passes, together with every existing
     `refund-*.spec.ts`.
+  - Status (2026-11-19, unattended run): written and statically verified; live run pending (owner).
+    Same reasons and same static checks as T31 (the `--list` run shows both specs; the pattern
+    `refund-accounting` also matches T31's). The "together with every existing `refund-*.spec.ts`"
+    half of `done when` has not been run either. The journey writes its own catalog, defaults,
+    foreign-currency VAT code and the EUR 2026-03 rate through refund-api's admin routes, so it does
+    not depend on the seed of T39, and it restores the defaults it changed.
 
 ## Release plumbing and docs
 
