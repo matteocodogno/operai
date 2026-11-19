@@ -354,7 +354,7 @@ Reading the list:
     correction changes it), 6.9, 6.10 (summary writes no row), 6.11 (no review, IT scope), 6.12
     and 7.2 rows; full refund-api suite green.
 
-- [ ] T19: refund-api — the extra tests suggested by the ADRs and the design sync — refs: AC-1.3, AC-3.6, AC-3.7, AC-5.1, AC-5.4, AC-6.5, AC-6.10 — deps: T1, T5, T9, T14, T18
+- [x] T19: refund-api — the extra tests suggested by the ADRs and the design sync — refs: AC-1.3, AC-3.6, AC-3.7, AC-5.1, AC-5.4, AC-6.5, AC-6.10 — deps: T1, T5, T9, T14, T18
   - touch: `refund-api/src/fx/months.zurich.test.ts`, `refund-api/src/lib/db.fx-fetched-once.test.ts`, `refund-api/src/accounting/classification.race.test.ts`, `refund-api/src/accounting/export.failures.test.ts`, `refund-api/src/accounting/classification.inactive-default.test.ts`
   - agent: backend-dev · backend
   - Details: plan § Test strategy "Extra tests":
