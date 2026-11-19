@@ -1,7 +1,7 @@
 ---
 spec: 20261112
 generated: 2026-11-13
-synced: 2026-11-18
+synced: 2026-11-19
 ---
 
 # Tasks: Time tracking — the hours employees spend on company work
@@ -173,7 +173,7 @@ commit message.
 
 - [ ] T35: [QE] e2e `shell/e2e/hours.spec.ts`: my own hours, the lists, everyone's hours — refs: AC-1.1, AC-3.1, AC-4.1, AC-4.3, AC-5.1 — deps: T1, T20, T23, T30, T32, T34, T43
   - touch: `shell/e2e/hours.spec.ts`, `shell/e2e/helpers/hoursFixtures.ts`
-  - done when: `cd shell && pnpm e2e hours.spec.ts` passes with the stack up (`mise run dev`) and the whole `pnpm e2e` still passes; the spec covers: a user holding only `employee` opens My hours from the user menu (no access redirect) and records two Other work entries on one day, and the day heading shows their sum; an admin adds a category in Hours → Settings (T43, D51; was Admin → Time lists), it is offered in the entry dialog, once retired it is not, once restored it is again; a non-holder has no Everyone's hours tab and no Settings tab, while the admin sees both people's entries there
+  - done when: `cd shell && pnpm e2e hours.spec.ts` passes with the stack up (`mise run dev`); the whole `pnpm e2e` is run on a stack whose crm-api has the letterhead service off (the legacy mode three offer-wizard specs require), with every failure outside hours shown independent of this branch — the specs, fixtures and app files it exercises byte-identical to the merge base with `main` — and named in qe-report.md with its evidence; `crm-offer-wizard-service.spec.ts`, which needs the opposite crm-api mode, is outside this feature's gate (amended 2026-11-19 after QE pass 3: the earlier "the whole `pnpm e2e` still passes" could not be met on one stack; the user accepted the failures outside hours as independent of this branch); the spec covers: a user holding only `employee` opens My hours from the user menu (no access redirect) and records two Other work entries on one day, and the day heading shows their sum; an admin adds a category in Hours → Settings (T43, D51; was Admin → Time lists), it is offered in the entry dialog, once retired it is not, once restored it is again; a non-holder has no Everyone's hours tab and no Settings tab, while the admin sees both people's entries there
   - open item: needs hours-api's local `.env` (T10)
   - status 2026-11-16: `hours.spec.ts` 3/3 green (bcac2565, af55c687; re-run by the main loop); NOT checked because the whole `pnpm e2e` is not green on this machine: 26 failed + 26 did not run, all outside hours — notify-api (8081) not running, crm-api without its activities URL (`503 activities_unconfigured`), refund-api "Unexpected database failure" on approve, a meeting stuck in `processing`; inferred local-env, not proven on a clean tree (refund-api and notify-api are untouched by this branch, meetings-api is touched)
   - status 2026-11-19: QE second pass (qe-report.md) — `hours.spec.ts` 5/5 and `hours-owners.spec.ts` 7/7 green, D-1..D-3 fixed; whole `pnpm e2e` 140 passed / 12 failed / 31 not run, 0 in hours, every cause outside this branch: EF-2 and EF-10 open (local env), P-2 accepted by the user as pre-existing (letterheads spec race, follow-up bugfix), P-1 on main. NOT checked until the blocked specs run green
