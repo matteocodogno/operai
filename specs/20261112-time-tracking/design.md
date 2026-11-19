@@ -691,10 +691,12 @@ non-holder. A not-found or denied state replaces the content and takes focus on 
 **Entry dialog (S2)**
 - Modal, labelled by its title, trap + Escape + × + focus return are `useDialogBehavior`; the backdrop does not
   close it (typed input); not dismissible while saving. Focus lands on **Day** (first field).
-- **Duration select**: label "Duration" with `*` + `aria-required`; the hint is `aria-describedby`; native
-  typeahead works ("2" jumps to "2 h"); option text uses the short form for consistency with the lists. The
-  short form ("2 h 30") may be read as the letter "h" by some screen readers: QE checks NVDA and VoiceOver
-  readback, and the fallback is option text in the `spoken` style.
+- **Duration field** (a text field since D53, 2026-11-16; this line updated 2026-11-19): label "Duration" with `*` +
+  `aria-required`; the hint is `aria-describedby` and holds the reading "= 2 h 30", in a `aria-live="polite"` span that
+  is always in the DOM, so each new reading is announced as the person types; a field error is `role="alert"`;
+  `inputmode="text"`, so a phone keypad offers the colon and the letters. The short form ("2 h 30") may be read as the
+  letter "h" by some screen readers: QE checks NVDA and VoiceOver readback of the reading, and the fallback is the
+  reading in the `spoken` style.
 - **What was it on** is a `fieldset` with a legend (radio group, arrow keys); fields that appear after a choice
   follow the group in DOM order, so the next Tab reaches them; nothing is announced or moved.
 - **Activity field** — a native `select`; its state text (choose first / loading / latest N / could not be
@@ -760,8 +762,9 @@ All 44 ACs of the spec (41 + AC-4.10 + AC-4.11 + AC-2.12 as amended) are account
 
 ACs with **no UI surface of their own** (backend or an absence): AC-1.6 (no write control exists on someone
 else's entry; the refusals are API-only), AC-1.8 (the dialog has no start/end field), AC-3.2 (no Delete control),
-AC-5.2 (catalog seed), AC-2.9 (derived on read: the row just shows no activity). AC-1.2's refusal is reachable
-only through a server error, because the control cannot hold an invalid duration.
+AC-5.2 (catalog seed), AC-2.9 (derived on read: the row just shows no activity). AC-1.2's refusal shows at the
+Duration field: a typed duration that does not read, is not whole half-hours or is outside 30 min to 24 h gets its
+field error before anything is sent (D53), and hours-api's 422 `invalid_minutes` lands on the same field.
 
 UI present that no AC asks for (small, kept, say if you want it removed): the "outside the period you are
 viewing" wording of the save banner; the "names not visible" note (plan R4's mitigation); the Person options

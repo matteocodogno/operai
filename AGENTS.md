@@ -237,7 +237,7 @@ operai/
 ├── lerna.json           # The package list Changesets reads — NOT a pnpm/Bun workspace (see ### Git)
 ├── mise.toml            # Node 24, corepack-managed pnpm, Rust 1.100.0 (letterhead-api); `mise run dev` / `dev:letterhead` / `db:migrate` / `changeset` /
 │                        # `release:version` / `release:tag` / `env:doctor`
-└── specs/               # Spec-driven workflow (YYYYMMDD-slug; 20261006-hardware-inventory, 20261101-crm and 20261112-time-tracking are in progress; see below)
+└── specs/               # Spec-driven workflow (YYYYMMDD-slug; 20261006-hardware-inventory and 20261101-crm are in progress; see below)
 ```
 
 ---
@@ -314,7 +314,7 @@ for it: `SearchPicker` (a server-side search in a `Field`-wrapped `Combobox`), `
 ### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, meetings-api, projects-api, activities-api, accounting-api, hours-api)
 All ten share the `auth` service's shape (see ADR 20260703-estimai-api-bun-hono-typescript — one backend stack across the monorepo, with ONE exception, the Rust `letterhead-api`: see **### Rust service**;
 it supersedes the earlier Kotlin/Spring intention). Six are implemented; `meetings-api` is in
-progress (specs/20261104-meetings); `hours-api` is in progress (specs/20261112-time-tracking).
+progress (specs/20261104-meetings).
 
 - **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (Scalar API reference)
 - **Persistence:** Prisma 7 + PostgreSQL, own logical DB per service
@@ -441,7 +441,10 @@ Per-service specifics:
   `SERVICE_CLIENT_SECRET` and `SERVICE_AUDIENCE` ≠ `AUTH_AUDIENCE`), so a fact read that way reaches a viewer only
   together with that viewer's own right to read the deal (id and name, or neither); labels follow the viewer's
   access and totals (`GET /time-entries/totals`, `groupBy` person, project, deal, category, month or day) merge
-  what the viewer cannot name into one `hidden` / `unavailable` / `deal-unknown` group (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route § 6, A1). A
+  what the viewer cannot name into one `hidden` / `unavailable` / `deal-unknown` group (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route § 6, A1). People's names come from
+  `auth POST /authz/users/identities` through a 60 s in-process cache keyed by user id, as every other caller of that
+  route (ADR 20260807-live-identity-resolution-by-id-fail-soft § 3); a failed or refused answer is never cached, so
+  ordinary use stays inside auth's per-person budget (plan amendment of 2026-11-18, T46). A
   `dealId` filter is refused 503 while meetings-api cannot say which meetings are linked, never answered low
   (AC-4.11); port 8090, DB `hours`, no object storage, sends no notification. It holds personal data about
   workers: informing employees is a go-live sign-off owned by management / HR (specs/20261112-time-tracking O3)
