@@ -110,3 +110,16 @@ This decision is revisited when any of these happens:
 ---
 
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*
+
+## Amendment (2026-11-19) — built as a chain of two migrations
+
+*Implementation of specs/20261119-accounting (T16, T24; plan "Implementation and fix-round sync", IM-1).*
+
+The Decision says **one** new migration. It was built as **two** consecutive, additive migrations in refund-api:
+
+1. `20261119120000_accounting_copies` (T16): add what stays, carry the source's own data, replace the guard (its new body names no column that will be dropped), add the constraints `NOT VALID` then `VALIDATE`, add the enum value. These are points 1–3 of the Decision except the drops.
+2. `20261119130000_accounting_reference_moved_out` (T24): drop the old FK columns, the moved tables and the enum.
+
+Why: the source service's code that read the old tables had to keep compiling and passing its tests until it had moved to the new owner with `git mv` (T8, T10–T12). Between the two migrations the old models still exist and nothing writes them. Everything else stands: no applied migration was edited; production runs the two back to back on empty tables; the migration test now applies both and asserts that the drops happened and that the guard no longer names a dropped column.
+
+**Rule added.** When the moved data's *code* also moves, the drop is its own migration, applied after the last reader has left the source. "Add, carry, guard, constrain" may ship before; "drop" ships after.

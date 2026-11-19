@@ -132,7 +132,8 @@ has the details.
   - `scripts/accounting-release.ts`: no catalog seeding; it reads Accounting.
   - `src/lib/env.ts`: `ACCOUNTING_INTERNAL_URL`.
   - `src/requests/audit.ts`: a new action `line_rate_copied`, and the `line_classified` detail v2.
-- One additive migration (§ Data model).
+- A declared chain of two additive migrations, `20261119120000_accounting_copies` and
+  `20261119130000_accounting_reference_moved_out` (§ Data model; Implementation sync IM-1).
 
 **refund-ui.** Settings loses the "Accounts and VAT" and "Exchange rates" views and keeps General plus
 a "Default classification" view. It gains the Accounting link or note. The review panel and the
@@ -318,14 +319,15 @@ with the input changed from "rate in effect" to "copied rate" (ADR amendment A2,
 - **The rate copy at the first successful export, inside the export transaction** (chosen) vs a
   separate "re-rate" step or copying at the summary. Only a delivered file freezes a pending rate; a
   refused export or a summary freezes nothing (AC-5.6).
-- **One additive refund-api migration that carries Refund's own data and drops what moved** (chosen,
-  D5) vs editing `20261119090000_accounting_export` (rejected: developers' and the e2e databases have
+- **Additive refund-api migrations that carry Refund's own data and drop what moved** (chosen, D5;
+  built as a chain of two, IM-1) vs editing `20261119090000_accounting_export` (rejected: developers' and the e2e databases have
   applied it, Prisma would report a checksum drift, and AGENTS.md forbids it) vs leaving the moved
   tables dead (rejected: two sources that look current, and FKs that still constrain).
 - **A derived `apps` entry** (chosen) vs an `accounting:access` grant (rejected: a third capability
   that can drift from the two the spec names, breaking AC-8.1 for a holder of read without access).
 - **Moving code with `git mv`** (chosen) vs a rewrite. The BAZG client, parser, month rules, catalog
-  repos and cards are verified (QE PASS, security review); history and blame follow the files.
+  repos and cards are verified (QE PASS, security review); history and blame follow the files, except
+  for `fx.routes.ts`, `fx.routes.test.ts` and `fx.schemas.ts`, which were deleted and rebuilt (IM-4).
 - **accounting-api as a separate service** (the spec's constraint 1) vs a module inside refund-api;
   not reopened.
 
@@ -447,13 +449,16 @@ model ExchangeRateFetchAttempt {
 - `CREATE UNIQUE INDEX exchange_rate_fetched_once ON exchange_rate_entry (entity, currency, month)
   WHERE origin = 'fetched'`: fetched once, never replaced (AC-2.2).
 
-### refund-api — one additive migration `<ts>_accounting_reference_moves_to_accounting`
+### refund-api — two additive migrations: `20261119120000_accounting_copies`, then `20261119130000_accounting_reference_moved_out`
 
-`20261119090000_accounting_export` is **not edited** (D5). The new migration, in this order:
+`20261119090000_accounting_export` is **not edited** (D5). The steps below run in this order.
+Steps 1–5 and 7 are in `20261119120000_accounting_copies` (T16). Step 6, the drops, is in
+`20261119130000_accounting_reference_moved_out` (T24), applied once the code using the old models
+had moved out (IM-1). Production runs both back to back.
 
 1. **Add the copy columns** to `refund_line`:
    - `"accountNumber" TEXT`, `"accountName" TEXT`;
-   - `"vatCode" TEXT`, `"vatRateBasisPoints" INTEGER`;
+   - `"vatCode" TEXT` (Prisma field `vatCodeCopy @map("vatCode")`, IM-2), `"vatRateBasisPoints" INTEGER`;
    - `"fxRateMicros" INTEGER`, `"fxRateMonth" DATE`, `"fxRateCopiedAt" TIMESTAMP(3)`.
 
    `"ledgerAccountIsDefault"` and `"vatCodeIsDefault"` stay, with the same meaning.
@@ -515,7 +520,7 @@ model ExchangeRateFetchAttempt {
 
    Each CHECK is added `NOT VALID` and then `VALIDATE`d, so a developer database with odd hand-made
    rows fails loudly with the constraint's name.
-6. **Drop what moved:**
+6. **Drop what moved** (the second migration):
    - the FKs and indexes on `"ledgerAccountId"`/`"vatCodeId"`, then those two columns;
    - the tables `expense_type_default`, `accounting_catalog_status`, `ledger_account`, `vat_code`,
      `exchange_rate_entry` and `exchange_rate_fetch_attempt`;
@@ -537,7 +542,7 @@ model ExchangeRateFetchAttempt {
 ### Data migration strategy (decision D5)
 
 20261118 is unreleased, so production holds none of its data: on the deploy, the 20261119090000
-migration and this one run back to back on empty tables. Developer databases and the e2e database
+migration and the two new ones run back to back on empty tables. Developer databases and the e2e database
 have applied 20261119090000, and may hold classified lines, defaults and rates.
 
 - **Additive, never a rewrite.** Editing an applied migration makes `prisma migrate` report a checksum
@@ -583,6 +588,10 @@ POST /v1/entities/{entity}/ledger-accounts            { number, name }     // ma
   409 { code: "ledger_account_duplicate", number, reactivate: boolean }    // active OR deactivated, also from P2002 (AC-1.3);
                                                                            // reactivate = the existing entry is deactivated (G9, G11)
   422 { code: "invalid_ledger_account", fields: [ { field: "number"|"name", reason: "empty"|"format"|"too_long" } ] }  // AC-1.2
+                                                                           // empty = white space or invisible (Cf) characters only;
+                                                                           // length counted in code points (IM-7)
+  409 { code: "catalog_full", limit }                                      // 200 accounts / 50 VAT codes per entity, deactivated
+                                                                           // included (CATALOG_CAPS, IM-6)
 POST /v1/entities/{entity}/ledger-accounts/{number}/deactivate              // manage; 200 item | 409 already_inactive
 POST /v1/entities/{entity}/ledger-accounts/{number}/reactivate              // manage; 200 item | 409 already_active
                                                                            // a 409 writes nothing (AC-1.11)
@@ -608,7 +617,8 @@ GET  /v1/entities/{entity}/exchange-rates?from=YYYY-MM&to=YYYY-MM
         lastFetch: { at, outcome, errorCode | null, month } | null,        // AC-2.8, readers included
         fetchDue: boolean }                                                // managers' view auto-fetch (D26)
   Rate = { status: "missing" } | { status: "fetched" | "corrected", rateMicros, rate: "0.9246" }
-POST /v1/entities/{entity}/exchange-rates/fetch       { months?: ["2026-10"] }   // manage (AC-2.9)
+POST /v1/entities/{entity}/exchange-rates/fetch       { months?: ["2026-10"] }   // manage (AC-2.9); strict body:
+                                                                           // any other member (`trigger`) → 422 invalid_request, nothing attempted (IM-12)
   200 { attempts: [ { month, outcome, errorCode | null, recorded } ],     // the 20261118 shape kept (G5): outcome is
         deferredMonths: ["2026-01"], lastFetch }                           // ok | failed | not_fetchable | disabled | throttled;
                                                                            // recorded = { EUR: 924600, … } newly recorded;
@@ -617,7 +627,9 @@ POST /v1/entities/{entity}/exchange-rates/fetch       { months?: ["2026-10"] }  
 PUT  /v1/entities/{entity}/exchange-rates/{month}/{currency}   { rate: "0.9300" }   // manage
   200 the month row
   422 { code: "invalid_rate" | "month_not_completed" | "currency_not_convertible" }  // AC-2.5; nothing recorded
-  // no-op (same as in effect) → 200, no row
+  // no-op (same as in effect) → 200 with the month row; nothing written (IM-11)
+  // a malformed month → 422 invalid_month; an unknown {number} or {code}, or one with NUL or control
+  // characters → 404 not_found (D-1, IM-7)
 ```
 
 ### accounting-api — system routes (service JWT; scope `accounting.reference.read`; sub allowlist)
@@ -629,7 +641,9 @@ GET /system/v1/entities/{entity}/reference-data
         vatCodes: [ { code, label, rateBasisPoints, active } ] }           // the reader's projection (AC-3.8)
   Cache-Control: no-store
 
-GET /system/v1/entities/{entity}/rates?pairs=EUR:2026-03,USD:2026-11       // 1..36 distinct pairs, months ≥ 2000-01
+GET /system/v1/entities/{entity}/rates?pairs=EUR:2026-03,USD:2026-11       // 1..36 distinct pairs, months ≥ 2000-01;
+                                                                           // a malformed list → 400 invalid_pairs. refund-api never
+                                                                           // sends a month before ACCOUNTING_RATE_MONTH_FLOOR (IM-9)
   200 { entity, rates: [ { currency, month, status: "in_effect", rateMicros, origin, attempted }
                        | { currency, month, status: "missing", attempted,
                            reason: "not_published" | "fetch_failed" | "no_source" } ] }   // each pair once, in asked order
@@ -852,7 +866,8 @@ The `TOOLS` entry, the gated route, the remote, the getter, the CSP and the copy
    - The report gives counts and the numbers and codes added; there is no personal data in it.
    - It is optional: when accounting prefers to type the list in the app, skip it (open question 3).
 2. **Refund release** (refund-api, `bun run accounting:release [--dry-run] [--offsets <csv>]
-   [--show-emails]`, operator-run, rewritten from 20261118 T11).
+   [--defaults <json>] [--show-emails]`, operator-run, rewritten from 20261118 T11; `--defaults`
+   overrides the default file, exit 2 = Accounting unreadable, exit 1 = any other failure, IM-10).
    1. **Read Accounting first.** The WellD CH reference data, plus the rates for the distinct
       (currency, month) pairs of the legacy non-CHF CH lines, asked in chunks of 6 months. If the read
       fails, it **exits 2 with "Accounting cannot be read: nothing was numbered or classified;
@@ -940,7 +955,9 @@ window is minutes when steps 0–2 are done beforehand (R1).
 
 ### Local development and e2e
 
-- `mise run dev` starts accounting-api on :8089 (`direnv exec`) and accounting-ui on :5183;
+- `mise run dev` starts accounting-api on :8089 (`direnv exec`) and accounting-ui on :5183 (in the e2e
+  stack accounting-ui is previewed on **:5185**, `E2E_ACCOUNTING_REMOTE_PORT`, since :5183 is
+  projects-ui's e2e preview port; IM-5);
   `db:migrate` includes accounting-api. The stack runs with `ACCOUNTING_FX_SOURCE=off` for e2e. Local
   auth's `SERVICE_CLIENTS` gives refund-api's entry `accounting.reference.read` (`.env.example` and
   AGENTS.md "Running locally").
@@ -1210,7 +1227,7 @@ Each is the safest option available on 2026-11-19. "Change" says what reversing 
 | D2 | **No cache across requests**; one snapshot per operation. | AC-6.1, AC-6.5 and the "last-known data" non-goal hold strictly; AC-4.8 holds with margin; tiny volume. | Add a send-stamped cache ≤ 60 s that never serves after a failed refresh, in `accountingClient.ts`. |
 | D3 | **One 10 s deadline per operation**, covering token and calls; parallel calls; one 401 re-mint; every failure kind = unreachable. | AC-6.8 literally; no hidden retries stretching past 10 s. | The constant `ACCOUNTING_DEADLINE_MS`. |
 | D4 | The consumer-triggered fetch has a **6 s budget** (5 s per call, ≤ 6 months, 15-min throttle); the triggers `manager` and `consumer` are derived server-side. | Keeps a reachable Accounting answering inside Refund's 10 s; closes FU-S5 of 20261118. | `CONSUMER_FETCH_BUDGET_MS`. |
-| D5 | **An additive refund-api migration** carries Refund's data (copies, defaults and designation history, legacy rate copies) and drops the moved tables; `20261119090000` untouched. | Developer and e2e databases applied it; AGENTS.md forbids editing migrations; one source of truth after the move. | — (one-way; production unaffected). |
+| D5 | **Additive refund-api migrations** (a chain of two, IM-1) carry Refund's data (copies, defaults and designation history, legacy rate copies) and drops the moved tables; `20261119090000` untouched. | Developer and e2e databases applied it; AGENTS.md forbids editing migrations; one source of truth after the move. | — (one-way; production unaffected). |
 | D6 | The Accounting tool is reachable through a **derived `apps` entry** (`read` or `manage` covering ≥ 1 entity); no `accounting:access` action. | AC-8.1 ties the menu to the two capabilities; the 20261117 precedent. | Add an `access` action and drop the derivation. |
 | D7 | Catalog: appId and resource `accounting`, actions `read`/`manage`, `["entity"]`; the seed gives `admin` unconditioned grants and the `accounting` role conditioned ones, via `ensureGrant`. | AC-3.1, AC-3.3; never rewrite an admin's edit (FR-4). | admin-ui role edits. |
 | D8 | Service scope `accounting.reference.read`; `SYSTEM_READERS = ["system:refund-api"]`; one identical 401. | The narrow-channel rule (ADR 20261103); a second consumer is a deliberate code + scope change. | Add a sub and the scope to its client. |
@@ -1309,6 +1326,42 @@ state `not_found` follow them; no plan change was needed.
 - F-A3: catalog labels in Italian, suite-wide.
 - F-A4: a "book" icon in `@operai/ui`.
 - A-1 and A-2 of 20261118, if QE finds them still open.
+
+## Implementation and fix-round sync (2026-11-19)
+
+Sources:
+- tasks.md "Implementation notes (reconciled 2026-11-19)" and "Fix round 1" (T53–T57);
+- qe-report.md (PASS after fix round 1);
+- security-review.md (re-review PASS);
+- the git log of `feat/accounting-module`.
+
+The plan stays `approved`. No AC changes, and the AC→test table stays total over the 68 ACs: the fix
+round added tests to existing rows and dropped none. Where the built system differs from this plan's
+text, the text above has been corrected in place, and this table is the record. Each item is
+accepted.
+
+| # | Built | Decision / effect |
+|---|---|---|
+| IM-1 | **Migration chain** instead of one migration: `20261119120000_accounting_copies` (T16: copy columns, the two default tables, carried data, guard v2, CHECKs, `line_rate_copied`), then `20261119130000_accounting_reference_moved_out` (T24: the drops). | The old Prisma models had to exist until the code reading them had moved (T8, T10–T12). Production runs both back to back on empty tables. ADR 20261119-data-that-moves-… is amended to match. |
+| IM-2 | The copy column `"vatCode"` is the Prisma field **`vatCodeCopy @map("vatCode")`**. | While the old `vatCode` relation still existed (T16 to T24), the suffix said "the copy, not the relation"; T24 kept the name because the repos, the classification domain and the tests use it. The column, the wire and the audit keep `vatCode`. |
+| IM-3 | **`refund-api/src/accounting/legacyFk.ts`** (T18), an interim holding the 20261118 FK-world readers for the consumers not yet switched to copies (export T21, release T22, classification T19, approve T20). Each switching task removed what it no longer needed. | Emptied and deleted in T23; nothing imports it. |
+| IM-4 | **T10 and T11 share one move commit.** `fx.routes.ts`, `fx.routes.test.ts` and `fx.schemas.ts` were **deleted in T23 and rebuilt in T12** as `rates.routes.ts`/`rates.schemas.ts` from their content, not moved. | `git log --follow` history is lost for those three files (`git log -- refund-api/src/fx/fx.routes.ts` still shows it). The pure modules, the repo and the service kept their history. |
+| IM-5 | accounting-ui's **e2e preview port is 5185** (`E2E_ACCOUNTING_REMOTE_PORT`); the dev port stays 5183. The refund and accounting e2e databases can be overridden by `E2E_REFUND_DATABASE_URL`, `E2E_ACCOUNTING_DATABASE_URL` and `E2E_SETUP_DATABASE_URL` (global setup and fixtures). | 5183 is projects-ui's e2e preview port in `shell/playwright.config.ts`. The overrides let the stack run on a database other than the shared dev one. |
+| IM-6 | **`CATALOG_CAPS`: 200 ledger accounts and 50 VAT codes per entity**, deactivated ones included. Reaching the cap → **409 `catalog_full` `{limit}`**, nothing written (security F-01). A cross-package test asserts that the largest allowed reference-data answer stays well under refund-api's **256 KiB** consumer body cap. accounting-ui shows its own message (T56). | Keeps a reachable Accounting from becoming "unreadable" to Refund by size (AC-6.8). Info (security re-review): the operator-run `seed:welld-ch` uses `createMany` and takes neither the cap nor the lock. Its committed input (15 accounts, 3 codes) is far below the caps; do not grow the seed near the cap without a check. |
+| IM-7 | **Blank and length (D-6):** "empty" means white space **or** invisible format characters only (Unicode Cf, plus the Hangul and Braille fillers). Lengths are counted in **code points**, the same as the DB CHECK. **VAT codes are upper-cased ASCII-only** (`a`–`z`, never `toUpperCase()`, which maps `ß` to `SS`). The same rules are mirrored in accounting-ui's `lib/limits.ts` (T56). Path keys `{number}` and `{code}` with NUL or control characters → 404, never 500 (D-1). | AC-1.2 and AC-1.5 as specified; the earlier wording "trimmed, not blank" is refined. |
+| IM-8 | **`Cache-Control: no-store` + `X-Content-Type-Options: nosniff`** on every accounting-api `/v1/*` answer (refusals included), and on refund-api's classification, options and defaults routes (security F-07). The system routes set `no-store` themselves; the export routes already had both. | Reference data and booking choices are not cached by a browser or a proxy. |
+| IM-9 | **`ACCOUNTING_RATE_MONTH_FLOOR = "2000-01"`** in refund-api's client: a pair whose month is before it is answered **locally as `missing` / `no_source`** and never sent to Accounting (security F-02). | A line dated before 2000 (line dates are not validated, follow-up of T57) can no longer make a whole rates read fail, so neither an approval, an export nor the release exits 2 because of one bad date. Such a line stays rate pending or blocked as a missing rate. |
+| IM-10 | **Release script:** `--defaults <json>` overrides the defaults file. Exit 2 when Accounting cannot be read (nothing written), exit 1 for any other failure. `describeReleaseFailure` prints only the error kind or the already-masked message, and the script's Prisma client is quiet (`log: []`), so no host, path, credential or email reaches stdout or stderr (F-03, T54, T57). | SR-4 posture extended to driver errors; proved by a CLI test with an unreachable URL carrying fake credentials. |
+| IM-11 | A rate **correction equal to the rate in effect answers 200 with the month row** and writes nothing. | Matches the "no-op → 200, no row" rule; the body lets the UI swap the row in without a reload. |
+| IM-12 | The **fetch body is strict**: any member besides `months` (a client `trigger` included) → **422 `invalid_request`**, nothing attempted. | FU-S5 closed by refusal, not by ignoring; ADR 20261119-on-demand-outbound-work-… point on derived triggers. |
+| IM-13 | **Error codes added** to the contracts: `invalid_request`, `invalid_month` (accounting-api); `invalid_pairs` (system rates, 400); `currency_not_convertible` (system rates, 422); `catalog_full` (409); `export_log_failed` (refund-api CSV, 500, no file); `ledger_account_not_found` and `vat_code_not_found` (refund-api 422 on classification and defaults). | Each is a stable `code` with a generic English `detail` (AC-6.10), and refund-ui maps the user-facing ones to `en` and `it` copy. |
+| IM-14 | **Two catalog file names kept as `catalog.*`** in accounting-api (not split into `ledgerAccounts.*` / `vatCodes.*`), as tasks T8 declared. | One router; no behaviour change. |
+
+**Follow-ups found during implementation** (not planned):
+- expense-date validation on line create and update (IM-9 makes a bad date harmless);
+- the seed to take the cap and the lock if its file ever grows (IM-6);
+- security F-13 (info): the release-day runbook should say who holds the `accounting` role, since the
+  seed gives that role `manage` (AC-3.3). Granting `manage` by name instead needs a spec change.
 
 ## Spec amendments proposed (not applied)
 
