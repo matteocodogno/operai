@@ -13,13 +13,10 @@ await harness.init();
 const { __resetAuthzCacheForTests } = await import("../authz/authz.middleware");
 const { handleProblemError, validationHook } = await import("../lib/problem");
 
-// The router under test is a FRESH instance (`?isolated`) in a small app of its own. `bun test` shares one process
-// and another file (health.test.ts) evaluates `../index` first, with the REAL jwt middleware captured inside it;
-// `mock.module` cannot swap a function a router already holds. A new evaluation of me.routes, made after
-// `setupTestAuth()` registered the mocks, receives the mocked jwt middleware. The assembled app is checked below
-// for what needs no mock: that the route is mounted.
-const ISOLATED_ROUTER = "./me.routes.ts?isolated"; // a variable keeps tsc from resolving the query
-const { meRouter } = (await import(ISOLATED_ROUTER)) as typeof import("./me.routes");
+// The router under test, in a small app of its own. `setupTestAuth` installs the jwt and resolve mocks when it is
+// imported, before any file evaluates a router, so this router holds the mocked jwt middleware like every other.
+// The assembled app is checked below for what needs no mock: that the route is mounted.
+const { meRouter } = await import("./me.routes");
 const app = new OpenAPIHono({ defaultHook: validationHook });
 app.route("/", meRouter);
 app.onError((err, c) => handleProblemError(err, c.req.path) ?? c.text("unexpected", 500));
