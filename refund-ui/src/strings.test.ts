@@ -1,8 +1,8 @@
 /**
  * specs/20261119-accounting T33: every copy key that design.md § Copy keys ("refund-ui: added, changed,
  * removed") adds exists in both catalogs, with the same kind (a sentence with a value is a function) and a
- * non-empty text. Removals wait for T38, and the reworded keys of existing components are checked by the
- * task that changes their component.
+ * non-empty text; and (T38) every removed key is gone from both. The reworded keys of existing components are
+ * checked by the task that changes their component.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -82,6 +82,23 @@ describe('T33 copy additions (specs/20261119-accounting design § Copy keys)', (
       expect(text(it_, args).trim().length).toBeGreaterThan(0)
     })
   }
+
+  it('T38: the keys of the components that moved to accounting-ui are gone from both catalogs', () => {
+    const REMOVED = [
+      'settings.accounts',
+      'settings.vatCodes',
+      'settings.fx',
+      'settings.sections.accounting',
+      'settings.sections.exchangeRates',
+      'settings.catalog.status',
+      'settings.catalog.inactiveTag',
+      'settings.catalog.close',
+      'pages.batchDetail.accountingExport.blocked.askAdmin',
+    ]
+    for (const lang of [catalogs.en, catalogs.it]) {
+      for (const path of REMOVED) expect(resolve(lang, path), path).toBeUndefined()
+    }
+  })
 
   it('every refusal sentence names the cause and the remedy and carries no address or identifier (AC-6.10)', () => {
     for (const lang of [catalogs.en, catalogs.it]) {

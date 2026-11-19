@@ -2,13 +2,11 @@
  * @vitest-environment jsdom
  *
  * catalogLabels (T22, specs/20261118-refund-accounting-export): number-first labels and the VAT rate in the viewer's
- * number convention; plus the status meanings the catalog adds to the one map.
+ * number convention.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { STATUS } from '@operai/ui'
 import { accountText, formatVatRate, vatCodeText } from './catalogLabels'
-import { CATALOG_STATUS_MEANING, RATE_MISSING_MEANING } from './statusMeaning'
 import { catalogs } from '../strings'
 
 afterEach(() => document.documentElement.removeAttribute('lang'))
@@ -38,27 +36,14 @@ describe('catalogLabels', () => {
   })
 })
 
-describe('status meanings of the catalog', () => {
-  it('maps Active to active and Inactive to voided, and a missing rate to attention', () => {
-    expect(CATALOG_STATUS_MEANING).toEqual({ active: 'active', inactive: 'voided' })
-    expect(RATE_MISSING_MEANING).toBe('attention')
-    for (const meaning of [...Object.values(CATALOG_STATUS_MEANING), RATE_MISSING_MEANING]) {
-      expect(Object.keys(STATUS)).toContain(meaning)
-    }
-  })
-})
-
 describe('the accounting copy catalog (design § Copy keys)', () => {
   const it_ = catalogs.it
   const en = catalogs.en
 
   it('has the keys of every design section, in both languages', () => {
     for (const catalog of [en, it_]) {
-      expect(catalog.settings.sections.accounting).toBeTruthy()
-      expect(catalog.settings.accounts.errors.duplicateInactive('5905')).toContain('5905')
-      expect(catalog.settings.vatCodes.deactivateDialog.body).toBeTruthy()
+      expect(catalog.settings.sections.defaults).toBeTruthy()
       expect(catalog.settings.defaults.foreign.inactiveWarning('IMP81')).toContain('IMP81')
-      expect(catalog.settings.fx.correction.title('EUR', 'March 2026')).toContain('EUR')
       expect(catalog.pages.reviewDetail.classification.missingSummary.hint).toBeTruthy()
       expect(catalog.pages.batchDetail.accountingExport.blocked.checkAgain).toBeTruthy()
       expect(catalog.pages.requestDetail.lines.receiptNumberLabel).toBeTruthy()
@@ -66,9 +51,6 @@ describe('the accounting copy catalog (design § Copy keys)', () => {
   })
 
   it('writes the plurals inside the function (n === 1)', () => {
-    expect(en.settings.fx.fetchedOk(1)).toBe('Recorded the rates for 1 month.')
-    expect(en.settings.fx.fetchedOk(2)).toBe('Recorded the rates for 2 months.')
-    expect(it_.settings.fx.fetchedOk(1)).toBe('Registrati i tassi di 1 mese.')
     expect(en.pages.reviewDetail.classification.missingSummary.title(1)).toBe(
       'Nothing was approved. 1 value needs your attention.',
     )

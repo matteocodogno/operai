@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * accountingApi (T21, specs/20261118-refund-accounting-export): every URL, method and body of plan.md § API contracts,
- * the `{ items }` unwrapping, error `code` passthrough, and the guard on the `classification_missing` body.
+ * error `code` passthrough, and the guard on the `classification_missing` body.
  * `shell/session`'s `apiFetch` is mocked, as in the other API module tests: the backend is built elsewhere.
  */
 
@@ -16,19 +16,11 @@ import { apiFetch } from 'shell/session'
 import {
   classificationMissingLines,
   classifyLine,
-  createLedgerAccount,
-  createVatCode,
-  deactivateLedgerAccount,
-  deactivateVatCode,
   getAccountingOptions,
   getExpenseTypeDefaults,
   getRequestAccounting,
-  listLedgerAccounts,
-  listVatCodes,
   putExpenseTypeDefault,
   putForeignCurrencyVatCode,
-  reactivateLedgerAccount,
-  reactivateVatCode,
   entryIsUnusable,
   isAccountingUnavailable,
 } from './accountingApi'
@@ -55,99 +47,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.clearAllMocks()
-})
-
-describe('ledger accounts', () => {
-  it('lists the items of the envelope', async () => {
-    const account = { id: 'a1', number: '5905', name: 'Spese', active: true, history: [] }
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { items: [account] }))
-    await expect(listLedgerAccounts()).resolves.toEqual([account])
-    expect(lastCall()).toMatchObject({ url: `${BASE}/accounting/ledger-accounts`, method: 'GET' })
-  })
-
-  it('POSTs number and name', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(201, { id: 'a1', number: '5905' }))
-    await createLedgerAccount({ number: '5905', name: 'Spese rimborsi' })
-    expect(lastCall()).toEqual({
-      url: `${BASE}/accounting/ledger-accounts`,
-      method: 'POST',
-      body: { number: '5905', name: 'Spese rimborsi' },
-    })
-  })
-
-  it('POSTs deactivate and reactivate to the account, with the id encoded', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { id: 'a/1' }))
-    await deactivateLedgerAccount('a/1')
-    expect(lastCall()).toMatchObject({ url: `${BASE}/accounting/ledger-accounts/a%2F1/deactivate`, method: 'POST' })
-
-    vi.mocked(apiFetch).mockReset()
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { id: 'a1' }))
-    await reactivateLedgerAccount('a1')
-    expect(lastCall()).toMatchObject({ url: `${BASE}/accounting/ledger-accounts/a1/reactivate`, method: 'POST' })
-  })
-
-  it.each([
-    [409, 'ledger_account_duplicate', 'Account 5905 already exists'],
-    [422, 'invalid_ledger_account', 'bad number'],
-    [409, 'already_active', 'Account 5905 is already active'],
-  ])('passes the %i problem code %s through', async (status, code, detail) => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(status, { title: 'x', status, code, detail }))
-    const error = await createLedgerAccount({ number: '5905', name: 'x' }).catch((caught: unknown) => caught)
-    expect(error).toBeInstanceOf(ApiError)
-    expect(error).toMatchObject({ status, code, detail })
-  })
-
-  it('throws a 403 for a caller without settings:read', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(403, { title: 'Forbidden', status: 403 }))
-    await expect(listLedgerAccounts()).rejects.toMatchObject({ status: 403, code: undefined })
-  })
-})
-
-describe('VAT codes', () => {
-  it('lists the items and POSTs code, label and ratePercent as a string', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { items: [{ id: 'v1', code: 'IMP81', ratePercent: '8.1' }] }))
-    await expect(listVatCodes()).resolves.toHaveLength(1)
-    expect(lastCall().url).toBe(`${BASE}/accounting/vat-codes`)
-
-    vi.mocked(apiFetch).mockReset()
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(201, { id: 'v1' }))
-    await createVatCode({ code: 'IMP81', label: 'Impôt 8.1%', ratePercent: '8.1' })
-    expect(lastCall()).toEqual({
-      url: `${BASE}/accounting/vat-codes`,
-      method: 'POST',
-      body: { code: 'IMP81', label: 'Impôt 8.1%', ratePercent: '8.1' },
-    })
-  })
-
-  it('POSTs deactivate and reactivate', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { id: 'v1' }))
-    await deactivateVatCode('v1')
-    expect(lastCall()).toMatchObject({ url: `${BASE}/accounting/vat-codes/v1/deactivate`, method: 'POST' })
-
-    vi.mocked(apiFetch).mockReset()
-    vi.mocked(apiFetch).mockResolvedValueOnce(json(200, { id: 'v1' }))
-    await reactivateVatCode('v1')
-    expect(lastCall()).toMatchObject({ url: `${BASE}/accounting/vat-codes/v1/reactivate`, method: 'POST' })
-  })
-
-  it('passes vat_code_duplicate through', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(
-      json(409, {
-        title: 'Conflict',
-        status: 409,
-        code: 'vat_code_duplicate',
-        detail: 'VAT code IMP81 already exists',
-      }),
-    )
-    await expect(createVatCode({ code: 'IMP81', label: 'x', ratePercent: '8.1' })).rejects.toMatchObject({
-      code: 'vat_code_duplicate',
-    })
-  })
-
-  it('has no update operation: the module exports no put/patch for a ledger account or a VAT code (AC-1.5)', async () => {
-    const module = await import('./accountingApi')
-    expect(Object.keys(module).filter((name) => /^(update|edit|patch|put)(Ledger|Vat)/i.test(name))).toEqual([])
-  })
 })
 
 describe('defaults (specs/20261119-accounting: by number and code, with states)', () => {

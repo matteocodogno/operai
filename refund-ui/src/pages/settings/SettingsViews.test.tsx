@@ -28,7 +28,7 @@ vi.mock('../../lib/settingsApi', async (importOriginal) => {
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
-  return { ...original, listLedgerAccounts: vi.fn(), listVatCodes: vi.fn(), getExpenseTypeDefaults: vi.fn() }
+  return { ...original, getExpenseTypeDefaults: vi.fn() }
 })
 
 vi.mock('shell/session', async (importOriginal) => {
@@ -69,8 +69,6 @@ const tabNames = () => screen.queryAllByRole('tab').map((tab) => tab.textContent
 beforeEach(() => {
   vi.mocked(session.usePermissions).mockReturnValue(SETTINGS_ADMIN)
   vi.mocked(ratesApi.listRates).mockResolvedValue({ entities: [] })
-  vi.mocked(accountingApi.listLedgerAccounts).mockResolvedValue([])
-  vi.mocked(accountingApi.listVatCodes).mockResolvedValue([])
   vi.mocked(accountingApi.getExpenseTypeDefaults).mockResolvedValue({
     entity: 'welld_ch',
     accounting: 'available',
@@ -170,9 +168,6 @@ describe('?section= picks the view, and only that view is mounted', () => {
     expect(screen.getByRole('tab', { name: 'Default classification' }).getAttribute('aria-selected')).toBe('true')
     expect(ratesApi.listRates).not.toHaveBeenCalled()
     expect(settingsApi.getSetting).not.toHaveBeenCalled()
-    // The catalog cards moved to the Accounting app (AC-4.6): their lists are never read from here.
-    expect(accountingApi.listLedgerAccounts).not.toHaveBeenCalled()
-    expect(accountingApi.listVatCodes).not.toHaveBeenCalled()
   })
 
   it.each(['?section=accounting', '?section=exchange-rates', '?section=exchange-rates&month=2026-03'])(

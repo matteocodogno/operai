@@ -11,7 +11,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 
 vi.mock('../../lib/accountingApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../lib/accountingApi')>()
-  return { ...original, getExpenseTypeDefaults: vi.fn(), listLedgerAccounts: vi.fn(), listVatCodes: vi.fn() }
+  return { ...original, getExpenseTypeDefaults: vi.fn() }
 })
 
 vi.mock('shell/session', async (importOriginal) => {
@@ -71,15 +71,13 @@ describe('DefaultsSettingsView', () => {
     expect(screen.queryByTestId('settings-foreign-vat-change')).toBeNull()
   })
 
-  it('mounts no ledger-account or VAT-code card and never reads those lists (they live in Accounting, AC-4.6)', async () => {
+  it('mounts no ledger-account or VAT-code card (they live in Accounting, AC-4.6)', async () => {
     vi.mocked(session.usePermissions).mockReturnValue(grant('read', 'manage'))
     render(<DefaultsSettingsView />)
     await screen.findByTestId('settings-defaults-card')
     expect(screen.queryByTestId('settings-accounts-card')).toBeNull()
     expect(screen.queryByTestId('settings-vat-codes-card')).toBeNull()
     expect(screen.queryByTestId('settings-accounts-add')).toBeNull()
-    expect(accountingApi.listLedgerAccounts).not.toHaveBeenCalled()
-    expect(accountingApi.listVatCodes).not.toHaveBeenCalled()
   })
 
   it('has no <form> of its own for a dialog to nest in', async () => {

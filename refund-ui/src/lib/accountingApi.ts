@@ -1,23 +1,22 @@
 /**
  * accountingApi — typed operations against refund-api's accounting surface
- * (specs/20261118-refund-accounting-export, plan.md § API contracts): the WellD CH ledger-account and VAT-code
- * catalogs, the per-expense-type defaults and the foreign-currency VAT code, the classification options, and a
- * request's classification view and line classification.
+ * (specs/20261118-refund-accounting-export, plan.md § API contracts): the per-expense-type defaults and the
+ * foreign-currency VAT code, the classification options, and a request's classification view and line
+ * classification. The ledger-account and VAT-code catalogs live in Accounting (accounting-ui, accounting-api).
  *
  * specs/20261119-accounting (T35): Accounting owns the reference data now, and refund-api reads it. The defaults,
  * the designation, the options and a line's classification are keyed by NUMBER and CODE (natural keys, D1), never
  * an id; each entry a copy points to carries Accounting's `state` (`active`, `deactivated`, `not_found`, or
  * `unverified` when Accounting cannot be read); and a read answers `accounting: "unavailable"` instead of failing
  * when Accounting is down. A write answers 503 `accounting_unavailable` (nothing saved) or 422 `*_inactive` /
- * `*_not_found`. The catalog half below (ledger accounts and VAT codes by id) stays until T38 removes it: it is
- * what the cards waiting to move to accounting-ui still read.
+ * `*_not_found`.
  *
  * Built on `getJson`/`sendJson` exactly as `reviewApi.ts` is, and written against the documented contract
- * with the backend still being built: every test mocks `apiFetch`. Lists are unwrapped from their
- * `{ items }` envelope. Ids and keys that go into a path are `encodeURIComponent`-ed.
+ * with the backend still being built: every test mocks `apiFetch`. Keys that go into a path are
+ * `encodeURIComponent`-ed.
  *
- * Errors are `ApiError`s whose `code` is the contract's stable discriminator (`ledger_account_duplicate`,
- * `already_active`, `ledger_account_inactive`, `classification_locked`, `classification_missing`, …).
+ * Errors are `ApiError`s whose `code` is the contract's stable discriminator (`ledger_account_inactive`,
+ * `classification_locked`, `classification_missing`, …).
  * A caller branches on `code`, never on `status` alone and never on `detail` (human text). The
  * `classification_missing` 409 carries the lines it refuses on; `classificationMissingLines` reads
  * them with a guard, because the body is wire data.
@@ -36,32 +35,6 @@ import { ApiError, getJson, sendJson } from './refundApi'
 // Shapes
 // ---------------------------------------------------------------------------
 
-/** One entry of a catalog item's status history: oldest first, the first one is the creation (AC-1.8). */
-export type CatalogStatusEntry = { active: boolean; at: string; byEmail: string }
-
-export type LedgerAccount = {
-  id: string
-  number: string
-  name: string
-  active: boolean
-  createdAt: string
-  createdByEmail: string
-  history: CatalogStatusEntry[]
-}
-
-export type VatCode = {
-  id: string
-  code: string
-  label: string
-  rateBasisPoints: number
-  /** The rate as the server displays it: `"8.1"`. */
-  ratePercent: string
-  active: boolean
-  createdAt: string
-  createdByEmail: string
-  history: CatalogStatusEntry[]
-}
-
 /**
  * What Accounting says about the entry a stored copy points to (UX-18): `active`, `deactivated` (reversible),
  * `not_found` (the number or code is not there any more, SA-3) or `unverified` (Accounting cannot be read, so the
@@ -75,8 +48,8 @@ export type AccountRef = { number: string; name: string; state: EntryState }
 export type VatCodeRef = { code: string; label: string; ratePercent: string; state: EntryState }
 
 /** A copy as the history recorded it: no state, so the history reads the same whatever happens in Accounting (AC-4.7). */
-export type AccountCopy = { number: string; name: string }
-export type VatCodeCopy = { code: string; label: string; ratePercent: string }
+type AccountCopy = { number: string; name: string }
+type VatCodeCopy = { code: string; label: string; ratePercent: string }
 
 export type ForeignCurrencyVatHistoryEntry = {
   vatCode: VatCodeCopy | null
@@ -111,7 +84,7 @@ export type ExpenseTypeDefault = {
 }
 
 /** Whether Refund could read Accounting while answering (AC-6.9). */
-export type AccountingAvailability = 'available' | 'unavailable'
+type AccountingAvailability = 'available' | 'unavailable'
 
 /** `GET /accounting/expense-type-defaults`: always the twelve types, in enum order (AC-2.2). */
 export type ExpenseTypeDefaults = ForeignCurrencyVatCodeState & {
@@ -130,14 +103,14 @@ export type AccountingOptions = {
 export type ClassificationState = 'review' | 'post_approval' | 'locked' | 'none'
 
 /** A VAT code of a line: the label can be unknown when the copy recorded none. */
-export type LineVatCodeRef = Omit<VatCodeRef, 'label'> & { label: string | null }
+type LineVatCodeRef = Omit<VatCodeRef, 'label'> & { label: string | null }
 
 /**
  * The account and VAT code a line carries. A type default (or designation) whose entry is deactivated or not found is
  * returned WITH its state and `…IsDefault: true`, never as `null`: `null` means no default is set (G8a). Approval
  * still refuses it server-side (AC-6.3).
  */
-export type LineClassification = {
+type LineClassification = {
   account: AccountRef | null
   accountIsDefault: boolean
   vatCode: LineVatCodeRef | null
@@ -149,7 +122,7 @@ export type LineClassification = {
  * line not yet approved follows it), `missing` (none yet, before approval), `pending` (approved, no copy yet: it
  * is copied at the first export, AC-5.6), `unavailable` (Accounting cannot be read) or `not_applicable` (a CHF line).
  */
-export type RateStatus = 'copied' | 'in_effect' | 'missing' | 'pending' | 'unavailable' | 'not_applicable'
+type RateStatus = 'copied' | 'in_effect' | 'missing' | 'pending' | 'unavailable' | 'not_applicable'
 
 export type LineChf = {
   amountCents: number | null
@@ -210,46 +183,6 @@ export type MissingValue = 'account' | 'vatCode'
 
 /** One line the approve refusal (409 `classification_missing`) names. */
 export type ClassificationMissingLine = { lineId: string; date: string; type: string; missing: MissingValue[] }
-
-// ---------------------------------------------------------------------------
-// Ledger accounts
-// ---------------------------------------------------------------------------
-
-const unwrapItems = <T>(envelope: { items: T[] }): T[] => envelope.items
-
-/** `GET /accounting/ledger-accounts` (`settings:read`). */
-export const listLedgerAccounts = (): Promise<LedgerAccount[]> =>
-  getJson<{ items: LedgerAccount[] }>('/accounting/ledger-accounts').then(unwrapItems)
-
-/** `POST /accounting/ledger-accounts` (`settings:manage`). 409 `ledger_account_duplicate` (active or deactivated), 422 `invalid_ledger_account`. */
-export const createLedgerAccount = (body: { number: string; name: string }): Promise<LedgerAccount> =>
-  sendJson<LedgerAccount>('/accounting/ledger-accounts', 'POST', body)
-
-/** 409 `already_inactive` on a stale list. */
-export const deactivateLedgerAccount = (id: string): Promise<LedgerAccount> =>
-  sendJson<LedgerAccount>(`/accounting/ledger-accounts/${encodeURIComponent(id)}/deactivate`, 'POST', undefined)
-
-/** 409 `already_active` on a stale list. */
-export const reactivateLedgerAccount = (id: string): Promise<LedgerAccount> =>
-  sendJson<LedgerAccount>(`/accounting/ledger-accounts/${encodeURIComponent(id)}/reactivate`, 'POST', undefined)
-
-// ---------------------------------------------------------------------------
-// VAT codes (no update operation exists, AC-1.5)
-// ---------------------------------------------------------------------------
-
-/** `GET /accounting/vat-codes` (`settings:read`). */
-export const listVatCodes = (): Promise<VatCode[]> =>
-  getJson<{ items: VatCode[] }>('/accounting/vat-codes').then(unwrapItems)
-
-/** `POST /accounting/vat-codes`. `ratePercent` is a string such as `"8.1"` (`^\d{1,3}(\.\d{1,2})?$`, 0 to 100). 409 `vat_code_duplicate`, 422 `invalid_vat_code`. */
-export const createVatCode = (body: { code: string; label: string; ratePercent: string }): Promise<VatCode> =>
-  sendJson<VatCode>('/accounting/vat-codes', 'POST', body)
-
-export const deactivateVatCode = (id: string): Promise<VatCode> =>
-  sendJson<VatCode>(`/accounting/vat-codes/${encodeURIComponent(id)}/deactivate`, 'POST', undefined)
-
-export const reactivateVatCode = (id: string): Promise<VatCode> =>
-  sendJson<VatCode>(`/accounting/vat-codes/${encodeURIComponent(id)}/reactivate`, 'POST', undefined)
 
 // ---------------------------------------------------------------------------
 // Defaults
