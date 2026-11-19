@@ -631,3 +631,92 @@ Month names in the keys above come from `formatMonth`; amounts from `formatMoney
 | G12 | spec AC-6.6 | "States how many WellD Italia lines were left out": the design states it only when above zero. If zero should be stated too, it is one line of copy. | Confirm. |
 | G13 | existing code | `BatchPdfLink` uses an emoji (`📄`) as an icon, against INC-31. | Not touched by this design (out of scope); the new export button has no glyph prefix. |
 
+
+## Implementation sync (2026-11-19)
+
+**Status note.** `status` stays `draft` on purpose: design is ungated in this flow, so nothing approves this file. This section was written after the implementation and fix round 1 (read from `refund-ui/src/components`, `pages` and `strings.ts` at `19d1f2b5`), and it answers eval round 1 ("Design fidelity", eval-report.md). Where this section and the sections above disagree, **this section describes what is built**; the earlier text is the original intent. Copy keys are in `refund-ui/src/strings.ts` (en, with `it` at parity).
+
+### States built that the design did not have
+
+**S7a. Read-only panel on the caller's own request** (SR-2, FR-1; `LineClassificationPanel` `selfRestricted`, `data-mode="readOnly"`).
+- When: the view says `selfRestricted: true`, or a save was refused with 403 `self_approval_forbidden` (`refusedAsOwner`). It applies even when the user holds the `reclassify` or `set-approved-total` capability, and the options are then not loaded.
+- What shows: `role="group"` named `groupLabel(line)`, a `FactList` with the account and VAT code as plain text (each with its Default / Set by hand badge), the same rate / CHF / VAT figures, then one sentence `pages.reviewDetail.classification.selfRestricted`: "You can't classify your own request. Someone else has to do it." (it: "Non è possibile classificare la propria richiesta. Deve farlo un'altra persona."). A user who lacks the capability gets `readOnly` instead; a paid batch gets `locked` plus the lock icon.
+- Transition: a 403 `self_approval_forbidden` on a save turns that panel (and, through `onSelfRestricted`, every panel of the request) read-only at once and reloads the view. The select reverts silently; there is no error under it.
+- Related: the Approve button is `aria-disabled` with `decide.selfApprovalTooltip` when the user is the owner and their `approve` grant carries the self-approval deny (pre-existing control).
+
+**S7b. Out-of-scope line** (SR-1; `line.inScope === false`).
+- The server sends no account, VAT code or amount for the line. The panel is one `<p>` (`classification-<id>-out-of-scope`): `…classification.outOfScope` "Not shown: this line is outside your entity scope. Ask a colleague with WellD CH access." (it: "Non visibile: questa riga è fuori dal proprio ambito di entità. Rivolgersi a un collega con accesso a WellD CH."). No control, no figure, not focusable.
+- A save that returns 404 (stale view) shows `…classification.lineOutOfScope` "This line is outside your entity scope, so you can't change it." under the select, then reloads the view (`onOutOfScope`).
+- `GET /accounting/options` answering 403 `accounting_out_of_scope` makes an otherwise editable panel read-only with the generic `readOnly` sentence (no scope-specific copy; see finding A-9).
+
+**S5a. Exchange-rate fetch outcomes beyond ok / failed** (`ExchangeRatesCard`).
+- `throttled`: a dismissible info `Banner` with `settings.fx.throttled` "The rates were checked a moment ago. Try again in a few minutes." (it: "I tassi sono stati controllati poco fa. Riprovare tra qualche minuto."). Nothing was written; it is information, not an error.
+- `deferred` (response `deferredMonths`, six months per call): a dismissible info banner with `settings.fx.deferred(n)` "1 more month is still to fetch. Fetch again to continue." / "n more months are still to fetch. Fetch again to continue." (it: "Resta ancora 1 mese da recuperare. Recuperare di nuovo per continuare." / "Restano ancora n mesi da recuperare. Recuperare di nuovo per continuare."). It appears beside the "Recorded the rates for k months." confirmation when both apply.
+- `not_fetchable`: dismissible info banner `fx.notFetchable(month)` (as designed). A request error: dismissible `danger` banner `fx.fetchError` "Could not fetch the rates. Try again." (or `catalog.forbidden` on a 403).
+- All of these are `role="status"` (polite) banners; the failed-fetch and the switched-off banners are derived from the server's `lastFetch` and are persistent (not dismissible).
+
+**S5b. Per-cell history.** Each recorded rate cell has a second icon button, `fx.historyLabel` + `history.openLabel`: "Show the history of the EUR rate for October 2026", opening the shared `ChangeHistoryDrawer`. The design only said history is "one click away".
+
+**S8a. FR-5 gap: an approval refused for a line the approver cannot classify** (plan FR-5, follow-up FU-S7; not designed or fixed).
+- Built behaviour: a 409 `classification_missing` that names lines closes the approve dialog and sets the refusal; the `ErrorSummary` lists only lines for which the accounting view has a `classification` object (`ReviewDetailPage` `missingItems`). An out-of-scope line has none, so it gets **no row and is not counted** in the title.
+- Case 1, mixed refusal: the summary says "1 value needs your attention" while the server refused 3; the out-of-scope line only keeps its S7b note.
+- Case 2, **only** out-of-scope lines named: no summary renders (`ErrorSummary` with zero items returns nothing), the dialog is already closed and focus returns to Approve. **The approval fails silently.** Observed in the browser pass (finding A-1).
+- Proposed design for FU-S7: add one summary row per refused out-of-scope line, `…missingSummary.outOfScope(line)` "{line}: needs a colleague with WellD CH access", linking to that line's row (focus the line's out-of-scope note, `tabIndex=-1`); count it in `missingSummary.title`; and when the refusal names only such lines, still render the summary and move focus to it. Copy to add in en and it.
+
+### Reconciled with the built screens
+
+| Design text | As built |
+|---|---|
+| S7 "one polite live message per page" for a saved value | One `role="status"` `<p>` per panel (`classification-<id>-saved`), empty until a save; no page-level region. Fine for AT. |
+| S7 `fieldset` | Editable panel is a `fieldset aria-label` + `legend`; the read-only and locked forms are `div role="group" aria-label` with a `FactList`. |
+| S7 loading | Per-line skeleton (`aria-hidden`) plus one polite `VisuallyHidden` "Loading classification…" (as designed). Selects are `disabled` while the options load. |
+| S7 inactive current value | Select shows `inactiveOption(text)` "(inactive)" as a disabled selected option plus the hint (as designed). A saved active value missing from the options is still offered. |
+| S6c/S6d "focus on the first field" | The default-classification and foreign-VAT dialogs open with focus on **Cancel**; Save is disabled until the choice differs. Add-account, Add-VAT and Correct-rate open on their first field. The deactivate confirm opens on Cancel. |
+| S6a/S6b validation | Errors on blur; Save disabled until both fields have text; a failed submit moves focus to the first invalid field (as designed); 409 duplicate shows `errors.duplicate(number)` in an alert. |
+| UX-1 tabs | Offered when the user holds `settings:read` (General is always there). The active tab panel is itself a tab stop (`tabPanelProps`). Changing tab replaces the URL (`?section=`). |
+| S10 Check again | The button sits in the banner's `actions`; there is no live announcement of the result (A-3). |
+| S10 download | `aria-busy` + label "Preparing file…" while running, not `disabled`; focus stays on the button; the success banner is a polite `role="status"`; a failed download is `role="alert"` beside the button. Blocked Download is `aria-disabled`, described by a visually hidden `blocked.reason`; Enter does nothing. |
+| Blocked banner | `Banner tone="warning" live="off"` renders as `role="note"` (not announced), as designed. |
+| S5 Last fetch | A non-ok outcome shows the time only (`formatDateTime`) with no outcome word; the failed / disabled banner carries the meaning. See A-7. |
+| History drawer title | `history.title(subject)` with the exchange-rate subject reads "History — the EUR rate for October 2026" (the article comes from `fx.historyLabel`). Copy nit A-10. |
+
+Copy keys built beyond the table above: `settings.fx.throttled`, `fx.deferred(n)`, `fx.fetchError`, `fx.cellMissingLabel`, `fx.historyLabel`, `history.closeLabel`, `defaults.historyLabel`, `defaults.changedBy`, `defaults.dialog.inactiveSentence`, `foreign.changeLabel`, `foreign.historyLabel`, `vatCodes.empty`, `defaults.loading`; `…classification.selfRestricted`, `outOfScope`, `lineOutOfScope`, `unavailable404`, `lockedGuardrail`, `releasePending`.
+
+### Gaps closed or still open
+
+G1 (ErrorSummary instead of a dialog list) built as designed. G2 built (409s told apart by code). G12 built (excluded sentence only above zero). G4/UX-13 built. Still open: G3, G5, G6, G9, G10, G11; **new:** FR-5 / FU-S7 above.
+
+## Browser accessibility pass (2026-11-19)
+
+**Method.** refund-ui's own Vite dev server (`vite@8`) ran on `127.0.0.1:5291` with a throw-away config kept outside the repo that aliased `shell/session` to a stub, so no shell, auth, backend, database or network was involved. Every refund-api call was answered by an in-page `fetch` mock whose response shapes follow `lib/*Api.ts` and their tests. The Playwright MCP browser could not be used: its shared profile was locked by another session's Chrome (`Browser is already in use … mcp-chrome-a66b975`). The same Playwright library (`@playwright/test` 1.61.1, resolved from `shell/node_modules`) drove an isolated Chrome with a temporary profile instead, at `deviceScaleFactor: 1`. axe-core 4.14.0 (found under `operai-ui/node_modules`) was injected on every state; a manual contrast scan covered text that axe reported as "incomplete". Light and dark themes were checked on the main screens, 320 px width on Settings and the batch page. Screenshots: `/private/tmp/claude-501/-Users-hermes-claude-workspace/3b8f0432-b131-57d7-bf4a-a725ea48766e/scratchpad/a11y/shots/` (61 files, e.g. `24-review-refused.png`, `33-review-oos-refused.png`, `43-export-blocked.png`); raw axe output in `…/a11y/out/`.
+
+**Limits.** It is a mock, so server behaviour is not tested. No real screen reader was used: names, roles and live regions come from Chrome's accessibility tree and DOM. The shell's `<main>` is absent, so axe's `landmark-one-main` (moderate) appears on every page and is a harness artefact, not a finding. The Italian locale, a paid (locked) batch and the Mark-as-paid flow were not driven.
+
+**Passed (no action).**
+- Settings tabs: `tablist` named "Settings sections", roving tabindex, Arrow/Home/End change the view and the URL (`?section=`), focus stays on the tab. Tab order through the three cards is logical; every row action is named after its row ("Deactivate account 5905", "Change the default for Travel — train").
+- Dialogs: focus lands inside, Escape returns it to the opener, blur validation links the error with `aria-describedby`, a failed submit focuses the first invalid field. Deactivate / Reactivate move focus to the row header (`th`) and announce through a polite status. History drawer focuses its heading and returns focus. Deep link `&month=2026-09` focuses that row header.
+- Exchange rates: cell groups are named "EUR, October 2026: 0.9301, Fetched" / "…: missing"; auto-fetch and Fetch now never move focus, and their notes, the persistent failed banner and the disabled banner are polite `role="status"`.
+- Review page: tab order is row by row (total, Reject, Account, VAT code); the fieldset names each group; "Saving…" keeps focus on the select (`aria-busy`); a saved value is announced; a 422 shows an alert under the select with `aria-invalid`. The refused approval renders an `ErrorSummary` (`role="alert"`), moves focus to the first missing select, and its item moves focus to the select. The out-of-scope note, self-restricted panel (both with and without the approve-deny grant), reader panel and the 404 / 500 / loading states are all text, announced where they should be.
+- Export card: ready, header-only, blocked, out of scope, loading, download failure and "became blocked" are all reachable and described; the blocked Download is focusable, `aria-disabled`, described, inert on Enter; download works from the keyboard and offers `refund-accounting-2026-11-15-<batch>.csv`.
+- Focus indication: links and buttons get a 2 px outline; form controls change border to `#5B6AF7` (3.56:1 light, 3.88:1 dark against the control background). Manual contrast: 0 text below 4.5:1 on all captured screens, light and dark, apart from disabled controls (exempt) and A-5. No horizontal page scroll at 320 px.
+- axe: 0 violations other than `landmark-one-main` on Settings (all three views and every dialog), exchange rates (all fetch states), and the review page (all states); one other rule fires on the batch page (A-6, pre-existing).
+
+**Findings.**
+
+| # | Severity | Where | Finding | Owner and fix |
+|---|---|---|---|---|
+| A-1 | **High** (narrow reach: an entity-scoped approver on a mixed request) | Review page, FR-5 / FU-S7 | When 409 `classification_missing` names only lines outside the approver's scope, the dialog closes, no `ErrorSummary` renders (zero items) and focus goes back to Approve: nothing says the approval failed (WCAG 3.3.1, 4.1.3). With a mixed refusal the summary under-counts (1 instead of 3). | frontend-dev, from the S8a design: a summary row per out-of-scope line, counted in the title; if no in-scope row exists, still show the summary and focus it. Promote FU-S7 from "not planned". |
+| A-2 | Medium | `LineClassificationPanel`, 403 `self_approval_forbidden` on save | The editable fieldset is replaced by the read-only group, so the focused select disappears: focus drops to `<body>`, and the `role="status"` region goes with it, so the reason is not announced. | frontend-dev: after the swap, focus the read-only panel's reason `<p>` (`tabIndex=-1`, `role="status"`) so the sentence is read and the keyboard position survives. |
+| A-3 | Medium | `AccountingExportCard`, Check again | When the recheck makes the export ready the banner and the focused button unmount, so focus drops to `<body>`; the result (still blocked, or ready) is never announced (the "Checking the export…" region exists only while running). | frontend-dev: on completion focus the card heading or Download, and announce a polite result ("The export is ready: 12 rows." / "Still blocked: 2 items."), which needs two new copy keys (en and it). |
+| A-4 | Low | `ApproveDialog` (pre-existing), reached by the new refusals | While Approve is busy the focused button is disabled and focus falls to `<body>`; after `accounting_release_pending` the dialog stays open with the error (`role="alert"`, so it is announced) but focus remains on `<body>` until Tab (which re-enters the trap at Cancel). | frontend-dev or `@operai/ui` `Dialog`: return focus to the confirm button when busy ends. |
+| A-5 | Low | Blocked Download (`aria-disabled`, opacity .5) | Its label contrasts 3.47:1 (light) / 4.13:1 (dark). WCAG exempts inactive controls, but UX-7 depends on the button being read. | `@operai/ui` `Button`: a darker `aria-disabled` style, or leave it as accepted. |
+| A-6 | Low (axe says serious; pre-existing) | `BatchEmployeeGroupList` request link | `label-content-name-mismatch`: the link's `aria-label` ("Open …, Approved, EUR 52.00") does not contain the visible text as one string. It fires with and without receipt numbers, so this feature did not cause it. | frontend-dev: build the label from the visible strings in order, or drop the override. |
+| A-7 | Low | Exchange rates, "Last fetch" | A non-ok outcome shows only a time ("Last fetch 19.11.2026 11:00"), which reads as success until the banner is found; `throttled` and `not_fetchable` have no outcome word at all. | frontend-dev: add an outcome word to the value (`lastFetch.failed(at)`, `lastFetch.disabled(at)`) in en and it. |
+| A-8 | Low | Review page, rate missing without `settings:read` | The "Rate missing" help text has no next step for a reviewer who cannot open Settings (the export card has "Ask an administrator…"). | frontend-dev: reuse `blocked.askAdmin` when `canOpenRates` is false. |
+| A-9 | Info | Panel when `GET /accounting/options` answers 403 | The read-only sentence is the generic "You can view the classification but not change it", which does not say the cause is entity scope. | frontend-dev: optional scope-specific copy. |
+| A-10 | Info | Copy | Exchange-rate history drawer title reads "History — the EUR rate for October 2026". The selects in the default dialogs carry `*` although "None (no default)" is a valid choice. The Correct-rate dialog has a description but no hint when the cell is Missing. | frontend-dev: nits. |
+| A-11 | Info | Tab length | The rates table is up to 2 stops per cell (about 18 per three months) plus the focusable table region and tab panel. Reachable, long. | Designer: consider one row-level action menu if admins complain. |
+
+No contrast, reflow or axe failure was found in the new surfaces beyond the items above. A-1 is the one to schedule before release; A-2 and A-3 are small.
+
+**Dev server.** Stopped after the pass (port 5291 free again); no file inside the repository was changed except this `design.md`.
