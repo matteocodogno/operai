@@ -1,6 +1,8 @@
 ---
 spec: 20261119
-status: draft
+status: approved
+approved: 2026-11-19
+approved_note: "approved under the owner's choice of autonomous execution at spec approval (2026-11-19: 'In autonomia', no plan gate); review on the owner's return"
 ---
 
 # Plan: Accounting — one module for ledger accounts, VAT codes and monthly exchange rates
