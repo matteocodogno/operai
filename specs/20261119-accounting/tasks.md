@@ -75,7 +75,7 @@ Derived from these committed files:
 
 ## AUTH — auth
 
-- [ ] T1: auth — `accounting` catalog (resource `accounting`, actions `read`/`manage`, entity condition, no `access`) and seed grants — refs: AC-3.1, AC-3.3 — deps: none
+- [x] T1: auth — `accounting` catalog (resource `accounting`, actions `read`/`manage`, entity condition, no `access`) and seed grants — refs: AC-3.1, AC-3.3 — deps: none
   - touch: `auth/src/authz/catalogs/accounting.ts`, `auth/src/authz/catalogs/accounting.test.ts`, `auth/src/authz/catalogs/uniqueResourceKeys.test.ts`, `auth/src/authz/seed.ts`, `auth/src/authz/seed.test.ts`
   - agent: backend-dev · backend
   - Details:
@@ -93,7 +93,7 @@ Derived from these committed files:
 
     and `bun run typecheck` is clean.
 
-- [ ] T2: auth — `DERIVED_APPS` in `/authz/me` (admin ← `legal-entity:manage`, accounting ← `accounting:read` or `manage` covering ≥ 1 entity) and the shared coverage vectors — refs: AC-8.1, AC-3.2 — deps: T1
+- [x] T2: auth — `DERIVED_APPS` in `/authz/me` (admin ← `legal-entity:manage`, accounting ← `accounting:read` or `manage` covering ≥ 1 entity) and the shared coverage vectors — refs: AC-8.1, AC-3.2 — deps: T1
   - touch: `auth/src/authz/derivedApps.ts`, `auth/src/authz/derivedApps.test.ts`, `auth/src/legalEntities/coverage.ts`, `auth/src/authz/authz.routes.ts`, `auth/src/authz/authz.routes.test.ts`, `auth/src/authz/entity-coverage-vectors.json`
   - agent: backend-dev · backend
   - Details:
@@ -106,7 +106,7 @@ Derived from these committed files:
     `accounting` for read-only, manage-only and both, and not for no grant, a null user entity or an
     unknown condition; the existing admin-derivation tests are unchanged and green.
 
-- [ ] T3: auth — service scope `accounting.reference.read` — refs: AC-3.8 — deps: none
+- [x] T3: auth — service scope `accounting.reference.read` — refs: AC-3.8 — deps: none
   - touch: `auth/src/system/serviceClients.ts`, `auth/src/system/serviceClients.test.ts`, `auth/.env.example`
   - agent: backend-dev · backend
   - Details:
@@ -117,7 +117,7 @@ Derived from these committed files:
 
 ## ACC — accounting-api
 
-- [ ] T4: accounting-api — scaffold: package, Hono app, env, Problem JSON, JWT + system auth middlewares, authz resolve client and middleware, health, OpenAPI, Dockerfile — refs: none (foundation of every ACC task) — deps: none
+- [x] T4: accounting-api — scaffold: package, Hono app, env, Problem JSON, JWT + system auth middlewares, authz resolve client and middleware, health, OpenAPI, Dockerfile — refs: none (foundation of every ACC task) — deps: none
   - touch:
     - `accounting-api/package.json`, `accounting-api/bun.lock`, `accounting-api/bunfig.toml`, `accounting-api/tsconfig.json`, `accounting-api/prisma.config.ts`, `accounting-api/Dockerfile`, `accounting-api/.dockerignore`, `accounting-api/.gitignore`, `accounting-api/.env.example`, `accounting-api/.envrc`, `accounting-api/CHANGELOG.md`;
     - `accounting-api/src/index.ts`, `accounting-api/src/lib/env.ts`, `accounting-api/src/lib/env.test.ts`, `accounting-api/src/lib/db.ts`, `accounting-api/src/lib/problem.ts`, `accounting-api/src/lib/logger.ts`, `accounting-api/src/health/*`, `accounting-api/src/openapi/*`;
@@ -140,7 +140,7 @@ Derived from these committed files:
     `env.test.ts` proves a start with `SERVICE_AUDIENCE == AUTH_AUDIENCE` or a missing variable
     exits 1.
 
-- [ ] T5: accounting-api — Prisma schema and the init migration (five tables, immutability triggers, CHECKs, fetched-once index, status-entity trigger) and `dbCleanup` — refs: AC-1.7, AC-1.12, AC-1.13, AC-2.2, AC-2.4, AC-2.5 — deps: T4
+- [x] T5: accounting-api — Prisma schema and the init migration (five tables, immutability triggers, CHECKs, fetched-once index, status-entity trigger) and `dbCleanup` — refs: AC-1.7, AC-1.12, AC-1.13, AC-2.2, AC-2.4, AC-2.5 — deps: T4
   - touch: `accounting-api/prisma/schema.prisma`, `accounting-api/prisma/migrations/*`, `accounting-api/src/lib/db.*.test.ts`, `accounting-api/src/test-support/dbCleanup.ts`
   - agent: backend-dev · backend
   - Details:
@@ -163,7 +163,7 @@ Derived from these committed files:
         `corrected` row is accepted;
       - a status row with another entity than its entry's is refused.
 
-- [ ] T6: accounting-api — `entities.ts`, `coverage.ts` (read = read ∪ manage, fail closed) and `GET /v1/me` — refs: AC-3.2, AC-3.5, AC-3.6, AC-8.2 — deps: T2, T4
+- [x] T6: accounting-api — `entities.ts`, `coverage.ts` (read = read ∪ manage, fail closed) and `GET /v1/me` — refs: AC-3.2, AC-3.5, AC-3.6, AC-8.2 — deps: T2, T4
   - touch: `accounting-api/src/entities.ts`, `accounting-api/src/authz/coverage.ts`, `accounting-api/src/authz/coverage.test.ts`, `accounting-api/src/me/*`, `accounting-api/src/index.ts`
   - agent: backend-dev · backend
   - Details:
@@ -179,7 +179,7 @@ Derived from these committed files:
     for a conditioned welld_ch user, two for an admin, and 403 with no data for a person without
     either grant; manage-only covers read.
 
-- [ ] T7: accounting-api — the shared wire schema `accountingWire` (both 200 bodies of the system routes), its refund-api copy and the shared-copy group — refs: AC-3.8, AC-6.8 — deps: T4
+- [x] T7: accounting-api — the shared wire schema `accountingWire` (both 200 bodies of the system routes), its refund-api copy and the shared-copy group — refs: AC-3.8, AC-6.8 — deps: T4
   - touch: `accounting-api/src/system/accountingWire.ts`, `accounting-api/src/system/accountingWire.test.ts`, `refund-api/src/accounting/accountingWire.ts`, `scripts/check-shared-copies.ts`
   - agent: backend-dev · backend
   - Details:
@@ -194,7 +194,7 @@ Derived from these committed files:
     src/system/accountingWire.test.ts` proves the schemas refuse an extra key, a missing pair field
     and a non-integer `rateMicros`.
 
-- [ ] T8: accounting-api — **move** the catalog from refund-api, then ledger accounts per entity: add, deactivate, reactivate, list, keyed by number — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.9, AC-1.11, AC-1.12, AC-1.13, AC-3.4, AC-3.5, AC-8.3 — deps: T5, T6, T23
+- [x] T8: accounting-api — **move** the catalog from refund-api, then ledger accounts per entity: add, deactivate, reactivate, list, keyed by number — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.9, AC-1.11, AC-1.12, AC-1.13, AC-3.4, AC-3.5, AC-8.3 — deps: T5, T6, T23
   - touch:
     - `refund-api/src/accounting/catalog.repo.ts`, `refund-api/src/accounting/catalog.routes.ts`, `refund-api/src/accounting/catalog.schemas.ts`, `refund-api/src/accounting/catalog.routes.test.ts` (source side of the move);
     - `accounting-api/src/catalog/*`, `accounting-api/src/index.ts`.
@@ -224,7 +224,7 @@ Derived from these committed files:
     201; concurrent deactivate ×20 → one 200 and one status row); `cd refund-api && bun test && bun
     run typecheck` stays green.
 
-- [ ] T9: accounting-api — VAT codes per entity: add (upper-case, rate to basis points), deactivate, reactivate, list, keyed by code — refs: AC-1.5, AC-1.6, AC-1.7, AC-1.8, AC-1.10, AC-1.11, AC-1.12, AC-1.13, AC-3.4, AC-8.3 — deps: T8
+- [x] T9: accounting-api — VAT codes per entity: add (upper-case, rate to basis points), deactivate, reactivate, list, keyed by code — refs: AC-1.5, AC-1.6, AC-1.7, AC-1.8, AC-1.10, AC-1.11, AC-1.12, AC-1.13, AC-3.4, AC-8.3 — deps: T8
   - touch: `accounting-api/src/catalog/*`
   - agent: backend-dev · backend
   - Details:
@@ -238,7 +238,7 @@ Derived from these committed files:
     404), 1.10, 1.11 and 1.13 for VAT codes; the `/v1/*` route matrix shows no write method other
     than the six POSTs.
 
-- [ ] T10: accounting-api — **move** the pure FX modules (BAZG client, parser, months) and their fixture — refs: AC-2.1, AC-2.3, AC-2.7 — deps: T4, T23
+- [x] T10: accounting-api — **move** the pure FX modules (BAZG client, parser, months) and their fixture — refs: AC-2.1, AC-2.3, AC-2.7 — deps: T4, T23
   - touch: `refund-api/src/fx/bazgSource.ts`, `refund-api/src/fx/bazgSource.test.ts`, `refund-api/src/fx/parse.ts`, `refund-api/src/fx/parse.test.ts`, `refund-api/src/fx/months.ts`, `refund-api/src/fx/months.test.ts`, `refund-api/src/fx/months.zurich.test.ts`, `refund-api/src/fx/fixtures/*`, `accounting-api/src/rates/bazgSource*.ts`, `accounting-api/src/rates/parse*.ts`, `accounting-api/src/rates/months*.ts`, `accounting-api/src/rates/fixtures/*`, `accounting-api/src/test-support/fakeSource.ts`
   - agent: backend-dev · backend
   - Details:
@@ -252,7 +252,7 @@ Derived from these committed files:
     src/rates/{bazgSource,parse,months,months.zurich}.test.ts` is green, unchanged in assertions; `cd
     refund-api && bun test && bun run typecheck` stays green.
 
-- [ ] T11: accounting-api — **move** the FX repo and service as the rates repo and service: per entity, rate in effect, corrections with `replacesRateMicros`, manager fetch (10 s budget) and consumer fetch (6 s budget), throttle, single flight, server-derived trigger, the 20261118 response shape — refs: AC-2.1, AC-2.2, AC-2.4, AC-2.6, AC-2.8, AC-2.10, AC-2.11 — deps: T5, T6, T10
+- [x] T11: accounting-api — **move** the FX repo and service as the rates repo and service: per entity, rate in effect, corrections with `replacesRateMicros`, manager fetch (10 s budget) and consumer fetch (6 s budget), throttle, single flight, server-derived trigger, the 20261118 response shape — refs: AC-2.1, AC-2.2, AC-2.4, AC-2.6, AC-2.8, AC-2.10, AC-2.11 — deps: T5, T6, T10
   - touch: `refund-api/src/fx/fx.repo.ts`, `refund-api/src/fx/fx.service.ts`, `refund-api/src/fx/fx.service.test.ts`, `accounting-api/src/rates/rates.repo.ts`, `accounting-api/src/rates/rates.service.ts`, `accounting-api/src/rates/rates.service.test.ts`
   - agent: backend-dev · backend
   - Details:
@@ -283,7 +283,7 @@ Derived from these committed files:
 
     `cd refund-api && bun test && bun run typecheck` stays green.
 
-- [ ] T12: accounting-api — exchange-rates user routes: list (window, origin, `lastFetch`, `fetchDue`, `source`, `currencies`), Fetch now, correction — refs: AC-2.3, AC-2.4, AC-2.5, AC-2.7, AC-2.8, AC-2.9, AC-2.11, AC-3.4, AC-3.5 — deps: T8, T11
+- [x] T12: accounting-api — exchange-rates user routes: list (window, origin, `lastFetch`, `fetchDue`, `source`, `currencies`), Fetch now, correction — refs: AC-2.3, AC-2.4, AC-2.5, AC-2.7, AC-2.8, AC-2.9, AC-2.11, AC-3.4, AC-3.5 — deps: T8, T11
   - touch: `refund-api/src/fx/fx.routes.ts`, `refund-api/src/fx/fx.routes.test.ts`, `refund-api/src/fx/fx.schemas.ts`, `accounting-api/src/rates/rates.routes.ts`, `accounting-api/src/rates/rates.routes.test.ts`, `accounting-api/src/rates/rates.schemas.ts`, `accounting-api/src/index.ts`
   - agent: backend-dev · backend
   - Details:
@@ -302,7 +302,7 @@ Derived from these committed files:
     2.5 (with `999.999999` accepted and `1000` refused), 2.7, 2.8 (visible to a reader), 2.9 (a reader
     → 403 with no attempt row) and 2.11; `refund-api/src/fx` no longer exists; refund-api is green.
 
-- [ ] T13: accounting-api — system routes: `GET /system/v1/entities/{entity}/reference-data` and `…/rates?pairs=` (scope, `SYSTEM_READERS`, identical 401, no-store, consumer fetch) — refs: AC-3.8, AC-2.10, AC-1.4, AC-1.8, AC-1.9, AC-1.10, AC-4.1 — deps: T7, T9, T12
+- [x] T13: accounting-api — system routes: `GET /system/v1/entities/{entity}/reference-data` and `…/rates?pairs=` (scope, `SYSTEM_READERS`, identical 401, no-store, consumer fetch) — refs: AC-3.8, AC-2.10, AC-1.4, AC-1.8, AC-1.9, AC-1.10, AC-4.1 — deps: T7, T9, T12
   - touch: `accounting-api/src/system/referenceData.routes.ts`, `accounting-api/src/system/rates.routes.ts`, `accounting-api/src/system/system.routes.test.ts`, `accounting-api/src/system/readers.ts`, `accounting-api/src/index.ts`
   - agent: backend-dev · backend
   - Details:
@@ -321,7 +321,7 @@ Derived from these committed files:
       `system:crm-api`;
     - POST, PUT and DELETE → 404.
 
-- [ ] T14: accounting-api — **move** the seed data and add `seed:welld-ch` (operator-run, idempotent, `--dry-run`, system actor) — refs: AC-1.1, AC-1.13, AC-7.5 — deps: T9, T22
+- [x] T14: accounting-api — **move** the seed data and add `seed:welld-ch` (operator-run, idempotent, `--dry-run`, system actor) — refs: AC-1.1, AC-1.13, AC-7.5 — deps: T9, T22
   - touch: `refund-api/scripts/data/accounting-seed.welld-ch.json`, `accounting-api/scripts/data/seed.welld-ch.json`, `accounting-api/scripts/seed-welld-ch.ts`, `accounting-api/scripts/seed-welld-ch.test.ts`, `accounting-api/package.json`
   - agent: backend-dev · backend
   - Details:
@@ -338,7 +338,7 @@ Derived from these committed files:
     deactivated entry stays deactivated; `--dry-run` writes nothing; the seeds agree);
     `package.json` has `seed:welld-ch`; refund-api is green.
 
-- [ ] T15: accounting-api — adversarial and cross-cutting tests — refs: AC-3.6, AC-3.8, AC-2.10, AC-6.8 — deps: T13
+- [x] T15: accounting-api — adversarial and cross-cutting tests — refs: AC-3.6, AC-3.8, AC-2.10, AC-6.8 — deps: T13
   - touch: `accounting-api/src/matrix.test.ts`, `accounting-api/src/budgets.cross-package.test.ts`
   - agent: qe · backend
   - Details:
@@ -352,7 +352,7 @@ Derived from these committed files:
 
 ## REF — refund-api
 
-- [ ] T16: refund-api — migration `<ts1>_accounting_copies`: copy columns, the two default tables, carried data, guard v2 (copies locked when paid and numbered, fx write-once), CHECKs, `line_rate_copied` — refs: AC-4.7, AC-5.3, AC-5.6, AC-5.7, AC-7.1 — deps: none
+- [x] T16: refund-api — migration `<ts1>_accounting_copies`: copy columns, the two default tables, carried data, guard v2 (copies locked when paid and numbered, fx write-once), CHECKs, `line_rate_copied` — refs: AC-4.7, AC-5.3, AC-5.6, AC-5.7, AC-7.1 — deps: none
   - touch: `refund-api/prisma/schema.prisma`, `refund-api/prisma/migrations/*`, `refund-api/src/lib/db.accounting-receipt-guard.test.ts`, `refund-api/src/lib/db.accounting-copies.test.ts`, `refund-api/src/lib/migration.accounting-move.test.ts`, `refund-api/src/test-support/dbCleanup.ts`
   - agent: backend-dev · backend
   - Details:
@@ -376,7 +376,7 @@ Derived from these committed files:
 
     The whole `bun test` is green (old code still on the old columns).
 
-- [ ] T17: refund-api — `AccountingPort` (live, 10 s per operation, one 401 re-mint, every failure kind = unavailable), `referenceSnapshot`, `fakeAccounting`, `ACCOUNTING_INTERNAL_URL` — refs: AC-6.8, AC-4.8, AC-3.9 — deps: T7
+- [x] T17: refund-api — `AccountingPort` (live, 10 s per operation, one 401 re-mint, every failure kind = unavailable), `referenceSnapshot`, `fakeAccounting`, `ACCOUNTING_INTERNAL_URL` — refs: AC-6.8, AC-4.8, AC-3.9 — deps: T7
   - touch: `refund-api/src/accounting/accountingClient.ts`, `refund-api/src/accounting/accountingClient.test.ts`, `refund-api/src/accounting/referenceSnapshot.ts`, `refund-api/src/accounting/referenceSnapshot.test.ts`, `refund-api/src/test-support/fakeAccounting.ts`, `refund-api/src/lib/env.ts`, `refund-api/src/lib/env.test.ts`, `refund-api/.env.example`
   - agent: backend-dev · backend
   - Details:
@@ -395,7 +395,7 @@ Derived from these committed files:
     ok, 250 ms → unavailable; two operations → two reads; the default constant is 10 000. refund-api
     `bun run typecheck` is clean.
 
-- [ ] T18: refund-api — resolver on copies and snapshot; the default and designation tables with live validation and states; audit detail v2 and `line_rate_copied` types — refs: AC-4.4, AC-4.5, AC-4.7, AC-6.3, AC-6.9, AC-6.10, AC-3.7 — deps: T16, T17
+- [x] T18: refund-api — resolver on copies and snapshot; the default and designation tables with live validation and states; audit detail v2 and `line_rate_copied` types — refs: AC-4.4, AC-4.5, AC-4.7, AC-6.3, AC-6.9, AC-6.10, AC-3.7 — deps: T16, T17
   - touch: `refund-api/src/accounting/classification.ts`, `refund-api/src/accounting/classification.test.ts`, `refund-api/src/accounting/classification.repo.ts`, `refund-api/src/accounting/defaults.repo.ts`, `refund-api/src/accounting/defaults.routes.ts`, `refund-api/src/accounting/defaults.schemas.ts`, `refund-api/src/accounting/defaults.routes.test.ts`, `refund-api/src/requests/audit.ts`
   - agent: backend-dev · backend
   - Details:
@@ -415,7 +415,7 @@ Derived from these committed files:
     it or is unreachable), 6.9 and the AC-3.7 second half (an Accounting manager without
     `settings:manage` → 403); every 4xx/5xx body matches no URL, host, cuid or stack pattern.
 
-- [ ] T19: refund-api — review view, `/accounting/options` (gate D16), classification PUT by natural key with copies, `viewer.canOpenAccountingRates`, Accounting-unavailable view; withdraw clears copies — refs: AC-4.1, AC-4.2, AC-4.3, AC-4.9, AC-5.2, AC-5.7, AC-6.5, AC-6.10, AC-7.3, AC-1.4, AC-1.8, AC-3.9 — deps: T18
+- [x] T19: refund-api — review view, `/accounting/options` (gate D16), classification PUT by natural key with copies, `viewer.canOpenAccountingRates`, Accounting-unavailable view; withdraw clears copies — refs: AC-4.1, AC-4.2, AC-4.3, AC-4.9, AC-5.2, AC-5.7, AC-6.5, AC-6.10, AC-7.3, AC-1.4, AC-1.8, AC-3.9 — deps: T18
   - touch: `refund-api/src/accounting/classification.repo.ts`, `refund-api/src/accounting/classification.routes.ts`, `refund-api/src/accounting/classification.schemas.ts`, `refund-api/src/accounting/classification.routes.test.ts`, `refund-api/src/accounting/classification.inactive-default.test.ts`, `refund-api/src/accounting/classification.race.test.ts`, `refund-api/src/requests/lifecycle.repo.ts`, `refund-api/src/requests/lifecycle.routes.test.ts`, `refund-api/src/authz/accountingViewer.ts`, `refund-api/src/authz/accountingViewer.test.ts`
   - agent: backend-dev · backend
   - Details:
@@ -432,7 +432,7 @@ Derived from these committed files:
     4.3, 4.9, 5.2, 5.7, 6.5, 7.3 (view flag); the 20261118 race test passes 20 iterations with the
     fake; withdraw leaves the copy columns null.
 
-- [ ] T20: refund-api — approve: Accounting pre-read (superset of pairs), copies, rate copy or pending, 503 `accounting_unavailable`, `classification_missing` on unusable defaults; `classifyAndNumber` on copies — refs: AC-5.1, AC-5.6, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-4.9, AC-7.1 — deps: T18
+- [x] T20: refund-api — approve: Accounting pre-read (superset of pairs), copies, rate copy or pending, 503 `accounting_unavailable`, `classification_missing` on unusable defaults; `classifyAndNumber` on copies — refs: AC-5.1, AC-5.6, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-4.9, AC-7.1 — deps: T18
   - touch: `refund-api/src/review/decide.repo.ts`, `refund-api/src/review/decide.routes.ts`, `refund-api/src/review/decide.routes.test.ts`, `refund-api/src/review/approve-accounting.test.ts`, `refund-api/src/accounting/numbering.repo.ts`, `refund-api/src/accounting/numbering.repo.test.ts`, `refund-api/src/accounting/receipt.lifecycle.test.ts`
   - agent: backend-dev · backend
   - Details:
@@ -447,7 +447,7 @@ Derived from these committed files:
     or audit after each refusal), 6.3, 6.4 (0 fake calls), 4.9; every 20261118 approval and numbering
     assertion still holds (AC-7.1).
 
-- [ ] T21: refund-api — export from copies: the pending-rate copy inside the export transaction (`line_rate_copied`), the `accountingUnavailable` blocker, `missingRates[].reason`, `fetchAttempted`, `ratePendingLineCount`, `viewer.canOpenAccountingRates` — refs: AC-5.3, AC-5.4, AC-5.5, AC-5.6, AC-6.6, AC-6.7, AC-7.2, AC-7.3 — deps: T18
+- [x] T21: refund-api — export from copies: the pending-rate copy inside the export transaction (`line_rate_copied`), the `accountingUnavailable` blocker, `missingRates[].reason`, `fetchAttempted`, `ratePendingLineCount`, `viewer.canOpenAccountingRates` — refs: AC-5.3, AC-5.4, AC-5.5, AC-5.6, AC-6.6, AC-6.7, AC-7.2, AC-7.3 — deps: T18
   - touch: `refund-api/src/accounting/export.repo.ts`, `refund-api/src/accounting/export.routes.ts`, `refund-api/src/accounting/export.schemas.ts`, `refund-api/src/accounting/export.routes.test.ts`, `refund-api/src/accounting/export.failures.test.ts`, `refund-api/src/accounting/export.test.ts`, `refund-api/src/accounting/rateCopy.repo.ts`, `refund-api/src/accounting/rateCopy.repo.test.ts`
   - agent: backend-dev · backend
   - Details:
@@ -464,7 +464,7 @@ Derived from these committed files:
     export copies nothing, concurrent exports → one copy), 6.6, 6.7 (with `reason`), 7.2 (golden file
     byte-identical), 7.3.
 
-- [ ] T22: refund-api — `accounting:release` rewritten: read Accounting first (exit 2, nothing written, if it cannot), seed Refund defaults and designation from `accounting-defaults.welld-ch.json` by natural key, backfill copies, rate or pending — refs: AC-7.4, AC-7.5 — deps: T20
+- [x] T22: refund-api — `accounting:release` rewritten: read Accounting first (exit 2, nothing written, if it cannot), seed Refund defaults and designation from `accounting-defaults.welld-ch.json` by natural key, backfill copies, rate or pending — refs: AC-7.4, AC-7.5 — deps: T20
   - touch: `refund-api/scripts/accounting-release.ts`, `refund-api/scripts/accounting-release.test.ts`, `refund-api/scripts/accounting-release.cli.test.ts`, `refund-api/scripts/data/accounting-defaults.welld-ch.json`, `refund-api/src/test-support/accountingRelease.ts`
   - agent: backend-dev · backend
   - Details:
@@ -479,7 +479,7 @@ Derived from these committed files:
     (empty Accounting → numbered and listed unclassified, and a later approval → 409); the report has
     no `@` without `--show-emails`.
 
-- [ ] T23: refund-api — cut the legacy surface: unregister the catalog and exchange-rate routes, remove `fxService` wiring and `REFUND_FX_SOURCE`, add the removed-routes test — refs: AC-3.7, AC-4.6 — deps: T19, T20, T21, T22
+- [x] T23: refund-api — cut the legacy surface: unregister the catalog and exchange-rate routes, remove `fxService` wiring and `REFUND_FX_SOURCE`, add the removed-routes test — refs: AC-3.7, AC-4.6 — deps: T19, T20, T21, T22
   - touch: `refund-api/src/index.ts`, `refund-api/src/lib/env.ts`, `refund-api/src/lib/env.test.ts`, `refund-api/.env.example`, `refund-api/src/removed-routes.test.ts`
   - agent: backend-dev · backend
   - Details:
@@ -492,7 +492,7 @@ Derived from these committed files:
     - `grep -rlE "catalog\.(repo|routes|schemas)|/fx/" refund-api/src refund-api/scripts` lists only
       files inside `src/accounting/catalog.*`, `src/fx/` and `src/lib/db.fx-fetched-once.test.ts`.
 
-- [ ] T24: refund-api — migration `<ts2>_accounting_reference_moved_out`: drop the old FK columns, the six moved tables and the enum; schema and tests follow — refs: AC-5.3, AC-5.7 — deps: T8, T11, T12, T23
+- [x] T24: refund-api — migration `<ts2>_accounting_reference_moved_out`: drop the old FK columns, the six moved tables and the enum; schema and tests follow — refs: AC-5.3, AC-5.7 — deps: T8, T11, T12, T23
   - touch: `refund-api/prisma/schema.prisma`, `refund-api/prisma/migrations/*`, `refund-api/src/lib/db.accounting-immutability.test.ts`, `refund-api/src/lib/db.fx-fetched-once.test.ts`, `refund-api/src/lib/migration.accounting-move.test.ts`, `refund-api/src/test-support/dbCleanup.ts`
   - agent: backend-dev · backend
   - Details:
@@ -505,7 +505,7 @@ Derived from these committed files:
     non-accounting column of a paid numbered line succeeds" is asserted, so the guard no longer
     references a dropped column.
 
-- [ ] T25: refund-api — adversarial and cross-cutting tests — refs: AC-4.8, AC-6.8, AC-6.10, AC-7.1, AC-7.2 — deps: T23
+- [x] T25: refund-api — adversarial and cross-cutting tests — refs: AC-4.8, AC-6.8, AC-6.10, AC-7.1, AC-7.2 — deps: T23
   - touch: `refund-api/src/accounting/accounting-unavailable.matrix.test.ts`, `refund-api/src/accounting/natural-keys.test.ts`, `refund-api/src/accounting/no-cache.test.ts`
   - agent: qe · backend
   - Details:
@@ -518,7 +518,7 @@ Derived from these committed files:
 
 ## UI — accounting-ui and shell
 
-- [ ] T26: accounting-ui — scaffold from letterheads-ui: package (port 5183, federation `accounting`, `./App` and `./version`, `@operai/ui` with `import: false`), Vitest with stubs, `api.ts`, the copied `LoadState`/`PermissionDenied`/`NotFoundPage`/`Saved`, `useLoadedResource`, the axe helper and its self-test, `lib/limits.ts`, the strings skeleton — refs: AC-8.4 — deps: none
+- [x] T26: accounting-ui — scaffold from letterheads-ui: package (port 5183, federation `accounting`, `./App` and `./version`, `@operai/ui` with `import: false`), Vitest with stubs, `api.ts`, the copied `LoadState`/`PermissionDenied`/`NotFoundPage`/`Saved`, `useLoadedResource`, the axe helper and its self-test, `lib/limits.ts`, the strings skeleton — refs: AC-8.4 — deps: none
   - touch: `accounting-ui/*` (top-level files: `package.json`, `pnpm-lock.yaml`, `vite.config.ts`, `vitest.config.ts`, `tsconfig*.json`, `eslint.config.js`, `index.html`, `postcss.config.js`, `vercel.json`, `.gitignore`, `.prettierrc`, `CHANGELOG.md`), `accounting-ui/src/*.ts`, `accounting-ui/src/*.tsx`, `accounting-ui/src/lib/*`, `accounting-ui/src/components/LoadState.tsx`, `accounting-ui/src/components/PermissionDenied.tsx`, `accounting-ui/src/components/Saved.tsx`, `accounting-ui/src/pages/NotFoundPage.tsx`, `accounting-ui/src/hooks/useLoadedResource*.ts`, `accounting-ui/src/federation/*`, `accounting-ui/src/test-support/*`, `lerna.json`
   - agent: frontend-dev · frontend
   - Details:
@@ -532,7 +532,7 @@ Derived from these committed files:
   - done when: `cd accounting-ui && pnpm install && pnpm lint && pnpm test && pnpm build` is green;
     the axe self-test proves the helper fails on the broken fixture.
 
-- [ ] T27: accounting-ui — the whole copy catalog (en + it) from design § Copy keys — refs: AC-8.4 — deps: T26
+- [x] T27: accounting-ui — the whole copy catalog (en + it) from design § Copy keys — refs: AC-8.4 — deps: T26
   - touch: `accounting-ui/src/strings.ts`, `accounting-ui/src/strings.test.ts`
   - agent: frontend-dev · frontend
   - Details:
@@ -544,7 +544,7 @@ Derived from these committed files:
   - done when: `pnpm test src/strings.test.ts` is green (`catalogGaps(en, it)` is `[]`), and every key
     named in design § Copy keys for accounting-ui exists (a test that lists them).
 
-- [ ] T28: accounting-ui — frame: `AccountingShell` (`/v1/me`, failure ladder), router with `TabNav` (three routes, `?entity=` carried, `?month=` dropped), `EntitySwitch` and `useEntity` (garbage → fallback, uncovered → not found, 404 → re-read), three page placeholders — refs: AC-8.2, AC-3.5, AC-3.6, AC-8.4 — deps: T27
+- [x] T28: accounting-ui — frame: `AccountingShell` (`/v1/me`, failure ladder), router with `TabNav` (three routes, `?entity=` carried, `?month=` dropped), `EntitySwitch` and `useEntity` (garbage → fallback, uncovered → not found, 404 → re-read), three page placeholders — refs: AC-8.2, AC-3.5, AC-3.6, AC-8.4 — deps: T27
   - touch: `accounting-ui/src/router.tsx`, `accounting-ui/src/router.test.tsx`, `accounting-ui/src/App.tsx`, `accounting-ui/src/App.test.tsx`, `accounting-ui/src/components/AccountingShell*.tsx`, `accounting-ui/src/components/EntitySwitch*.tsx`, `accounting-ui/src/hooks/useEntity*.ts`, `accounting-ui/src/pages/LedgerAccountsPage.tsx`, `accounting-ui/src/pages/VatCodesPage.tsx`, `accounting-ui/src/pages/ExchangeRatesPage.tsx`
   - agent: frontend-dev · frontend
   - Details: design UX-1, UX-2, UX-3, UX-12, UX-15, AS1, AS2, AS7. The page files are placeholders
@@ -558,7 +558,7 @@ Derived from these committed files:
     - 503 → the auth-unavailable banner with Retry;
     - axe has no violations in every frame state.
 
-- [ ] T29: accounting-ui — **move** the ledger-account card and dialog and `useCatalogToggle`, adapted: entity, number keys, no Added column, reader sentence, `reactivate` pointer, AC-1.2 limits, `fields[]` — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.9, AC-1.11, AC-1.12, AC-8.3, AC-8.4 — deps: T28, T34
+- [x] T29: accounting-ui — **move** the ledger-account card and dialog and `useCatalogToggle`, adapted: entity, number keys, no Added column, reader sentence, `reactivate` pointer, AC-1.2 limits, `fields[]` — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.9, AC-1.11, AC-1.12, AC-8.3, AC-8.4 — deps: T28, T34
   - touch:
     - `refund-ui/src/components/settings/LedgerAccountsCard.tsx`, `refund-ui/src/components/settings/LedgerAccountsCard.test.tsx`, `refund-ui/src/components/settings/AddLedgerAccountDialog.tsx`, `refund-ui/src/components/settings/AddLedgerAccountDialog.test.tsx`, `refund-ui/src/components/settings/useCatalogToggle.ts` (source side);
     - `accounting-ui/src/components/LedgerAccountsCard*.tsx`, `accounting-ui/src/components/AddLedgerAccountDialog*.tsx`, `accounting-ui/src/hooks/useCatalogToggle.ts`, `accounting-ui/src/lib/catalogApi.ts`, `accounting-ui/src/lib/catalogApi.test.ts`, `accounting-ui/src/lib/statusMeaning.ts`, `accounting-ui/src/pages/LedgerAccountsPage.tsx`.
@@ -572,13 +572,13 @@ Derived from these committed files:
     build && pnpm lint` is green with the design's AS3 and AS6 state matrix under axe; `cd refund-ui &&
     pnpm test && pnpm build` stays green.
 
-- [ ] T30: accounting-ui — **move** the VAT-code card and dialog, adapted: code keys, upper-case, rate limits, case-insensitive duplicate with `reactivate`, `formatVatRate` copy — refs: AC-1.5, AC-1.6, AC-1.7, AC-1.8, AC-1.10, AC-8.3, AC-8.4 — deps: T29
+- [x] T30: accounting-ui — **move** the VAT-code card and dialog, adapted: code keys, upper-case, rate limits, case-insensitive duplicate with `reactivate`, `formatVatRate` copy — refs: AC-1.5, AC-1.6, AC-1.7, AC-1.8, AC-1.10, AC-8.3, AC-8.4 — deps: T29
   - touch: `refund-ui/src/components/settings/VatCodesCard.tsx`, `refund-ui/src/components/settings/VatCodesCard.test.tsx`, `refund-ui/src/components/settings/AddVatCodeDialog.tsx`, `refund-ui/src/components/settings/AddVatCodeDialog.test.tsx`, `accounting-ui/src/components/VatCodesCard*.tsx`, `accounting-ui/src/components/AddVatCodeDialog*.tsx`, `accounting-ui/src/lib/catalogApi.ts`, `accounting-ui/src/lib/catalogApi.test.ts`, `accounting-ui/src/lib/formatVatRate.ts`, `accounting-ui/src/pages/VatCodesPage.tsx`
   - agent: frontend-dev · frontend
   - Details: as T29, for AS4. No rate edit control (AC-1.7).
   - done when: as T29, for the VAT-code matrix; a test asserts there is no edit control for a rate.
 
-- [ ] T31: accounting-ui — **move** the exchange-rates card, the correction dialog and `exchangeRatesApi`, adapted: entity, no history drawer, no `trigger`, Source and last-fetch outcome, WellD Italia no-source panel, deep link and "month not listed" note, UX-10 copy and limits, auto-fetch once for managers — refs: AC-2.3, AC-2.4, AC-2.5, AC-2.7, AC-2.8, AC-2.9, AC-2.11, AC-7.3, AC-8.4 — deps: T28, T34, T37
+- [x] T31: accounting-ui — **move** the exchange-rates card, the correction dialog and `exchangeRatesApi`, adapted: entity, no history drawer, no `trigger`, Source and last-fetch outcome, WellD Italia no-source panel, deep link and "month not listed" note, UX-10 copy and limits, auto-fetch once for managers — refs: AC-2.3, AC-2.4, AC-2.5, AC-2.7, AC-2.8, AC-2.9, AC-2.11, AC-7.3, AC-8.4 — deps: T28, T34, T37
   - touch: `refund-ui/src/components/settings/ExchangeRatesCard.tsx`, `refund-ui/src/components/settings/ExchangeRatesCard.test.tsx`, `refund-ui/src/components/settings/RateCorrectionDialog.tsx`, `refund-ui/src/components/settings/RateCorrectionDialog.test.tsx`, `refund-ui/src/lib/exchangeRatesApi.ts`, `refund-ui/src/lib/exchangeRatesApi.test.ts`, `accounting-ui/src/components/ExchangeRatesCard*.tsx`, `accounting-ui/src/components/RateCorrectionDialog*.tsx`, `accounting-ui/src/lib/exchangeRatesApi*.ts`, `accounting-ui/src/lib/monthLabel*.ts`, `accounting-ui/src/pages/ExchangeRatesPage.tsx`
   - agent: frontend-dev · frontend
   - Details:
@@ -590,7 +590,7 @@ Derived from these committed files:
     matrix under axe (no source, a missing cell, auto-fetch running, the failed banner, switched off,
     throttled, the deep-link note); refund-ui stays green.
 
-- [ ] T32: shell — register Accounting: `ToolId`/`TOOLS` (last in the main list), Sidebar icon `list-ordered`, gated `/accounting/$`, remote entry (build-time and runtime), types and stubs, `getAccountingApiBaseUrl` + trusted origin, strings, CSP, `useRemoteVersions` — refs: AC-8.1, AC-3.6, AC-3.9 — deps: none
+- [x] T32: shell — register Accounting: `ToolId`/`TOOLS` (last in the main list), Sidebar icon `list-ordered`, gated `/accounting/$`, remote entry (build-time and runtime), types and stubs, `getAccountingApiBaseUrl` + trusted origin, strings, CSP, `useRemoteVersions` — refs: AC-8.1, AC-3.6, AC-3.9 — deps: none
   - touch: `shell/src/lib/tools.ts`, `shell/src/lib/tools.test.ts`, `shell/src/components/Sidebar.tsx`, `shell/src/components/Sidebar.test.tsx`, `shell/src/router.tsx`, `shell/src/router.accounting.test.tsx`, `shell/src/strings.ts`, `shell/src/lib/session.ts`, `shell/src/lib/session.test.ts`, `shell/src/lib/runtimeRemotes.ts`, `shell/src/lib/runtimeRemotes.test.ts`, `shell/src/federation/*`, `shell/src/federation/__stubs__/*`, `shell/src/hooks/useRemoteVersions.ts`, `shell/src/components/AboutModal.test.tsx`, `shell/vite.config.ts`, `shell/vitest.config.ts`, `shell/vercel.json`, `shell/src/vite-env.d.ts`
   - agent: frontend-dev · frontend
   - Details: plan § Components (shell) and design UX-14 and G1. `ACCOUNTING_REMOTE_URL` defaults to
@@ -604,7 +604,7 @@ Derived from these committed files:
 
 ## RUI — refund-ui
 
-- [ ] T33: refund-ui — copy additions (en + it): defaults states, unavailable notes, link note, rate pending, `accounting_unavailable` sentences, the export blocker, pending count, "ask an accounting manager" — refs: AC-6.10 — deps: none
+- [x] T33: refund-ui — copy additions (en + it): defaults states, unavailable notes, link note, rate pending, `accounting_unavailable` sentences, the export blocker, pending count, "ask an accounting manager" — refs: AC-6.10 — deps: none
   - touch: `refund-ui/src/strings.ts`, `refund-ui/src/strings.test.ts`
   - agent: frontend-dev · frontend
   - Details: design § Copy keys "refund-ui: added, changed". Removals wait for T38: the moved
@@ -612,7 +612,7 @@ Derived from these committed files:
   - done when: `pnpm test src/strings.test.ts` is green (parity), and every added key of design § Copy
     keys exists (a listing test).
 
-- [ ] T34: refund-ui — Settings: two views (General, Default classification), `AccountingSettingsView` → `DefaultsSettingsView` by `git mv` without the catalog cards, `ExchangeRatesView` removed, `AccountingLinkNote` — refs: AC-4.6 — deps: T33
+- [x] T34: refund-ui — Settings: two views (General, Default classification), `AccountingSettingsView` → `DefaultsSettingsView` by `git mv` without the catalog cards, `ExchangeRatesView` removed, `AccountingLinkNote` — refs: AC-4.6 — deps: T33
   - touch: `refund-ui/src/pages/SettingsPage.tsx`, `refund-ui/src/pages/SettingsPage.test.tsx`, `refund-ui/src/pages/settings/*`, `refund-ui/src/components/AccountingLinkNote.tsx`, `refund-ui/src/components/AccountingLinkNote.test.tsx`
   - agent: frontend-dev · frontend
   - Details:
@@ -626,7 +626,7 @@ Derived from these committed files:
     "LedgerAccountsCard\|VatCodesCard\|ExchangeRatesCard" refund-ui/src` lists only those components'
     own files.
 
-- [ ] T35: refund-ui — Default classification card and dialogs: number/code values, states (`StatusBadge` per UX-18), unavailable banner with Retry and `aria-disabled` Change (UX-19, UX-23), 503 and 422 in the dialogs; `CatalogSelect` and `useActiveCatalogOptions` on `/accounting/options` — refs: AC-4.4, AC-4.5, AC-4.7, AC-6.9, AC-6.10 — deps: T34
+- [x] T35: refund-ui — Default classification card and dialogs: number/code values, states (`StatusBadge` per UX-18), unavailable banner with Retry and `aria-disabled` Change (UX-19, UX-23), 503 and 422 in the dialogs; `CatalogSelect` and `useActiveCatalogOptions` on `/accounting/options` — refs: AC-4.4, AC-4.5, AC-4.7, AC-6.9, AC-6.10 — deps: T34
   - touch: `refund-ui/src/components/settings/ExpenseTypeDefaultsCard*.tsx`, `refund-ui/src/components/settings/DefaultClassificationDialog*.tsx`, `refund-ui/src/components/settings/ForeignCurrencyVatDialog*.tsx`, `refund-ui/src/components/settings/useActiveCatalogOptions.ts`, `refund-ui/src/components/CatalogSelect*.tsx`, `refund-ui/src/lib/accountingApi.ts`, `refund-ui/src/lib/accountingApi.test.ts`
   - agent: frontend-dev · frontend
   - Details: `accountingApi.ts` gets the new defaults, designation and options shapes; its catalog half
@@ -636,7 +636,7 @@ Derived from these committed files:
     History still opens, Retry focuses the card heading and announces the result; a 503 in a dialog
     shows the message and no options; axe is clean on every new state.
 
-- [ ] T36: refund-ui — review page: the panel on number/code values with states, rate pending, the Accounting-unavailable page banner and read-only lines, the 503 branch inside the approve dialog, the rate link from `viewer.canOpenAccountingRates` — refs: AC-4.1, AC-4.2, AC-4.3, AC-4.9, AC-5.2, AC-5.6, AC-6.1, AC-6.5, AC-6.10, AC-7.3 — deps: T35
+- [x] T36: refund-ui — review page: the panel on number/code values with states, rate pending, the Accounting-unavailable page banner and read-only lines, the 503 branch inside the approve dialog, the rate link from `viewer.canOpenAccountingRates` — refs: AC-4.1, AC-4.2, AC-4.3, AC-4.9, AC-5.2, AC-5.6, AC-6.1, AC-6.5, AC-6.10, AC-7.3 — deps: T35
   - touch: `refund-ui/src/components/LineClassificationPanel*.tsx`, `refund-ui/src/pages/ReviewDetailPage.tsx`, `refund-ui/src/pages/ReviewDetailPage.test.tsx`
   - agent: frontend-dev · frontend
   - Details:
@@ -652,7 +652,7 @@ Derived from these committed files:
     - the rate link only with the flag;
     - axe is clean.
 
-- [ ] T37: refund-ui — export card: the `accountingUnavailable` blocker, `missingRates[].reason`, the pending count, the AC-7.3 link from `viewer.canOpenAccountingRates`, the quiet re-read after a download; `accountingExportApi` no longer imports `exchangeRatesApi` — refs: AC-5.6, AC-6.6, AC-6.7, AC-7.3 — deps: T33
+- [x] T37: refund-ui — export card: the `accountingUnavailable` blocker, `missingRates[].reason`, the pending count, the AC-7.3 link from `viewer.canOpenAccountingRates`, the quiet re-read after a download; `accountingExportApi` no longer imports `exchangeRatesApi` — refs: AC-5.6, AC-6.6, AC-6.7, AC-7.3 — deps: T33
   - touch: `refund-ui/src/components/AccountingExportCard*.tsx`, `refund-ui/src/lib/accountingExportApi.ts`, `refund-ui/src/lib/accountingExportApi.test.ts`, `refund-ui/src/pages/BatchDetailPage.test.tsx`
   - agent: frontend-dev · frontend
   - Details: design RS6 and UX-22. Links are plain `<a className="link">` (UX-17).
@@ -665,7 +665,7 @@ Derived from these committed files:
     - `grep exchangeRatesApi refund-ui/src/lib/accountingExportApi.ts` is empty;
     - axe is clean.
 
-- [ ] T38: refund-ui — cleanup after the moves: remove the moved components' copy keys, the catalog half of `accountingApi.ts`, the unused parts of `catalogLabels.ts` — refs: none (cleanup; AC-4.6 regression) — deps: T29, T30, T31, T35, T36, T37
+- [x] T38: refund-ui — cleanup after the moves: remove the moved components' copy keys, the catalog half of `accountingApi.ts`, the unused parts of `catalogLabels.ts` — refs: none (cleanup; AC-4.6 regression) — deps: T29, T30, T31, T35, T36, T37
   - touch: `refund-ui/src/strings.ts`, `refund-ui/src/strings.test.ts`, `refund-ui/src/lib/accountingApi.ts`, `refund-ui/src/lib/accountingApi.test.ts`, `refund-ui/src/lib/catalogLabels.ts`, `refund-ui/src/lib/catalogLabels.test.ts`
   - agent: frontend-dev · frontend
   - done when: `pnpm lint && pnpm test && pnpm build` is green; no `settings.accounts`,
@@ -674,13 +674,13 @@ Derived from these committed files:
 
 ## OPS — e2e, plumbing, infra docs, docs, changesets
 
-- [ ] T39: repo plumbing for local dev: `mise.toml` (dev, dev:web, dev:preview, db:migrate with accounting-api :8089 and accounting-ui :5183, `VITE_ACCOUNTING_API_URL` default), `compose.yaml` (`accounting-api` service, DB `accounting`) — refs: none (dev environment) — deps: T4, T26
+- [x] T39: repo plumbing for local dev: `mise.toml` (dev, dev:web, dev:preview, db:migrate with accounting-api :8089 and accounting-ui :5183, `VITE_ACCOUNTING_API_URL` default), `compose.yaml` (`accounting-api` service, DB `accounting`) — refs: none (dev environment) — deps: T4, T26
   - touch: `mise.toml`, `compose.yaml`
   - agent: orchestrator · release
   - done when: `mise tasks` lists the updated tasks; `docker compose config` validates; `mise run
     dev`'s script text names both new processes (checked by reading, not by running the stack).
 
-- [ ] T40: e2e — global setup (accounting-api health pre-check, `seed:welld-ch`, then Refund's release; `E2E_SKIP_ACCOUNTING_SEED`), `helpers/accountingFixtures.ts`, `refundFixtures.ts` on natural keys — refs: AC-7.5 — deps: T3, T14, T22, T39
+- [x] T40: e2e — global setup (accounting-api health pre-check, `seed:welld-ch`, then Refund's release; `E2E_SKIP_ACCOUNTING_SEED`), `helpers/accountingFixtures.ts`, `refundFixtures.ts` on natural keys — refs: AC-7.5 — deps: T3, T14, T22, T39
   - touch: `shell/e2e/global-setup.ts`, `shell/e2e/helpers/accountingFixtures.ts`, `shell/e2e/helpers/refundFixtures.ts`, `shell/playwright.config.ts`
   - agent: qe · e2e
   - Details: fixtures `createLedgerAccount`, `createVatCode`, `setRate`, `uniqueAccountNumber`,
@@ -689,7 +689,7 @@ Derived from these committed files:
   - done when: `cd shell && pnpm exec tsc -p tsconfig.e2e.json --noEmit` and eslint on the three
     files are clean; `pnpm exec playwright test --list` runs (the live run is T51).
 
-- [ ] T41: e2e — `accounting.spec.ts` (manager journey, keyboard dialog, real-browser axe light/dark, en/it) and `accounting-access.spec.ts` (reader, CH-only manager, non-holder, admin switcher and WellD Italia empty/no-source) — refs: AC-1.1, AC-1.3, AC-1.9, AC-2.4, AC-3.1, AC-3.4, AC-3.5, AC-3.6, AC-8.1, AC-8.2, AC-8.4 — deps: T2, T13, T29, T30, T31, T32, T40
+- [x] T41: e2e — `accounting.spec.ts` (manager journey, keyboard dialog, real-browser axe light/dark, en/it) and `accounting-access.spec.ts` (reader, CH-only manager, non-holder, admin switcher and WellD Italia empty/no-source) — refs: AC-1.1, AC-1.3, AC-1.9, AC-2.4, AC-3.1, AC-3.4, AC-3.5, AC-3.6, AC-8.1, AC-8.2, AC-8.4 — deps: T2, T13, T29, T30, T31, T32, T40
   - touch: `shell/e2e/accounting.spec.ts`, `shell/e2e/accounting-access.spec.ts`
   - agent: qe · e2e
   - Details: plan § e2e and design § Accessibility layer 2 (`axeViolations(page, 'main')`). Grants
@@ -697,14 +697,14 @@ Derived from these committed files:
   - done when: static checks as T40, and `playwright test --list` lists both specs (the live run is
     T51).
 
-- [ ] T42: e2e — adapt `refund-accounting-settings.spec.ts` (T31 of 20261118) and `refund-accounting.spec.ts` (T32 of 20261118): defaults among Accounting entries, no Accounts/VAT or Rates view, the link note, a deactivated default; correct the March rate in Accounting and export `10.40;0.9246;9.62`; a rate-pending line copied at export — refs: AC-4.4, AC-4.5, AC-4.6, AC-5.5, AC-5.6, AC-7.2, AC-7.3 — deps: T19, T20, T21, T35, T36, T37, T40
+- [x] T42: e2e — adapt `refund-accounting-settings.spec.ts` (T31 of 20261118) and `refund-accounting.spec.ts` (T32 of 20261118): defaults among Accounting entries, no Accounts/VAT or Rates view, the link note, a deactivated default; correct the March rate in Accounting and export `10.40;0.9246;9.62`; a rate-pending line copied at export — refs: AC-4.4, AC-4.5, AC-4.6, AC-5.5, AC-5.6, AC-7.2, AC-7.3 — deps: T19, T20, T21, T35, T36, T37, T40
   - touch: `shell/e2e/refund-accounting-settings.spec.ts`, `shell/e2e/refund-accounting.spec.ts`
   - agent: qe · e2e
   - done when: static checks as T40; `playwright test --list` lists both; no reference to refund-api's
     removed routes remains in `shell/e2e` (`grep -r "exchange-rates\|ledger-accounts" shell/e2e`
     shows only accounting-api URLs).
 
-- [ ] T43: infra docs (document only, never deploy): `infra/README.md` accounting-api section and release runbook, `infra/check.sh`, `.railway/railway.ts` block without `source`, env-doctor manifest and templates — refs: none (release plumbing) — deps: T13, T23
+- [x] T43: infra docs (document only, never deploy): `infra/README.md` accounting-api section and release runbook, `infra/check.sh`, `.railway/railway.ts` block without `source`, env-doctor manifest and templates — refs: none (release plumbing) — deps: T13, T23
   - touch: `infra/README.md`, `infra/check.sh`, `.railway/railway.ts`, `tools/env-doctor/manifest.ts`, `tools/env-doctor/templates/production/accounting-api.env`, `tools/env-doctor/templates/production/refund-api.env`, `tools/env-doctor/*.test.ts`
   - agent: orchestrator · release
   - Details:
@@ -986,3 +986,43 @@ tasks share an edge or a path, except the declared `lerna.json` line-level touch
 - The ACC pre-move work (T4–T7) runs alongside REF.
 - To shorten the path, T8–T12 can start as soon as T23 merges. The moved code is already tested, so
   the risk is in the adaptation, not in the move.
+
+## Implementation notes (reconciled 2026-11-19)
+
+Each track ran in its own worktree and was integrated by rebase + fast-forward; checkboxes are
+reconciled here centrally. No merge collisions; `lerna.json` (T4/T26) and
+`.github/workflows/changeset-check.yml` (T4 added accounting-api, the orchestrator added
+accounting-ui at integration) were the accepted shared edits.
+
+Files touched outside a task's `touch:` list, as reported by the dev agents:
+
+- T4: `.github/workflows/changeset-check.yml`, `scripts/check-shared-copies.test.ts`.
+- T16: `scripts/accounting-release.test.ts`, `src/accounting/numbering.repo.test.ts`,
+  `src/accounting/classification.race.test.ts` (refund-api; the DB lock is now asserted on the copy
+  columns).
+- T19/T20: `refund-api/src/accounting/legacyFk.ts` (interim, deleted in T23),
+  `export.routes.test.ts`, `scripts/accounting-release.test.ts`, `lifecycle.routes.test.ts`.
+- T23: `refund-api/src/fx/fx.service.ts`, `fx.routes.ts` (singletons removed so tsc passes without
+  REFUND_FX_SOURCE).
+- T26: `accounting-ui/src/federation/__stubs__/*`; T32: `shell/src/index.css` (@source),
+  `shell/src/italian.test.tsx`, `shell/src/lib/noHardcodedStrings.test.ts`,
+  `shell/public/runtime-config.example.json`.
+- T29–T31: page tests and `lib/formatVatRate.test.ts` in accounting-ui; T28's `router.test.tsx`,
+  `App.test.tsx`. T31's move needed `refund-ui/src/pages/settings/ExchangeRatesView.tsx` removed
+  (dead file left by T34); the permission system refused the deletion to the dev agents, and the
+  owner approved the orchestrator doing it (commit 144e28b2).
+- T34–T37: `refund-ui/src/router.tsx`, `lib/catalogLabels.ts`, `lib/statusMeaning.ts`;
+  T38: `DefaultsSettingsView.test.tsx`, `SettingsViews.test.tsx`, `lib/statusMeaning.ts`.
+- T8–T11: `accounting-api/src/health/health.test.ts` and `test-support/testAuth.ts` (harness fix:
+  mocks installed on import); `refund-api/src/fx/fx.routes*.ts` and `fx.schemas.ts` deleted rather
+  than moved (T12 rebuilt the rates routes from them), `refund-api/src/lib/db.fx-fetched-once.test.ts`
+  rewritten (deleted in T24). T10 and T11 share one move commit.
+- T12: `accounting-api/src/catalog/catalog.routes.test.ts`; T14: `accounting-api/Dockerfile`
+  (`COPY scripts`).
+- T24: five refund-api test files whose fixtures used the dropped columns.
+- T40–T42: `shell/e2e/helpers/accountingFixtures.ts` grew helpers for T41/T42; accounting-ui's e2e
+  preview port is 5185 (5183 is projects-ui's e2e port).
+
+The migration chain declared by the architect (T16 adds and carries, T24 drops) replaces the
+plan's single migration; T16 and T24 are `20261119120000_accounting_copies` and
+`20261119130000_accounting_reference_moved_out`.
