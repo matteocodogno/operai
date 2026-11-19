@@ -11,7 +11,7 @@ The suite already has a design system (`@operai/ui`) and Accounting is a new too
 
 Decisions are numbered `UX-n`, each with its reason and the cost of reversing it. Everything the plan or spec has to answer is under **Gaps found** at the end.
 
-> **Status and sync.** `status: draft` is deliberate: design is ungated in this flow, and nothing approves this file. Everything before that section describes the design as intended; **the section "Implementation sync (2026-11-19)" at the end reconciles it with what was built** (states added by the fix round, differences, new keys) and says plainly that no browser accessibility pass of the Accounting screens has run yet (owner step T51). Where the two disagree, the sync records what the code does.
+> **Status and sync.** `status: draft` is deliberate: design is ungated in this flow, and nothing approves this file. Everything before that section describes the design as intended; **the section "Implementation sync (2026-11-19)" at the end reconciles it with what was built** (states added by the fix round, differences, new keys) and says plainly that no browser accessibility pass of the Accounting screens has run yet (owner step T51). Where the two disagree, the sync records what the code does. **The section "Sign-off round sync (2026-11-19)", after it, does the same for the accounting sign-off round (T58 to T82). What that round retired or changed is marked "(retired 2026-11-19, sign-off)" or "(changed 2026-11-19, sign-off)" where it stands, and the browser pass is still pending (owner steps T51 and T81, no result claimed).**
 
 ## Decisions
 
@@ -64,7 +64,7 @@ Ids: **FA** = Accounting app, **FR** = Refund. Each flow names its story and acc
 4. There is no edit control anywhere and no delete (AC-1.12): the row has only Deactivate or Reactivate.
 
 **FA4 — Add a VAT code** (AC-1.5, AC-1.6, AC-1.7)
-Same shape as FA3. Fields: code (upper-cased when the field loses focus), label, rate in percent (`MoneyInput`, dot or comma, 0 to 100, 2 decimals). The dialog says the rate cannot be changed later. A duplicate is case-insensitive (`imp81` when `IMP81` exists) and names the code; if the existing one is deactivated the message points to Reactivate (AC-1.6). The list has no edit control: the rate is read-only text.
+Same shape as FA3. Fields: code (upper-cased when the field loses focus), label, rate in percent (`MoneyInput`, dot or comma, 0 to 100, 2 decimals). The dialog says the rate cannot be changed later. A duplicate is case-insensitive (`imp81` when `IMP81` exists) and names the code; if the existing one is deactivated the message points to Reactivate (AC-1.6). The list has no edit control: the rate is read-only text. **(changed 2026-11-19, sign-off)** The duplicate example is `ipm81` when `IPM81` exists: the register's "IMP81" was a misspelling (spec E3).
 
 **FA5 — Deactivate or reactivate** (AC-1.4, AC-1.8, AC-1.9, AC-1.10, AC-1.11)
 1. **Deactivate** → `ConfirmDialog` (UX-7), default focus Cancel. Confirm → the badge turns *Inactive*, the action turns into **Reactivate**, a success banner confirms, focus moves to the row header (the pressed button is gone).
@@ -94,25 +94,25 @@ A write that returns 403 `accounting_manage_required` re-reads `/v1/me`; the wri
 ### Refund
 
 **FR1 — Open Settings** (AC-4.5, AC-4.6, AC-6.9)
-Settings has **General** (mileage rates and the distribution email, untouched) and, with `settings:read`, **Default classification**. No Accounts and VAT, no Exchange rates. The Default classification view starts with the Accounting link note: with Accounting in the person's `apps` a link "Open Accounting"; without, the name of the app and "kept … by accounting managers". Each of the twelve types shows its default account (number and name) and VAT code, or **None**; the foreign-currency VAT code is shown above them.
+Settings has **General** (mileage rates and the distribution email, untouched) and, with `settings:read`, **Default classification**. No Accounts and VAT, no Exchange rates. The Default classification view starts with the Accounting link note: with Accounting in the person's `apps` a link "Open Accounting"; without, the name of the app and "kept … by accounting managers". Each of the twelve types shows its default account (number and name) and VAT code, or **None**; the foreign-currency VAT code is shown above them. **(retired 2026-11-19, sign-off)** There are fourteen types, each with its default account or **None**; there is no VAT column and no foreign-currency VAT code (see the sync).
 
 **FR2 — A default points to something that changed** (AC-4.5)
-A default whose account or VAT code was deactivated in Accounting, or is no longer there, carries a badge in its cell (UX-18) and counts in one card-level note: "N defaults need a new choice …". It counts as no default for new classifications. **Change** opens the dialog with that half on "Choose…" and the sentence that lines of the type get no default until a new one is chosen.
+A default whose account or VAT code was deactivated in Accounting, or is no longer there, carries a badge in its cell (UX-18) and counts in one card-level note: "N defaults need a new choice …". It counts as no default for new classifications. **Change** opens the dialog with that half on "Choose…" and the sentence that lines of the type get no default until a new one is chosen. **(retired 2026-11-19, sign-off)** The VAT code half: only the account of a default can be unusable now.
 
-**FR3 — Change a default or the designation** (AC-4.3, AC-4.4, AC-4.7)
-Dialog with the two selects of **active WellD CH** entries (options read live from Accounting through Refund, whether or not the admin holds an Accounting capability), plus "None". Save disabled until something differs. 422 (the entry was deactivated, or is not found, while the dialog was open) → field error and the options reload. 503 → the AC-6.10 message and no options. History drawer: who, when, and the number and name or code **as they were at the time**, so it reads the same whatever happens in Accounting (AC-4.7).
+**FR3 — Change a default or the designation **(retired 2026-11-19, sign-off)**** (AC-4.3, AC-4.4, AC-4.7)
+Dialog with the two selects of **active WellD CH** entries (options read live from Accounting through Refund, whether or not the admin holds an Accounting capability), plus "None". Save disabled until something differs. 422 (the entry was deactivated, or is not found, while the dialog was open) → field error and the options reload. 503 → the AC-6.10 message and no options. History drawer: who, when, and the number and name or code **as they were at the time**, so it reads the same whatever happens in Accounting (AC-4.7). **(changed 2026-11-19, sign-off)** There is no designation: the dialog has one select (active WellD CH accounts and "None"), 422 is `ledger_account_inactive` / `ledger_account_not_found` only, and the drawer has no VAT column.
 
 **FR4 — Accounting cannot be read while Settings is open** (AC-6.9)
-Default classification opens: each default and the designation are shown as recorded, one warning banner says Accounting cannot be read, Change is `aria-disabled` with its reason, History still works. Retry reads again; on success the banner goes, focus returns to the card heading and "Accounting can be read again." is announced (UX-23).
+Default classification opens: each default and the designation **(retired 2026-11-19, sign-off)** are shown as recorded, one warning banner says Accounting cannot be read, Change is `aria-disabled` with its reason, History still works. Retry reads again; on success the banner goes, focus returns to the card heading and "Accounting can be read again." is announced (UX-23).
 
 **FR5 — Review and classify** (AC-4.1, AC-4.2, AC-4.3, AC-4.9, AC-5.2, AC-6.5)
-As in F5 and F6 of 20261118, with these differences: options are Accounting's active WellD CH entries; a stored copy whose entry has since been deactivated or is gone stays selected, marked, and the line keeps it; a default that is no longer usable reads as missing **with the reason**; when Accounting cannot be read there are no selects, the line's values read as recorded and one page banner says why; a WellD Italia line has no panel and no copy (AC-4.9). A refused change (422 deactivated / not found, 503) reverts the select and says why under it.
+As in F5 and F6 of 20261118, with these differences: options are Accounting's active WellD CH entries; a stored copy whose entry has since been deactivated or is gone stays selected, marked, and the line keeps it; a default that is no longer usable reads as missing **with the reason**; when Accounting cannot be read there are no selects, the line's values read as recorded and one page banner says why; a WellD Italia line has no panel and no copy (AC-4.9). A refused change (422 deactivated / not found, 503) reverts the select and says why under it. **(changed 2026-11-19, sign-off)** Only an account can be a default and read as missing; the VAT select offers None and has no default marker (see the sync).
 
 **FR6 — Approve** (AC-5.1, AC-5.6, AC-6.1 to AC-6.4, AC-6.10)
-`classification_missing` is unchanged (page-level `ErrorSummary`, UX-5 of 20261118). **New:** 503 `accounting_unavailable` stays in the approve dialog (UX-21), nothing changes (AC-6.2). A request with no non-rejected WellD CH line approves with Accounting down (AC-6.4), so no new state appears for it. A foreign-currency line approved with no rate in effect is accepted and shows **Rate pending** afterwards (UX-20).
+`classification_missing` is unchanged (page-level `ErrorSummary`, UX-5 of 20261118). **(changed 2026-11-19, sign-off)** It names accounts only: "Nothing was approved. N lines need an account." **New:** 503 `accounting_unavailable` stays in the approve dialog (UX-21), nothing changes (AC-6.2). A request with no non-rejected WellD CH line approves with Accounting down (AC-6.4), so no new state appears for it. A foreign-currency line approved with no rate in effect is accepted and shows **Rate pending** afterwards (UX-20).
 
 **FR7 — Export** (AC-5.4, AC-5.6, AC-6.6, AC-6.7, AC-7.3)
-As F9 of 20261118, plus: Ready and Blocked show "N lines get their exchange rate at this export" when above zero; a batch whose lines all hold copies exports with Accounting down and shows nothing about Accounting (AC-5.4); a pending line with Accounting unreachable is blocked with its own heading, not as a missing rate (AC-6.6); a missing rate links to the month in Accounting for a person who holds Accounting read for WellD CH, and otherwise says to ask an accounting manager (AC-7.3).
+As F9 of 20261118, plus: Ready and Blocked show "N lines get their exchange rate at this export" when above zero; a batch whose lines all hold copies exports with Accounting down and shows nothing about Accounting (AC-5.4); a pending line with Accounting unreachable is blocked with its own heading, not as a missing rate (AC-6.6); a missing rate links to the month in Accounting for a person who holds Accounting read for WellD CH, and otherwise says to ask an accounting manager (AC-7.3). **(changed 2026-11-19, sign-off)** The file is an Excel workbook ("Download Excel file", `.xlsx`) and the unclassified list names accounts only (see the sync).
 
 **FR8 — Release** (AC-7.4, AC-7.5) has no screen. Its result reaches the user only as `accounting_release_pending` (unchanged) and as `classification_missing` refusals naming lines (AC-7.5).
 
@@ -204,7 +204,7 @@ Card "Exchange rates — {entity}": a description naming the base currency ("CHF
 ```
 Exchange rates — WellD CH                                       [ Fetch now ]
 CHF for 1 unit of the foreign currency, monthly average. Other modules convert at these rates.
-Source: Official monthly average of the Swiss Federal Office for Customs and Border Security (BAZG)
+Source: Official monthly average of the Swiss Federal Office for Customs and Border Security (BAZG)   <- (changed 2026-11-19, sign-off) now the AFC/ESTV text, see the sync
 Last fetch: 19.11.2026 09:14 — succeeded
 
  Month           EUR                     USD                    GBP
@@ -258,26 +258,27 @@ All are `FormDialog` (focus on the first field, Enter submits, Escape and × can
 
 ### RS2 — Default classification view (`ExpenseTypeDefaultsCard`)
 
-Head: the Accounting link note. Then the card of 20261118 S4 (foreign-currency VAT code as one fact with Change and History, then the twelve-row table), with these changes. Entries are shown as **number — name** and **code — label (rate)**, from Refund's recorded copies; Accounting's current state is added on top (UX-18).
+Head: the Accounting link note. Then the card of 20261118 S4 (foreign-currency VAT code as one fact with Change and History, then the twelve-row table) **(retired 2026-11-19, sign-off)** That description is superseded: the card is one account column over fourteen types, with no VAT column and no designation fact. The rows below are the changes that stand. Entries are shown as **number — name** and **code — label (rate)**, from Refund's recorded copies; Accounting's current state is added on top (UX-18).
 
 | State | What the user sees |
 |---|---|
 | Link note, with Accounting in `apps` | "Ledger accounts, VAT codes and exchange rates are kept in the Accounting app." and a link **Open Accounting**. |
 | Link note, without | "Ledger accounts, VAT codes and exchange rates are kept in the Accounting app by accounting managers. Ask one of them if an entry is missing." No link. |
 | Loading / failed / denied | As 20261118 S4 (the card leaves itself out on 403: Settings has other views). |
-| Loaded, all usable | Twelve rows; **None** is real text where no default exists. |
-| An entry deactivated | Its half shows the value plus a `StatusBadge voided` "Deactivated in Accounting". |
-| An entry not found | The value plus `StatusBadge attention` "Not found in Accounting". |
-| At least one unusable default or designation | A static warning note (`live="off"`, with an `aria-label`) above the table: "N defaults need a new choice: their entry is deactivated or no longer in Accounting. Lines of those types get no default until you choose another." N counts types with an unusable half plus the designation if it is unusable. The foreign-currency fact says the same for itself ("{code} is deactivated … " or "… is no longer in Accounting, so foreign-currency lines get no VAT code until you designate another."). |
-| **Accounting unavailable** (AC-6.9) | One warning `Banner` (`live="polite"`, not dismissible, with Retry): "Accounting cannot be read now. The defaults are shown as recorded. You cannot change them until Accounting can be read." Entries show as recorded with **no** state badge (`unverified`). **Change** (types and designation) is `aria-disabled` and described by "Accounting cannot be read now, so defaults cannot be changed."; **History** works. |
+| Loaded, all usable | Twelve rows **(retired 2026-11-19, sign-off)** (fourteen now, one account column); **None** is real text where no default exists. |
+| An entry deactivated | Its half shows the value plus a `StatusBadge voided` "Deactivated in Accounting". **(changed 2026-11-19, sign-off)** The account only; there is no other half. |
+| An entry not found | The value plus `StatusBadge attention` "Not found in Accounting". **(changed 2026-11-19, sign-off)** The account only. |
+| At least one unusable default or designation | A static warning note (`live="off"`, with an `aria-label`) above the table: "N defaults need a new choice: their entry is deactivated or no longer in Accounting. Lines of those types get no default until you choose another." N counts types with an unusable half plus the designation if it is unusable **(retired 2026-11-19, sign-off)** for the designation: N counts types with an unusable account only. The foreign-currency fact **(retired 2026-11-19, sign-off)** says the same for itself ("{code} is deactivated … " or "… is no longer in Accounting, so foreign-currency lines get no VAT code until you designate another."). |
+| **Accounting unavailable** (AC-6.9) | One warning `Banner` (`live="polite"`, not dismissible, with Retry): "Accounting cannot be read now. The defaults are shown as recorded. You cannot change them until Accounting can be read." Entries show as recorded with **no** state badge (`unverified`). **Change** (types, and the designation **(retired 2026-11-19, sign-off)**) is `aria-disabled` and described by "Accounting cannot be read now, so defaults cannot be changed."; **History** works. |
 | Recovered | Banner gone, focus on the card heading, "Accounting can be read again." announced (UX-23); still failing: "Accounting still cannot be read." |
 
 ### RS3 — Default dialogs (deltas to 20261118 S6c, S6d)
 
+- S6d, the foreign-currency VAT dialog, is **(retired 2026-11-19, sign-off)** and its component is deleted; S6c is one select (the account) **(changed 2026-11-19, sign-off)**.
 - Options come from `GET /accounting/options`, keyed by number or code.
 - A saved half that is deactivated or not found makes its select start on "Choose…" with the sentence "The current account is deactivated (or: is no longer in Accounting). Choose another, or none." Save stays disabled until a real choice is made, so a default is never cleared by accident.
 - **Options unavailable (503):** inside the dialog, an alert with the settings sentence (cause and remedy), no options, Save disabled, and a ghost **Try again** that reads the options again.
-- 422 `ledger_account_inactive` / `vat_code_inactive` → "That account has been deactivated. Choose another."; 422 `…_not_found` → "That account is no longer in Accounting. Choose another."; the options reload.
+- 422 `ledger_account_inactive` / `vat_code_inactive` **(retired 2026-11-19, sign-off)** for `vat_code_*` here, which this dialog no longer sends (they remain on the line panel's VAT select) → "That account has been deactivated. Choose another."; 422 `…_not_found` → "That account is no longer in Accounting. Choose another."; the options reload.
 
 ### RS4 — Review page: page note and classification panel (deltas to 20261118 S7)
 
@@ -289,13 +290,13 @@ Panel states, **new or changed only** (everything else of S7 stands, including S
 |---|---|
 | Editable, a stored copy whose entry was deactivated | Select shows "{number — name} (deactivated)" as a disabled selected option and the hint "This account is deactivated in Accounting. The line keeps it; choose an active one to change it." (VAT code likewise). |
 | Editable, a stored copy whose entry is not found | "(not in Accounting)" and "This account is no longer in Accounting. The line keeps it; choose another to change it." |
-| **A default that is no longer usable** (the type's default deactivated or not found; no hand copy) | The select reads as **Missing** (placeholder "Choose an account", `Required to approve.` replaced by the reason): "The default account for this type is deactivated in Accounting. Choose one." / "… is no longer in Accounting. Choose one." Approving without it is refused as `classification_missing` (AC-6.3), as today. |
-| **Accounting unavailable** (AC-6.5) | The read-only group (no selects) with the values as recorded, each marked **Default (as recorded)** or **Set by hand**, a "—" where nothing is recorded, and the sentence "Accounting cannot be read now, so this classification cannot be changed." (`role="status"`, `tabIndex=-1`). |
+| **A default that is no longer usable** (the type's default deactivated or not found; no hand copy) **(changed 2026-11-19, sign-off)** The account only: a VAT code is never a default. | The select reads as **Missing** (placeholder "Choose an account", `Required to approve.` replaced by the reason): "The default account for this type is deactivated in Accounting. Choose one." / "… is no longer in Accounting. Choose one." Approving without it is refused as `classification_missing` (AC-6.3), as today. |
+| **Accounting unavailable** (AC-6.5) | The read-only group (no selects) with the values as recorded, each marked **Default (as recorded)** or **Set by hand** **(changed 2026-11-19, sign-off)** (only the account carries a marker; a line with no VAT code reads "None"), a "—" where nothing is recorded, and the sentence "Accounting cannot be read now, so this classification cannot be changed." (`role="status"`, `tabIndex=-1`). |
 | Selects while options load | Disabled with the existing "Loading classification…" line; if the options call answers 503 the panel turns into the unavailable state above and the page banner appears. |
 | Change refused: 503 | The select reverts, an alert under it says "Accounting's reference data cannot be read right now. The classification was not changed. Try again in a few minutes." and the page reloads the accounting view. |
 | Change refused: 422 not found | The select reverts; "That account is no longer in Accounting. Choose another."; options reload. |
-| Foreign line, **before approval**, no rate in effect | Exchange-rate fact: `StatusBadge attention` "No rate yet" + "No EUR rate for March 2026 yet. You can still approve: the rate is copied at the first export."; CHF and VAT amounts "—". (Replaces "The CHF and VAT amounts need it".) |
-| Foreign line, **approved**, no copied rate | `StatusBadge attention` **"Rate pending"** + "No EUR rate for March 2026 yet. It is copied at the first accounting export of the batch." CHF and VAT amounts "—" (never 0). |
+| Foreign line, **before approval**, no rate in effect | Exchange-rate fact: `StatusBadge attention` "No rate yet" + "No EUR rate for March 2026 yet. You can still approve: the rate is copied at the first export."; CHF and VAT amounts "—". (Replaces "The CHF and VAT amounts need it".) **(changed 2026-11-19, sign-off)** The VAT amount is "—" only for a line that has a VAT code; with none it reads "No VAT code, so no VAT amount." |
+| Foreign line, **approved**, no copied rate | `StatusBadge attention` **"Rate pending"** + "No EUR rate for March 2026 yet. It is copied at the first accounting export of the batch." CHF and VAT amounts "—" (never 0). **(changed 2026-11-19, sign-off)** The VAT amount as in the row above. |
 | Foreign line, rate known | "0.9246 · March 2026", CHF and VAT amounts as built. Before approval a hint says the amounts follow the approved total and the rate as they stand now and are fixed at approval; **after** approval: "Account, VAT code and rate are kept as booked. Later changes in Accounting do not change this line." (AC-5.3, UX-20.) |
 | Rate help link | With Accounting read for WellD CH (the server's `viewer.canOpenAccountingRates`, Gaps G8) the help ends in "Open exchange rates" (a plain link to `/accounting/exchange-rates?entity=welld_ch&month=…`); otherwise "Ask an accounting manager to enter or fetch it." (closes A-8 of 20261118 and replaces "administrator"). |
 | Paid batch | Unchanged: read-only, lock icon, "Locked: its batch has been paid." A line whose rate is still pending in a paid batch shows "Rate pending" read-only; it is resolved at export, not here. |
@@ -305,11 +306,13 @@ Panel states, **new or changed only** (everything else of S7 stands, including S
 | State | What the user sees |
 |---|---|
 | `accounting_unavailable` (503) | The dialog stays open with `role="alert"`: "Accounting's reference data cannot be read right now. Nothing was approved. Try again in a few minutes." Approve stays available. Nothing else changes on the page (AC-6.2). Focus returns to the confirm button when the busy state ends (A-4 of 20261118, still open). |
-| `classification_missing` | Unchanged: page-level `ErrorSummary`, focus on the first missing select. A line whose default became unusable is one of the items; the panel's own hint says why. |
+| `classification_missing` | Unchanged **(changed 2026-11-19, sign-off)** except that it names accounts only, "Nothing was approved. N lines need an account.": page-level `ErrorSummary`, focus on the first missing select. A line whose default became unusable is one of the items; the panel's own hint says why. |
 | `accounting_release_pending` | Unchanged. |
 | Request with no non-rejected WellD CH line | Unchanged: no Accounting, no new state (AC-6.4). |
 
 ### RS6 — Accounting export card (deltas to 20261118 S10)
+
+**(changed 2026-11-19, sign-off)** The file is an Excel workbook and the button reads "Download Excel file"; the rows below name where that shows.
 
 | State | What the user sees |
 |---|---|
@@ -318,7 +321,7 @@ Panel states, **new or changed only** (everything else of S7 stands, including S
 | Blocked: **Accounting cannot be read** (AC-6.6) | Inside the same warning blocked banner: heading "Accounting cannot be read" and "The exchange rates of lines with a pending rate cannot be fetched. You can still pay or discard this batch. Check again in a few minutes." No missing-rate list. **Check again** retries; Download is `aria-disabled` with the blocked reason. Never shown as a missing rate. |
 | Blocked: missing rates (AC-6.7) | As built: each currency and month, plus the reason when the summary carries one ("not published yet" / "the official source did not answer" / "no official source", Gaps G7). With `viewer.canOpenAccountingRates` each item has **Open exchange rates** (plain link to Accounting at that month); otherwise one sentence "Ask an accounting manager to enter or fetch it." |
 | Blocked: sentence about a fetch | "Accounting just tried to fetch the missing rates from the official source." (was "Refund"; only when the summary says it tried, Gaps G10). |
-| Blocked, unclassified lines / unnumbered lines | Unchanged. |
+| Blocked, unclassified lines / unnumbered lines | Unchanged **(changed 2026-11-19, sign-off)** except that the unclassified list names accounts only, "Lines without an account". |
 | Downloaded | Success banner "Export downloaded: 12 rows." then the summary is read again quietly; the "N lines get their rate" sentence is gone once the rates are copied. |
 | Became blocked while downloading (409 `accounting_export_blocked`) | As built, now also for `accountingUnavailable`. |
 | Out of scope / discarded / loading / load failed / no file | Unchanged. |
@@ -371,7 +374,7 @@ Library in use: **`@operai/ui`** (the suite's shared library, `operai-ui/`, ADR 
 | 34 | `lib/limits.ts` | client mirror of `accounting-api` `catalog/limits.ts` and the rate bounds | **N** — one place for the numbers the dialogs check (D31). |
 | 35 | `test-support/axe.ts` (+ `axe.test.tsx`) | refund-ui's helper | C — see Accessibility. |
 
-**Not moved, and why:** `ExpenseTypeDefaultsCard`, `DefaultClassificationDialog`, `ForeignCurrencyVatDialog`, `useActiveCatalogOptions` are Refund's own rules (defaults and designation stay in Refund, spec Relationship). `ChangeHistoryDrawer` stays: the defaults and the designation use it (AC-4.7); its exchange-rate use disappears with UX-8. `CatalogSelect` stays: the line panel and the defaults dialogs use it, now keyed by number and code. `RateInEffectBadge` stays (mileage rates). `ErrorBanner`, `SuccessBanner`, `ConfirmDeleteModal` stay: other refund-ui screens use them. accounting-ui does **not** copy these three adapters; it uses `Banner` and `ConfirmDialog` directly through `LoadState` and `Saved`, as letterheads-ui does.
+**Not moved, and why:** `ExpenseTypeDefaultsCard`, `DefaultClassificationDialog`, `ForeignCurrencyVatDialog` **(retired 2026-11-19, sign-off)** (the file is deleted), `useActiveCatalogOptions` are Refund's own rules (defaults and designation stay in Refund, spec Relationship). `ChangeHistoryDrawer` stays: the defaults and the designation use it (AC-4.7); its exchange-rate use disappears with UX-8. `CatalogSelect` stays: the line panel and the defaults dialogs use it, now keyed by number and code. `RateInEffectBadge` stays (mileage rates). `ErrorBanner`, `SuccessBanner`, `ConfirmDeleteModal` stay: other refund-ui screens use them. accounting-ui does **not** copy these three adapters; it uses `Banner` and `ConfirmDialog` directly through `LoadState` and `Saved`, as letterheads-ui does.
 
 **Reuse ratio, accounting-ui: 18 library : 8 moved : 5 small copies : 4 NEW** (the shell, the entity switch with its hook, the three thin pages counted as one, `limits.ts`). Every NEW piece is composition or one constant module; no NEW visual component, token or icon.
 
@@ -382,7 +385,7 @@ Library in use: **`@operai/ui`** (the suite's shared library, `operai-ui/`, ADR 
 | Settings views | `SettingsPage` (two `Tabs`), `AccountingSettingsView` renamed `DefaultsSettingsView` (the plan's name) without the two catalog cards; `ExchangeRatesView` deleted | R (change) |
 | Link note | `AccountingLinkNote`: a `<p className="text-sm text-soft">` and an `<a className="link">`, reading `apps` from `usePermissions()` | **N** — one sentence, two variants; nothing in the library is a "see elsewhere" note. |
 | Defaults card | `ExpenseTypeDefaultsCard`: state `StatusBadge`s, the needs-a-new-choice note (`Banner live="off"`), the unavailable `Banner` with Retry, `aria-disabled` Change with a description | R (change) |
-| Default dialogs | `DefaultClassificationDialog`, `ForeignCurrencyVatDialog`, `useActiveCatalogOptions`: number/code values, 503 state with Try again, not-found sentences | R (change) |
+| Default dialogs | `DefaultClassificationDialog`, `ForeignCurrencyVatDialog` **(retired 2026-11-19, sign-off)**, `useActiveCatalogOptions`: number/code values, 503 state with Try again, not-found sentences | R (change) |
 | Select | `CatalogSelect`: `value` is a number or code; `current` carries `state` | R (change) |
 | Line panel | `LineClassificationPanel`: the new states of RS4 | R (change) |
 | Review page | `ReviewDetailPage`: the page note (`Banner`) and the 503 branch of the approve error switch; carries FU-S7 (A-1 of 20261118) unchanged | R (change) |
@@ -472,7 +475,7 @@ Entity names are the same in both languages (proper names, as `refund-ui` `badge
 | `fx.title(entity)` / `caption(entity)` | `Exchange rates — ${entity}` / `${entity} monthly average exchange rates` | `Tassi di cambio — ${entity}` / `Tassi di cambio medi mensili di ${entity}` |
 | `fx.description(own)` | `${own} for 1 unit of the foreign currency, monthly average. Other modules convert at these rates.` | `${own} per 1 unità di valuta estera, media mensile. Gli altri moduli convertono con questi tassi.` |
 | `fx.noSource.title(entity)` / `body` | `No official source for ${entity} yet` / Exchange rates are not fetched or kept for this entity yet. They will be added when its source is chosen. | `Ancora nessuna fonte ufficiale per ${entity}` / I tassi di cambio di questa entità non vengono ancora recuperati né conservati. Saranno aggiunti quando verrà scelta la fonte. |
-| `fx.source.term` / `bazg` | Source / Official monthly average of the Swiss Federal Office for Customs and Border Security (BAZG) | Fonte / Media mensile ufficiale dell’Ufficio federale della dogana e della sicurezza dei confini (UDSC) |
+| `fx.source.term` / `bazg` **(changed 2026-11-19, sign-off)** (the `bazg` text, see the sync, section 2) | Source / Official monthly average of the Swiss Federal Office for Customs and Border Security (BAZG) | Fonte / Media mensile ufficiale dell’Ufficio federale della dogana e della sicurezza dei confini (UDSC) |
 | `fx.loading` / `loadError` | Loading exchange rates… / Could not load the exchange rates. | Caricamento dei tassi di cambio… / Impossibile caricare i tassi di cambio. |
 | `fx.empty.title` / `body` | No months to show yet / No completed month has rates to show. | Ancora nessun mese da mostrare / Nessun mese concluso ha tassi da mostrare. |
 | `fx.columns.month` | Month | Mese |
@@ -511,8 +514,8 @@ Entity names are the same in both languages (proper names, as `refund-ui` `badge
 | `settings.defaults.recovered` / `stillUnavailable` | Accounting can be read again. / Accounting still cannot be read. | Contabilità è di nuovo leggibile. / Contabilità non è ancora leggibile. |
 | `settings.defaults.dialog.notFoundCurrent(what)` | `The current ${what} is no longer in Accounting. Choose another, or none.` | `Il valore attuale (${what}) non è più presente in Contabilità. Sceglierne un altro, oppure nessuno.` |
 | `settings.defaults.dialog.tryAgain` | Try again | Riprova |
-| `settings.defaults.errors.accountNotFound` / `vatNotFound` | That account is no longer in Accounting. Choose another. / That VAT code is no longer in Accounting. Choose another. | Questo conto non è più presente in Contabilità. Sceglierne un altro. / Questo codice IVA non è più presente in Contabilità. Sceglierne un altro. |
-| `settings.defaults.foreign.notFoundWarning(code)` | `${code} is no longer in Accounting, so foreign-currency lines get no VAT code until you designate another.` | `${code} non è più presente in Contabilità: le righe in valuta estera non hanno un codice IVA finché non se ne designa un altro.` |
+| `settings.defaults.errors.accountNotFound` / `vatNotFound` **(retired 2026-11-19, sign-off)** (for `vatNotFound`) | That account is no longer in Accounting. Choose another. / That VAT code is no longer in Accounting. Choose another. | Questo conto non è più presente in Contabilità. Sceglierne un altro. / Questo codice IVA non è più presente in Contabilità. Sceglierne un altro. |
+| `settings.defaults.foreign.notFoundWarning(code)` **(retired 2026-11-19, sign-off)** | `${code} is no longer in Accounting, so foreign-currency lines get no VAT code until you designate another.` | `${code} non è più presente in Contabilità: le righe in valuta estera non hanno un codice IVA finché non se ne designa un altro.` |
 | `settings.accounts.*`, `settings.vatCodes.*`, `settings.fx.*`, `settings.history.rateColumn/originColumn` | removed (moved or dropped) | removed |
 | `accountingUnavailable.cause` | Accounting's reference data cannot be read right now. | I dati di riferimento di Contabilità non sono leggibili in questo momento. |
 | `accountingUnavailable.approve` | Accounting's reference data cannot be read right now. Nothing was approved. Try again in a few minutes. | I dati di riferimento di Contabilità non sono leggibili in questo momento. Non è stato approvato nulla. Riprovare tra qualche minuto. |
@@ -524,8 +527,8 @@ Entity names are the same in both languages (proper names, as `refund-ui` `badge
 | `…classification.defaultRecorded` | Default (as recorded) | Predefinito (come registrato) |
 | `…classification.notFoundOption(text)` | `${text} (not in Accounting)` | `${text} (non presente in Contabilità)` |
 | `…classification.inactiveCurrentAccount` / `inactiveCurrentVat` (reworded), `notFoundCurrentAccount` / `notFoundCurrentVat` | This account is deactivated in Accounting. The line keeps it; choose an active one to change it. / This account is no longer in Accounting. The line keeps it; choose another to change it. (VAT code likewise) | Questo conto è disattivato in Contabilità. La riga lo mantiene; sceglierne uno attivo per cambiarlo. / Questo conto non è più presente in Contabilità. La riga lo mantiene; sceglierne un altro per cambiarlo. (codice IVA analogo) |
-| `…classification.defaultDeactivated(what)` / `defaultNotFound(what)` | `The default ${what} for this type is deactivated in Accounting. Choose one.` / `…is no longer in Accounting. Choose one.` with `what` = account / VAT code | `Il ${what} predefinito di questo tipo è disattivato in Contabilità. Sceglierne uno.` / `…non è più presente in Contabilità. Sceglierne uno.` with conto / codice IVA |
-| `…classification.defaultWhat.account` / `vatCode` *(added in the sync)* | account / VAT code | conto / codice IVA |
+| `…classification.defaultDeactivated(what)` / `defaultNotFound(what)`; for `what` = VAT code **(retired 2026-11-19, sign-off)** | `The default ${what} for this type is deactivated in Accounting. Choose one.` / `…is no longer in Accounting. Choose one.` with `what` = account / VAT code | `Il ${what} predefinito di questo tipo è disattivato in Contabilità. Sceglierne uno.` / `…non è più presente in Contabilità. Sceglierne uno.` with conto / codice IVA |
+| `…classification.defaultWhat.account` / `vatCode` *(added in the sync)*; `vatCode` **(retired 2026-11-19, sign-off)** | account / VAT code | conto / codice IVA |
 | `…classification.inactiveOption(text)` *(added in the sync)* | `${text} (deactivated)` | `${text} (disattivato)` |
 | `…classification.vatOptionNoLabel(code, rate)` *(added in the sync)* | `${code} (${rate})`: a VAT code whose recorded copy has no label | identical |
 | `…classification.rateNotYet` / `rateNotYetHelp(currency, month)` | No rate yet / `No ${currency} rate for ${month} yet. You can still approve: the rate is copied at the first export.` | Ancora nessun tasso / `Ancora nessun tasso ${currency} per ${month}. Si può comunque approvare: il tasso viene copiato alla prima esportazione.` |
@@ -733,7 +736,7 @@ Two details a reviewer should not read as bugs. First, **Save is enabled for an 
 
 **3.4 ASCII-only upper-casing of the VAT code (FA4, AC-1.5)**
 
-The code field is converted to capitals **when it loses focus and again on submit**, with a function that changes `a` to `z` only (not `toUpperCase()`, which would turn `ß` into `SS`, `ſ` into `S` and `ı` into `I`, letting characters outside the alphabet in through the conversion). A character that is not `A-Z`, a digit, `_` or `-` stays **exactly as typed** (the full-width `ａ` too), the field is not rewritten, and the refusal is `codeFormat`: "Use letters, digits, - or _ only." with focus on the field and **no request sent**. The duplicate pre-check compares after the same upper-casing (`imp81` against `IMP81`). Gap G15 records that the hint and this sentence say "letters" for what is, precisely, the letters A to Z.
+The code field is converted to capitals **when it loses focus and again on submit**, with a function that changes `a` to `z` only (not `toUpperCase()`, which would turn `ß` into `SS`, `ſ` into `S` and `ı` into `I`, letting characters outside the alphabet in through the conversion). A character that is not `A-Z`, a digit, `_` or `-` stays **exactly as typed** (the full-width `ａ` too), the field is not rewritten, and the refusal is `codeFormat`: "Use letters, digits, - or _ only." with focus on the field and **no request sent**. The duplicate pre-check compares after the same upper-casing (`imp81` against `IMP81`). Gap G15 records that the hint and this sentence say "letters" for what is, precisely, the letters A to Z. **(changed 2026-11-19, sign-off)** The example codes above read `ipm81` against `IPM81` since the sign-off round.
 
 **3.5 Where the format messages appear**
 
@@ -744,8 +747,8 @@ The code field is converted to capitals **when it loses focus and again on submi
 | Screen | Verdict | What is built |
 |---|---|---|
 | RS1 Settings frame | Built | Two views; `?section=general|defaults`; the 20261118 `accounting` and `exchange-rates` values show General. |
-| RS2 Defaults card | Built, with deltas | The needs-a-new-choice note is a `Banner tone="warning" live="off"` (library `role="note"`) with `aria-label` "Defaults that need a new choice" (`needsChoiceLabel`, new key). N **counts the designation** when it is unusable. The foreign-currency fact also has **its own** static warning banner when its code is deactivated or not found, in addition to the card-level count. A recovered Retry announces "Accounting can be read again." and focuses the heading; a Retry whose next answer is an error announces "still cannot be read" even when the error is Refund's own load failure rather than Accounting's (the card shows its own load banner then). |
-| RS3 Default dialogs | Built, with deltas | A one-line note ("Lines of this type get no default until you choose another.") heads the dialog when either half is deactivated or not found, **in addition to** the per-field hint. The 503 inside a dialog is a warning `Banner` (library `role="alert"`) with a ghost **Try again**; **a non-503 options failure is a separate load-error banner with Retry** (not designed). A 403 on the options read shows "You don't have permission…" as the dialog error. Save is disabled until a real choice is made on a half that reads "Choose…". |
+| RS2 Defaults card | Built, with deltas | The needs-a-new-choice note is a `Banner tone="warning" live="off"` (library `role="note"`) with `aria-label` "Defaults that need a new choice" (`needsChoiceLabel`, new key). N **counts the designation** when it is unusable. The foreign-currency fact also has **its own** static warning banner when its code is deactivated or not found, in addition to the card-level count. **(retired 2026-11-19, sign-off)** The designation and the foreign-currency fact are gone. A recovered Retry announces "Accounting can be read again." and focuses the heading; a Retry whose next answer is an error announces "still cannot be read" even when the error is Refund's own load failure rather than Accounting's (the card shows its own load banner then). |
+| RS3 Default dialogs | Built, with deltas | A one-line note ("Lines of this type get no default until you choose another.") heads the dialog when either half is deactivated or not found, **in addition to** the per-field hint. **(changed 2026-11-19, sign-off)** There is one half now, the account. The 503 inside a dialog is a warning `Banner` (library `role="alert"`) with a ghost **Try again**; **a non-503 options failure is a separate load-error banner with Retry** (not designed). A 403 on the options read shows "You don't have permission…" as the dialog error. Save is disabled until a real choice is made on a half that reads "Choose…". |
 | RS4 Line panel | Built | A deactivated or not-found stored value is a disabled selected option with the hint; a type default that is unusable (before approval, not set by hand) reads as Missing with the reason. **Read-only** lines mark a deactivated value "(deactivated)" and a missing one "(not in Accounting)" in the text, and give **no hint**. Rate help ends in "Open exchange rates" (plain link, month of the rate or of the line) only when `viewer.canOpenAccountingRates`. After approval the "kept as booked" sentence shows in the editable and read-only panels, but not in a paid (locked) batch and not while Accounting cannot be read. |
 | RS4 Page banner | Built | One warning banner with `live="polite"` (so `role="status"`) and Retry; an options 503 raises it too. Retry focuses the "Lines" heading once, announces the result. |
 | RS5 Approve | Built | 503 sentence in the dialog; `classification_missing` unchanged. Focus return to the confirm button after the busy state (A-4 of 20261118) was **not part of T36's diff and not re-verified**; treat it as still open. |
@@ -755,7 +758,7 @@ The code field is converted to capitals **when it loses focus and again on submi
 
 ### 5. Copy keys
 
-The accounting-ui catalog has the keys of the original table plus **12 more**, which the strings test lists with reasons (`EXTRA_KEYS`); all 12 are now rows of the table above, marked *added in the sync*: `accounts.errors.nameFormat`, `accounts.errors.catalogFull`, `vatCodes.errors.labelFormat`, `vatCodes.errors.catalogFull` (T56, with Italian), `common.readOnlyWhat.{accounts,vatCodes,rates}`, `common.loadErrorTitle`, `common.networkError`, `common.unknownError`, `vatCodes.columns.{status,actions}`. refund-ui gained rows for `settings.defaults.needsChoiceLabel`, `…classification.defaultWhat.{account,vatCode}`, `…classification.inactiveOption`, `…classification.vatOptionNoLabel` and `…accountingExport.blocked.rateItemReason`. A scripted comparison of the English column of both tables and the Italian column of the accounting-ui table against the two `strings.ts` files found every sentence present word for word (the only differences were abbreviations in the table, such as "…is already deactivated"); the Italian column of the refund-ui table was not compared by script. English/Italian parity and the no-hard-coded-copy scan are tests of the two apps, which this sync did not run.
+The accounting-ui catalog has the keys of the original table plus **12 more**, which the strings test lists with reasons (`EXTRA_KEYS`); all 12 are now rows of the table above, marked *added in the sync*: `accounts.errors.nameFormat`, `accounts.errors.catalogFull`, `vatCodes.errors.labelFormat`, `vatCodes.errors.catalogFull` (T56, with Italian), `common.readOnlyWhat.{accounts,vatCodes,rates}`, `common.loadErrorTitle`, `common.networkError`, `common.unknownError`, `vatCodes.columns.{status,actions}`. refund-ui gained rows for `settings.defaults.needsChoiceLabel`, `…classification.defaultWhat.{account,vatCode}` (`vatCode` **(retired 2026-11-19, sign-off)**), `…classification.inactiveOption`, `…classification.vatOptionNoLabel` and `…accountingExport.blocked.rateItemReason`. A scripted comparison of the English column of both tables and the Italian column of the accounting-ui table against the two `strings.ts` files found every sentence present word for word (the only differences were abbreviations in the table, such as "…is already deactivated"); the Italian column of the refund-ui table was not compared by script. English/Italian parity and the no-hard-coded-copy scan are tests of the two apps, which this sync did not run.
 
 ### 6. Test hooks, ports and the e2e
 
@@ -774,6 +777,8 @@ Unchanged in substance. accounting-ui holds the 5 NEW rows of the inventory (she
 - Screen-reader output (what a live region or a focus move actually says) is not covered by any of the four checks below and remains unverified.
 
 #### Browser accessibility pass (pending, owner step T51)
+
+*Added by the sign-off round sync: the live evidence of T51 is renewed for the round as owner step **T81** (`tasks.md`), and the Refund states the round changed are an extra item of this pass (sync, section 8). Both steps are open. **No result is recorded here and none is claimed.***
 
 T51's "done when" records the result in a section of this file named **Browser accessibility pass**. **This is that section, still empty of results.** When the pass is run, rename this heading with its date and fill the tables; until then nothing below is a finding. The pass must check exactly:
 
@@ -794,3 +799,136 @@ T51's "done when" records the result in a section of this file named **Browser a
 ### 10. Closure of earlier gaps, UI side only
 
 G1 (icon): closed, `list-ordered`, no library change. G2 (`TabNav`): closed in the code; whether plan.md's bullet says `Tabs` is for the architect. G3 (garbage versus uncovered entity): closed in `resolveEntity`. G5 (fetch response shape): the card reads `attempts[].recorded`, `deferredMonths` and the outcomes `ok`, `failed`, `disabled`, `throttled`, `not_fetchable`; whether the API sends exactly that is for its tests. G7, G8b, G9, G10: the UI reads `reason` on a missing rate, `viewer.canOpenAccountingRates` on the export summary and the review view, the duplicate's `reactivate` flag (with the loaded list as fallback), and the `fetchTried` sentence. G4, G6, G11 to G14: no change from the text above (G14's A-1 to A-3 are designed in or tested per QE; A-4 stays open, see RS5).
+
+
+## Sign-off round sync (2026-11-19)
+
+Written on 2026-11-19 by the designer agent, working unattended, to close the design-fidelity finding of eval round 2 (`eval-report.md`, "Round 2 (T79)": design fidelity 2, below its floor of 3). The accounting sign-off round (tasks T58 to T82, from `1aaa81c0` at 20:30; the amendment of 2026-11-19 in `spec.md`, AC-2.1, AC-2.12, AC-7.6; `plan.md` "Accounting sign-off delta") came after the "Implementation sync" above (written against `0b000570`), and no design file followed it. This section reconciles this file with the code at HEAD `2facb68d` of `feat/accounting-module`, read as `git diff ef805983..HEAD` over `accounting-ui/src` and `refund-ui/src` (`ef805983` is the commit of the Implementation sync above, which touched no refund-ui file), plus the full text of the changed refund-ui files listed in the companion section. **Nothing was run**: no dev server, no browser, no test suite, no screenshot; the visual companion was not enabled, so there are no mockups. This section records what is built; it changes no decision and approves nothing.
+
+> **Status.** `status: draft` stays: design is ungated in this flow and nothing approves this file. **Where this section and the text above disagree, this section describes what is built.** The text above carries "(retired 2026-11-19, sign-off)" or "(changed 2026-11-19, sign-off)" next to what the round retired or changed. **No browser accessibility result exists for any state this section describes.** The browser pass is still pending, owner step **T81** (the renewal of T51's live evidence for the round) together with T51's section below, "Browser accessibility pass (pending, owner step T51)", which is still empty of results; this file claims none.
+
+Key: **Built** = as designed. **Changed** = built differently from the text above. **Retired** = designed above, gone. **New** = built, no earlier entry. **Unverified** = depends on something only a browser (or a re-run) can show.
+
+### 1. Who describes what
+
+| Area | Described in full | Cross-referenced from |
+|---|---|---|
+| accounting-ui (AS1 to AS7): the rates card's Source text, the VAT code example, what the signed-off seed shows in the lists | **this file** | `specs/20261118-refund-accounting-export/design.md` § "Sign-off round sync", section 1 |
+| The Refund screens as screens (Settings defaults card and dialogs, review panel, approve refusal, export card, the add-line form's split-receipt hint, the 14 expense-type labels, the refund-ui copy keys) | `specs/20261118-refund-accounting-export/design.md` § "Sign-off round sync", sections 2 to 6 | RS2 to RS6 here keep the Accounting-reference-data states of the same screens (deactivated, not found, unreadable, rate pending); sections 3 and 4 below reconcile each state row with the code and point to that description |
+
+### 2. accounting-ui: what the round changed
+
+The whole diff of `accounting-ui/src` since the Implementation sync is one commit (`2919f032`, T66) and four files: two values of `strings.ts`, one code comment in `AddVatCodeDialog.tsx`, and two test files. No component, route, state or key was added or removed.
+
+| Screen | Verdict | What is built |
+|---|---|---|
+| AS5 Exchange rates, the **Source** fact | **Changed** | The fact names the authority, then the channel. EN: **"Monthly average rates for VAT of the Swiss Federal Tax Administration (AFC/ESTV), served by the BAZG"**. IT: **"Corsi medi mensili IVA dell’Amministrazione federale delle contribuzioni (AFC), forniti dall’UDSC"**. It shows only for an entity with a source (WellD CH) and replaces "Official monthly average of the Swiss Federal Office for Customs and Border Security (BAZG)" (wireframe above, and the copy-key row). The key is still `fx.source.bazg` (G20). The e2e spec asserts the English sentence and the Italian prefix; it was never executed (T81). |
+| AS4 VAT codes, AS6b Add VAT code, FA4, §3.4 | **Changed** (text of the example) | The example of a duplicate that differs only in case is **`ipm81` against `IPM81`**, not `imp81` against `IMP81`: the register's "IMP81" was a misspelling, IPM81 is the code (spec E3). No UI sentence carries the example (the code hint reads "Letters, digits, - and _ (up to 16). Saved in capitals."); it lives in the dialog's code comment and in the tests, which now use IPM81. `VatCodesCard.test.tsx` still uses `IMP81` as a fixture value, harmless test data. |
+| AS3 and AS4 on first use | **Changed** (what the lists contain) | With the signed-off seed loaded (`seed:welld-ch`, AC-7.6) WellD CH is no longer empty: 19 ledger accounts (the 15 of the draft and 5902, 5903, 6501 and 2620.1) and 6 VAT codes: **IPM81** 8.1 %, **IPM77** 7.7 %, **IP00** 0 %, **BZM81** 8.1 % (reverse charge), **IPM26** 2.6 % and **IPM38** 3.8 % (the last two are provisional names, spec E3). The "Nothing entered yet for WellD CH" state of AS3 and AS4 applies only to an environment that was not seeded. WellD Italia stays empty. The seed's labels are the operator's until accounting confirms them. |
+| AS1, AS2, AS5 (everything but Source), AS6a, AS6c, AS6d, AS7 | Built | Unchanged. |
+
+**UX-24 (new). The Source fact names the authority first and the channel second.** Why: spec E5 and AC-2.1 name the Swiss Federal Tax Administration (AFC/ESTV) as the reference; the BAZG's endpoint is only how the figures are obtained (plan SO-21). Crediting the customs office alone would name the wrong publisher on the one fact a reader checks. The Italian uses "AFC" only, the Italian abbreviation; English gives both. Cost to change: low (two strings).
+
+### 3. Refund flows FR1 to FR8: reconciled
+
+| Flow | Verdict | What is built |
+|---|---|---|
+| FR1 Open Settings | **Changed** | Fourteen types, each with its default account (number and name) or **None**; no VAT column, no foreign-currency VAT code above the table. The link note and the two views are as built. |
+| FR2 A default points to something that changed | Changed, narrower | Only the account of a default can be deactivated or not found; the card-level count is of types. |
+| FR3 Change a default (the designation is **retired**) | **Changed** | One select (accounts and "None"); no designation flow. 422 is `ledger_account_inactive` / `ledger_account_not_found`. |
+| FR4 Accounting cannot be read while Settings is open | Built | Without the designation. |
+| FR5 Review and classify | **Changed** | Options are still Accounting's active entries; the VAT select offers **None** and has no default marker; a deactivated or lost stored copy stays as a disabled selected option; only an account can be a default and read as Missing with a reason. |
+| FR6 Approve | **Changed** | `classification_missing` names accounts only: "Nothing was approved. N lines need an account."; `accounting_unavailable` and Rate pending are as built. A line with no VAT code is approved. |
+| FR7 Export | **Changed** | "Download Excel file", an `.xlsx` from `…/accounting-export/file`; the unclassified list is "Lines without an account"; the Accounting-cannot-be-read blocker, the pending-rate sentence and the missing-rate links are as built. |
+| FR8 Release | Built | No screen. |
+
+### 4. Refund screens RS1 to RS7: state by state
+
+The full description of each screen is in the 20261118 file's sync (S4, S6c, S7, S8, S10, S11). Here is each row of the tables above, with its verdict.
+
+**RS1 — Settings frame.** Built. Two views; `?section=general|defaults`. The page description is "The mileage rates and the default classification of expense types."
+
+**RS2 — Default classification view.**
+
+| State (row of RS2) | Verdict | Note |
+|---|---|---|
+| Link note, with / without Accounting in `apps` | Built | |
+| Loading / failed / denied | Built | |
+| Loaded, all usable | **Changed** | Fourteen rows; one account column; **None** is real text. |
+| An entry deactivated / not found | Changed | The account only; "Its half" is "its account". |
+| At least one unusable default or designation | **Changed** | The static warning (`live="off"`, `aria-label` "Defaults that need a new choice") counts **types** with an unusable account. The designation and the foreign-currency fact are retired. |
+| Accounting unavailable | Changed | One polite warning banner with Retry; Change on the types is `aria-disabled` with its reason; History works. Nothing about a designation. |
+| Recovered | Built | |
+| The foreign-currency VAT code fact, its Change, History and warning | **Retired** | |
+
+**RS3 — Default dialogs.** One dialog now (S6d is retired). The options come from `GET /accounting/options`, keyed by number. A saved account that is deactivated or not found starts the select on "Choose…" with the hint and a one-line note ("Lines of this type get no default until you choose another."); Save stays disabled until a real choice is made. Options unavailable (503): alert inside the dialog, no options, ghost **Try again**, Save disabled; any other options failure is a load-error banner with Retry. 422 `ledger_account_inactive` / `…_not_found` → "That account has been deactivated…" / "That account is no longer in Accounting…" and the options reload. `vat_code_inactive` and `vat_code_not_found` are no longer refusals of this dialog (they remain on the line panel's VAT select). Built, narrowed.
+
+**RS4 — Review page: page note and classification panel.**
+
+| State (row of RS4) | Verdict | Note |
+|---|---|---|
+| Page banner, Accounting cannot be read; Retry focus | Built | |
+| Editable, a stored copy deactivated / not found | Built | For the VAT copy too: it stays a disabled selected option; **None** and active codes stay selectable. |
+| A default that is no longer usable | **Changed** | Account only. A VAT code is never a default, so it is never "Missing". |
+| Accounting unavailable (read-only group) | **Changed** | Only the account carries a marker ("Default (as recorded)" or "Set by hand"); the VAT row is the code or **None**, no marker. |
+| Selects while options load; change refused (503, 422) | Built | |
+| Foreign line, before approval, no rate; approved, rate pending | **Changed** | "No rate yet" and "Rate pending", the help sentences and the CHF amount "—" are as built. The **VAT amount** is "—" only for a line that has a VAT code and no CHF amount; a line with no code reads "No VAT code, so no VAT amount." |
+| Foreign line, rate known | Built | |
+| Rate help link; paid batch | Built | |
+| **New** | New | The VAT select can be set back to **None**; the panel announces "VAT code cleared" (20261118 sync, S7). |
+
+**RS5 — Approve dialog and refusals.** `accounting_unavailable` in the dialog, `accounting_release_pending`, the no-CH-line case: Built. `classification_missing`: **Changed**, account-only title, hint and rows (20261118 sync, UX-18); A-4 (focus return to the confirm button) is still open, unverified.
+
+**RS6 — Accounting export card.**
+
+| State (row of RS6) | Verdict | Note |
+|---|---|---|
+| Ready; Ready with all lines copied and Accounting down | Built | The button reads "Download Excel file". |
+| Blocked: Accounting cannot be read; missing rates (with reasons and links); the fetch sentence | Built | |
+| Blocked, unclassified lines / unnumbered lines | **Changed** | "Lines without an account"; items "…: no account". |
+| Downloaded; became blocked; out of scope, discarded, loading, load failed | Built | The file is an `.xlsx`. |
+| The card description | **Changed** | Says "Excel file". It also says the file carries a VAT code "when the line has one", which AC-6.2 contradicts: SG-4 of the 20261118 sync. |
+
+**RS7 — Everything else in Refund.** Built, plus **one new surface**: the add-line form shows the split-receipt hint for a WellD CH line (20261118 sync, S11). The employee's own request pages still show no account, VAT code, VAT amount or exchange-rate state: the hint names none of them (AC-3.10 holds).
+
+### 5. Decisions UX-1 to UX-23: the ones the round touched
+
+| # | Verdict | What the code does |
+|---|---|---|
+| UX-9 | Built, with UX-24 | The Source fact names the AFC/ESTV. |
+| UX-16 | Built, narrower | The Default classification view has the link note and the account card only. |
+| UX-18 | Built | The vocabulary applies to accounts only. |
+| UX-19 | Built | One banner; Change on the types. |
+| UX-20 | Built | Unchanged; the VAT amount reads as in RS4. |
+| UX-22 | Built, changed | The export card downloads an Excel file; the blockers are as in RS6. |
+| UX-23 | Built | Anchors unchanged. |
+| The rest | Built, untouched | |
+
+### 6. Component inventory
+
+accounting-ui: no change, no new component. refund-ui: **`ForeignCurrencyVatDialog` is deleted** (the "Default dialogs" row is now `DefaultClassificationDialog` and `useActiveCatalogOptions`); `CatalogSelect` is used by the VAT select with a `noneLabel`; `ExpenseLineComposer` uses the `hint` that `Field` already has; `ExpenseTypeDefaultsCard`, `LineClassificationPanel`, `AccountingExportCard` and the approve-refusal in `ReviewDetailPage` are changed in place. **Nothing is NEW.** Reuse ratios stand: accounting-ui 18 library : 8 moved : 5 copies : 4 NEW; refund-ui 9 : 1; whole feature 40 : 5.
+
+### 7. Copy keys
+
+**accounting-ui** (`src/strings.ts`): no key added or removed; **one key changed in value, in both languages** (`fx.source.bazg`, section 2). The copy-key table above is marked at that row. The 12 keys the module sync added are unchanged.
+
+**refund-ui** (`src/strings.ts`): the full added, removed and changed tables are in `specs/20261118-refund-accounting-export/design.md`, "Sign-off round sync", section 4. The rows of the table above that the round retired or changed are marked in place: `settings.defaults.errors.vatNotFound`, `settings.defaults.foreign.notFoundWarning(code)`, `…classification.defaultDeactivated(what)` / `defaultNotFound(what)` (`what` is only the account), `…classification.defaultWhat.vatCode`. Added by the round and not in the table above: `settings.defaults.descriptionAccountOnly`, `pages.requestDetail.composer.splitReceiptHint`, `…classification.vatNone`, `savedVatNone`, `vatAmountNone`, `…missingSummary.titleAccounts(n)`, `hintAccounts`, `…accountingExport.descriptionExcel`, `downloadExcel`, `…blocked.unclassifiedAccounts`.
+
+### 8. Accessibility
+
+- **Claimed: nothing from a browser.** No contrast measurement, 320 px reflow check, real tab-order walk, screen-reader run or browser axe run has been made for the Accounting screens or for the Refund states changed by the round. Owner step T81 (and T51's section below) is where a result goes; until then every statement here about the new states is a reading of the code.
+- **Accounting screens.** The round changed one string (the Source value) and nothing structural, so the module sync's notes stand: the fact is a `FactList` term and value, text only. The jsdom axe calls of `ExchangeRatesCard.test.tsx` cover the rates card, including the facts (four lines of that test changed for the new text). The real-browser axe variants of `accounting.spec.ts` and `accounting-access.spec.ts` are unchanged by the round and have never been executed. The new e2e assertions about the Source text and the seed are text checks, not accessibility checks.
+- **What is not known.** The new Source value is a little longer in English (100 characters against 91) and about as long in Italian (97 against 95). How a long value wraps in the facts list at 320 px in either language is **unverified**; add it to item 2 of the pending pass.
+- **Refund states changed by the round** (defaults card and dialog on 14 types, the VAT select on None, the account-only summary, the Excel card, the composer hint): jsdom axe coverage and the open questions are listed in the 20261118 sync, section 5. In short: jsdom axe is run on each (the composer hint on 2 states, the panel and the review page on every classification state, the defaults card and dialog on every state, the export card on 20 call sites), with `color-contrast`, `region`, `landmark-one-main` and `page-has-heading-one` off; the real-browser axe calls of the refund e2e specs cover none of the composer hint, the VAT select on None, the account-only summary or the ready Excel card.
+- **To add to the pending pass above:** a fifth item, "the Refund states of the sign-off round": the composer at 320 px in Italian with the hint, and with the Entity chosen after the Amount (SG-1); focus after choosing None for a VAT code and after a refused clear; the account-only refused-approval summary; the ready and blocked Excel card in both themes and both languages; a real download of the `.xlsx` opened in Excel or Numbers (T81). Findings go into the section "Browser accessibility pass", as before.
+- **Task names.** `tasks.md` has two owner steps for this: T51 (live e2e and the browser pass, recorded in this file) and T81 (the same live evidence renewed for the round, recorded in `qe-report.md`). Both are open.
+
+### 9. Gaps found in the sync
+
+| # | In | Gap | Proposed answer |
+|---|---|---|---|
+| G19 | AS3, AS4, e2e databases | A database seeded before the sign-off holds the draft VAT codes **IMP81**, **IMP77** and **NOVAT** as active entries (entries are never edited or deleted, AC-1.12). They sit beside IPM81, IPM77 and IP00 in the VAT list and in every select until a manager deactivates them. A production database is seeded once with the signed-off list and does not have them. | No UI change. For a development or e2e database, deactivate the three (a deactivated code can no longer be chosen, AC-1.8) or reseed. The e2e fixtures already never rely on them. |
+| G20 | `accounting-ui/src/strings.ts` | The key `fx.source.bazg` holds the AFC/ESTV text. Its name credits the channel, not the authority. | Rename to `fx.source.afc` with the two language rows and the tests that read it; low value, low risk, not made here. |
+| G21 | spec E3, AS4 | The names IPM26 and IPM38 are provisional until accounting confirms them. Because entries are immutable, a wrong name cannot be edited: the code can only be deactivated and a new one added. The list shows the provisional names as if confirmed. | Confirm the names at T80 (accounting's answers) **before** the release seeds production; after that the only remedy is deactivate and add. No UI change. |
+
+G15 to G18 of the module sync are unchanged. The sign-off round did not close or open any other gap in this file's list.
