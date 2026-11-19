@@ -73,6 +73,20 @@ const en = {
     monthlyProcessing: 'Monthly processing',
     settings: 'Settings',
   },
+  /**
+   * Accounting's reference data is read through refund-api; when it cannot be read, each refusal says the
+   * cause and the remedy and what stayed (specs/20261119-accounting, AC-6.10, UX-21). No address, identifier or
+   * internal text.
+   */
+  accountingUnavailable: {
+    cause: "Accounting's reference data cannot be read right now.",
+    approve: "Accounting's reference data cannot be read right now. Nothing was approved. Try again in a few minutes.",
+    classify:
+      "Accounting's reference data cannot be read right now. The classification was not changed. Try again in a few minutes.",
+    save: "Accounting's reference data cannot be read right now. Nothing was saved. Try again in a few minutes.",
+    options:
+      "Accounting's reference data cannot be read right now, so there is nothing to choose from. Try again in a few minutes.",
+  },
   /** The Settings tab: mileage rates and the accounting distribution email (moved from Admin, 2026-11-13). */
   settings: {
     heading: 'Settings',
@@ -138,6 +152,16 @@ const en = {
       general: 'General',
       accounting: 'Accounts and VAT',
       exchangeRates: 'Exchange rates',
+      /** specs/20261119-accounting UX-16: the second Settings view. */
+      defaults: 'Default classification',
+    },
+    /** The note that heads the Default classification view (specs/20261119-accounting, AC-4.6, UX-16, UX-17). */
+    accountingLink: {
+      withAccess: 'Ledger accounts, VAT codes and exchange rates are kept in the Accounting app.',
+      linkText: 'Open Accounting',
+      linkLabel: 'Open Accounting: ledger accounts, VAT codes and exchange rates',
+      withoutAccess:
+        'Ledger accounts, VAT codes and exchange rates are kept in the Accounting app by accounting managers. Ask one of them if an entry is missing.',
     },
     /** Shared by the ledger-account, VAT-code and default-classification cards and their dialogs. */
     catalog: {
@@ -259,6 +283,23 @@ const en = {
         actions: 'Actions',
       },
       notSet: 'Not set yet',
+      /** The state of an Accounting entry a default points to (UX-18); `active` has no mark. */
+      state: {
+        deactivated: 'Deactivated in Accounting',
+        notFound: 'Not found in Accounting',
+      },
+      needsChoice: (n: number) =>
+        n === 1
+          ? '1 default needs a new choice: its entry is deactivated or no longer in Accounting. Lines of that type get no default until you choose another.'
+          : `${n} defaults need a new choice: their entry is deactivated or no longer in Accounting. Lines of those types get no default until you choose another.`,
+      /** Accounting cannot be read (AC-6.9, UX-19). */
+      unavailable: {
+        title: 'Accounting cannot be read now',
+        body: 'The defaults are shown as recorded. You cannot change them until Accounting can be read.',
+      },
+      changeBlocked: 'Accounting cannot be read now, so defaults cannot be changed.',
+      recovered: 'Accounting can be read again.',
+      stillUnavailable: 'Accounting still cannot be read.',
       changedBy: (by: string, on: string) => `${by} · ${on}`,
       change: 'Change',
       changeLabel: (type: string) => `Change the default for ${type}`,
@@ -272,6 +313,8 @@ const en = {
         chooseOption: 'Choose…',
         inactiveCurrent: (what: string) => `The current ${what} is deactivated. Choose another, or none.`,
         inactiveSentence: 'Lines of this type get no default until you choose another.',
+        notFoundCurrent: (what: string) => `The current ${what} is no longer in Accounting. Choose another, or none.`,
+        tryAgain: 'Try again',
         save: 'Save',
         busy: 'Saving…',
       },
@@ -279,6 +322,8 @@ const en = {
       errors: {
         accountInactive: 'That account has been deactivated. Choose another.',
         vatInactive: 'That VAT code has been deactivated. Choose another.',
+        accountNotFound: 'That account is no longer in Accounting. Choose another.',
+        vatNotFound: 'That VAT code is no longer in Accounting. Choose another.',
       },
       foreign: {
         term: 'VAT code for foreign-currency lines',
@@ -286,6 +331,8 @@ const en = {
         none: 'None designated',
         inactiveWarning: (code: string) =>
           `${code} is deactivated, so foreign-currency lines get no VAT code until you designate another.`,
+        notFoundWarning: (code: string) =>
+          `${code} is no longer in Accounting, so foreign-currency lines get no VAT code until you designate another.`,
         dialogTitle: 'VAT code for foreign-currency lines',
         saved: 'Foreign-currency VAT code saved',
         historyLabel: 'the foreign-currency VAT code',
@@ -751,6 +798,31 @@ const en = {
         },
         releasePending:
           'Approvals are not available yet: the accounting setup has not been completed. Ask an administrator.',
+        /** specs/20261119-accounting RS4: Accounting cannot be read (AC-6.5, UX-19). */
+        accountingUnavailablePage: {
+          title: 'Accounting cannot be read now',
+          body: 'Each line is shown as recorded. Classification cannot be changed until Accounting can be read.',
+        },
+        accountingUnavailableLine: 'Accounting cannot be read now, so this classification cannot be changed.',
+        defaultRecorded: 'Default (as recorded)',
+        notFoundOption: (text: string) => `${text} (not in Accounting)`,
+        notFoundCurrentAccount: 'This account is no longer in Accounting. The line keeps it; choose another to change it.',
+        notFoundCurrentVat: 'This VAT code is no longer in Accounting. The line keeps it; choose another to change it.',
+        /** `what` is "account" or "VAT code". */
+        defaultDeactivated: (what: string) => `The default ${what} for this type is deactivated in Accounting. Choose one.`,
+        defaultNotFound: (what: string) => `The default ${what} for this type is no longer in Accounting. Choose one.`,
+        /** The rate fact before approval (UX-20): approval is not refused for a missing rate. */
+        rateNotYet: 'No rate yet',
+        rateNotYetHelp: (currency: string, month: string) =>
+          `No ${currency} rate for ${month} yet. You can still approve: the rate is copied at the first export.`,
+        /** The rate fact after approval, with no copied rate (AC-5.6). */
+        ratePending: 'Rate pending',
+        ratePendingHelp: (currency: string, month: string) =>
+          `No ${currency} rate for ${month} yet. It is copied at the first accounting export of the batch.`,
+        frozen: 'Account, VAT code and rate are kept as booked. Later changes in Accounting do not change this line.',
+        askManager: 'Ask an accounting manager to enter or fetch it.',
+        accountUnknown: 'That account is no longer in Accounting. Choose another.',
+        vatUnknown: 'That VAT code is no longer in Accounting. Choose another.',
       },
     },
     notFound: {
@@ -899,8 +971,23 @@ const en = {
         downloading: 'Preparing file…',
         downloadLabel: (batchId: string) => `Download the accounting export of batch ${batchId}`,
         downloaded: (n: number) => `Export downloaded: ${n} rows`,
+        /** Lines whose exchange rate is copied at this export (AC-5.6, UX-22). */
+        pending: (n: number) =>
+          n === 1
+            ? '1 line gets its exchange rate at this export.'
+            : `${n} lines get their exchange rate at this export.`,
         blocked: {
           title: 'The export is blocked',
+          /** AC-6.6: its own heading inside the blocked banner, never a missing rate. */
+          unavailableTitle: 'Accounting cannot be read',
+          unavailableBody:
+            'The exchange rates of lines with a pending rate cannot be fetched. You can still pay or discard this batch. Check again in a few minutes.',
+          /** Why a rate is missing (G7), after the currency and month. */
+          rateReason: {
+            notPublished: 'not published yet',
+            fetchFailed: 'the official source did not answer',
+            noSource: 'no official source',
+          },
           intro:
             'The file cannot be produced until the items below are resolved. You can still pay or discard this batch.',
           reason: 'The export is blocked. See the items above.',
@@ -1163,6 +1250,16 @@ const it: Strings = {
     monthlyProcessing: 'Elaborazione mensile',
     settings: 'Impostazioni',
   },
+  accountingUnavailable: {
+    cause: 'I dati di riferimento di Contabilità non sono leggibili in questo momento.',
+    approve:
+      'I dati di riferimento di Contabilità non sono leggibili in questo momento. Non è stato approvato nulla. Riprovare tra qualche minuto.',
+    classify:
+      'I dati di riferimento di Contabilità non sono leggibili in questo momento. Non è stata modificata la classificazione. Riprovare tra qualche minuto.',
+    save: 'I dati di riferimento di Contabilità non sono leggibili in questo momento. Non è stato salvato nulla. Riprovare tra qualche minuto.',
+    options:
+      'I dati di riferimento di Contabilità non sono leggibili in questo momento, quindi non ci sono voci tra cui scegliere. Riprovare tra qualche minuto.',
+  },
   settings: {
     heading: 'Impostazioni',
     description: 'La tariffa chilometrica di ogni società e l’indirizzo che riceve il lotto mensile.',
@@ -1225,6 +1322,14 @@ const it: Strings = {
       general: 'Generale',
       accounting: 'Conti e IVA',
       exchangeRates: 'Tassi di cambio',
+      defaults: 'Classificazione predefinita',
+    },
+    accountingLink: {
+      withAccess: 'I conti contabili, i codici IVA e i tassi di cambio sono tenuti nell’app Contabilità.',
+      linkText: 'Apri Contabilità',
+      linkLabel: 'Apri Contabilità: conti contabili, codici IVA e tassi di cambio',
+      withoutAccess:
+        'I conti contabili, i codici IVA e i tassi di cambio sono tenuti nell’app Contabilità dai responsabili della contabilità. Se manca una voce, rivolgersi a uno di loro.',
     },
     catalog: {
       status: { active: 'Attivo', inactive: 'Disattivato' },
@@ -1352,6 +1457,21 @@ const it: Strings = {
         actions: 'Azioni',
       },
       notSet: 'Mai impostato',
+      state: {
+        deactivated: 'Disattivato in Contabilità',
+        notFound: 'Non trovato in Contabilità',
+      },
+      needsChoice: (n: number) =>
+        n === 1
+          ? '1 predefinito richiede una nuova scelta: la sua voce è disattivata o non più presente in Contabilità. Le righe di quel tipo non hanno un predefinito finché non se ne sceglie un altro.'
+          : `${n} predefiniti richiedono una nuova scelta: la loro voce è disattivata o non più presente in Contabilità. Le righe di quei tipi non hanno un predefinito finché non se ne sceglie un altro.`,
+      unavailable: {
+        title: 'Contabilità non è leggibile in questo momento',
+        body: 'I predefiniti sono mostrati come registrati. Non si possono modificare finché Contabilità non è leggibile.',
+      },
+      changeBlocked: 'Contabilità non è leggibile in questo momento: i predefiniti non si possono modificare.',
+      recovered: 'Contabilità è di nuovo leggibile.',
+      stillUnavailable: 'Contabilità non è ancora leggibile.',
       changedBy: (by: string, on: string) => `${by} · ${on}`,
       change: 'Modifica',
       changeLabel: (type: string) => `Modifica il predefinito di ${type}`,
@@ -1366,6 +1486,9 @@ const it: Strings = {
         inactiveCurrent: (what: string) =>
           `Il valore attuale (${what}) è disattivato. Sceglierne un altro, oppure nessuno.`,
         inactiveSentence: 'Le righe di questo tipo non hanno un predefinito finché non se ne sceglie un altro.',
+        notFoundCurrent: (what: string) =>
+          `Il valore attuale (${what}) non è più presente in Contabilità. Sceglierne un altro, oppure nessuno.`,
+        tryAgain: 'Riprova',
         save: 'Salva',
         busy: 'Salvataggio…',
       },
@@ -1373,6 +1496,8 @@ const it: Strings = {
       errors: {
         accountInactive: 'Questo conto è stato disattivato. Sceglierne un altro.',
         vatInactive: 'Questo codice IVA è stato disattivato. Sceglierne un altro.',
+        accountNotFound: 'Questo conto non è più presente in Contabilità. Sceglierne un altro.',
+        vatNotFound: 'Questo codice IVA non è più presente in Contabilità. Sceglierne un altro.',
       },
       foreign: {
         term: 'Codice IVA per le righe in valuta estera',
@@ -1381,6 +1506,8 @@ const it: Strings = {
         none: 'Nessuno designato',
         inactiveWarning: (code: string) =>
           `${code} è disattivato: le righe in valuta estera non hanno un codice IVA finché non se ne designa un altro.`,
+        notFoundWarning: (code: string) =>
+          `${code} non è più presente in Contabilità: le righe in valuta estera non hanno un codice IVA finché non se ne designa un altro.`,
         dialogTitle: 'Codice IVA per le righe in valuta estera',
         saved: 'Codice IVA per le valute estere salvato',
         historyLabel: 'il codice IVA per le valute estere',
@@ -1751,6 +1878,33 @@ const it: Strings = {
         },
         releasePending:
           'Le approvazioni non sono ancora disponibili: la configurazione contabile non è stata completata. Rivolgersi a un amministratore.',
+        accountingUnavailablePage: {
+          title: 'Contabilità non è leggibile in questo momento',
+          body: 'Ogni riga è mostrata come registrata. La classificazione non si può modificare finché Contabilità non è leggibile.',
+        },
+        accountingUnavailableLine:
+          'Contabilità non è leggibile in questo momento: questa classificazione non si può modificare.',
+        defaultRecorded: 'Predefinito (come registrato)',
+        notFoundOption: (text: string) => `${text} (non presente in Contabilità)`,
+        notFoundCurrentAccount:
+          'Questo conto non è più presente in Contabilità. La riga lo mantiene; sceglierne un altro per cambiarlo.',
+        notFoundCurrentVat:
+          'Questo codice IVA non è più presente in Contabilità. La riga lo mantiene; sceglierne un altro per cambiarlo.',
+        defaultDeactivated: (what: string) =>
+          `Il ${what} predefinito di questo tipo è disattivato in Contabilità. Sceglierne uno.`,
+        defaultNotFound: (what: string) =>
+          `Il ${what} predefinito di questo tipo non è più presente in Contabilità. Sceglierne uno.`,
+        rateNotYet: 'Ancora nessun tasso',
+        rateNotYetHelp: (currency: string, month: string) =>
+          `Ancora nessun tasso ${currency} per ${month}. Si può comunque approvare: il tasso viene copiato alla prima esportazione.`,
+        ratePending: 'Tasso in attesa',
+        ratePendingHelp: (currency: string, month: string) =>
+          `Ancora nessun tasso ${currency} per ${month}. Viene copiato alla prima esportazione contabile del lotto.`,
+        frozen:
+          'Conto, codice IVA e tasso restano come registrati. Le modifiche successive in Contabilità non cambiano questa riga.',
+        askManager: 'Chiedere a un responsabile della contabilità di inserirlo o recuperarlo.',
+        accountUnknown: 'Questo conto non è più presente in Contabilità. Sceglierne un altro.',
+        vatUnknown: 'Questo codice IVA non è più presente in Contabilità. Sceglierne un altro.',
       },
     },
     notFound: {
@@ -1871,8 +2025,20 @@ const it: Strings = {
         downloading: 'Preparazione del file…',
         downloadLabel: (batchId: string) => `Scarica l’esportazione contabile del lotto ${batchId}`,
         downloaded: (n: number) => `Esportazione scaricata: ${n} righe`,
+        pending: (n: number) =>
+          n === 1
+            ? '1 riga riceve il tasso di cambio con questa esportazione.'
+            : `${n} righe ricevono il tasso di cambio con questa esportazione.`,
         blocked: {
           title: 'L’esportazione è bloccata',
+          unavailableTitle: 'Contabilità non è leggibile',
+          unavailableBody:
+            'I tassi di cambio delle righe con tasso in attesa non si possono recuperare. Il lotto può comunque essere pagato o scartato. Verificare di nuovo tra qualche minuto.',
+          rateReason: {
+            notPublished: 'non ancora pubblicato',
+            fetchFailed: 'la fonte ufficiale non ha risposto',
+            noSource: 'nessuna fonte ufficiale',
+          },
           intro:
             'Il file non può essere prodotto finché le voci seguenti non sono risolte. Il lotto può comunque essere pagato o scartato.',
           reason: 'L’esportazione è bloccata. Vedere le voci qui sopra.',
