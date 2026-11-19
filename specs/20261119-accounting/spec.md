@@ -1,9 +1,10 @@
 ---
 id: 20261119
 slug: accounting
-status: draft
+status: approved
 rigor: production
 created: 2026-11-19
+approved: 2026-11-19
 ---
 
 # Accounting: one module for ledger accounts, VAT codes and monthly exchange rates
@@ -474,24 +475,26 @@ and the batch can still be compiled and paid; the suite's Italian/English UI cop
 
 ## Open questions
 
-- [ ] A missing rate at approval. The owner's rule is that Refund refuses the approval when
+*Approved by the owner on 2026-11-19. Questions 1–3 were answered by the owner at approval (recommended option each: approve with the rate pending; read access as proposed; no deactivation warning in v1). The remaining questions are accepted as risk: the plan proceeds on the fallback stated in each, and accounting answers them before release.*
+
+- [x] A missing rate at approval. The owner's rule is that Refund refuses the approval when
   Accounting lacks data, but the official average of the current month is published only after it
   ends, and 20261118 decided that a missing rate blocks the export only, so that the batch can be
   compiled and paid. Reading both, this spec does not refuse the approval for a missing rate: the
   line is "rate pending" and the rate is copied at the first successful export (AC-5.6). The
   alternative is to refuse the approval, which would hold back reimbursements of foreign-currency
   expenses of the current month until the rate exists. Confirm the reading. — owner: Matteo
-  Codogno
-- [ ] Read-only access. This spec lets Refund reviewers and Refund admins choose among Accounting's
+  Codogno — **answered 2026-11-19: approve, the rate stays pending and is frozen at the first successful export (AC-5.6 as written)**
+- [x] Read-only access. This spec lets Refund reviewers and Refund admins choose among Accounting's
   active WellD CH entries through Refund, with no Accounting capability (AC-4.1, AC-4.4, AC-3.9),
   and reserves Accounting read to people who need to open the Accounting app (the accounting role
   and admins at release, AC-3.3). Confirm, or name who else should hold Accounting read at release
-  (for example Refund admins, or finance staff). — owner: Matteo Codogno
-- [ ] Deactivating an entry that Refund uses as a default or as the foreign-currency VAT code stops
+  (for example Refund admins, or finance staff). — owner: Matteo Codogno — **answered 2026-11-19: as proposed**
+- [x] Deactivating an entry that Refund uses as a default or as the foreign-currency VAT code stops
   approvals of the lines it serves until a Refund admin chooses a new one (AC-4.5, AC-6.3).
   Should Accounting warn the manager before deactivating such an entry? Fallback: no warning
   (Accounting does not know its consumers' use); Refund's Settings shows the problem. — owner:
-  Matteo Codogno
+  Matteo Codogno — **answered 2026-11-19: no warning in v1**
 - [ ] A wrong rate found after approval. A line keeps its copied rate (AC-5.3); a correction in
   Accounting changes only lines approved afterwards. Is there a need to re-rate approved lines of
   an unpaid batch? Fallback: no; the rate is corrected before approval, or the line is handled in
