@@ -170,7 +170,12 @@ export type RequestAccounting = {
  */
 export type ClassifyBody = { accountNumber?: string; vatCode?: string | null }
 
-export type MissingValue = 'account' | 'vatCode'
+/**
+ * What approval (and the export) can refuse a line for: an account, and nothing else (AC-3.4, AC-3.11, AC-8.4,
+ * SO-4). A line with no VAT code is approved and exported like any other, so a `vatCode` a stale server names is
+ * not a value this client knows.
+ */
+export type MissingValue = 'account'
 
 /** One line the approve refusal (409 `classification_missing`) names. */
 export type ClassificationMissingLine = { lineId: string; date: string; type: string; missing: MissingValue[] }
@@ -281,7 +286,7 @@ export const classifyLine = (requestId: string, lineId: string, body: ClassifyBo
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const isMissingValue = (value: unknown): value is MissingValue => value === 'account' || value === 'vatCode'
+const isMissingValue = (value: unknown): value is MissingValue => value === 'account'
 
 /**
  * The lines a 409 `classification_missing` names, or `null` when `error` is anything else. The body is wire

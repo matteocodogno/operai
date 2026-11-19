@@ -138,6 +138,37 @@ describe('T33 copy additions (specs/20261119-accounting design § Copy keys)', (
     }
   })
 
+  it('T71: the CSV copy and the VAT-or-account blocker copy are gone from both catalogs (AC-6.1, AC-6.5)', () => {
+    const REMOVED = [
+      'pages.batchDetail.accountingExport.description',
+      'pages.batchDetail.accountingExport.download',
+      'pages.batchDetail.accountingExport.blocked.unclassified',
+      'pages.batchDetail.accountingExport.blocked.missingWhat.vatCode',
+      'pages.batchDetail.accountingExport.blocked.missingWhat.both',
+    ]
+    for (const lang of [catalogs.en, catalogs.it]) {
+      for (const path of REMOVED) expect(resolve(lang, path), path).toBeUndefined()
+      expect(resolve(lang, 'pages.batchDetail.accountingExport.blocked.missingWhat.account')).toBeTruthy()
+    }
+  })
+
+  it('T71: nothing on the export card says CSV any more, and no blocker copy names a VAT code (AC-6.1, AC-3.11)', () => {
+    for (const lang of [catalogs.en, catalogs.it]) {
+      const card = lang.pages.batchDetail.accountingExport
+      const sentences = [
+        card.descriptionExcel,
+        card.downloadExcel,
+        card.downloading,
+        card.downloadError,
+        card.blocked.unclassifiedAccounts,
+        card.blocked.missingWhat.account,
+        card.blocked.unclassifiedItem('A', 'MC26/014', card.blocked.missingWhat.account),
+      ]
+      for (const sentence of sentences) expect(sentence).not.toMatch(/CSV/i)
+      for (const sentence of sentences.slice(4)) expect(sentence).not.toMatch(/\bVAT\b|\bIVA\b/)
+    }
+  })
+
   it('every refusal sentence names the cause and the remedy and carries no address or identifier (AC-6.10)', () => {
     for (const lang of [catalogs.en, catalogs.it]) {
       for (const sentence of Object.values(lang.accountingUnavailable)) {

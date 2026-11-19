@@ -10,6 +10,10 @@
  * blocker under its own heading, a missing rate's reason, the pending-lines sentence, the Accounting link that
  * follows `viewer.canOpenAccountingRates` (not a settings grant), "ask an accounting manager", and the quiet
  * re-read after a download.
+ *
+ * T71, Accounting sign-off (20261118 SO-6, SO-12; AC-6.1, AC-6.5, AC-6.6, AC-3.11): the card describes and offers an
+ * Excel file ("Download Excel file"), saves the workbook's Blob untouched as `refund-accounting-<cutoff>-<id>.xlsx`, and a
+ * blocker line is a missing ACCOUNT only: its heading, its item and the Check-again count never mention a VAT code.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,13 +23,15 @@ import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tan
 
 vi.mock('../lib/accountingExportApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/accountingExportApi')>()
-  return { ...original, getAccountingExport: vi.fn(), downloadAccountingCsv: vi.fn() }
+  return { ...original, getAccountingExport: vi.fn(), downloadAccountingFile: vi.fn() }
 })
 
 import * as exportApi from '../lib/accountingExportApi'
 import type { AccountingExportSummary, ExportBlockers } from '../lib/accountingExportApi'
 import { ApiError } from '../lib/refundApi'
 import AccountingExportCard from './AccountingExportCard'
+
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 const NO_BLOCKERS: ExportBlockers = {
   missingRates: [],
@@ -65,7 +71,7 @@ const BLOCKED = summary({
         type: 'travel_train',
         employee: 'Matteo Codogno',
         receiptNumber: 'MC26/014',
-        missing: ['vatCode'],
+        missing: ['account'],
       },
     ],
     unnumberedLines: [],
@@ -83,7 +89,7 @@ let downloadName = ''
 
 beforeEach(() => {
   vi.mocked(exportApi.getAccountingExport).mockResolvedValue(summary())
-  URL.createObjectURL = vi.fn(() => 'blob:csv')
+  URL.createObjectURL = vi.fn(() => 'blob:file')
   URL.revokeObjectURL = vi.fn()
   clickSpy.mockReset()
   downloadName = ''
@@ -166,8 +172,19 @@ describe('AccountingExportCard: ready', () => {
     expect(screen.getByRole('heading', { name: 'Accounting export' })).not.toBeNull()
     expect(screen.getByTestId('accounting-export-ready').textContent).toBe('12 rows will be exported.')
     expect(screen.queryByTestId('accounting-export-excluded')).toBeNull()
-    expect(download().textContent).toBe('Download CSV')
+    expect(download().textContent).toBe('Download Excel file')
     expect(download().getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('describes an Excel file, not a CSV one, and says a VAT code is only there when the line has one (AC-6.1, AC-3.11)', async () => {
+    await renderCard()
+    const card = screen.getByTestId('accounting-export-card')
+    expect(
+      within(card).getByText(
+        'One row per approved WellD CH expense line, with account, VAT code (when the line has one) and CHF amount, as an Excel file.',
+      ),
+    ).not.toBeNull()
+    expect(card.textContent).not.toMatch(/CSV/i)
   })
 
   it('says one row in the singular', async () => {
@@ -254,13 +271,15 @@ describe('AccountingExportCard: blocked (UX-6, UX-7)', () => {
     expect(within(list).getByRole('link').getAttribute('aria-label')).toBe('Open exchange rates: EUR · March 2026')
   })
 
-  it('lists a line without an account or VAT code with its employee, receipt and what is missing, and links to the request (AC-7.2)', async () => {
+  it('lists a line without an account, under "Lines without an account", with its employee and receipt, and links to the request (AC-7.2)', async () => {
     await renderCard()
     const list = screen.getByTestId('accounting-export-unclassified')
-    expect(within(list).getByText('Matteo Codogno · MC26/014: no VAT code')).not.toBeNull()
+    expect(within(list).getByText('Lines without an account')).not.toBeNull()
+    expect(within(list).getByText('Matteo Codogno · MC26/014: no account')).not.toBeNull()
     const link = within(list).getByRole('link', { name: /Open request/ })
     expect(link.getAttribute('href')).toBe('/review/req-9')
-    expect(link.getAttribute('aria-label')).toBe('Open request: Matteo Codogno · MC26/014: no VAT code')
+    expect(link.getAttribute('aria-label')).toBe('Open request: Matteo Codogno · MC26/014: no account')
+    expect(list.textContent).not.toMatch(/VAT/)
   })
 
   it('links to the request whether or not the viewer may open Accounting', async () => {
@@ -271,7 +290,7 @@ describe('AccountingExportCard: blocked (UX-6, UX-7)', () => {
     ).not.toBeNull()
   })
 
-  it('names a line with no receipt number yet by its date and type, and says "account or VAT code" when both are missing', async () => {
+  it('names a line with no receipt number yet by its date and type, and only ever says it lacks an account, whatever a stale server names (AC-3.11)', async () => {
     vi.mocked(exportApi.getAccountingExport).mockResolvedValue(
       summary({
         exportable: false,
@@ -285,16 +304,16 @@ describe('AccountingExportCard: blocked (UX-6, UX-7)', () => {
               type: 'travel_train',
               employee: 'Anna',
               receiptNumber: null,
-              missing: ['account', 'vatCode'],
+              missing: ['account'],
             },
           ],
         },
       }),
     )
     await renderCard()
-    expect(screen.getByTestId('accounting-export-unclassified').textContent).toMatch(
-      /Anna · 19\.03\.2026 .+: no account or VAT code/,
-    )
+    const text = screen.getByTestId('accounting-export-unclassified').textContent ?? ''
+    expect(text).toMatch(/Anna · 19\.03\.2026 .+: no account/)
+    expect(text).not.toMatch(/VAT/)
   })
 
   it('says "Contact an administrator." for an unnumbered line, and that the fetch was tried only when it was', async () => {
@@ -325,7 +344,7 @@ describe('AccountingExportCard: blocked (UX-6, UX-7)', () => {
     const reason = document.getElementById(button.getAttribute('aria-describedby') ?? '')
     expect(reason?.textContent).toBe('The export is blocked. See the items above.')
     fireEvent.click(button)
-    expect(exportApi.downloadAccountingCsv).not.toHaveBeenCalled()
+    expect(exportApi.downloadAccountingFile).not.toHaveBeenCalled()
   })
 
   it('Check again loads the summary again, busy meanwhile, and shows the new answer', async () => {
@@ -395,33 +414,36 @@ describe('AccountingExportCard: the result of Check again (A-3)', () => {
 })
 
 describe('AccountingExportCard: downloading (UX-12)', () => {
-  it('saves the Blob the API returned under refund-accounting-<cutoff>-<id>.csv, releases the handle, and confirms', async () => {
-    const blob = new Blob(['﻿Employee;Receipt number\r\n'], { type: 'text/csv' })
-    vi.mocked(exportApi.downloadAccountingCsv).mockResolvedValue(blob)
+  it('saves the Blob the API returned, untouched, under refund-accounting-<cutoff>-<id>.xlsx, releases the handle, and confirms', async () => {
+    const blob = new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0xfe, 0x80])], { type: XLSX })
+    vi.mocked(exportApi.downloadAccountingFile).mockResolvedValue(blob)
     await renderCard()
     fireEvent.click(download())
 
     await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1))
-    expect(exportApi.downloadAccountingCsv).toHaveBeenCalledWith('batch-1')
+    expect(exportApi.downloadAccountingFile).toHaveBeenCalledWith('batch-1')
     expect(URL.createObjectURL).toHaveBeenCalledWith(blob)
-    expect(downloadName).toBe('refund-accounting-2026-07-19-batch-1.csv')
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:csv')
+    // the very Blob the API returned is what is saved: no re-wrapping, no text decoding
+    expect(vi.mocked(URL.createObjectURL).mock.calls[0][0]).toBe(blob)
+    expect(downloadName).toBe('refund-accounting-2026-07-19-batch-1.xlsx')
+    expect(clickSpy).toHaveBeenCalledWith('blob:file')
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:file')
     expect((await screen.findByTestId('accounting-export-downloaded')).textContent).toBe('Export downloaded: 12 rows')
   })
 
   it('is busy while it runs and ignores a second press, so one click writes one log row (AC-6.10)', async () => {
     let resolve!: (blob: Blob) => void
-    vi.mocked(exportApi.downloadAccountingCsv).mockReturnValue(new Promise((r) => (resolve = r)))
+    vi.mocked(exportApi.downloadAccountingFile).mockReturnValue(new Promise((r) => (resolve = r)))
     await renderCard()
     fireEvent.click(download())
     await waitFor(() => expect(download().textContent).toBe('Preparing file…'))
     expect(download().getAttribute('aria-busy')).toBe('true')
     fireEvent.click(download())
     fireEvent.click(download())
-    expect(exportApi.downloadAccountingCsv).toHaveBeenCalledTimes(1)
+    expect(exportApi.downloadAccountingFile).toHaveBeenCalledTimes(1)
 
     await act(async () => resolve(new Blob(['x'])))
-    await waitFor(() => expect(download().textContent).toBe('Download CSV'))
+    await waitFor(() => expect(download().textContent).toBe('Download Excel file'))
   })
 
   it('a 409 blocked switches to Blocked from the body of the answer, with an alert, and no file', async () => {
@@ -433,7 +455,7 @@ describe('AccountingExportCard: downloading (UX-12)', () => {
       fetchAttempted: false,
       blockers: { missingRates: [{ currency: 'GBP', month: '2026-02' }], unclassifiedLines: [], unnumberedLines: [] },
     }
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(problem(409, 'accounting_export_blocked', body))
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(problem(409, 'accounting_export_blocked', body))
     await renderCard()
     fireEvent.click(download())
 
@@ -450,7 +472,7 @@ describe('AccountingExportCard: downloading (UX-12)', () => {
   })
 
   it('a 409 blocked with an unreadable body still blocks, and checks again', async () => {
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(problem(409, 'accounting_export_blocked', {}))
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(problem(409, 'accounting_export_blocked', {}))
     await renderCard()
     vi.mocked(exportApi.getAccountingExport).mockResolvedValue(BLOCKED)
     fireEvent.click(download())
@@ -462,7 +484,7 @@ describe('AccountingExportCard: downloading (UX-12)', () => {
   })
 
   it('a 500 is "No file was produced", with Download still there to try again', async () => {
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(problem(500))
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(problem(500))
     await renderCard()
     fireEvent.click(download())
 
@@ -476,7 +498,7 @@ describe('AccountingExportCard: downloading (UX-12)', () => {
   })
 
   it('a network failure is the same: no file was produced', async () => {
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(new TypeError('Failed to fetch'))
     await renderCard()
     fireEvent.click(download())
     expect((await screen.findByTestId('accounting-export-download-error')).textContent).toBe(
@@ -485,7 +507,7 @@ describe('AccountingExportCard: downloading (UX-12)', () => {
   })
 
   it('a 409 batch_discarded during the download tells the page', async () => {
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(problem(409, 'batch_discarded'))
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(problem(409, 'batch_discarded'))
     const { onBatchDiscarded } = await renderCard()
     fireEvent.click(download())
     await waitFor(() => expect(onBatchDiscarded).toHaveBeenCalledTimes(1))
@@ -493,7 +515,7 @@ describe('AccountingExportCard: downloading (UX-12)', () => {
   })
 
   it('a 403 during the download turns the card into the out-of-scope note', async () => {
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(problem(403, 'accounting_export_out_of_scope'))
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(problem(403, 'accounting_export_out_of_scope'))
     await renderCard()
     fireEvent.click(download())
     await screen.findByTestId('accounting-export-denied')
@@ -548,7 +570,7 @@ describe('AccountingExportCard: Accounting cannot be read (AC-6.6, UX-22)', () =
     await renderCard()
     expect(download().getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(download())
-    expect(exportApi.downloadAccountingCsv).not.toHaveBeenCalled()
+    expect(exportApi.downloadAccountingFile).not.toHaveBeenCalled()
   })
 
   it('Check again counts the blocker as one item, and the card recovers when Accounting can be read', async () => {
@@ -567,7 +589,7 @@ describe('AccountingExportCard: Accounting cannot be read (AC-6.6, UX-22)', () =
   })
 
   it('a 409 for it during the download blocks the card from the body, with the same heading', async () => {
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(
       problem(409, 'accounting_export_blocked', {
         batchId: 'batch-1',
         batchStatus: 'compiled',
@@ -624,7 +646,7 @@ describe('AccountingExportCard: lines that get their rate at this export (AC-5.6
 
   it('reads the summary again quietly after a download, and the sentence goes once the rates are frozen', async () => {
     vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ ratePendingLineCount: 2 }))
-    vi.mocked(exportApi.downloadAccountingCsv).mockResolvedValue(new Blob(['x'], { type: 'text/csv' }))
+    vi.mocked(exportApi.downloadAccountingFile).mockResolvedValue(new Blob(['x'], { type: XLSX }))
     await renderCard()
     expect(screen.getByTestId('accounting-export-pending')).not.toBeNull()
 
@@ -642,7 +664,7 @@ describe('AccountingExportCard: lines that get their rate at this export (AC-5.6
 
   it('a failed quiet re-read changes nothing and shows no error', async () => {
     vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ ratePendingLineCount: 2 }))
-    vi.mocked(exportApi.downloadAccountingCsv).mockResolvedValue(new Blob(['x'], { type: 'text/csv' }))
+    vi.mocked(exportApi.downloadAccountingFile).mockResolvedValue(new Blob(['x'], { type: XLSX }))
     await renderCard()
     vi.mocked(exportApi.getAccountingExport).mockRejectedValueOnce(problem(500))
     fireEvent.click(download())
@@ -654,7 +676,7 @@ describe('AccountingExportCard: lines that get their rate at this export (AC-5.6
   })
 
   it('does not re-read when the download failed', async () => {
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(problem(500))
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(problem(500))
     await renderCard()
     fireEvent.click(download())
     await screen.findByTestId('accounting-export-download-error')
@@ -743,7 +765,7 @@ describe('AccountingExportCard: accessibility (axe)', () => {
 
   it('has no violations: ready with the pending-lines sentence, before and after the quiet re-read', async () => {
     vi.mocked(exportApi.getAccountingExport).mockResolvedValueOnce(summary({ ratePendingLineCount: 2 }))
-    vi.mocked(exportApi.downloadAccountingCsv).mockResolvedValue(new Blob(['x'], { type: 'text/csv' }))
+    vi.mocked(exportApi.downloadAccountingFile).mockResolvedValue(new Blob(['x'], { type: XLSX }))
     await renderCard()
     await expectNoAxeViolations()
     fireEvent.click(download())
@@ -767,7 +789,7 @@ describe('AccountingExportCard: accessibility (axe)', () => {
               type: 'travel_train',
               employee: 'Anna',
               receiptNumber: null,
-              missing: ['account', 'vatCode'],
+              missing: ['account'],
             },
           ],
           unnumberedLines: [{ lineId: 'l3', requestId: 'req-3', employee: 'Bea' }],
@@ -803,28 +825,28 @@ describe('AccountingExportCard: accessibility (axe)', () => {
   })
 
   it('has no violations: downloading (busy), downloaded, no file produced, and became blocked', async () => {
-    vi.mocked(exportApi.downloadAccountingCsv).mockReturnValueOnce(pending())
+    vi.mocked(exportApi.downloadAccountingFile).mockReturnValueOnce(pending())
     await renderCard()
     fireEvent.click(download())
     await waitFor(() => expect(download().textContent).toBe('Preparing file…'))
     await expectNoAxeViolations()
     cleanup()
 
-    vi.mocked(exportApi.downloadAccountingCsv).mockResolvedValue(new Blob(['x'], { type: 'text/csv' }))
+    vi.mocked(exportApi.downloadAccountingFile).mockResolvedValue(new Blob(['x'], { type: XLSX }))
     await renderCard()
     fireEvent.click(download())
     await screen.findByTestId('accounting-export-downloaded')
     await expectNoAxeViolations()
     cleanup()
 
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(problem(500))
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(problem(500))
     await renderCard()
     fireEvent.click(download())
     await screen.findByTestId('accounting-export-download-error')
     await expectNoAxeViolations()
     cleanup()
 
-    vi.mocked(exportApi.downloadAccountingCsv).mockRejectedValue(
+    vi.mocked(exportApi.downloadAccountingFile).mockRejectedValue(
       problem(409, 'accounting_export_blocked', {
         batchId: 'batch-1',
         batchStatus: 'compiled',

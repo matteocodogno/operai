@@ -3,7 +3,7 @@
  * (specs/20261118-refund-accounting-export, design UX-4): the number or code FIRST, so a native `<select>`'s
  * type-ahead works on what accountants know by heart (`5905 — Spese rimborsi…`).
  *
- * One place, because the same text appears in the line panel, the defaults dialogs, the defaults table
+ * One place, because the same text appears in the line panel, the default-account dialog, the defaults table
  * and the history drawer, and a drift between them would show an accountant two spellings of one account.
  */
 

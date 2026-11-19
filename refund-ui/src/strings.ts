@@ -798,9 +798,7 @@ const en = {
       /** The accounting export card (design S10). */
       accountingExport: {
         title: 'Accounting export',
-        description:
-          'One row per approved WellD CH expense line, with account, VAT and CHF amount, as a CSV file.',
-        /** The XLSX journal export (SO-6 to SO-12): replaces `description`, which names a CSV file. */
+        /** The XLSX journal export (SO-6 to SO-12): one row per approved WellD CH line, an Excel file. */
         descriptionExcel:
           'One row per approved WellD CH expense line, with account, VAT code (when the line has one) and CHF amount, as an Excel file.',
         loading: 'Checking the export…',
@@ -812,7 +810,6 @@ const en = {
           n === 1
             ? '1 WellD Italia line is left out: the export covers WellD CH only.'
             : `${n} WellD Italia lines are left out: the export covers WellD CH only.`,
-        download: 'Download CSV',
         downloadExcel: 'Download Excel file',
         downloading: 'Preparing file…',
         downloadLabel: (batchId: string) => `Download the accounting export of batch ${batchId}`,
@@ -842,11 +839,10 @@ const en = {
           /** A missing rate with the reason the answer carries (G7): `reason` is one of `rateReason`. */
           rateItemReason: (currency: string, month: string, reason: string) => `${currency} · ${month} — ${reason}`,
           fetchTried: 'Accounting just tried to fetch the missing rates from the official source.',
-          unclassified: 'Lines without an account or a VAT code',
           unclassifiedAccounts: 'Lines without an account',
           unclassifiedItem: (employee: string, receipt: string, missing: string) =>
             `${employee} · ${receipt}: no ${missing}`,
-          missingWhat: { account: 'account', vatCode: 'VAT code', both: 'account or VAT code' },
+          missingWhat: { account: 'account' },
           openRequest: 'Open request',
           unnumbered: 'Lines without a receipt number',
           unnumberedBody: 'Contact an administrator.',
@@ -1681,8 +1677,6 @@ const it: Strings = {
       receiptNumbers: (list: string) => `Ricevute ${list}`,
       accountingExport: {
         title: 'Esportazione contabile',
-        description:
-          'Una riga per ogni spesa WellD CH approvata, con conto, IVA e importo in CHF, in un file CSV.',
         descriptionExcel:
           'Una riga per ogni spesa WellD CH approvata, con conto, codice IVA (se la riga ne ha uno) e importo in CHF, in un file Excel.',
         loading: 'Verifica dell’esportazione…',
@@ -1694,7 +1688,6 @@ const it: Strings = {
           n === 1
             ? '1 riga WellD Italia è esclusa: l’esportazione riguarda solo WellD CH.'
             : `${n} righe WellD Italia sono escluse: l’esportazione riguarda solo WellD CH.`,
-        download: 'Scarica CSV',
         downloadExcel: 'Scarica file Excel',
         downloading: 'Preparazione del file…',
         downloadLabel: (batchId: string) => `Scarica l’esportazione contabile del lotto ${batchId}`,
@@ -1720,11 +1713,10 @@ const it: Strings = {
           rateItem: (currency: string, month: string) => `${currency} · ${month}`,
           rateItemReason: (currency: string, month: string, reason: string) => `${currency} · ${month} — ${reason}`,
           fetchTried: 'Contabilità ha appena provato a recuperare i tassi mancanti dalla fonte ufficiale.',
-          unclassified: 'Righe senza conto o senza codice IVA',
           unclassifiedAccounts: 'Righe senza conto',
           unclassifiedItem: (employee: string, receipt: string, missing: string) =>
             `${employee} · ${receipt}: manca ${missing}`,
-          missingWhat: { account: 'il conto', vatCode: 'il codice IVA', both: 'il conto o il codice IVA' },
+          missingWhat: { account: 'il conto' },
           openRequest: 'Apri richiesta',
           unnumbered: 'Righe senza numero di ricevuta',
           unnumberedBody: 'Rivolgersi a un amministratore.',

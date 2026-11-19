@@ -1,13 +1,15 @@
 /**
- * AccountingExportCard — the accounting CSV of a batch (specs/20261118-refund-accounting-export, design S10, F9, UX-6, UX-7,
- * UX-9, UX-12; AC-6.1, AC-6.5, AC-6.6, AC-6.7, AC-6.9, AC-6.11, AC-7.2; specs/20261119-accounting RS6, UX-22, T37:
- * AC-5.6, AC-6.6, AC-6.7, AC-7.3). It sits on the batch page under the summary
+ * AccountingExportCard — the accounting Excel file of a batch (specs/20261118-refund-accounting-export, design S10, F9,
+ * UX-6, UX-7, UX-9, UX-12; AC-6.1, AC-6.5, AC-6.6, AC-6.7, AC-6.9, AC-6.11, AC-7.2; specs/20261119-accounting RS6,
+ * UX-22, T37: AC-5.6, AC-6.6, AC-6.7, AC-7.3). Accounting sign-off (T71, 20261118 SO-6, SO-12): the file is a workbook
+ * (`.xlsx`) from `…/accounting-export/file`, and a line blocks the export for a missing ACCOUNT only: a VAT code is
+ * optional (AC-3.11). It sits on the batch page under the summary
  * card and loads on its own: the check may call the official rate source and take several seconds, and the rest
  * of the page never waits for it. The page does not render it at all for a discarded batch (AC-6.9).
  *
  *   - Ready: how many rows will be exported, and how many WellD Italia lines are left out, said only when above zero
  *     (G12). With no rows, the file will hold only its header (AC-6.7), and Download is still offered.
- *   - Blocked: a missing exchange rate (AC-6.5) or a line with no account or VAT code (AC-7.2) is a warning, not an
+ *   - Blocked: a missing exchange rate (AC-6.5) or a line with no account (AC-7.2) is a warning, not an
  *     error (UX-6): the batch can still be paid or discarded, and the card says so. The lists name what is missing,
  *     with the reason when the summary carries one, and link to where it is fixed: Accounting at that month (only
  *     when the summary's `viewer.canOpenAccountingRates` says the person may open it; otherwise "ask an accounting
@@ -18,8 +20,8 @@
  *     has been downloaded the summary is read again quietly (UX-22): the sentence goes when the rates are copied.
  *   - Out of scope (403): a short info note and no button (AC-6.11); everyone who can open the batch can ask "why can't
  *     I export?".
- *   - Download: the bytes are fetched through the authenticated client and saved from a `Blob` (UX-12), under a
- *     filename built here from the cutoff and the batch id. The button is busy while it runs and a second press is
+ *   - Download: the bytes are fetched through the authenticated client and saved from a `Blob` untouched (UX-12), under a
+ *     filename built here from the cutoff and the batch id (`refund-accounting-<cutoff>-<batchId>.xlsx`). The button is busy while it runs and a second press is
  *     ignored, so one click writes one row in the server's export log (AC-6.10). If the summary changed since the
  *     check (409 `accounting_export_blocked`), the card switches to Blocked from the body of that answer; a 409
  *     `batch_discarded` reports to the page, which removes the card; any other failure, a failed log write
@@ -33,7 +35,7 @@ import { strings } from '../strings'
 import {
   accountingExportFileName,
   blockedSummary,
-  downloadAccountingCsv,
+  downloadAccountingFile,
   getAccountingExport,
 } from '../lib/accountingExportApi'
 import type { AccountingExportSummary, MissingRateReason, UnclassifiedLineBlocker } from '../lib/accountingExportApi'
@@ -71,13 +73,6 @@ export type AccountingExportCardProps = {
 const lineName = (line: UnclassifiedLineBlocker): string =>
   line.receiptNumber ??
   `${line.date ? formatDate(line.date) : ''} ${expenseTypeLabel(line.type as ExpenseType)}`.trim()
-
-const missingWhat = (line: UnclassifiedLineBlocker): string =>
-  line.missing.length === 1
-    ? line.missing[0] === 'account'
-      ? t.blocked.missingWhat.account
-      : t.blocked.missingWhat.vatCode
-    : t.blocked.missingWhat.both
 
 export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded }: AccountingExportCardProps) {
   const reasonId = useId()
@@ -163,7 +158,7 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
     setTurnedBlocked(false)
     let objectUrl: string | null = null
     try {
-      const blob = await downloadAccountingCsv(batchId)
+      const blob = await downloadAccountingFile(batchId)
       objectUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = objectUrl
@@ -209,7 +204,7 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
 
   return (
     <Card title={t.title} data-testid="accounting-export-card">
-      <p className="mb-3 text-sm text-soft">{t.description}</p>
+      <p className="mb-3 text-sm text-soft">{t.descriptionExcel}</p>
 
       {resource.status === 'loading' && (
         <>
@@ -303,10 +298,10 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
 
                 {summary.blockers.unclassifiedLines.length > 0 && (
                   <section className="mt-3" data-testid="accounting-export-unclassified">
-                    <h4 className="m-0 text-sm font-medium">{t.blocked.unclassified}</h4>
+                    <h4 className="m-0 text-sm font-medium">{t.blocked.unclassifiedAccounts}</h4>
                     <ul className="m-0 mt-1 flex list-none flex-col gap-1 p-0">
                       {summary.blockers.unclassifiedLines.map((line) => {
-                        const text = t.blocked.unclassifiedItem(line.employee, lineName(line), missingWhat(line))
+                        const text = t.blocked.unclassifiedItem(line.employee, lineName(line), t.blocked.missingWhat.account)
                         return (
                           <li key={line.lineId} className="flex flex-wrap items-center gap-x-3">
                             <span>{text}</span>
@@ -378,7 +373,7 @@ export default function AccountingExportCard({ batchId, cutoff, onBatchDiscarded
               onClick={() => void download()}
               data-testid="accounting-export-download"
             >
-              {downloading ? t.downloading : t.download}
+              {downloading ? t.downloading : t.downloadExcel}
             </Button>
           </div>
         </div>

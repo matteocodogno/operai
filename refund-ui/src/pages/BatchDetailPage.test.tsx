@@ -37,7 +37,7 @@ vi.mock('../lib/batchesApi', async (importOriginal) => {
 
 vi.mock('../lib/accountingExportApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/accountingExportApi')>()
-  return { ...original, getAccountingExport: vi.fn(), downloadAccountingCsv: vi.fn() }
+  return { ...original, getAccountingExport: vi.fn(), downloadAccountingFile: vi.fn() }
 })
 
 import * as batchesApi from '../lib/batchesApi'
@@ -543,7 +543,7 @@ describe('BatchDetailPage — accessibility (axe)', () => {
           type: 'travel_train',
           employee: 'Alice',
           receiptNumber: 'MC26/014',
-          missing: ['vatCode'],
+          missing: ['account'],
         },
       ],
       unnumberedLines: [],
