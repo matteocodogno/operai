@@ -634,6 +634,17 @@ const en = {
               ? 'Nothing was approved. 1 line needs an account.'
               : `Nothing was approved. ${n} lines need an account.`,
           hintAccounts: 'Choose an account for each line, then approve again.',
+          /** SG-3: lines outside the approver's entity scope (A-1) are not accounts this person can supply. */
+          titleOutOfScope: (n: number) =>
+            n === 1
+              ? 'Nothing was approved. 1 line needs a colleague with WellD CH access.'
+              : `Nothing was approved. ${n} lines need a colleague with WellD CH access.`,
+          hintOutOfScope: 'Ask a colleague with WellD CH access to choose their accounts, then approve again.',
+          /** Appended to `hintAccounts` when a refusal names both kinds of line. */
+          alsoOutOfScope: (n: number) =>
+            n === 1
+              ? '1 other line needs a colleague with WellD CH access.'
+              : `${n} other lines need a colleague with WellD CH access.`,
           account: (line: string) => `${line}: choose an account`,
           outOfScope: (line: string) => `${line}: needs a colleague with WellD CH access`,
         },
@@ -800,7 +811,7 @@ const en = {
         title: 'Accounting export',
         /** The XLSX journal export (SO-6 to SO-12): one row per approved WellD CH line, an Excel file. */
         descriptionExcel:
-          'One row per approved WellD CH expense line, with account, VAT code (when the line has one) and CHF amount, as an Excel file.',
+          'One row per approved WellD CH expense line, with account and CHF amount, as an Excel file. VAT is not part of the file.',
         loading: 'Checking the export…',
         loadError: 'Could not check the export.',
         rows: (n: number) => (n === 1 ? '1 row will be exported.' : `${n} rows will be exported.`),
@@ -1539,6 +1550,15 @@ const it: Strings = {
               ? 'Non è stato approvato nulla. 1 riga richiede un conto.'
               : `Non è stato approvato nulla. ${n} righe richiedono un conto.`,
           hintAccounts: 'Scegliere un conto per ogni riga, poi approvare di nuovo.',
+          titleOutOfScope: (n: number) =>
+            n === 1
+              ? 'Non è stato approvato nulla. 1 riga richiede un collega con accesso a WellD CH.'
+              : `Non è stato approvato nulla. ${n} righe richiedono un collega con accesso a WellD CH.`,
+          hintOutOfScope: 'Chiedere a un collega con accesso a WellD CH di scegliere i loro conti, poi approvare di nuovo.',
+          alsoOutOfScope: (n: number) =>
+            n === 1
+              ? '1 altra riga richiede un collega con accesso a WellD CH.'
+              : `${n} altre righe richiedono un collega con accesso a WellD CH.`,
           account: (line: string) => `${line}: scegliere un conto`,
           outOfScope: (line: string) => `${line}: serve un collega con accesso a WellD CH`,
         },
@@ -1678,7 +1698,7 @@ const it: Strings = {
       accountingExport: {
         title: 'Esportazione contabile',
         descriptionExcel:
-          'Una riga per ogni spesa WellD CH approvata, con conto, codice IVA (se la riga ne ha uno) e importo in CHF, in un file Excel.',
+          'Una riga per ogni spesa WellD CH approvata, con conto e importo in CHF, in un file Excel. L’IVA non fa parte del file.',
         loading: 'Verifica dell’esportazione…',
         loadError: 'Impossibile verificare l’esportazione.',
         rows: (n: number) => (n === 1 ? 'Verrà esportata 1 riga.' : `Verranno esportate ${n} righe.`),

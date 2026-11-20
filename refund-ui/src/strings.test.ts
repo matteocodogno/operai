@@ -201,6 +201,16 @@ describe('T33 copy additions (specs/20261119-accounting design § Copy keys)', (
     expect(itCatalog.pages.batchDetail.accountingExport.downloadExcel).toBe('Scarica file Excel')
   })
 
+  it('SG-4: the export card says in both languages that VAT is not part of the file', () => {
+    const { en, it: itCatalog } = catalogs
+    expect(en.pages.batchDetail.accountingExport.descriptionExcel).toBe(
+      'One row per approved WellD CH expense line, with account and CHF amount, as an Excel file. VAT is not part of the file.',
+    )
+    expect(itCatalog.pages.batchDetail.accountingExport.descriptionExcel).toBe(
+      'Una riga per ogni spesa WellD CH approvata, con conto e importo in CHF, in un file Excel. L’IVA non fa parte del file.',
+    )
+  })
+
   it('the account-only summary and copy never mention a VAT code (AC-3.4, AC-3.11)', () => {
     for (const lang of [catalogs.en, catalogs.it]) {
       const summary = lang.pages.reviewDetail.classification.missingSummary
@@ -209,10 +219,26 @@ describe('T33 copy additions (specs/20261119-accounting design § Copy keys)', (
       }
       expect(summary.titleAccounts(1)).not.toBe(summary.titleAccounts(3))
       expect(summary.titleAccounts(3)).toContain('3')
+      // SG-3: the out-of-scope wording counts lines the approver cannot fix, and never names an account or a VAT code.
+      for (const sentence of [
+        summary.titleOutOfScope(1),
+        summary.titleOutOfScope(3),
+        summary.hintOutOfScope,
+        summary.alsoOutOfScope(1),
+        summary.alsoOutOfScope(2),
+      ]) {
+        expect(sentence).not.toMatch(/\bVAT\b|\bIVA\b/)
+      }
+      expect(summary.titleOutOfScope(1)).not.toBe(summary.titleOutOfScope(3))
+      expect(summary.titleOutOfScope(3)).toContain('3')
+      expect(summary.alsoOutOfScope(2)).toContain('2')
+      expect(summary.alsoOutOfScope(1)).not.toBe(summary.alsoOutOfScope(2))
       expect(lang.settings.defaults.descriptionAccountOnly).not.toMatch(/\bVAT\b|\bIVA\b/)
       expect(lang.pages.batchDetail.accountingExport.blocked.unclassifiedAccounts).not.toMatch(/\bVAT\b|\bIVA\b/)
       expect(lang.pages.batchDetail.accountingExport.downloadExcel).not.toMatch(/CSV/)
       expect(lang.pages.batchDetail.accountingExport.descriptionExcel).not.toMatch(/CSV/)
+      // SG-4: the file has no VAT column (AC-6.2, AC-6.14), so the card promises none.
+      expect(lang.pages.batchDetail.accountingExport.descriptionExcel).not.toMatch(/codice IVA|VAT code/)
     }
   })
 })

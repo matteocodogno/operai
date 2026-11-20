@@ -1167,9 +1167,12 @@ describe('ReviewDetailPage — line classification panels', () => {
         const summary = await screen.findByTestId('classification-missing-summary')
         expect(screen.queryByTestId('approve-dialog-modal')).toBeNull()
         expect(summary.getAttribute('role')).toBe('alert')
+        // SG-3: the approver cannot choose an account for these, so the title does not say "need an account".
         expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
-          'Nothing was approved. 2 lines need an account.',
+          'Nothing was approved. 2 lines need a colleague with WellD CH access.',
         )
+        expect(summary.textContent).not.toMatch(/need an account/)
+        expect(screen.getByText('Ask a colleague with WellD CH access to choose their accounts, then approve again.')).not.toBeNull()
         expect(screen.getAllByTestId('classification-missing-summary-item').map((item) => item.textContent)).toEqual([
           '01.07.2026 · Line c2: needs a colleague with WellD CH access',
           '01.07.2026 · Line c3: needs a colleague with WellD CH access',
@@ -1178,7 +1181,7 @@ describe('ReviewDetailPage — line classification panels', () => {
         expect(document.activeElement).toBe(screen.getByTestId('classification-missing-summary-focus'))
       })
 
-      it('a mixed refusal counts every named line and keeps focus on the first in-scope select', async () => {
+      it('a mixed refusal counts only the lines the approver can fix as needing an account, says how many others need a colleague, lists every row, and keeps focus on the first in-scope select (SG-3)', async () => {
         const mixed = refusedWith([
           { lineId: 'c1', date: '2026-07-01', type: 'stationery', missing: ['account'] },
           { lineId: 'c2', date: '2026-07-01', type: 'stationery', missing: ['account'] },
@@ -1193,9 +1196,19 @@ describe('ReviewDetailPage — line classification panels', () => {
 
         await screen.findByTestId('classification-missing-summary')
         expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
-          'Nothing was approved. 3 lines need an account.',
+          'Nothing was approved. 1 line needs an account.',
         )
-        expect(screen.getAllByTestId('classification-missing-summary-item')).toHaveLength(3)
+        expect(
+          screen.getByText(
+            'Choose an account for each line, then approve again. 2 other lines need a colleague with WellD CH access.',
+          ),
+        ).not.toBeNull()
+        const items = screen.getAllByTestId('classification-missing-summary-item').map((item) => item.textContent)
+        expect(items).toEqual([
+          '01.07.2026 · Line c1: choose an account',
+          '01.07.2026 · Line c2: needs a colleague with WellD CH access',
+          '01.07.2026 · Line c3: needs a colleague with WellD CH access',
+        ])
         await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId('classification-c1-account')))
       })
 
@@ -1216,7 +1229,7 @@ describe('ReviewDetailPage — line classification panels', () => {
         fireEvent.change(select, { target: { value: '5901' } })
         await waitFor(() =>
           expect(screen.getByTestId('classification-missing-summary-title').textContent).toBe(
-            'Nothing was approved. 1 line needs an account.',
+            'Nothing was approved. 1 line needs a colleague with WellD CH access.',
           ),
         )
         fireEvent.click(screen.getByTestId('classification-missing-summary-item'))

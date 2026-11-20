@@ -20,6 +20,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expectNoAxeViolations } from '../test-support/axe'
+import type { AxeAllowance } from '../test-support/axe'
 import ExpenseLineRow from './ExpenseLineRow'
 import type { Attachment, MileageInfo, RefundLine } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
@@ -1210,5 +1211,89 @@ describe('ExpenseLineRow — receipt number: accessibility (axe)', () => {
       />,
     )
     await expectNoAxeViolations()
+  })
+})
+
+// SG-2 (specs/20261118-refund-accounting-export/design.md, "Sign-off round sync"): the in-place line editor shows the
+// split-receipt hint under the same rules as the composer (WellD CH only, never mileage), and SG-1's way of meeting it.
+describe('ExpenseLineRow — the split-receipt hint in the in-place editor (SG-2, SG-1, AC-3.12, SO-15)', () => {
+  const hintText = strings.pages.requestDetail.composer.splitReceiptHint
+  // AttachmentList's file input is hidden by the `hidden` utility class (display: none in the built app); the test
+  // environment loads no stylesheet, so axe sees it as a visible unlabelled input. Not this task's code or finding.
+  const HIDDEN_FILE_INPUT: readonly AxeAllowance[] = [
+    {
+      rule: 'label',
+      selector: 'input[type="file"].hidden',
+      reason: 'AttachmentList (pre-existing): display:none through a class that jsdom does not load',
+    },
+  ]
+  const axeRow = (root: Element) => expectNoAxeViolations(root, { allow: HIDDEN_FILE_INPUT })
+  const chLine: RefundLine = { ...line, id: 'ch-1', entity: 'welld_ch', currency: 'CHF' }
+  const renderEdit = (l: RefundLine) =>
+    render(<ExpenseLineRow line={l} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+
+  it('shows the hint for a WellD CH line, tied to the amount input and the entity select, and axe finds nothing', async () => {
+    const { container } = renderEdit(chLine)
+    fireEvent.click(screen.getByTestId('row-ch-1-edit'))
+
+    const hint = screen.getByText(hintText)
+    expect(hint.id).not.toBe('')
+    expect(screen.getByTestId('row-ch-1-amount').getAttribute('aria-describedby') ?? '').toContain(hint.id)
+    expect(screen.getByTestId('row-ch-1-entity').getAttribute('aria-describedby') ?? '').toContain(hint.id)
+    await axeRow(container)
+  })
+
+  it('shows no hint for a WellD Italia line, and axe finds nothing', async () => {
+    const { container } = renderEdit(line)
+    fireEvent.click(screen.getByTestId('row-line-1-edit'))
+
+    expect(screen.queryByText(hintText)).toBeNull()
+    expect(screen.getByTestId('row-line-1-split-hint-region').textContent).toBe('')
+    expect(screen.getByTestId('row-line-1-entity').getAttribute('aria-describedby')).toBeNull()
+    await axeRow(container)
+  })
+
+  it('switching the entity adds and removes the hint in one polite live region that is already in the DOM, after the entity select', async () => {
+    const { container } = renderEdit(line)
+    fireEvent.click(screen.getByTestId('row-line-1-edit'))
+    const region = screen.getByTestId('row-line-1-split-hint-region')
+    expect(region.getAttribute('aria-live')).toBe('polite')
+    expect(region.textContent).toBe('')
+
+    fireEvent.change(screen.getByTestId('row-line-1-entity'), { target: { value: 'welld_ch' } })
+    expect(screen.getByTestId('row-line-1-split-hint-region')).toBe(region)
+    expect(region.textContent).toBe(hintText)
+    expect(
+      screen.getByTestId('row-line-1-entity').compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(region.closest('.grid')).toBeNull()
+    expect(screen.getByTestId('row-line-1-entity').getAttribute('aria-describedby') ?? '').toContain(
+      screen.getByText(hintText).id,
+    )
+    await axeRow(container)
+
+    fireEvent.change(screen.getByTestId('row-line-1-entity'), { target: { value: 'welld_it' } })
+    expect(region.textContent).toBe('')
+    expect(screen.getByTestId('row-line-1-amount').getAttribute('aria-describedby')).toBeNull()
+    await axeRow(container)
+  })
+
+  it('shows no hint for a WellD CH mileage line (Amount is the computed mileage)', () => {
+    renderEdit({ ...submittedMileageLine, id: 'km-ch' })
+    fireEvent.click(screen.getByTestId('row-km-ch-edit'))
+
+    expect(screen.queryByTestId('row-km-ch-amount')).toBeNull()
+    expect(screen.queryByText(hintText)).toBeNull()
+  })
+
+  it('the hint validates nothing: committing the line is unchanged', () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    render(
+      <ExpenseLineRow line={chLine} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByTestId('row-ch-1-edit'))
+    fireEvent.change(screen.getByTestId('row-ch-1-motivo'), { target: { value: 'Pens and paper' } })
+    fireEvent.blur(screen.getByTestId('row-ch-1-motivo'), { relatedTarget: document.body })
+    expect(onCommit).toHaveBeenCalledTimes(1)
   })
 })

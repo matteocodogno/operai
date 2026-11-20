@@ -53,14 +53,19 @@
  * wiring (AC-3.5). A successful add bumps `corpusEpoch`, so the trip just
  * claimed becomes suggestible on the next threshold crossing (plan D6).
  *
- * Split-receipt hint (specs/20261119-accounting T68, SO-15, AC-3.12): under the
- * Amount of a line whose entity is WellD CH only (never WellD Italia, never
- * `travel_km` where Amount is replaced by the computed mileage). It is the
- * Field's hint, so it is wired to the amount input by `aria-describedby`; it
- * is plain guidance and validates nothing.
+ * Split-receipt hint (specs/20261119-accounting T68, SO-15, AC-3.12; T83 SG-1): shown
+ * for a line whose entity is WellD CH only (never WellD Italia, never `travel_km`
+ * where Amount is replaced by the computed mileage). The hint depends on the Entity,
+ * which comes AFTER Amount, so a hint under Amount would be met only on a return trip.
+ * It is therefore ONE sentence below the grid (after the Entity in the DOM, never
+ * reflowing the row of fields), inside a polite live region that is always mounted
+ * (so its appearance is announced when the Entity is chosen), and it describes BOTH
+ * the Entity select and the Amount input through `aria-describedby`. It is plain
+ * guidance and validates nothing.
  *
- * `ExpenseLineRow` is deliberately NOT touched: AC-1.8 (no autocomplete on the
- * in-place line editor) is satisfied structurally, by absence.
+ * `ExpenseLineRow` has no autocomplete: AC-1.8 (no autocomplete on the in-place line
+ * editor) is satisfied structurally, by absence. It does show this hint, by the same
+ * rules (T83 SG-2).
  */
 
 import { useRef, useState } from 'react'
@@ -77,6 +82,8 @@ import type { LineDraftValue } from '../lib/lineDraft'
 import { emptyLineDraft, isLineDraftBlank, lineDraftToPayload } from '../lib/lineDraft'
 import { useLineDraftValidation } from '../lib/useLineDraftValidation'
 import MileageAmountField from './MileageAmountField'
+import { SplitReceiptHint } from './ExpenseLineComposerHint'
+import { COMPOSER_SPLIT_HINT_ID, withSplitHint } from './ExpenseLineComposerHintIds'
 import MotivoSuggestField from './MotivoSuggestField'
 import type { TripSuggestion } from '../lib/suggestionsApi'
 
@@ -166,6 +173,8 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
 
   const showKm = draft.type !== '' && requiresKm(draft.type)
   const motivoError = validation.errorFor('motivo')
+  // SG-1: the split-receipt hint applies to a WellD CH line with an Amount (never mileage).
+  const showSplitHint = draft.entity === 'welld_ch' && !showKm
 
   return (
     <form
@@ -261,13 +270,12 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
         ) : (
           <Field
             label={t.amountLabel}
-            hint={draft.entity === 'welld_ch' ? t.splitReceiptHint : undefined}
             error={validation.errorFor('amount')}
             required
           >
             {(control) => (
               <MoneyInput
-                {...control}
+                {...withSplitHint(control, COMPOSER_SPLIT_HINT_ID, showSplitHint)}
                 value={draft.amount}
                 disabled={submitting}
                 onChange={(e) => setDraft((prev) => ({ ...prev, amount: e.target.value }))}
@@ -281,7 +289,7 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
         <Field label={t.entityLabel} error={validation.errorFor('entity')} required>
           {(control) => (
             <select
-              {...control}
+              {...withSplitHint(control, COMPOSER_SPLIT_HINT_ID, showSplitHint)}
               value={draft.entity}
               disabled={submitting}
               onChange={(e) => setDraft((prev) => ({ ...prev, entity: e.target.value as Entity | '' }))}
@@ -342,6 +350,9 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
           </Field>
         )}
       </div>
+
+      {/* SG-1: below the grid, after the Entity; the region stays mounted so the hint is announced as it appears. */}
+      <SplitReceiptHint id={COMPOSER_SPLIT_HINT_ID} shown={showSplitHint} text={t.splitReceiptHint} />
 
       {/* AC-1.2 a11y hotspot: announces the km field's appearance/disappearance */}
       <p aria-live="polite" data-testid="composer-km-status" className="sr-only">

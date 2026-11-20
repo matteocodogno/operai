@@ -127,6 +127,8 @@ import { useLineDraftValidation } from '../lib/useLineDraftValidation'
 import AttachmentList from './AttachmentList'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
 import MileageAmountField from './MileageAmountField'
+import { SplitReceiptHint } from './ExpenseLineComposerHint'
+import { rowSplitHintId, withSplitHint } from './ExpenseLineComposerHintIds'
 import ReceiptNumber from './ReceiptNumber'
 
 export type ExpenseLineRowMode = 'edit' | 'readOnly' | 'readOnlyApproved' | 'review'
@@ -782,6 +784,11 @@ export default function ExpenseLineRow({
   // -------------------------------------------------------------------------
 
   const showKm = draft.type !== '' && requiresKm(draft.type as ExpenseType)
+  // SG-2 / SG-1 (specs/20261118-refund-accounting-export design "Sign-off round sync"): the split-receipt hint
+  // follows the composer's rules — WellD CH with an Amount, never mileage; one sentence after the Entity, in an
+  // always-mounted polite live region, describing both the Entity select and the Amount input.
+  const splitHintId = rowSplitHintId(line.id)
+  const showSplitHint = draft.entity === 'welld_ch' && !showKm
 
   return (
     <div
@@ -846,7 +853,7 @@ export default function ExpenseLineRow({
           <Field label={composerStrings.amountLabel} error={validation.errorFor('amount')} required>
             {(control) => (
               <MoneyInput
-                {...control}
+                {...withSplitHint(control, splitHintId, showSplitHint)}
                 value={draft.amount}
                 onChange={(e) => setDraft((prev) => ({ ...prev, amount: e.target.value }))}
                 onBlur={validation.touch('amount')}
@@ -859,7 +866,7 @@ export default function ExpenseLineRow({
         <Field label={composerStrings.entityLabel} error={validation.errorFor('entity')} required>
           {(control) => (
             <select
-              {...control}
+              {...withSplitHint(control, splitHintId, showSplitHint)}
               value={draft.entity}
               onChange={(e) => setDraft((prev) => ({ ...prev, entity: e.target.value as Entity }))}
               onBlur={validation.touch('entity')}
@@ -920,6 +927,8 @@ export default function ExpenseLineRow({
           </Field>
         )}
       </div>
+
+      <SplitReceiptHint id={splitHintId} shown={showSplitHint} text={composerStrings.splitReceiptHint} />
 
       <p aria-live="polite" className="sr-only" data-testid={`row-${line.id}-km-status`}>
         {kmStatus}

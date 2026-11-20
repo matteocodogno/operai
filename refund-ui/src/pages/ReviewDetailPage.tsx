@@ -470,6 +470,10 @@ export default function ReviewDetailPage() {
       }
     }
   }
+  // SG-3: the title counts the lines this approver can fix (an account to choose); the out-of-scope rows keep their
+  // own guidance row and are counted apart, never as "need an account".
+  const accountItemCount = missingItems.filter((item) => item.field === 'account').length
+  const outOfScopeItemCount = missingItems.length - accountItemCount
   const missingFor = (lineId: string) => ({
     account: missingItems.some((item) => item.lineId === lineId && item.field === 'account'),
   })
@@ -543,8 +547,18 @@ export default function ReviewDetailPage() {
         data-testid="classification-missing-summary-focus"
       >
         <ErrorSummary
-          title={t.classification.missingSummary.titleAccounts(missingItems.length)}
-          hint={t.classification.missingSummary.hintAccounts}
+          title={
+            accountItemCount > 0
+              ? t.classification.missingSummary.titleAccounts(accountItemCount)
+              : t.classification.missingSummary.titleOutOfScope(outOfScopeItemCount)
+          }
+          hint={
+            accountItemCount === 0
+              ? t.classification.missingSummary.hintOutOfScope
+              : outOfScopeItemCount > 0
+                ? `${t.classification.missingSummary.hintAccounts} ${t.classification.missingSummary.alsoOutOfScope(outOfScopeItemCount)}`
+                : t.classification.missingSummary.hintAccounts
+          }
           items={missingItems.map((item) => ({ id: `${item.lineId}:${item.field}`, text: item.text }))}
           onGo={(itemId) => {
             const at = itemId.lastIndexOf(':')

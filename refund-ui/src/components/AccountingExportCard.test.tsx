@@ -176,15 +176,17 @@ describe('AccountingExportCard: ready', () => {
     expect(download().getAttribute('aria-disabled')).toBeNull()
   })
 
-  it('describes an Excel file, not a CSV one, and says a VAT code is only there when the line has one (AC-6.1, AC-3.11)', async () => {
+  it('describes an Excel file, not a CSV one, and does not promise a VAT column the file does not have (AC-6.1, AC-6.2, AC-6.14, SG-4)', async () => {
     await renderCard()
     const card = screen.getByTestId('accounting-export-card')
     expect(
       within(card).getByText(
-        'One row per approved WellD CH expense line, with account, VAT code (when the line has one) and CHF amount, as an Excel file.',
+        'One row per approved WellD CH expense line, with account and CHF amount, as an Excel file. VAT is not part of the file.',
       ),
     ).not.toBeNull()
     expect(card.textContent).not.toMatch(/CSV/i)
+    expect(card.textContent).not.toMatch(/VAT code|when the line has one/i)
+    await expectNoAxeViolations()
   })
 
   it('says one row in the singular', async () => {
