@@ -1,12 +1,13 @@
 ---
 spec: 20261119
-evaluated: 2026-11-19
-round: 2
+evaluated: 2026-11-20
+round: 3
 task: T79
 rubric: default-v2
-score: 71.3
+score: 73.9
 verdict: FAIL
 round1_score: 75.7
+round2_score: 71.3
 ---
 # Eval report: Accounting — one module for ledger accounts, VAT codes and monthly exchange rates
 
@@ -309,4 +310,145 @@ gap (F7/F8) opened.
      and its answers).
   3. The product owner confirms or tags F7/F8, and the orchestrator handles T77's done-when and the `touch:` record.
   4. Re-run `/wellforge:eval 20261119-accounting`.
+- No product-code rework is required for the eval.
+
+---
+
+# Round 3 (T79, 2026-11-20, HEAD `4e7f0642`)
+
+The front matter now carries the round-3 result. Rounds 1 and 2 above are kept unchanged except for that front
+matter. Round 2 scored **71.3**, FAIL, with design fidelity below its floor. The scope is the same as round 2: the
+accounting module and the sign-off round as one deliverable. The rubric is default-v2, with weights and floors unchanged,
+`pass_score` 80, and the total normalised over 115.
+
+**Range:** `2facb68d..HEAD` holds 7 commits, 17 files, +902/−136.
+
+| Commit | Content |
+|---|---|
+| `6d090e13` | design sync of both design files for the round |
+| `aa2e54c8` | the owner confirms F7/F8; out-of-list files recorded |
+| `5648da69` | sign-off section in the 20261118 QE report |
+| `ebc74dbb`, `ff972e4e`, `0b7e8159` | T83 refund-ui fixes for SG-1 to SG-4 |
+| `4e7f0642` | the round's run trace |
+
+The only product code that changed is refund-ui (`ff972e4e`). `git diff 2facb68d HEAD -- accounting-api refund-api
+auth accounting-ui shell` is empty, so round 2's re-runs still hold for those packages:
+
+- accounting-api: 658 pass, 1 skip, 0 fail;
+- refund-api: 1924 pass, 0 fail, including `--randomize --seed 424242`;
+- accounting-ui: 564 pass;
+- auth: as in round 1.
+
+**Re-run by me at HEAD (refund-ui):**
+
+- `vitest run`: **1340 pass**, matching the coordinator's figure;
+- `tsc -b`, `eslint .` and `vite build`: all clean.
+
+No database was needed. `.envrc` was not touched or staged. The round's trace records that it holds a plaintext
+token, which is reported to the owner for rotation.
+
+**T83 has no QE pass.** `5648da69` (09:54) predates `ff972e4e` (09:59). I reviewed T83 myself:
+
+- **SG-1:** one `SplitReceiptHint` sits after the Entity in an always-mounted polite region, and its `aria-describedby`
+  is added to both controls only while it is shown (`ExpenseLineComposerHint.tsx`, `ExpenseLineComposerHintIds.ts`).
+- **SG-2:** the same component is in the line editor, with a per-line id (`row-<id>-split-hint`), so there are no
+  duplicate ids.
+- **SG-3:** the title counts only lines the approver can fix, and out-of-scope lines are counted apart
+  (`ReviewDetailPage.tsx`).
+- **SG-4:** the export card no longer promises a VAT column. It is pinned in en and it by `strings.test.ts`, and the card
+  test asserts no "VAT code" with axe.
+
+The changes are small, idiomatic and tested. Re-running refund-ui is the evidence that nothing regressed.
+
+## What changed against round 2
+
+| Round-2 finding | Status at HEAD | Evidence |
+|---|---|---|
+| Design (a): six Refund areas rebuilt with no design | **Closed** | Both files carry a "Sign-off round sync" (20261118 design.md:731-950; this design.md § Sign-off round sync). It covers: <br>• flows FR1-FR8 and screens RS1-RS7, state by state; <br>• the Excel card, the VAT "None" select, account-only defaults, 14 labels and the split-receipt hint, with placement, copy keys en/it and a11y notes; <br>• UX-24 (Source names the authority first). |
+| Design (b): retired UI described as current | **Closed** | Inline "(retired 2026-11-19, sign-off)" and "(changed …)" marks at the former :102, :261, :268 and :271, and at the S6d dialog, the copy-key rows and the S10 wireframes (20261118 design.md:265, :840). The sync states "where this section and the text above disagree, this section describes what is built". |
+| Design (c): no browser observation | **Open** | Owner step T81 (design § 8, 20261118 § 5). |
+| Spec (a): F7/F8 not owner-confirmed | **Closed** | 20261118 spec: "the owner (Matteo Codogno) confirmed both on 2026-11-20" (`aa2e54c8`). |
+| Spec (b): the vestigial `vatCodeIsDefault` | **Withdrawn** | Round 2 was wrong to count it as drift. It is a recorded, reasoned decision: 20261118 plan.md:1320 (SO-2) keeps the column, says how it is written, and says nothing reads it. |
+| Trajectory: no trace for the round | **A trace now exists, reconstructed** | `.forge/runs/2026-11-19T20-30-00Z-orchestrate-20261119-accounting-signoff.json`, honestly `reconstructed: true`. See the Trajectory row. |
+| Trajectory: `touch:` deviations unrecorded | **Recorded after the fact** | tasks.md "Sign-off round implementation notes (reconciled 2026-11-20)" now lists them, including the T60/T62 cross-edits I found. |
+| Trajectory: T77 done-when not met | **Closed** | 20261118 qe-report.md now has a sign-off section with PASS and per-AC evidence (`5648da69`). |
+
+**New, found by the design sync:** SG-4 was a **user-visible defect shipped through two QE PASS verdicts**. The export
+card told users the file carries a "VAT code (when the line has one)", which contradicts AC-6.2 and AC-6.14. It was
+**pinned by a test asserting the false sentence** (the `AccountingExportCard.test.tsx` line removed in `ff972e4e`). It
+is fixed now. It counts below as test-quality and trajectory evidence.
+
+## Round-3 score table
+
+| Dimension | Weight | Score (/5) | Floor | vs floor | Weighted | Evidence |
+|---|---|---|---|---|---|---|
+| AC satisfaction | 35 | 4 | 4 | pass (at floor) | 28.0 | Unchanged from round 2. Every live AC of both specs has named, executed, green evidence (qe-report.md:168-239 and :404-429; 20261118 qe-report.md § Sign-off round). SG-4's fix removes a UI statement that contradicted AC-6.2 and AC-6.14 (it was copy, not the file). <br>**Why not 5:** the owner steps are still open. <br>• **T81:** the live e2e (never run), the browser pass (AC-8.4 contrast and real tab order), and the workbook opened in Excel or Numbers. <br>• **T80:** the Accrio trial import. This is the consumer the file exists for: 20261118 AC-6.2 says "so the accounting system reads them as such", and D-13 notes the template is an Excel table and the output is not. The Description pattern of AC-6.13 is still provisional by the spec's own words. |
+| Spec fidelity / no drift | 20 | 4 | 3 | pass | 16.0 | Every round-1 and round-2 spec item is closed or withdrawn (table above). The amendments, plan deltas (SO-1..SO-24) and ADR amendments are coherent, and F7/F8 now carry the owner's confirmation. <br>**Not 5:** one carried residual remains. 20261118 plan.md:61 still gives `resolveClassification(line, overrides, defaults, foreignVatCodeId)`, and its note "keeps its signature minus the designation" (SO-2, :1320) is not what was built. The code is `resolveClassification(line, defaults, snapshot)` (`refund-api/src/accounting/classification.ts`). This is item (d) of the 20261118 eval, still open. Small, but it is drift in the contract text of the deliverable. |
+| Test quality | 20 | 4 | 3 | pass | 16.0 | The round-2 strengths stand: golden XLSX byte for byte, mutation 14/14 plus 5/5 (N-01), the migration test on realistic data, the rehearsal, and real concurrency. T83 adds focused tests: <br>• SG-4 copy pinned in en and it, with a negative assertion; <br>• SG-3 counts; <br>• the hint in the composer and the editor (`ExpenseLineRow.test.tsx`, +85 lines); <br>• axe on the card. <br>**Against:** <br>(1) **The suite encoded SG-4.** A test asserted the false "VAT code (when the line has one)" sentence, and neither QE pass caught that it contradicts AC-6.2. The design sync found it. <br>(2) D-9 repeated the D-5 class, now written down as a rule (tasks.md, round notes). <br>(3) The e2e is still never executed, and no real spreadsheet application or importer has read the file. <br>(4) Accessibility is checked in jsdom only. <br>(5) T83 had no QE pass; the evidence is my refund-ui re-run. |
+| Code quality & conventions | 15 | 4 | 3 | pass | 12.0 | As in round 2: a careful deterministic XLSX writer, additive migrations, strict release files, and masked output. T83 is clean: <br>• one shared hint component and one id helper, kept out of the component file so the module exports only a component; <br>• `aria-describedby` merged rather than overwritten; <br>• live region always mounted. <br>**Against:** N-02 to N-05 (info) and the carried F-04, F-05 and F-06 (low) are open. The seed still bypasses the cap and the lock. |
+| Design fidelity (UI) | 15 | 3 | 3 | pass (at floor) | 9.0 | **Raised from 2 on new evidence.** Both design files now describe what is built for the round, with retired and changed parts marked inline rather than rewritten. The sync is honest about what it did not see (static read, nothing run). It found four real gaps, one of them a user-facing contradiction of the spec (SG-4), and T83 implemented the proposed answers for all four. <br>**Not 4:** <br>(a) **Still no browser observation of any screen of this branch.** There is no contrast, reflow, real tab order, screen reader or browser axe run (design.md § 8; 20261118 design.md § 5), and the new live region for the hint is exactly the kind of behaviour only a browser can confirm. <br>(b) **The sync predates T83 by ten hours and now describes fixed behaviour as missing.** 20261118 design.md:863-864 says the editor hint is "**Not built**" and the entity switch has "no announcement (SG-1)". The gap table :945-948 lists SG-1..SG-4 as open. For SG-1 it offered three options, and the chosen one (below the grid, a live region, describing both controls) is recorded only in code comments. <br>(c) Both files are still `status: draft` (deliberate, stated). |
+| Trajectory | 10 | 2 | 2 | pass (at floor) | 4.0 | **Not raised.** The round's trace now exists. It is honestly marked `reconstructed: true` and was written at the end of the round (`4e7f0642`, 10:00 on 11-20) from git and hand-backs, with no per-agent timestamps. Its content matches git, and it records its own lapses: <br>• drift_events[3]: "design not synced for the round until after eval round 2; SG-4 copy defect found then"; <br>• T58 left refund-api red until T61; <br>• the D-9 repeat. <br>**What I am scoring is what the run did, not the later records of it:** <br>(1) **The designer step was skipped in-run.** The UI was built from the spec and plan, passed QE twice and shipped a spec-contradicting sentence. It was caught only after the eval demanded the sync. <br>(2) `touch:` deviations were again recorded after the fact, here only after the eval named them. The round's own preamble says "before it is changed" (tasks.md:1062). <br>(3) The D-5 defect class was repeated (D-9). <br>(4) T58–T61 were integrated red-then-green, against the move rule "the source package's suite stays green at every commit". <br>(5) T83 was committed with no QE re-test. <br>**For:** <br>• the order spec → owner approval → plan delta → tasks → tracks → QE FAIL → fix → QE PASS → rehearsal is sound; <br>• the owner steps are honest; <br>• T77's done-when is now met. <br>The module's round-1 deductions stand. Records made after an eval are good remediation, but they cannot change the trajectory of the run. |
+| **Total** | 115 | | | | **85.0 / 115 = 73.9/100** | |
+
+**Round-3 verdict: FAIL.** The total of 73.9 is below `pass_score` 80. **No dimension is below its floor.** AC
+satisfaction, design fidelity and trajectory each sit exactly at their floors. The verdict fails on the total, not on an
+unmet AC: every live AC of both specs has executed, green evidence, and no defect is open against an AC. What is
+missing is:
+
+- the owner steps that observe the assembled product and the real importer (T80, T81);
+- the browser pass;
+- one carried contract-text residual.
+
+## Round-3 findings and owners
+
+- **AC satisfaction (4, at floor). Owner: owner steps T81 and T80, then QE.**
+  - T81: `cd shell && pnpm e2e accounting refund-` green with every `refund-*.spec.ts`, the browser a11y pass, and the
+    workbook opened in Excel or Numbers.
+  - T80: Accrio imports the golden XLSX (and one real-batch dry export) without manual fixes, and the Description
+    pattern is confirmed.
+  - Record both in qe-report.md.
+
+  This lifts the dimension to 5. A failing journey or import makes an AC unmet, which is below the floor, so FAIL.
+- **Design fidelity (3, at floor). Owner: design, plus the owner's T81 pass.**
+  - Refresh the 20261118 sign-off sync for T83: mark SG-1..SG-4 closed, record the SG-1 option chosen, and correct
+    :863-864.
+  - Record T81's browser pass, including the hint's live region in a real screen reader, in the "Browser
+    accessibility pass" sections.
+  - Together these lift the dimension to 4.
+- **Spec fidelity (4). Owner: architect.** Correct 20261118 plan.md:61 and SO-2's "keeps its signature" to
+  `resolveClassification(line, defaults, snapshot)`, and check the classification ADR's "One function" line against the
+  code. This needs no owner step, and lifts the dimension to 5 if nothing new is found.
+- **Test quality (4). Owner: QE/dev.**
+  - The live e2e and the real importer, as above.
+  - Give T83 a QE delta pass.
+  - When a copy test pins a sentence that states a fact about a file or an API, check that fact against the AC.
+- **Code quality (4). Owner: dev, as release decisions at T52.** N-05, and the carried F-04, F-05 and F-06.
+- **Trajectory (2, at floor). Owner: orchestrator.**
+  - This run cannot be recovered.
+  - In future rounds, run the designer **before** QE whenever a round changes UI.
+  - Declare `touch:` additions before the edit.
+  - Write traces as the run happens.
+
+## Path to PASS (arithmetic)
+
+- Today: 85/115 = **73.9**.
+- **T80 and T81 green** (AC satisfaction 4 → 5, +7.0) gives 92/115 = **80.0**: exactly `pass_score`, a PASS with no
+  margin.
+- Add the **architect's signature fix** (spec fidelity 4 → 5, +4.0): 96/115 = **83.5**. It needs no owner step and can
+  be done now.
+- Add **T81's browser pass recorded in a T83-refreshed design sync** (design fidelity 3 → 4, +3.0): 99/115 = **86.1**.
+- Without the owner steps, the best reachable total is the signature fix plus the design refresh, at design 3 since a 4
+  needs the browser pass: 89/115 = **77.4**. That is not enough, so **PASS needs T80 and T81 green**.
+- The robust route is the signature fix now, then T80 and T81 green, then the design refresh.
+- Trajectory stays 2 for this run.
+
+## Recommended next step (round 3)
+
+- **FAIL.** Leave T79 and T48 unchecked. T49 cannot close, and the spec does not move to `done`.
+- Now, with no owner step needed:
+  1. The architect fixes the signature text.
+  2. The designer refreshes the 20261118 sync for T83.
+  3. QE runs a delta pass on T83.
+- Then the owner runs T81 and T80, and records them.
+- Re-run `/wellforge:eval 20261119-accounting`.
 - No product-code rework is required for the eval.
