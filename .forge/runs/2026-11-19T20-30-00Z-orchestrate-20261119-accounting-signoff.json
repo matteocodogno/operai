@@ -42,8 +42,8 @@
     { "agent": "quality-engineer", "class": "secret env", "detail": "an untracked auth dotenv file in the worktree makes auth's suite exit at startup", "resolved_by": "reported to owner; tests run on a copy without it" },
     { "agent": "devops", "class": "runtimes", "detail": "stale generated Prisma client in the main worktree (no travel_flight)", "resolved_by": "db:generate before every run" }
   ],
-  "verdicts": { "qe": "PASS (T77 after T82)", "security": "PASS (T78)", "eval": "FAIL 71.3 (round 2, before the design sync and T83); round 3 pending" },
-  "result": "partial",
+  "verdicts": { "qe": "PASS (T77 after T82)", "security": "PASS (T78)", "eval": "FAIL 71.3 (round 2), FAIL 73.9 (round 3, no dimension below floor); every path to PASS needs owner steps T80 (accountant trial import into Accrio) and T81 (live e2e + browser a11y)" },
+  "result": "escalated",
   "tokens": null,
   "cost_usd": null,
   "terse": false,
