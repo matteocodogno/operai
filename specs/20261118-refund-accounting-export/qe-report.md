@@ -307,3 +307,56 @@ The committed repros are non-vacuous: on a copy of the code, each mutant below f
 Recorded drift accepted as consistent with the code and tests: after approval a self-restriction on either `reclassify` or `approve` refuses; a `welld_ch` caller on a WellD Italia line of a mixed request gets 404 (was 422). Both are asserted by tests in `classification.routes.test.ts`. No AC text is affected; AC-3.9 still holds (no classification for Italian lines).
 
 Regression: the AC matrix above stands; every test it names ran green in the suites above. D-5 and D-6 (info) are unchanged and do not block.
+
+## Sign-off round (2026-11-19)
+
+Task T77, verdict **PASS** (first pass FAIL on one low defect, D-9; PASS after T82). The full evidence, defect list, mutation tables and gate tables are in `specs/20261119-accounting/qe-report.md`, section "Sign-off round (T77; HEAD a88a23b1)" and "Re-test after T82 (HEAD 7a92703c)". This section lists what concerns this spec. Database: the isolated container on 127.0.0.1:5446 only.
+
+### ACs of this spec changed by the amendment of 2026-11-19 (accounting sign-off), with executed evidence
+
+Files are under `refund-api/src/accounting/` unless shown. Every group was also mutated (the 20261119 report has the table: 14 mutants in the first pass, 5 more for N-01 and 1 for D-10, all killed).
+
+| AC | Status | Evidence (executed, green) |
+|---|---|---|
+| AC-2.2, 2.3, 2.4, 2.8 | adjusted (defaults are accounts only) | `defaults.routes.test.ts` (14 types, account-only GET and PUT, a `vatCode` body is 422, history), `migration.accounting-signoff.test.ts` (defaults keep ids, actors, times and accounts), refund-ui `ExpenseTypeDefaultsCard`, `DefaultClassificationDialog` |
+| AC-2.5, 2.6, 2.7 | retired (foreign-currency VAT code) | `removed-routes.test.ts` (the designation route is 404), `migration.accounting-signoff.test.ts` (the designation table and its triggers are gone), `accounting-release.test.ts` and `.cli.test.ts` (a defaults file with `vatCode` or `foreignCurrencyVatCode` is refused), the e2e asserts the UI has no such block (pending T81) |
+| AC-3.2 | retired (no foreign-currency VAT code) | `classification.test.ts`, `approve-accounting.test.ts` (a foreign line is classified like any other) |
+| AC-3.1, 3.3, 3.4, 3.5, 3.8 | adjusted (account only, VAT optional) | `classification.test.ts`, `classification.routes.test.ts`, `approve-accounting.test.ts`, refund-ui `LineClassificationPanel`, `ReviewDetailPage` |
+| AC-3.11 | new (no VAT code never blocks approval or export) | `classification.test.ts`, `approve-accounting.test.ts`, `export.test.ts`, `export.routes.test.ts`, refund-ui panel and review page tests |
+| AC-3.12 | new (at most one VAT code per line) | strict one-field `classification.schemas.ts`, refund-ui `ExpenseLineComposer.test.tsx` (one VAT field and the split-receipt hint) |
+| AC-3.13 | new (foreign line: nothing pre-set, any active code, `BZM81` included) | `classification.test.ts`, `classification.routes.test.ts`, `approve-accounting.test.ts`, refund-ui `CatalogSelect`, `LineClassificationPanel` |
+| AC-4.3 | adjusted | `numbering.repo.test.ts`, `approve-accounting.test.ts` |
+| AC-4.11, 4.12, 4.13 | new (2026 baseline N + 1; none gives 001; other years ignore it; 2027 restarts) | `receipt.baseline.test.ts` (incl. the six N-01 tests added by T82: an email changed before the first numbering still continues from the baseline), `numbering.repo.test.ts`, `db.accounting-signoff.test.ts` (CHECKs, immutability), `receipt-baseline-from-register.test.ts` (the operator helper), `accounting-release.test.ts` |
+| AC-6.1, 6.2, 6.3, 6.12 | adjusted (XLSX journal workbook, eight columns, Credit 5832, Currency CHF, Amount the CHF amount) | `exportFormat.test.ts`, `export.test.ts` (byte for byte against `fixtures/accounting-export.golden.xlsx` and its cell list), `xlsx.test.ts`, `export.routes.test.ts` through the route (headers, `.xlsx` name, no-store) |
+| AC-6.4 | retired (the import file carries no VAT) | `export.routes.test.ts` "(AC-6.4, retired) the file carries no VAT at all"; the `/csv` route is 404 |
+| AC-6.5 | adjusted (wording) | `export.routes.test.ts` blockers |
+| AC-6.13 | adjusted (Description pattern) | `exportFormat.test.ts`, `export.test.ts` |
+| AC-6.14 | adjusted (Tax and Note present and empty) | `export.test.ts` (cell types `empty`) |
+| AC-6.15 | adjusted (text, never a formula) | `exportFormat.test.ts`, `xlsx.test.ts`, `export.test.ts`; no formula element in any part (re-checked on the golden workbook). The space collapsing (D-12) is accepted and settled on the spec side by the product owner |
+| AC-6.16 | new (latest first, fixed tie-breaks) | `exportFormat.test.ts`, `export.test.ts`, `export.routes.test.ts` (two downloads identical, same SHA-256) |
+| AC-6.17 | new (`2620.10` as text, `5905` and `2620.1` as numbers) | `export.test.ts`, `exportFormat.test.ts`; verified in the golden workbook |
+| AC-7.1, 7.2 | adjusted (the account only; no VAT code) | `accounting-release.test.ts`, `accounting-release.cli.test.ts`, `classification.inactive-default.test.ts` |
+| AC-7.4 | new and adjusted (the list of last numbers required; exit 3 and nothing written; a header-only list is available) | `accounting-release.test.ts`, `accounting-release.cli.test.ts`; `release-rehearsal.md` read against the code; the report prints "1 line" in the singular (D-10, fixed by T82) |
+| AC-8.1, 8.2 | new (14 expense types; meals renamed, existing lines keep the type) | `requests/labels.test.ts`, `requests/suggestions.*`, `requests/lines.routes.test.ts`, `requests/exportPdf.test.ts`, `batches/pdf.test.ts`, `migration.accounting-signoff.test.ts` (enum order), refund-ui `expenseTypes.test.ts` and its parity test with `document-labels.json` |
+| AC-8.3 | new (14 default accounts; gifts none) | `accounting-release.test.ts`, `defaults.routes.test.ts`, the defaults file |
+| AC-8.4 | new (a gifts line is refused until an account is chosen) | `classification.test.ts`, `approve-accounting.test.ts` |
+| AC-8.5 | new (7122 and 2620.1 choosable, never a default) | the defaults file is compared exactly (a mutant that makes 7122 a default is caught), the seed test holds both accounts, the classification PUT accepts any active account |
+
+Unchanged ACs keep the evidence of the first pass and of the re-test after fix round 1; the suites that carry them ran green again in this round (refund-api 1924 tests, refund-ui 1331).
+
+### Gates run in this round (details in the 20261119 report)
+
+refund-api default order 1924 pass and `tsc` clean; `--randomize` seeds 424242 and 77, full suite, 1924 pass each; `migration.accounting-signoff.test.ts` alone with seeds 1, 2, 3 and 424242, 15 pass each; refund-ui 1331 pass, lint, `tsc -b` and build clean; accounting-api 658 pass, accounting-ui 564, operai-ui 300, shell 685, auth `tsc` clean (auth tests: 2 legal-entities throttle tests fail only because of an untracked dotenv file in the checkout, an environment fault; they pass in a copy without it); shell e2e `tsc` clean and `playwright test --list` 239 tests in 53 files; `shared:check`, `react:skew`, `env:doctor`, `changeset:check` green; both services' migrations apply from zero with no prisma drift; secret scan of the delta clean; no critical CVE and no lockfile change; the live AFC test passes once. The golden workbook matches the structure of the accountant's template (read-only, no row copied).
+
+### D-9 and its fix
+
+The first pass failed on `migration.accounting-signoff.test.ts`: its tests shared one scratch database, some wrote to it and others compared it with digests taken before, so a shuffled order (`--randomize --seed 424242`) failed 2 tests. T82 gave each writing test its own scratch database; the re-test is green on the whole suite for both required seeds and on the file for four seeds. T82 also closed the N-01 finding (a baseline looked up under every email of the same user id; six new tests, five mutants killed), D-10 and D-11.
+
+### Pending for the owner
+
+- **T80:** the trial import of the golden workbook (and one real-batch dry export) into Accrio; confirm the Description pattern, the type labels, the VAT code names and labels (`IPM26`, `IPM38`), the remaining default accounts and the 2026 baseline list. Whether Accrio needs the Excel table of the template (D-13) is decided there.
+- **T81:** the live e2e (`cd shell && pnpm e2e accounting refund-`), the manual browser accessibility check, and the downloaded workbook opened in Excel or Numbers (LibreOffice is not installed here).
+
+For every AC listed above, unit, integration and component evidence is sufficient on its own; what the live run adds is the assembled path.
+
+Verdict for the sign-off round: **PASS**.
