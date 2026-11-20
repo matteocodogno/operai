@@ -1310,3 +1310,29 @@ No other overlap was found.
 | R7 | | | | | T79 | Then T48 and T49 close as before. |
 
 **Critical path:** T58 → T60 → T61 → T62 → T73 → T77 → T79 → T49.
+
+## Sign-off round implementation notes (reconciled 2026-11-20)
+
+Files touched outside a task's `touch:` list in the sign-off round, as reported by the dev agents
+(recorded centrally; no merge collision occurred):
+
+- T58: `refund-api/src/lib/db.accounting-copies.test.ts`, `db.accounting-immutability.test.ts`,
+  `migration.accounting-move.test.ts` (dropped objects); the suite was red by design until T61 —
+  T58–T61 were integrated together.
+- T60: a minimal `defaults.repo.ts` edit (`loadRecordedDefaults`) and, to compile, nullable VAT fields
+  in T62's `export.ts` / `export.repo.ts` / `export.schemas.ts` and their tests (rewritten by T62).
+- T61: `natural-keys`, `no-cache`, `accounting-unavailable.matrix`, `no-store.headers` tests reworked
+  (listed under T60); accounting-api seed files (cross-track, declared).
+- T62: `natural-keys`, `no-cache`, `accounting-unavailable.matrix`, `classification.inactive-default`
+  tests (route move to `/file`), `fixtures/.gitattributes`; T63: the same four suites (`offsets: []`).
+- T64/T63: `refund-api/package.json` one-line script additions (declared shared).
+- T66: `AddVatCodeDialog.tsx` doc comment and test fixtures (IPM codes).
+- T67: `refund-ui/src/strings.test.ts`.
+- T69–T71: `pages/settings/SettingsViews*.test.tsx`, `lib/catalogLabels.test.ts`,
+  `pages/BatchDetailPage.test.tsx`, `catalogLabels.ts` / `CatalogSelect.tsx` comments, and
+  `accountingApi.ts` in T70/T71 (owner of the shared types).
+- T72: `accounting-api/README.md` (seed list).
+- T82: `refund-api/scripts/accounting-release*.test.ts` (within the glob).
+
+The order-dependence defect class of D-5 recurred in T58's new migration test (D-9, fixed in T82):
+new database tests that write must use their own scratch database.

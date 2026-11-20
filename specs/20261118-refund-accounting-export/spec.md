@@ -168,6 +168,8 @@ approved: 2026-11-18
     order and Tax column, the row order, the line-break question. New follow-ups for the
     accountant: a trial import of the golden file into Accrio; accounts seen in the 2025 template
     but not in the signed-off list (5803, 6199, 6305, 6721, and a row whose Debit is "2").
+  - *F7 and F8 were added after the owner's approval of the sign-off scope; the owner (Matteo Codogno)
+    confirmed both on 2026-11-20.*
   - **F7, whitespace in the Description and text cells.** Control characters, line breaks and runs
     of spaces in the reason and the name become a single space, and the ends are trimmed (the
     plan's choice, friendly to the accounting system); everything else stays exactly as written
