@@ -111,7 +111,7 @@ describe('RequestExportLink', () => {
   it('names the request in its accessible label, not just "Export PDF"', () => {
     render(<RequestExportLink requestId="req_123" />)
     expect(
-      screen.getByLabelText(/Export request req_123 as an archive PDF/i),
+      screen.getByLabelText(/Export PDF of request req_123/i),
     ).toBeDefined()
   })
 })

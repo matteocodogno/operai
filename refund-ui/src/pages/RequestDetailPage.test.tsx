@@ -18,7 +18,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expectNoAxeViolations } from '../test-support/axe'
-import { SUBTOTALS_PANEL_DEFINITION_LIST } from '../test-support/axeKnownFindings'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import RequestDetailPage from './RequestDetailPage'
 import type { RefundRequestDetail } from '../lib/requestsApi'
@@ -622,8 +621,7 @@ describe('RequestDetailPage — receipt numbers, no accounting copy (specs/20261
       vi.mocked(requestsApi.get).mockResolvedValue(numberedRequest(status))
       renderRequestDetailPage()
       await waitFor(() => expect(screen.getByTestId(`request-detail-${status}`)).not.toBeNull())
-      // SubtotalsPanel's approved figure is a known finding in code this feature did not change (axeKnownFindings.ts).
-      await expectNoAxeViolations(document.body, { allow: SUBTOTALS_PANEL_DEFINITION_LIST })
+      await expectNoAxeViolations(document.body)
     },
   )
 })

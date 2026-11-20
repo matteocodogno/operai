@@ -949,7 +949,7 @@ const en = {
      */
     requestExportLink: {
       buttonLabel: 'Export PDF',
-      downloadLabel: (reference: string) => `Export request ${reference} as an archive PDF, including all receipts`,
+      downloadLabel: (reference: string) => `Export PDF of request ${reference}, an archive including all receipts`,
       exporting: 'Preparing…',
       genericError: 'Could not export this request. Try again.',
       tooLargeError: 'This request’s receipts are too large to export in one PDF. Ask an administrator.',
@@ -1816,7 +1816,7 @@ const it: Strings = {
     requestExportLink: {
       buttonLabel: 'Esporta PDF',
       downloadLabel: (reference: string) =>
-        `Esporta la richiesta ${reference} in un PDF d’archivio, con tutte le ricevute`,
+        `Esporta PDF della richiesta ${reference}, un archivio con tutte le ricevute`,
       exporting: 'Preparazione…',
       genericError: 'Impossibile esportare la richiesta. Riprovare.',
       tooLargeError:

@@ -56,28 +56,28 @@ function ApprovedFigure({ subtotal }: { subtotal: Subtotal }) {
   const amount = describeApprovedAmount(subtotal.requestedCents, subtotal.approvedCents, subtotal.currency)
 
   return (
-    <div className="flex items-start justify-between gap-3">
+    // `<dt>` and every `<dd>` are direct children of this one `<div>` (a valid `<dl>` group): the grid puts the
+    // label on the left and stacks the figures on the right, so no wrapper around the `<dd>`s is needed.
+    <div className="grid grid-cols-[auto_1fr] items-start gap-x-3">
       <dt className="text-soft">{t.approvedLabel}</dt>
-      <div className="text-right">
+      <dd
+        className="col-start-2 text-right font-mono tabular-nums text-grn-text"
+        data-testid={`subtotals-approved-${subtotal.currency}`}
+        data-changed={amount.changed ? 'true' : 'false'}
+      >
+        {amount.approved}
+      </dd>
+      {/* Beneath, never appended: this figure is the one a reader checks the
+          line column sums to, so it must sit at the same right edge as the
+          lines above it. An inline parenthetical would move it. */}
+      {amount.changed && (
         <dd
-          className="font-mono tabular-nums text-grn-text"
-          data-testid={`subtotals-approved-${subtotal.currency}`}
-          data-changed={amount.changed ? 'true' : 'false'}
+          className="col-start-2 text-right font-mono tabular-nums text-2xs text-soft"
+          data-testid={`subtotals-approved-delta-${subtotal.currency}`}
         >
-          {amount.approved}
+          {t.approvedDeltaNote(amount.requested, amount.delta)}
         </dd>
-        {/* Beneath, never appended: this figure is the one a reader checks the
-            line column sums to, so it must sit at the same right edge as the
-            lines above it. An inline parenthetical would move it. */}
-        {amount.changed && (
-          <dd
-            className="font-mono tabular-nums text-2xs text-soft"
-            data-testid={`subtotals-approved-delta-${subtotal.currency}`}
-          >
-            {t.approvedDeltaNote(amount.requested, amount.delta)}
-          </dd>
-        )}
-      </div>
+      )}
     </div>
   )
 }

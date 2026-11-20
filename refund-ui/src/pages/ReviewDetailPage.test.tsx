@@ -24,7 +24,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expectNoAxeViolations } from '../test-support/axe'
-import { SUBTOTALS_PANEL_DEFINITION_LIST } from '../test-support/axeKnownFindings'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import type { Permission, PermissionsResult, ShellSessionState } from 'shell/session'
 import ReviewDetailPage from './ReviewDetailPage'
@@ -1930,15 +1929,14 @@ describe('ReviewDetailPage — line classification panels', () => {
       renderReviewDetailPage()
       await readySelect('classification-c1-account')
       await expect.poll(() => screen.getByTestId('expense-line-row-c1').textContent).toContain('MC26/014')
-      // SubtotalsPanel's approved figure is a known finding in code this feature did not change (axeKnownFindings.ts).
-      await expectNoAxeViolations(document.body, { allow: SUBTOTALS_PANEL_DEFINITION_LIST })
+      await expectNoAxeViolations(document.body)
       cleanup()
 
       vi.mocked(requestsApi.get).mockResolvedValue(decided('paid'))
       vi.mocked(accountingApi.getRequestAccounting).mockResolvedValue(view(lines, 'locked', 'paid'))
       renderReviewDetailPage()
       await screen.findByTestId('classification-c1-why')
-      await expectNoAxeViolations(document.body, { allow: SUBTOTALS_PANEL_DEFINITION_LIST })
+      await expectNoAxeViolations(document.body)
       cleanup()
 
       vi.mocked(requestsApi.get).mockResolvedValue(withCh({ status: 'rejected', rejectionMotivation: 'No.' }))
