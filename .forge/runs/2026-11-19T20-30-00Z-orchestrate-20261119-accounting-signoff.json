@@ -1,0 +1,51 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-11-19T20-30-00Z-orchestrate-20261119-accounting-signoff",
+  "command": "orchestrate",
+  "feature": "20261119-accounting (+ 20261118-refund-accounting-export), accounting sign-off round",
+  "rigor": "production",
+  "started": "2026-11-19T20:30:00Z",
+  "finished": "2026-11-20T09:00:08Z",
+  "reconstructed": true,
+  "reconstruction_note": "Written by the orchestrator at the end of the round from git history and agent hand-back reports; no per-agent timestamps. Commits 1aaa81c0..0b7e8159 on feat/accounting-module are the primary evidence.",
+  "agents": [
+    { "agent": "product-owner", "outcome": "completed", "note": "both specs amended with the accountant's answers and four owner decisions (1aaa81c0); owner approved (1169256f); sample-file sync (6f0121a3); whitespace and baseline-addresses alignment (8af9e0e7), owner-confirmed 2026-11-20" },
+    { "agent": "architect", "outcome": "completed", "note": "sign-off delta in both plans, SO-1..SO-24, tasks T58-T81 (9d7e9a91); folded in the accountant's XLSX template" },
+    { "agent": "adr-writer", "tasks": ["T75"], "outcome": "completed", "note": "sign-off amendments to four ADRs (0f320d6b) and the reference-data ADR (fc31c3d9)" },
+    { "agent": "backend-dev", "tasks": ["T58", "T59", "T60", "T61"], "outcome": "completed", "worktree": "feat/accounting-so-t58", "note": "T58 red by design until T61; integrated together" },
+    { "agent": "backend-dev", "tasks": ["T62", "T63"], "outcome": "completed", "worktree": "feat/accounting-so-t58" },
+    { "agent": "backend-dev", "tasks": ["T64"], "outcome": "completed", "worktree": "feat/accounting-so-t64" },
+    { "agent": "backend-dev", "tasks": ["T65"], "outcome": "completed", "worktree": "feat/accounting-so-t65", "note": "commit delayed by a test-DB environment fault" },
+    { "agent": "frontend-dev", "tasks": ["T66", "T67"], "outcome": "completed", "worktree": "feat/accounting-so-t66 / feat/accounting-so-t67" },
+    { "agent": "frontend-dev", "tasks": ["T69", "T70", "T71", "T68"], "outcome": "completed", "worktree": "feat/accounting-so-rui" },
+    { "agent": "devops", "tasks": ["T72", "T74"], "outcome": "completed", "worktree": "feat/accounting-so-docs" },
+    { "agent": "frontend-dev", "tasks": ["T73"], "outcome": "completed", "worktree": "feat/accounting-so-e2e", "note": "e2e written and statically verified; live run is owner step T81" },
+    { "agent": "devops", "tasks": ["T76"], "outcome": "PASS", "worktree": "feat/accounting-so-reh", "note": "release rehearsal on scratch databases with the real accounting-api" },
+    { "agent": "quality-engineer", "tasks": ["T77"], "outcome": "FAIL", "note": "D-9 order-dependent migration test (low), D-10..D-15 info" },
+    { "agent": "owasp-reviewer", "tasks": ["T78"], "outcome": "PASS", "note": "N-01 low (baseline keyed by email)" },
+    { "agent": "backend-dev", "tasks": ["T82"], "outcome": "completed", "worktree": "feat/accounting-so-t82" },
+    { "agent": "quality-engineer", "tasks": ["T77"], "outcome": "PASS", "note": "re-test after T82; sign-off section added to both QE reports" },
+    { "agent": "evaluator", "tasks": ["T79"], "outcome": "FAIL", "score": 71.3, "note": "design fidelity below floor (no design sync for the round), trajectory at floor, owner steps T80/T81 pending" },
+    { "agent": "designer", "outcome": "completed", "note": "sign-off round sync of both design.md files (6d090e13); found SG-1..SG-4" },
+    { "agent": "frontend-dev", "tasks": ["T83"], "outcome": "completed", "worktree": "feat/accounting-so-t83", "note": "SG-4 export-card copy promised a VAT column; SG-1..SG-3 a11y and counts" }
+  ],
+  "drift_events": [
+    { "agent": "product-owner", "artifact": "spec.md", "summary": "accountant's answers reversed VAT defaults (A2) and replaced the CSV export with a journal XLSX", "resolved": true },
+    { "agent": "architect", "artifact": "plan.md", "summary": "accountant's sample file: XLSX, 8 columns, credit 5832, Date descending", "resolved": true },
+    { "agent": "backend-dev", "artifact": "tasks.md", "summary": "T58's migrations left refund-api red until T61; tasks integrated together instead of one by one", "resolved": true },
+    { "agent": "designer", "artifact": "design.md", "summary": "design not synced for the round until after eval round 2; SG-4 copy defect found then", "resolved": true }
+  ],
+  "collision_events": [],
+  "env_faults": [
+    { "agent": "orchestrator", "class": "databases", "detail": "the isolated Postgres on :5445 stopped and another container took the port; an agent's docker start was refused by the permission system", "resolved_by": "owner approved a new container operai-accounting-test-pg on 127.0.0.1:5446" },
+    { "agent": "devops", "class": "secret env", "detail": "an uncommitted .envrc in the main worktree holds a plaintext 1Password service-account token (not written by an agent); never staged", "resolved_by": "reported to owner: rotate the token and restore the file" },
+    { "agent": "quality-engineer", "class": "secret env", "detail": "an untracked auth dotenv file in the worktree makes auth's suite exit at startup", "resolved_by": "reported to owner; tests run on a copy without it" },
+    { "agent": "devops", "class": "runtimes", "detail": "stale generated Prisma client in the main worktree (no travel_flight)", "resolved_by": "db:generate before every run" }
+  ],
+  "verdicts": { "qe": "PASS (T77 after T82)", "security": "PASS (T78)", "eval": "FAIL 71.3 (round 2, before the design sync and T83); round 3 pending" },
+  "result": "partial",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
