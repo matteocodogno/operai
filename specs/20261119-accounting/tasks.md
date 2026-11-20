@@ -1012,6 +1012,10 @@ tasks share an edge or a path, except the declared `lerna.json` line-level touch
   - touch: `refund-api/src/lib/migration.accounting-signoff.test.ts`, `refund-api/scripts/accounting-release*.ts`, `refund-api/src/index.ts`, `refund-api/src/requests/requests.schemas.ts`, `refund-api/src/accounting/numbering.repo*.ts`, `refund-api/src/accounting/receipt.baseline.test.ts`
   - done when: refund-api suite green in default order and under the randomize seeds; N-01 test (email changed before first numbering → continues from the baseline) green; tsc green.
 
+- [ ] T83: refund-ui — design-sync gaps (specs/20261118-refund-accounting-export/design.md "Sign-off round sync"): SG-4 the export card's description must not promise a VAT column (the file has none — AC-6.2/6.14); SG-1 the split-receipt hint is reachable in keyboard order where it applies and announced politely when it appears; SG-2 the in-place line editor shows the same hint; SG-3 the refused-approval summary does not count out-of-scope lines as "need an account" (they keep their own row) — refs: 20261118:AC-6.2, 20261118:AC-6.14, 20261118:AC-8.1, 20261118:AC-3.4 — deps: T79
+  - touch: `refund-ui/src/components/AccountingExportCard*`, `refund-ui/src/components/ExpenseLineComposer*`, `refund-ui/src/components/ExpenseLineRow*`, `refund-ui/src/pages/ReviewDetailPage*`, `refund-ui/src/strings.ts`, `refund-ui/src/strings.test.ts`
+  - done when: component tests for each gap (with axe) green; refund-ui tsc -b, lint, vitest, build green.
+
 ## Implementation notes (reconciled 2026-11-19)
 
 Each track ran in its own worktree and was integrated by rebase + fast-forward; checkboxes are
