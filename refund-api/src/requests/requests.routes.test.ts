@@ -173,6 +173,20 @@ describe("POST /requests", () => {
     expect(row.status).toBe("draft");
   });
 
+  it("snapshots the token's name claim as the owner's name, and stores none when the claim is absent", async () => {
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const named = await harness.signToken({ sub: "emp-named", email: "named@x.com", name: "Ada Lovelace" });
+    const res = await requestsRouter.request("/requests", { method: "POST", headers: authHeaders(named) });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+    expect((await db.refundRequest.findUniqueOrThrow({ where: { id } })).ownerName).toBe("Ada Lovelace");
+
+    const unnamed = await harness.signToken({ sub: "emp-unnamed", email: "unnamed@x.com" });
+    const res2 = await requestsRouter.request("/requests", { method: "POST", headers: authHeaders(unnamed) });
+    const { id: id2 } = (await res2.json()) as { id: string };
+    expect((await db.refundRequest.findUniqueOrThrow({ where: { id: id2 } })).ownerName).toBeNull();
+  });
+
   it("missing request:create capability → 403", async () => {
     harness.setResolve(async () => NO_GRANTS);
     const token = await harness.signToken({ sub: "emp-2", email: "emp2@x.com" });

@@ -157,7 +157,9 @@ requestsRouter.openapi(createRequestRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(createDraftRequest(sub, email, null));
+  // The display name is snapshotted from the token's `name` claim (jwt.middleware), as approve/reject do for the
+  // decider: documents and the accounting export lead with the person, the email only when the account has no name.
+  const exit = await Effect.runPromiseExit(createDraftRequest(sub, email, c.get("userName") ?? null));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure creating refund request");
   }

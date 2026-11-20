@@ -48,6 +48,8 @@ export interface SignTokenOptions {
   readonly sub: string;
   readonly email: string;
   readonly permEpoch?: number;
+  /** The `name` claim auth puts on every token; omitted, the token carries none. */
+  readonly name?: string;
 }
 
 export interface TestAuthHarness {
@@ -96,7 +98,7 @@ export function setupTestAuth(): TestAuthHarness {
       );
 
     const jwtMiddleware = createMiddleware<{
-      Variables: { userId: string; email: string; permEpoch: number };
+      Variables: { userId: string; email: string; permEpoch: number; userName?: string };
     }>(async (c, next) => {
       const authHeader = c.req.header("Authorization");
       if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -125,6 +127,9 @@ export function setupTestAuth(): TestAuthHarness {
         c.set("userId", userId);
         c.set("email", email);
         c.set("permEpoch", permEpoch);
+        // As the real middleware: a non-blank `name` claim becomes `userName`.
+        const claimedName = payload["name"];
+        if (typeof claimedName === "string" && claimedName.trim() !== "") c.set("userName", claimedName);
         return next();
       } catch {
         return unauthorized(
@@ -154,9 +159,10 @@ export function setupTestAuth(): TestAuthHarness {
         keys: [{ ...publicJwk, use: "sig", alg: "RS256", kid: TEST_KID }],
       });
     },
-    async signToken({ sub, email, permEpoch }: SignTokenOptions) {
+    async signToken({ sub, email, permEpoch, name }: SignTokenOptions) {
       const jwt = new SignJWT({
         email,
+        ...(name !== undefined ? { name } : {}),
         ...(permEpoch !== undefined ? { perm_epoch: permEpoch } : {}),
       })
         .setProtectedHeader({ alg: "RS256", kid: TEST_KID })
