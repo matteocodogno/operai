@@ -63,14 +63,8 @@ describe('the accounting copy catalog (design § Copy keys)', () => {
     expect(it_.pages.batchDetail.accountingExport.excluded(1)).toContain('1 riga WellD Italia è esclusa')
   })
 
-  it('extends the batch request link label with receipts only when there are some', () => {
-    const label = en.components.batchEmployeeGroupList.openRequestLabel
-    expect(label('Ada', 'approved', 'EUR 10.00')).toBe('Open Ada’s request, approved, EUR 10.00')
-    expect(label('Ada', 'approved', 'EUR 10.00', 'MC26/014, MC26/015')).toBe(
-      'Open Ada’s request, approved, EUR 10.00, receipts MC26/014, MC26/015',
-    )
-    expect(
-      it_.components.batchEmployeeGroupList.openRequestLabel('Ada', 'approvata', '10,00 EUR', 'MC26/014'),
-    ).toContain(', ricevute MC26/014')
+  it('starts the batch request link with the employee, in both languages', () => {
+    expect(en.components.batchEmployeeGroupList.openRequestPrefix('Ada')).toBe('Open Ada’s request: ')
+    expect(it_.components.batchEmployeeGroupList.openRequestPrefix('Ada')).toBe('Apri la richiesta di Ada: ')
   })
 })

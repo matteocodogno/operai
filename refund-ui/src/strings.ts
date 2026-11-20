@@ -935,9 +935,8 @@ const en = {
     /** `BatchEmployeeGroupList` (T10, specs/20260719-refund-monthly-processing/tasks.md) — modes `preview`|`detail`. */
     batchEmployeeGroupList: {
       requestCountLabel: (count: number) => `${count} request${count === 1 ? '' : 's'}`,
-      /** `detail` mode only — each request row's link, disambiguating a list of otherwise-identical controls (design.md Accessibility). */
-      openRequestLabel: (employeeName: string, status: string, amount: string, receipts?: string) =>
-        `Open ${employeeName}’s request, ${status}, ${amount}${receipts ? `, receipts ${receipts}` : ''}`,
+      /** `detail` mode only — the visually hidden start of each request row's link, disambiguating a list of otherwise-identical controls (design.md Accessibility); the visible status, amount and receipts follow it. */
+      openRequestPrefix: (employeeName: string) => `Open ${employeeName}’s request: `,
     },
     /** `BatchPdfLink` (T10, specs/20260719-refund-monthly-processing/tasks.md) — mirrors `attachmentList`'s download states, scoped to a batch's compiled PDF. */
     /**
@@ -1810,8 +1809,7 @@ const it: Strings = {
     },
     batchEmployeeGroupList: {
       requestCountLabel: (count: number) => `${count} ${plural(count, 'richiesta', 'richieste')}`,
-      openRequestLabel: (employeeName: string, status: string, amount: string, receipts?: string) =>
-        `Apri la richiesta di ${employeeName}, ${status}, ${amount}${receipts ? `, ricevute ${receipts}` : ''}`,
+      openRequestPrefix: (employeeName: string) => `Apri la richiesta di ${employeeName}: `,
     },
     requestExportLink: {
       buttonLabel: 'Esporta PDF',

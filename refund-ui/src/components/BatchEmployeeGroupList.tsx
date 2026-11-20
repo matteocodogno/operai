@@ -26,9 +26,9 @@
  * Each employee group is a `Card` titled with the employee's name (INC-33),
  * so the section is labelled by the name and the request count is its
  * action-slot meta; in `detail` mode the request rows are `ListRows`, and, each request row's link
- * carries a full `aria-label` ("Open `<employee>`'s request, `<status>`,
- * `<amount>`") rather than relying on visually-adjacent badge/amount text
- * alone (same pattern 007's Screen R1/A1 rows already use).
+ * starts with a visually hidden "Open `<employee>`'s request:" before the visible status, amount and
+ * receipts, so its accessible name disambiguates the rows AND contains every word a sighted person sees
+ * (WCAG 2.5.3 Label in Name; an `aria-label` restating them drifted from the visible text, found by the live e2e).
  *
  * Presentational: all data arrives via props; no fetching.
  */
@@ -68,7 +68,6 @@ const aggregateRowSubtotals = (rows: readonly { subtotals: readonly BatchSubtota
 export default function BatchEmployeeGroupList(props: BatchEmployeeGroupListProps) {
   const t = strings.components.batchEmployeeGroupList
   const tPage = strings.pages.batchDetail
-  const statusLabels = strings.badges.requestStatus
 
   if (props.groups.length === 0) return null
 
@@ -120,9 +119,9 @@ export default function BatchEmployeeGroupList(props: BatchEmployeeGroupListProp
                       to="/review/$id"
                       params={{ id: row.id }}
                       data-testid={`batch-employee-group-${group.owner.userId}-request-${row.id}`}
-                      aria-label={t.openRequestLabel(ownerName, statusLabels[row.status], amount, receipts || undefined)}
                       className={receipts ? `${listRowClassName} flex-col items-stretch gap-1` : listRowClassName}
                     >
+                      <span className="sr-only">{t.openRequestPrefix(ownerName)}</span>
                       {receipts ? (
                         <>
                           <span className="flex items-center justify-between gap-4">{summary}</span>
