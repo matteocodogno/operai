@@ -47,7 +47,7 @@ no screen of its own. It holds the activities, tasks and task blockers of two ho
 screens call it directly through `shell/session` (specs/20261110-activities, ADR 20261110-activities-service-access-delegated-to-host). The CRM's activity timeline
 and task list, the project's Tasks card and the **My tasks** page at `/projects/tasks` all read from it.
 
-`hours-api` is the tenth service. It holds time entries — one person's own declaration of a duration, on one
+`hours-api` is the eleventh service. It holds time entries — one person's own declaration of a duration, on one
 day, on a project, a deal, a meeting or other work — and the categories and work types an admin manages. Its
 screens are `hours-ui`'s (`/hours`); its permissions are `auth`'s `hours` catalog, which has **no `access`
 resource** (the tool is ungated) and carries only `time-entry:read-all` and `time-list:manage`

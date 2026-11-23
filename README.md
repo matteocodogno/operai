@@ -84,7 +84,7 @@ open **http://localhost:5173**.
 | crm-ui (remote) | 5179 | CRM (specs/20261101-crm) |
 | projects-ui (remote) | 5181 | Projects (specs/20261103-projects) |
 | accounting-ui (remote) | 5183 | Accounting (specs/20261119-accounting); 5185 in the e2e preview |
-| hours-ui (remote) | 5184 | Hours / time tracking, ungated `/hours` (specs/20261112-time-tracking); 5182 and 5183 are left free (e2e preview defaults) |
+| hours-ui (remote) | 5184 | Hours / time tracking, ungated `/hours` (specs/20261112-time-tracking); 5187 in the e2e preview |
 | auth | 3001 | Bun + Hono |
 | estimai-api | 8080 | Bun + Hono |
 | notify-api | 8081 | Bun + Hono — SSE push (specs/20260713-notification-center) |
