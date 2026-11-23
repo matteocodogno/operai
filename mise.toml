@@ -88,7 +88,7 @@ run = "bun tools/env-doctor/index.ts"
 # letterhead-api (:8088), which letterheads-ui (:5182) reaches through the shell. VITE_ACCOUNTING_API_URL
 # (specs/20261119-accounting) is the same for accounting-api (:8089), which accounting-ui (:5183) reaches through the shell.
 #
-# specs/20261112-time-tracking: likewise VITE_HOURS_API_URL (hours-api, :8088) — the base URL hours-ui calls (its
+# specs/20261112-time-tracking: likewise VITE_HOURS_API_URL (hours-api, :8090) — the base URL hours-ui calls (its
 # Settings tab, the time lists, included) and the shell's trusted origin for the Bearer. Same default, same rule: set in `dev`,
 # `dev:web` and `dev:preview`, and before the shell's build in the last one.
 #
@@ -97,7 +97,7 @@ run = "bun tools/env-doctor/index.ts"
 # inventory invoices) + all the backends + all the tool frontends, one
 # command. Ports: auth 3001, estimai-api 8080, notify-api 8081, refund-api
 # 8082, inventory-api 8083, crm-api 8084, meetings-api 8085, projects-api 8086, activities-api 8087,
-# hours-api 8088, shell 5173,
+# hours-api 8090, shell 5173,
 # estimai-ui 5174, refund-ui 5175, notify-ui 5176, admin-ui 5177, inventory-ui 5178, crm-ui 5179,
 # meetings-ui 5180, projects-ui 5181, letterheads-ui 5182, accounting-ui 5183, hours-ui 5184 (frontend ports pinned in each app's vite.config.ts); letterhead-api 8088 (Rust, specs/20261116-letterhead-service);
 # accounting-api 8089 (Bun, own database `accounting`, specs/20261119-accounting); MinIO S3
@@ -135,7 +135,7 @@ run = "bun tools/env-doctor/index.ts"
 # hours-api/.env.example to hours-api/.env (gitignored — secret values live only there, never in a committed
 # .envrc) and fills it; bun and prisma.config.ts load it, and `direnv exec .` below only adds the root env.
 # Until it exists hours-api exits at start on its env validation (src/lib/env.ts, exit 1, naming each missing
-# variable) and the rest of the stack keeps running; nothing answers on :8088. It also needs `SERVICE_AUDIENCE`
+# variable) and the rest of the stack keeps running; nothing answers on :8090. It also needs `SERVICE_AUDIENCE`
 # in meetings-api's own environment and an `hours-api` entry (scope `meetings.hosts.read`) in auth's
 # `SERVICE_CLIENTS`, its secret held where auth keeps the others (never a committed file): without them a
 # meeting's deal reads as unavailable.
@@ -161,12 +161,12 @@ run = "bun tools/env-doctor/index.ts"
 # federation plugin adds is incompatible with React Fast Refresh's
 # consistent-exports rule); edits deeper in a remote's tree Fast-Refresh normally.
 [tasks.dev]
-description = "Run the FULL suite locally with HMR — Postgres + MinIO (S3 :9000, console :9001) + auth :3001 + estimai-api :8080 + notify-api :8081 + refund-api :8082 + inventory-api :8083 + crm-api :8084 + meetings-api :8085 + projects-api :8086 + activities-api :8087 + letterhead-api :8088 + accounting-api :8089 + hours-api :8088 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182 + accounting-ui :5183 + hours-ui :5184"
+description = "Run the FULL suite locally with HMR — Postgres + MinIO (S3 :9000, console :9001) + auth :3001 + estimai-api :8080 + notify-api :8081 + refund-api :8082 + inventory-api :8083 + crm-api :8084 + meetings-api :8085 + projects-api :8086 + activities-api :8087 + letterhead-api :8088 + accounting-api :8089 + hours-api :8090 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182 + accounting-ui :5183 + hours-ui :5184"
 run = """
 export VITE_ACTIVITIES_API_URL="${VITE_ACTIVITIES_API_URL:-http://localhost:8087}"
 export VITE_LETTERHEADS_API_URL="${VITE_LETTERHEADS_API_URL:-http://localhost:8088}"
 export VITE_ACCOUNTING_API_URL="${VITE_ACCOUNTING_API_URL:-http://localhost:8089}"
-export VITE_HOURS_API_URL="${VITE_HOURS_API_URL:-http://localhost:8088}"
+export VITE_HOURS_API_URL="${VITE_HOURS_API_URL:-http://localhost:8090}"
 docker compose up -d postgres minio minio-createbucket letterhead-createdb accounting-createdb
 trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
@@ -201,7 +201,7 @@ wait
 # (e.g. you started auth/estimai-api/notify-api/refund-api/inventory-api in their own terminals).
 [tasks."dev:web"]
 description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 + projects-ui :5181 + letterheads-ui :5182 + accounting-ui :5183 + hours-ui :5184 (backends run separately)"
-run = "export VITE_ACTIVITIES_API_URL=\"${VITE_ACTIVITIES_API_URL:-http://localhost:8087}\"; export VITE_LETTERHEADS_API_URL=\"${VITE_LETTERHEADS_API_URL:-http://localhost:8088}\"; export VITE_ACCOUNTING_API_URL=\"${VITE_ACCOUNTING_API_URL:-http://localhost:8089}\"; export VITE_HOURS_API_URL=\"${VITE_HOURS_API_URL:-http://localhost:8088}\"; trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir inventory-ui dev & pnpm --dir crm-ui dev & pnpm --dir meetings-ui dev & pnpm --dir projects-ui dev & pnpm --dir letterheads-ui dev & pnpm --dir accounting-ui dev & pnpm --dir hours-ui dev & (cd admin-ui && direnv exec . pnpm dev) & pnpm --dir notify-ui dev & node scripts/open-when-ready.mjs http://localhost:5173 & wait"
+run = "export VITE_ACTIVITIES_API_URL=\"${VITE_ACTIVITIES_API_URL:-http://localhost:8087}\"; export VITE_LETTERHEADS_API_URL=\"${VITE_LETTERHEADS_API_URL:-http://localhost:8088}\"; export VITE_ACCOUNTING_API_URL=\"${VITE_ACCOUNTING_API_URL:-http://localhost:8089}\"; export VITE_HOURS_API_URL=\"${VITE_HOURS_API_URL:-http://localhost:8090}\"; trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir inventory-ui dev & pnpm --dir crm-ui dev & pnpm --dir meetings-ui dev & pnpm --dir projects-ui dev & pnpm --dir letterheads-ui dev & pnpm --dir accounting-ui dev & pnpm --dir hours-ui dev & (cd admin-ui && direnv exec . pnpm dev) & pnpm --dir notify-ui dev & node scripts/open-when-ready.mjs http://localhost:5173 & wait"
 
 # Full stack, but the frontends run build + preview instead of dev: no HMR, but
 # deterministic and mirrors the Vercel deploy shape (independently built + served
@@ -213,7 +213,7 @@ run = """
 export VITE_ACTIVITIES_API_URL="${VITE_ACTIVITIES_API_URL:-http://localhost:8087}"
 export VITE_LETTERHEADS_API_URL="${VITE_LETTERHEADS_API_URL:-http://localhost:8088}"
 export VITE_ACCOUNTING_API_URL="${VITE_ACCOUNTING_API_URL:-http://localhost:8089}"
-export VITE_HOURS_API_URL="${VITE_HOURS_API_URL:-http://localhost:8088}"
+export VITE_HOURS_API_URL="${VITE_HOURS_API_URL:-http://localhost:8090}"
 docker compose up -d postgres minio minio-createbucket letterhead-createdb accounting-createdb
 # admin-ui builds through direnv: Vite bakes `import.meta.env.VITE_*` at BUILD
 # time, so without its .envrc here the preview bundle ships with no Maps key and

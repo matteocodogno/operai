@@ -1892,7 +1892,7 @@ describe("env-doctor checker — hours-api (specs/20261112-time-tracking)", () =
       SERVICE_CLIENT_ID: "hours-api",
       SERVICE_CLIENT_SECRET: CLIENT_SECRET_HOURS,
       SERVICE_AUDIENCE: SVC_AUD,
-      PORT: "8088",
+      PORT: "8090",
     };
     return s;
   }

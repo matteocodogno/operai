@@ -38,7 +38,7 @@ COPY --chown=bun:bun tsconfig.json prisma.config.ts ./
 # every day, exceeds the risk floor — switch before the process starts.
 USER bun
 
-EXPOSE 8088
+EXPOSE 8090
 
 # DATA-RESIDENCY (specs/20261112-time-tracking): this image is deployed to Railway EU region
 # only (europe-west4, see .railway/railway.ts) — hours-api holds personal data about workers (which

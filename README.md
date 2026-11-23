@@ -94,7 +94,7 @@ open **http://localhost:5173**.
 | projects-api | 8086 | Bun + Hono — authz-enforcing resource server (specs/20261103-projects) |
 | activities-api | 8087 | Bun + Hono — activities and tasks of the CRM and Projects; access asked of the host (specs/20261110-activities) |
 | accounting-api | 8089 | Bun + Hono — accounting reference data per entity; read live by refund-api (specs/20261119-accounting) |
-| hours-api | 8088 | Bun + Hono — time entries; own hours need only a JWT, everyone's is a live-checked permission; booking asked of each owner (specs/20261112-time-tracking) |
+| hours-api | 8090 | Bun + Hono — time entries; own hours need only a JWT, everyone's is a live-checked permission; booking asked of each owner (specs/20261112-time-tracking) |
 | Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`, `inventory`, `crm`, `projects`, `activities`, `accounting`, `hours`) |
 | MinIO | 9000 / 9001 | `docker compose` — local S3 + console for receipts and invoices |
 

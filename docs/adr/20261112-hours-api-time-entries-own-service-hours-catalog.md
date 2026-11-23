@@ -24,7 +24,7 @@ cross-service reads for the activity pointer and for bookability (ADR 20261112-t
 ## Decision
 
 We will store time entries, categories and work types in a new backend service, `hours-api`
-(Bun + Hono + Prisma, port 8088, logical database `hours`, Railway EU). It owns those three records and
+(Bun + Hono + Prisma, port 8090, logical database `hours`, Railway EU). It owns those three records and
 nothing else. Its access rules are:
 
 - **Catalog.** A new auth catalog `hours` with **no `access` resource**: the feature is ungated

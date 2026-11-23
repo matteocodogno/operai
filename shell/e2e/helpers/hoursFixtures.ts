@@ -27,7 +27,7 @@ const trim = (url: string): string => url.replace(/\/$/, '')
 
 export const AUTH_URL = trim(process.env['E2E_AUTH_URL'] ?? process.env['VITE_AUTH_URL'] ?? 'http://localhost:3001')
 export const HOURS_API_URL = trim(
-  process.env['E2E_HOURS_API_URL'] ?? process.env['VITE_HOURS_API_URL'] ?? 'http://localhost:8088',
+  process.env['E2E_HOURS_API_URL'] ?? process.env['VITE_HOURS_API_URL'] ?? 'http://localhost:8090',
 )
 
 type Json = Record<string, unknown>
@@ -201,7 +201,7 @@ export async function mustHoursCall<T = Json>(
   if (result.status < 200 || result.status >= 300) {
     const hint =
       result.status === 401 || result.status === 503
-        ? ' (is hours-api up with its own .env? `curl -s localhost:8088/health`)'
+        ? ' (is hours-api up with its own .env? `curl -s localhost:8090/health`)'
         : ''
     throw new Error(
       `[hoursFixtures] ${method} ${HOURS_API_URL}${route} -> ${result.status}: ${JSON.stringify(result.body).slice(0, 400)}${hint}`,

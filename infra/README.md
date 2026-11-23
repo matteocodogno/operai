@@ -3249,7 +3249,7 @@ everyone's hours) and `time-list:manage` (edit the categories and work types).
 
 | Piece | Where | What this release changes |
 |---|---|---|
-| `hours-api` | Railway, **new** service: port **8088**, DB `hours`, `hours-api.operai.welld.io` | entries, lists, totals, the oversight reads. No object storage, no notification |
+| `hours-api` | Railway, **new** service: port **8090**, DB `hours`, `hours-api.operai.welld.io` | entries, lists, totals, the oversight reads. No object storage, no notification |
 | `hours-ui` | Vercel, **new** project `hours`: `hours.operai.welld.io` | the federated remote the shell mounts at `/hours/$`; not a `TOOLS` entry |
 | `auth` | Railway | catalog `hours` (seeded at deploy), scope `meetings.hosts.read`, service client `hours-api` |
 | `activities-api` | Railway | `GET /activities?ids=` (code only) |
@@ -3279,7 +3279,7 @@ variable below is required). Committed contract: `tools/env-doctor/templates/pro
 | `PROJECTS_API_URL` / `CRM_API_URL` / `ACTIVITIES_API_URL` / `MEETINGS_API_URL` | internal, `http://${{<service>.RAILWAY_PRIVATE_DOMAIN}}:${{<service>.PORT}}` — the owners it asks "may this person book here" as the caller (forwarded JWT, 2 s, a write fails closed, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Unset, the service exits 1 | no |
 | `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | `hours-api` / `${{shared.HOURS_SERVICE_CLIENT_SECRET}}` — at least 32 chars, byte-identical to its `SERVICE_CLIENTS` entry, whose scope is **exactly** `meetings.hosts.read` | secret: yes |
 | `SERVICE_AUDIENCE` | `${{shared.SERVICE_AUDIENCE}}` — the `aud` of the service JWT it shows meetings-api; must differ from `AUTH_AUDIENCE` (both refuse an equal pair at startup) | no |
-| `PORT` / `NODE_ENV` | `8088` / `production` | no |
+| `PORT` / `NODE_ENV` | `8090` / `production` | no |
 
 It has no `NOTIFY_INTERNAL_URL`, no storage and no AI variable, so none is required. **Deploy notes.**
 Its block in `.railway/railway.ts` declares one replica in `europe-west4-drams3a`, like every service, and
@@ -3432,19 +3432,19 @@ const hoursApi = service("hours-api", {
   preDeploy: "bun run db:deploy",
   replicas: { "europe-west4-drams3a": 1 },
   deploy: { restartPolicyMaxRetries: 3 },
-  domains: [{ domain: "hours-api.operai.welld.io", port: 8088 }],
+  domains: [{ domain: "hours-api.operai.welld.io", port: 8090 }],
 });
 ```
 
 ```bash
-./infra/provision-tool.sh hours --port 8088 --no-ui           # plan, read only: the IaC block to add; read it, resolve every ✗ first
+./infra/provision-tool.sh hours --port 8090 --no-ui           # plan, read only: the IaC block to add; read it, resolve every ✗ first
 # add the block above (source commented out) and `hoursApi` to resources, commit, push
-./infra/provision-tool.sh hours --port 8088 --no-ui --apply   # database `hours`, `railway config apply` (service, domain), DNS, the template's variables
+./infra/provision-tool.sh hours --port 8090 --no-ui --apply   # database `hours`, `railway config apply` (service, domain), DNS, the template's variables
 ```
 
 The plan lists the database, the declaration in `.railway/railway.ts` and its `railway config plan` diff
 (it must create `hours-api` and delete nothing: a plan that deletes anything is a stop), the 15 variables of
-the table above, the domain `hours-api.operai.welld.io` to port 8088 with its CNAME and TXT records, and the
+the table above, the domain `hours-api.operai.welld.io` to port 8090 with its CNAME and TXT records, and the
 unconnected source.
 The script sets `SERVICE_CLIENT_SECRET` only as the reference to the Shared Variable of step 2. Then, before
 any build:
@@ -3471,7 +3471,7 @@ failure before the first build:
 Then uncomment the block's `source: github(...)` line, commit and push, and:
 
 ```bash
-./infra/provision-tool.sh hours --port 8088 --no-ui --connect --apply   # connects the repo: the first build
+./infra/provision-tool.sh hours --port 8090 --no-ui --connect --apply   # connects the repo: the first build
 ```
 
 Do not open or `curl` `hours-api.operai.welld.io` before the script says it resolves; the certificate follows
@@ -3491,8 +3491,8 @@ shell's singleton, so it is live before hours-ui's first deployment); what the m
 project or give the shell its two variables. Confirm O3 (step 0), then:
 
 ```bash
-./infra/provision-tool.sh hours --port 8088                             # plan: the Vercel project, domain, DNS, first deployment, three variables; the Railway half reports nothing missing
-./infra/provision-tool.sh hours --port 8088 --redeploy-shell --apply    # creates them in that order, then redeploys the shell
+./infra/provision-tool.sh hours --port 8090                             # plan: the Vercel project, domain, DNS, first deployment, three variables; the Railway half reports nothing missing
+./infra/provision-tool.sh hours --port 8090 --redeploy-shell --apply    # creates them in that order, then redeploys the shell
 ```
 
 The script creates the project (root `hours-ui`), attaches the domain and writes its DNS record **before**

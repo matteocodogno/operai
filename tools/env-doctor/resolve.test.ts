@@ -330,7 +330,7 @@ describe("env-doctor resolver", () => {
     test("the shipped hours-api template: port, client id, a referenced secret, one scope in auth's entry, the same secret on both sides", () => {
       const r = loadTemplateSuite("production");
       const hours = r.suite["hours-api"]!;
-      expect(hours.PORT).toBe("8088");
+      expect(hours.PORT).toBe("8090");
       expect(hours.SERVICE_CLIENT_ID).toBe("hours-api");
       expect(hours.NODE_ENV).toBe("production");
       // The secret is a Railway Shared Variable reference, never a literal, and auth's entry carries the SAME reference.

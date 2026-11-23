@@ -30,11 +30,11 @@ const BASE = {
 const REQUIRED = Object.keys(BASE) as Array<keyof typeof BASE>;
 
 describe("parseEnv", () => {
-  it("accepts the full set and defaults the port to 8088 and the environment to development", () => {
+  it("accepts the full set and defaults the port to 8090 and the environment to development", () => {
     const result = parseEnv(BASE);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.env.PORT).toBe(8088);
+    expect(result.env.PORT).toBe(8090);
     expect(result.env.NODE_ENV).toBe("development");
     expect(result.env.PROJECTS_API_URL).toBe("http://localhost:8086");
     expect(result.env.SERVICE_AUDIENCE).toBe("operai-services");
@@ -120,8 +120,8 @@ describe("hours-api/.env.example", () => {
     expect(listed).toEqual([...required, ...withDefaults].sort());
   });
 
-  it("shows the local defaults: port 8088 and the `hours` database", () => {
-    expect(example).toContain("PORT=8088");
+  it("shows the local defaults: port 8090 and the `hours` database", () => {
+    expect(example).toContain("PORT=8090");
     expect(example).toContain("localhost:5435/hours\n");
   });
 });

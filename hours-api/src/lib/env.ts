@@ -46,7 +46,7 @@ const envSchema = z
     SERVICE_CLIENT_SECRET: z.string().min(32, "SERVICE_CLIENT_SECRET must be at least 32 characters"),
     // Audience of the service JWT: auth's SERVICE_AUDIENCE, never the user audience (ADR 20261006-scoped-service-jwt-fourth-notify-caller).
     SERVICE_AUDIENCE: z.string().min(1, "SERVICE_AUDIENCE is required"),
-    PORT: z.coerce.number().int().positive().default(8088),
+    PORT: z.coerce.number().int().positive().default(8090),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   })
   .superRefine((val, ctx) => {

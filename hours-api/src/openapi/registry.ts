@@ -21,7 +21,7 @@ export function setupOpenAPI(app: OpenAPIHono): void {
         url: "https://welld.ch",
       },
     },
-    servers: [{ url: "http://localhost:8088", description: "Local development" }],
+    servers: [{ url: "http://localhost:8090", description: "Local development" }],
     tags: [{ name: "System", description: "Health checks" }],
   });
 
