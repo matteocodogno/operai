@@ -43,6 +43,8 @@ export const HOURS_ERROR_CODES = [
   // 404 (identical for missing and unreadable, AC-2.10), 409, 503
   'not_found',
   'name_taken',
+  // 409: a cursor read under a deal filter after the deal's meetings changed (the walk starts over)
+  'deal_meetings_changed',
   'host_unavailable',
   'authz_unavailable',
 ] as const

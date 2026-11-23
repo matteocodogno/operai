@@ -31,12 +31,18 @@
  * avoid duplicating session.test.ts's coverage of signOut's own behavior.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, fireEvent } from '@testing-library/react'
 import { createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
 import UserMenu from './UserMenu'
 
+// "My hours" is offered only by a shell built with an hours-api origin (isHoursConfigured): these tests are of one.
+beforeEach(() => {
+  vi.stubEnv('VITE_HOURS_API_URL', 'http://hours-api.test')
+})
+
 afterEach(() => {
+  vi.unstubAllEnvs()
   cleanup()
   window.history.pushState(null, '', '/')
 })
@@ -275,6 +281,15 @@ describe('UserMenu', () => {
       expect(item.getAttribute('href')).toBe('/hours')
       expect(item.previousElementSibling?.textContent).toBe('My meetings')
       expect(item.nextElementSibling?.textContent).toBe('Sign out')
+    })
+
+    it('is not offered when the shell was built without an hours-api origin', async () => {
+      vi.stubEnv('VITE_HOURS_API_URL', '')
+      await renderUserMenu({ user: { name: 'Alice Welld', email: null, image: null }, onSignOut: () => {} })
+      openMenu('Alice Welld')
+
+      expect(screen.queryByRole('menuitem', { name: 'My hours' })).toBeNull()
+      expect(screen.getByRole('menuitem', { name: 'My meetings' }).nextElementSibling?.textContent).toBe('Sign out')
     })
 
     it('navigates to /hours and closes the menu when clicked', async () => {

@@ -34,7 +34,9 @@
  *
  * "My hours" (specs/20261112-time-tracking, AC-5.1, ADR 20261112-hours-ui-ungated-remote): a fourth real `<Link role="menuitem">`
  * after "My meetings", to the ungated `/hours` route. Shown to every signed-in user — no permission
- * check here, by design (recording your own hours is not a tool grant).
+ * check here, by design (recording your own hours is not a tool grant). It is shown only when the shell was
+ * built with `VITE_HOURS_API_URL` (`isHoursConfigured`): a shell deployed before hours-api and hours-ui exist
+ * offers no entry that could only fail.
  *
  * The menu itself — opening, keyboard (arrows, Home/End, Escape back to the
  * avatar), closing on choice or outside click — is the library `Menu`
@@ -47,6 +49,7 @@
 
 import { Link } from '@tanstack/react-router'
 import { Menu, MenuItem } from '@operai/ui'
+import { isHoursConfigured } from '../lib/hoursConfig'
 import { signOut } from '../lib/session'
 import { strings } from '../strings'
 
@@ -59,6 +62,8 @@ type UserMenuUser = {
 type UserMenuProps = {
   user: UserMenuUser
   onSignOut?: () => void
+  /** Whether to offer "My hours"; defaults to whether the shell was built with an hours-api origin. */
+  showHours?: boolean
 }
 
 // `/my-meetings/$` is a splat route (the remote has an inner router), and the
@@ -72,7 +77,7 @@ const defaultOnSignOut = (): void => {
   void signOut()
 }
 
-const UserMenu = ({ user, onSignOut = defaultOnSignOut }: UserMenuProps) => {
+const UserMenu = ({ user, onSignOut = defaultOnSignOut, showHours = isHoursConfigured() }: UserMenuProps) => {
   const displayName = user.name || user.email || strings.userMenu.accountFallback
   const initial = displayName.charAt(0).toUpperCase()
   // Show the email as a secondary line only when we also have a distinct name.
@@ -121,9 +126,11 @@ const UserMenu = ({ user, onSignOut = defaultOnSignOut }: UserMenuProps) => {
       <Link to={MY_MEETINGS_PATH} role="menuitem" className="menu-item">
         {strings.userMenu.myMeetings}
       </Link>
-      <Link to={MY_HOURS_PATH} role="menuitem" className="menu-item">
-        {strings.userMenu.myHours}
-      </Link>
+      {showHours && (
+        <Link to={MY_HOURS_PATH} role="menuitem" className="menu-item">
+          {strings.userMenu.myHours}
+        </Link>
+      )}
       <MenuItem onClick={onSignOut}>{strings.userMenu.signOut}</MenuItem>
     </Menu>
   )

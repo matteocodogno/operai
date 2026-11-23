@@ -107,6 +107,20 @@ describe("listMeetingsByIds", () => {
     expect(await listMeetingsByIds(ALICE, ["m1"])).toEqual({ state: "unavailable" });
   });
 
+  it("answers `unavailable` when every row it hands back was asked for but its `total` shows the filter was not applied", async () => {
+    const row = (id: string) => ({ id, title: id, role: "creator" });
+    hosts.fail("meetings.list", { body: { items: [row("m1")], total: 40, page: 1, pageSize: 25 } });
+    expect(await listMeetingsByIds(ALICE, ["m1", "m2"])).toEqual({ state: "unavailable" });
+  });
+
+  it("believes the absence of an asked meeting when the answer counts only what was asked", async () => {
+    const row = (id: string) => ({ id, title: id, role: "creator" });
+    hosts.fail("meetings.list", { body: { items: [row("m1")], total: 1, page: 1, pageSize: 25 } });
+    const answer = await listMeetingsByIds(ALICE, ["m1", "m2"]);
+    expect(answer.state).toBe("ok");
+    expect(answer.state === "ok" ? [...answer.items.keys()] : null).toEqual(["m1"]);
+  });
+
   it("treats a row whose role is not creator or participant as absent: only someone who took part books or sees a title", async () => {
     hosts.fail("meetings.list", { body: { items: [{ id: "m1", title: "Host-only", role: "host_reader" }], total: 1, page: 1, pageSize: 25 } });
     expect(await ok(["m1"])).toEqual(new Map());

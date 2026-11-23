@@ -4,10 +4,11 @@
  *
  * It reads, after trimming and whatever the case:
  *
- *   `2:30` `0:30` `24:00`       hours and minutes, the minutes always two digits (00–59)
+ *   `2:30` `0:30` `24:00` `2 : 30`  hours and minutes, the minutes always two digits (00–59)
  *   `2,5` `2.5` `8`              hours, with a comma or a point
  *   `2h30` `2h 30` `2 h 30` `2 h`   hours and minutes as the app itself shows them (`formatDuration`, short), so
- *                                the value an edited entry opens with reads back
+ *                                the value an edited entry opens with reads back; also `2h30m`, `1h 30min`, and a
+ *                                one-digit minute (`2h5` is 2 h 05, refused for its steps rather than not read)
  *   `90m` `90 min`               minutes alone
  *
  * It never rounds. What it reads must be a whole number of 30-minute steps from 30 minutes to 24 hours
@@ -37,8 +38,8 @@ export type DurationReading = { ok: true; minutes: number } | { ok: false; probl
  */
 type Said = { minutes: number; exact: boolean }
 
-const CLOCK = /^(\d+):(\d{2})$/
-const HOURS_AND_MINUTES = /^(\d+)\s*h\s*(\d{2})?$/
+const CLOCK = /^(\d+)\s*:\s*(\d{2})$/
+const HOURS_AND_MINUTES = /^(\d+)\s*h\s*(?:(\d{1,2})\s*(?:m|min)?)?$/
 const MINUTES = /^(\d+)\s*m(?:in)?$/
 const HOURS = /^(\d+)(?:[.,](\d+))?$/
 

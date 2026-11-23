@@ -22,7 +22,10 @@ import { NoAccessScreen } from './components/NoAccessScreen'
 import { TOOLS } from './lib/tools'
 import { getMyAddress } from './lib/profileApi'
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.unstubAllEnvs()
+})
 
 async function renderUserMenu() {
   const rootRoute = createRootRoute({
@@ -41,6 +44,8 @@ async function renderUserMenu() {
 
 describe('shell chrome in Italian', () => {
   it('labels the user menu in Italian (moved from UserMenu.test.tsx: the menu no longer reads navigator.language itself)', async () => {
+    // "Le mie ore" is offered only by a shell built with an hours-api origin (lib/hoursConfig).
+    vi.stubEnv('VITE_HOURS_API_URL', 'http://hours-api.test')
     await renderUserMenu()
 
     expect(screen.getByRole('menuitem', { name: 'Il mio profilo' }).getAttribute('href')).toBe('/account')

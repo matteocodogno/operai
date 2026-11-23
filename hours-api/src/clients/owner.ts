@@ -154,18 +154,23 @@ export async function inBatches<V, S>(
 
 /**
  * What a list-by-ids owner answered about `asked`: the first item for each asked id, the rest never
- * believed (an owner cannot inject entries). `filterIgnored` is true when it handed back items nobody
- * asked for AND an asked id is not among what it answered: a filter that was not applied proves nothing
+ * believed (an owner cannot inject entries). `filterIgnored` is true when an asked id is not among what it
+ * answered AND the answer shows the filter was not applied: a filter that was not applied proves nothing
  * about what is absent, so such an id is not "does not exist" — it is unanswered (R7: a meetings-api
- * before T8 ignores `ids` and answers the caller's latest page).
+ * before T8 ignores `ids` and answers the caller's latest page). Two things show it: an item nobody asked
+ * for, or — when the owner reports one — a `total` larger than the distinct ids asked, or larger than the
+ * items it handed back (a page cut short). An ids-filtered answer counts only matches of the asked ids, all
+ * on one page, so neither can happen when the filter was applied, even when every item happens to be an
+ * asked one.
  */
 export function keepAsked<W extends { readonly id: string }>(
   asked: readonly string[],
   answered: readonly W[],
+  total?: number,
 ): { readonly kept: Map<string, W>; readonly filterIgnored: boolean } {
   const wanted = new Set(asked);
   const kept = new Map<string, W>();
-  let foreign = false;
+  let foreign = total !== undefined && (total > wanted.size || total > answered.length);
   for (const item of answered) {
     if (!wanted.has(item.id)) {
       foreign = true;

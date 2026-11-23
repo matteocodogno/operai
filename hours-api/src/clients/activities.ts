@@ -70,7 +70,7 @@ const wireActivity = z.object({
   task: z.object({ assignee: ref.nullable() }).nullable(),
 });
 
-const byIdsBody = z.object({ items: z.array(wireActivity) });
+const byIdsBody = z.object({ items: z.array(wireActivity), total: z.number().int().min(0).optional() });
 const dealPageBody = z.object({ items: z.array(wireActivity), total: z.number().int().min(0) });
 
 const toFact = (wire: z.infer<typeof wireActivity>): ActivityFact => ({
@@ -101,7 +101,7 @@ export async function listActivitiesByIds(authorization: string, ids: readonly s
     const parsed = byIdsBody.safeParse(answer.json);
     if (!parsed.success) return { stop: unavailable("activities", "list-by-ids", "malformed") };
 
-    const { kept, filterIgnored } = keepAsked(batch, parsed.data.items);
+    const { kept, filterIgnored } = keepAsked(batch, parsed.data.items, parsed.data.total);
     if (filterIgnored) return { stop: unavailable("activities", "list-by-ids", "filter_ignored") };
     return { done: new Map([...kept].map(([id, wire]) => [id, toFact(wire)])) };
   });

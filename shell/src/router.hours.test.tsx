@@ -74,6 +74,8 @@ beforeEach(() => {
     default: () => <div data-testid="hours-app">Hours mounted</div>,
   }))
   vi.stubEnv('VITE_AUTH_URL', 'http://auth.test')
+  // "My hours" is offered only by a shell built with an hours-api origin (lib/hoursConfig).
+  vi.stubEnv('VITE_HOURS_API_URL', 'http://hours-api.test')
   getSession.mockResolvedValue({
     data: { user: { id: 'u1', email: 'consultant@welld.ch', name: 'Consultant' }, session: {} },
   })

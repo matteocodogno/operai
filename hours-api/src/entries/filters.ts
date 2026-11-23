@@ -12,6 +12,7 @@
  * service first: the meetings linked to the deal NOW (AC-2.6), which no entry stores.
  */
 
+import { createHash } from "node:crypto";
 import { z } from "@hono/zod-openapi";
 import { readMeetingsLinkedToDeal } from "../clients/meetings";
 import type { Prisma } from "../lib/generated/prisma/client";
@@ -100,7 +101,7 @@ const dayOf = (day: string): Date => new Date(`${day}T00:00:00Z`);
  * When it cannot, the whole read is refused (AC-4.11, D45): a deal's figures are never shown low. The deal
  * filter is the one place this API prefers an error to a partial answer.
  */
-async function dealCondition(dealId: string): Promise<Prisma.TimeEntryWhereInput> {
+async function dealCondition(dealId: string): Promise<{ condition: Prisma.TimeEntryWhereInput; meetingIds: readonly string[] }> {
   const linked = await readMeetingsLinkedToDeal(dealId);
   if (linked.state === "unavailable") {
     throw hostUnavailable("Meetings could not say which meetings are linked to this deal, so the deal's hours are not shown");
@@ -108,7 +109,25 @@ async function dealCondition(dealId: string): Promise<Prisma.TimeEntryWhereInput
   // An entry's meeting id passed the id rule when it was written, so an id outside it names no entry of ours:
   // dropping it loses nothing, and a NUL in it would otherwise reach Postgres `text` (a 500).
   const meetingIds = linked.meetingIds.filter(isWellFormedId);
-  return { OR: [{ dealId }, ...(meetingIds.length > 0 ? [{ meetingId: { in: meetingIds } }] : [])] };
+  return { condition: { OR: [{ dealId }, ...(meetingIds.length > 0 ? [{ meetingId: { in: meetingIds } }] : [])] }, meetingIds };
+}
+
+/**
+ * A short, stable name for the set of meetings linked to a deal: the first 66 bits of the SHA-256 of the sorted,
+ * distinct ids joined by `,` (a comma is outside the id rule, so the join is unambiguous), in base64url (11 characters).
+ * The list's cursor carries it under a `dealId` filter, so a page read after the deal's meetings changed is refused
+ * instead of being filtered against another set than the pages before it.
+ */
+export function dealMeetingsKey(meetingIds: readonly string[]): string {
+  const joined = [...new Set(meetingIds)].sort().join(",");
+  return createHash("sha256").update(joined, "utf8").digest("base64url").slice(0, 11);
+}
+
+/** What `entryQuery` hands back: the database's question, and (under a `dealId` filter) the key of the deal's meetings. */
+export interface EntryQuery {
+  readonly where: Prisma.TimeEntryWhereInput;
+  /** `dealMeetingsKey` of the meetings linked to the deal NOW; `null` without a `dealId` filter. */
+  readonly dealMeetings: string | null;
 }
 
 /**
@@ -116,10 +135,15 @@ async function dealCondition(dealId: string): Promise<Prisma.TimeEntryWhereInput
  * only the oversight check (src/oversight/scope.ts) hands out. Every filter narrows, so they combine with AND.
  */
 export async function entryWhere(filters: EntryFilters, scope: EntryScope): Promise<Prisma.TimeEntryWhereInput> {
+  return (await entryQuery(filters, scope)).where;
+}
+
+/** `entryWhere`, plus the key of the deal's meetings the question was built from (the list's cursor carries it). */
+export async function entryQuery(filters: EntryFilters, scope: EntryScope): Promise<EntryQuery> {
   const forDeal = filters.dealId === undefined ? undefined : await dealCondition(filters.dealId);
-  return {
+  const where: Prisma.TimeEntryWhereInput = {
     ...(scope.kind === "person" ? { userId: scope.userId } : {}),
-    ...(forDeal !== undefined ? { AND: [forDeal] } : {}),
+    ...(forDeal !== undefined ? { AND: [forDeal.condition] } : {}),
     day: { gte: dayOf(filters.from), lte: dayOf(filters.to) },
     ...(filters.target !== undefined ? { target: filters.target } : {}),
     ...(filters.projectId !== undefined ? { projectId: filters.projectId } : {}),
@@ -127,4 +151,5 @@ export async function entryWhere(filters: EntryFilters, scope: EntryScope): Prom
     ...(filters.categoryId !== undefined ? { categoryId: filters.categoryId } : {}),
     ...(filters.workTypeId !== undefined ? { workTypeId: filters.workTypeId } : {}),
   };
+  return { where, dealMeetings: forDeal === undefined ? null : dealMeetingsKey(forDeal.meetingIds) };
 }

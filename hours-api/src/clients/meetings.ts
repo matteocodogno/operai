@@ -50,7 +50,7 @@ export interface MeetingFact {
 export type MeetingsByIds = Unavailable | { readonly state: "ok"; readonly items: ReadonlyMap<string, MeetingFact> };
 
 const wireRow = z.object({ id: nonEmpty, title: z.string(), role: z.string() });
-const listBody = z.object({ items: z.array(wireRow) });
+const listBody = z.object({ items: z.array(wireRow), total: z.number().int().min(0).optional() });
 
 /** The caller's own meetings among `ids`; every other id is absent from the map. */
 export async function listMeetingsByIds(authorization: string, ids: readonly string[], options: CallOptions = {}): Promise<MeetingsByIds> {
@@ -70,7 +70,7 @@ export async function listMeetingsByIds(authorization: string, ids: readonly str
     const parsed = listBody.safeParse(answer.json);
     if (!parsed.success) return { stop: unavailable("meetings", "list-by-ids", "malformed") };
 
-    const { kept, filterIgnored } = keepAsked(batch, parsed.data.items);
+    const { kept, filterIgnored } = keepAsked(batch, parsed.data.items, parsed.data.total);
     if (filterIgnored) return { stop: unavailable("meetings", "list-by-ids", "filter_ignored") };
     const items = new Map<string, MeetingFact>();
     for (const [id, row] of kept) {

@@ -247,6 +247,21 @@ const projectsRemoteOrigin = `http://localhost:${process.env['E2E_PROJECTS_REMOT
 // against that stack: `E2E_HOURS_REMOTE_PORT=5184 pnpm e2e hours*`. Reads no VITE_* of its own: the hours-api
 // origin comes from the shell.
 const hoursRemoteOrigin = `http://localhost:${process.env['E2E_HOURS_REMOTE_PORT'] ?? '5187'}`
+// Whether this run builds and serves hours-ui. E2E_HOURS_REMOTE=0 never does, =1 always does; unset, it does unless
+// the run names its specs and none of them is an hours one (`pnpm e2e letterheads` skips the build, `pnpm e2e` and
+// `pnpm e2e hours` keep it). A run without it still builds the shell against hoursRemoteOrigin: only /hours fails.
+// The flags of `playwright test` that take their value as the next argument: that value is not a spec filter.
+const FLAGS_WITH_VALUE = new Set([
+  '-c', '--config', '-g', '--grep', '--grep-invert', '-j', '--workers', '--max-failures', '--output', '--project',
+  '--repeat-each', '--reporter', '--retries', '--shard', '--timeout', '--trace', '--tsconfig', '--global-timeout',
+])
+const namedSpecs = process.argv
+  .slice(process.argv.indexOf('test') + 1)
+  .filter((arg, index, args) => !arg.startsWith('-') && !FLAGS_WITH_VALUE.has(args[index - 1] ?? ''))
+const serveHours =
+  process.env['E2E_HOURS_REMOTE'] === '1' ||
+  (process.env['E2E_HOURS_REMOTE'] !== '0' &&
+    (!process.argv.includes('test') || namedSpecs.length === 0 || namedSpecs.some((spec) => spec.includes('hours'))))
 // Running against an already-started stack (`mise run dev:preview`, whose remotes sit on their own
 // vite.config ports) instead of letting Playwright build and preview them: point every remote at the port
 // that stack uses, so a spec that intercepts a remote's origin (remote-failure.spec.ts) intercepts the right
@@ -494,20 +509,25 @@ export default defineConfig({
         SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
       },
     },
-    {
-      // hours-ui (specs/20261112-time-tracking, T34): My hours at /hours and Everyone's hours at /hours/all,
-      // both ungated. Reads no VITE_* of its own: the hours-api origin comes from the shell.
-      command: `pnpm build && pnpm preview --port ${hoursRemotePort} --strictPort`,
-      cwd: '../hours-ui',
-      url: hoursRemoteOrigin,
-      reuseExistingServer: !process.env['CI'],
-      timeout: 180_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: {
-        SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
-      },
-    },
+    // hours-ui (specs/20261112-time-tracking, T34): My hours at /hours and Everyone's hours at /hours/all,
+    // both ungated. Reads no VITE_* of its own: the hours-api origin comes from the shell. Only when the run
+    // needs it (`serveHours` above): a run of unrelated specs neither waits for its build nor fails on it.
+    ...(serveHours
+      ? [
+          {
+            command: `pnpm build && pnpm preview --port ${hoursRemotePort} --strictPort`,
+            cwd: '../hours-ui',
+            url: hoursRemoteOrigin,
+            reuseExistingServer: !process.env['CI'],
+            timeout: 180_000,
+            stdout: 'pipe' as const,
+            stderr: 'pipe' as const,
+            env: {
+              SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
+            },
+          },
+        ]
+      : []),
     {
       command: `pnpm build && pnpm preview --port ${shellPort} --strictPort`,
       url: shellUrl,

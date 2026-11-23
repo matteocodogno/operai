@@ -894,6 +894,15 @@ anyway, under the same `whose`, filters and span, so a forged one reaches no row
 the order is not by id); an ISO instant (year `0000` round-trips in JavaScript and is refused by Postgres —
 the 500 this closes); a signed cursor (a secret that protects nothing).
 
+*Amended 2026-11-23 (code review of PR 10):* under a `dealId` filter the cursor has a fourth part,
+`|<dealMeetingsKey>` — the first 11 base64url characters of the SHA-256 of the sorted, distinct ids of the
+meetings linked to the deal when the page was read (src/entries/filters.ts). Every page asks meetings-api again
+(AC-2.6: the link is live), and a page whose key differs from its cursor's is refused **409
+`deal_meetings_changed`**: the walk would otherwise filter its pages against two different sets of meetings (an
+export whose total matches neither). hours-ui starts over: the list reloads its first page, the export restarts
+its walk (at most 3 walks). A cursor with the wrong number of parts for the request (four without `dealId`,
+three with it) is 400 `field: "cursor"`.
+
 **A lone surrogate in a note or a name** (amended a third time 2026-11-13, for T12 and T14). JSON can carry
 half of a surrogate pair (`"\ud800"`); it passes the NUL check and the code-point count, and the Postgres
 driver encodes the string as UTF-8 with U+FFFD in its place, so the stored text would silently differ from

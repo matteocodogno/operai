@@ -14,7 +14,12 @@
  *
  * A server that handed back a cursor it had already given would send the walk round for ever; it stops with an
  * error instead.
+ *
+ * Under a deal filter, a later page may be refused 409 `deal_meetings_changed`: the deal's meetings changed since the
+ * first page. The pages read so far are dropped and the walk starts over, at most `EXPORT_ATTEMPTS` times in all, so
+ * the file is always one consistent reading of the deal.
  */
+import { isCode } from './errors'
 import { listEntries } from './hoursApi'
 import type { EntryFilters } from './hoursApi'
 import type { TimeEntryView, Unavailable, UnavailableSource } from './hoursApi.types'
@@ -22,6 +27,8 @@ import { unavailableSources } from './names'
 
 /** The largest page hours-api answers (plan § Entries, `limit` 1..500). */
 export const EXPORT_PAGE_SIZE = 500
+/** How many walks an export makes in all when the deal's meetings keep changing under it. */
+export const EXPORT_ATTEMPTS = 3
 
 export type ExportedEntries = {
   /** Every entry of every page, in the order of the list. */
@@ -34,6 +41,16 @@ export const readAllEntries = async (
   filters: EntryFilters,
   { signal }: { signal?: AbortSignal } = {},
 ): Promise<ExportedEntries> => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await walk(filters, signal)
+    } catch (error) {
+      if (attempt >= EXPORT_ATTEMPTS || !isCode(error, 'deal_meetings_changed')) throw error
+    }
+  }
+}
+
+const walk = async (filters: EntryFilters, signal: AbortSignal | undefined): Promise<ExportedEntries> => {
   const items: TimeEntryView[] = []
   const unavailable: Unavailable[] = []
   const given = new Set<string>()

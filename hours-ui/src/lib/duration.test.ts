@@ -31,6 +31,10 @@ describe('readDuration: what it reads', () => {
     ['90 min', 90, 'minutes alone with a space'],
     ['30 min', 30, "minutes alone as the app's own short display"],
     ['1440m', 1440, 'the longest entry as minutes'],
+    ['2h30m', 150, 'hours and minutes, each with its unit'],
+    ['1h 30min', 90, 'hours and minutes, the minutes with their short unit'],
+    ['1 h 30 min', 90, 'hours and minutes, spaced, both with units'],
+    ['2 : 30', 150, 'h:mm with spaces around the colon'],
   ])('%s is %i minutes (%s)', (typed, minutes) => {
     expect(readDuration(typed)).toEqual({ ok: true, minutes })
   })
@@ -79,6 +83,7 @@ describe('readDuration: what it refuses, and why', () => {
     ['abc', 'unreadable', 'not a duration'],
     ['2:75', 'unreadable', 'minutes of an hour only go to 59'],
     ['2h75', 'unreadable', 'minutes of an hour only go to 59, with an h'],
+    ['2h5', 'steps', 'a one-digit minute is read (2 h 05), and refused for its steps'],
     ['2:5', 'unreadable', 'h:mm takes two digits of minutes'],
     ['2:', 'unreadable', 'h:mm cut short'],
     [':30', 'unreadable', 'h:mm with no hours'],
@@ -93,7 +98,8 @@ describe('readDuration: what it refuses, and why', () => {
     [',5', 'unreadable', 'a separator and no hours'],
     ['1e2', 'unreadable', 'an exponent'],
     ['2 30', 'unreadable', 'two numbers with nothing between them'],
-    ['2h30m', 'unreadable', 'a unit after the minutes'],
+    ['2h30x', 'unreadable', 'a unit after the minutes this field does not read'],
+    ['2h5h', 'unreadable', 'two hour units'],
     ['2 hours', 'unreadable', 'a word this field does not read'],
     ['٢:٣٠', 'unreadable', 'digits of another script'],
   ])('%j is refused as %s (%s)', (typed, problem) => {

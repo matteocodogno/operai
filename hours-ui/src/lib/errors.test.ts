@@ -44,6 +44,7 @@ const PLAN_CODES: [number, HoursErrorCode][] = [
   [503, 'authz_unavailable'],
   [403, 'time_list_manage_required'],
   [409, 'name_taken'],
+  [409, 'deal_meetings_changed'],
 ]
 
 describe('errorFromResponse: each Problem `code` of the plan becomes a typed error', () => {

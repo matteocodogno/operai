@@ -640,6 +640,31 @@ describe("the dealId filter counts the meetings currently linked to the deal (AC
     expect(idsOf(await list(`${NOVEMBER}&dealId=d1&limit=1&cursor=${first.json.nextCursor}`))).toEqual([e.d1.id]);
   });
 
+  it("refuses a later page 409 deal_meetings_changed when the deal's meetings changed since the first: a walk never mixes two sets", async () => {
+    const e = await fixture();
+
+    const first = await list(`${NOVEMBER}&dealId=d1&limit=1`);
+    expect(idsOf(first)).toEqual([e.m1.id]);
+
+    hosts.meetings.relink("m3", "d1");
+    const next = await list(`${NOVEMBER}&dealId=d1&limit=1&cursor=${first.json.nextCursor}`);
+    expect(next.status).toBe(409);
+    expect(next.json.code).toBe("deal_meetings_changed");
+
+    // Read again from the start, the walk is consistent with the new set.
+    expect(await forDeal("d1")).toEqual([e.m3.id, e.m1.id, e.d1.id]);
+  });
+
+  it("never takes a deal-filtered cursor without the deal filter, nor a plain cursor with it", async () => {
+    await fixture();
+
+    const withDeal = await list(`${NOVEMBER}&dealId=d1&limit=1`);
+    const plain = await list(`${NOVEMBER}&limit=1`);
+
+    expectInvalid(await list(`${NOVEMBER}&cursor=${withDeal.json.nextCursor}`), "cursor");
+    expectInvalid(await list(`${NOVEMBER}&dealId=d1&cursor=${plain.json.nextCursor}`), "cursor");
+  });
+
   it("asks meetings-api once for the deal's meetings, with hours-api's own credential and never the caller's", async () => {
     await fixture();
     const caller = await bearerOf("alice");
@@ -835,7 +860,7 @@ describe("the contract the clients read (plan § Entries)", () => {
     expect(parameters.every((parameter) => parameter.in === "query")).toBe(true);
     expect(parameters.filter((parameter) => parameter.required === true).map((parameter) => parameter.name).sort()).toEqual(["from", "to"]);
     expect(parameters.find((parameter) => parameter.name === "limit")?.schema).toMatchObject({ type: "integer", minimum: 1, maximum: 500 });
-    expect(Object.keys(operation.responses).sort()).toEqual(["200", "400", "401", "403", "503"]);
+    expect(Object.keys(operation.responses).sort()).toEqual(["200", "400", "401", "403", "409", "503"]);
     expect(JSON.stringify(operation.responses["200"])).toContain("TimeEntryView");
   });
 });
