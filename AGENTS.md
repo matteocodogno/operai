@@ -15,7 +15,7 @@ Module Federation shell (ADR 20260709-suite-frontend-module-federation):
 | **Projects** | `/projects` | The delivery work wellD runs — projects (type, state, project manager, team), their terms (per-type delivery terms) and, for a project made from a won deal, its purchase order (Bexio order id, referent, ops-manager); a project's team is its project manager, listed members and attached Admin teams, read live from auth; no money (specs/20261126-teams, specs/20261103-projects, 022, ADR 20261103-projects-tool-shape-and-authorization/0080/0093/0094) |
 | **Letterheads** | `/letterheads` | The letterheads and document layout of the suite, served by the Rust `letterhead-api` (specs/20261116-letterhead-service) |
 | **Accounting** | `/accounting` | The accounting reference data of each legal entity — ledger accounts, VAT codes and monthly average exchange rates — that other modules (Refund first) read live; reached through the derived `accounting` app of `/authz/me`, never an `access` permission (specs/20261119-accounting, ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…) |
-| **Hours** | `/hours` | Time tracking — every employee records the hours spent on a project, a deal, a meeting or other work (a duration on a day, never a time of day) and reads their own, as a table (a week or a month) or a list; holders of `time-entry:read-all` also see everyone's, with totals and an XLSX export; the Projects and CRM pages and task rows offer Record hours in place; ungated, so **not** a `TOOLS` entry; the admin lists (categories, work types) are its Settings tab, `/hours/settings`, for holders of `time-list:manage` (specs/20261112-time-tracking, ADR 20261112-hours-api-time-entries-own-service-hours-catalog to 20261112-hours-ui-ungated-remote) |
+| **Hours** | `/hours` | Time tracking — every employee records the hours spent on a project, a deal, a meeting or other work (a duration on a day, never a time of day) and reads their own, as a table (a week or a month) or a list; holders of `time-entry:read-all` also see everyone's, with totals and an XLSX export; the Projects and CRM pages and task rows offer Record hours in place; ungated, so **not** a `TOOLS` entry; the admin lists (categories, work types) are its Settings tab, `/hours/settings`, for holders of `time-list:manage`; a meeting's hours are recorded **automatically** for its creator and Operai participants and marked **From meeting** (specs/20261112-time-tracking, ADR 20261112-hours-api-time-entries-own-service-hours-catalog to 20261112-hours-ui-ungated-remote; specs/20261112-meeting-hours, ADR 20261124-meeting-hours-facts-pushed-by-their-owner-… and 20261124-a-system-written-time-entry-follows-its-source-fact-only-…) |
 
 Those nine are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
 notification center (`notify-ui`) is a further remote but **not** a `TOOLS` entry: it mounts at
@@ -35,7 +35,10 @@ My hours is a **table view** or a List (a `Table | List` switch), and opens on t
 (a `Period` switch, `Week | Month`), a row per project, deal, meeting or kind of other work, a column per day, Previous / This week or month /
 Next and a date field that shows the week or month holding the day picked. `/hours` is the current week, `?week=<day>` another,
 `?view=month[&month=YYYY-MM]` a month and `?view=list` the List (the old `?view=week` is still read). A filled cell opens its
-entries; an empty cell offers nothing. The date field offers no day after today, Next stops at the current period and an address naming a
+entries; an empty cell offers nothing. An entry Operai recorded from a meeting (`origin: "meeting"`, an **automatic entry**) counts in every
+cell and total like any other and wears a **From meeting** badge ("Da riunione") wherever entries are listed one by one — the List, a cell's
+entries, Everyone's hours — and its delete confirmation adds a sentence; a view of an older hours-api without `origin` reads every entry as
+`person` (specs/20261112-meeting-hours, AC-2.1, AC-2.3, AC-2.7). The date field offers no day after today, Next stops at the current period and an address naming a
 later week or month shows the current one. A month scrolls sideways with its row-label and Total columns pinned (`@operai/ui`
 `DataTable`'s `pin`). Every hours page — My hours in either view and period, Everyone's hours, Settings — takes the full width
 (`ToolLayout` `wide`, as EstimAI's), so switching view, period or tab never resizes the page. The table view's figures are folded in the
@@ -68,6 +71,8 @@ day, on a project, a deal, a meeting or other work — and the categories and wo
 screens are `hours-ui`'s (`/hours`); its permissions are `auth`'s `hours` catalog, which has **no `access`
 resource** (the tool is ungated) and carries only `time-entry:read-all` and `time-list:manage`
 (specs/20261112-time-tracking, ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, 20261112-hours-ui-ungated-remote).
+It also records the **automatic entries** of a meeting's creator and Operai participants, from the hours facts `meetings-api` pushes to
+its one service route, `POST /system/meeting-hours/v1/notices` (specs/20261112-meeting-hours, below).
 
 **Tagline:** *AI tools built by craftspeople, for craftspeople.*
 
@@ -209,7 +214,9 @@ operai/
 │                        # `meeting:erase`) but creator/participant reads need only a JWT (ADR 20261104-meetings-tool-shape-visibility-by-participation); audio ONLY in its own EU
 │                        # bucket (`MEETINGS_S3_*`, 29-day lifecycle verified at startup, ADR 20261104-audio-retention-bucket-lifecycle-verified-at-startup); in-process durable job
 │                        # runner (ADR 20261104-durable-job-runner-work-queued-state-derived); Gemini (transcription) + Claude on Vertex AI, EU (ADR 20261110-meetings-transcription-gemini-on-vertex-eu/0069/0061); host contract
-│                        # with crm-api (ADR 20261104-meeting-host-contract-resolve-and-notices); pushes to notify-api as `system:meetings-api` (specs/20261104-meetings)
+│                        # with crm-api (ADR 20261104-meeting-host-contract-resolve-and-notices); pushes to notify-api as `system:meetings-api` (specs/20261104-meetings);
+│                        # + an until-delivered outbox, `hours_notice`, that tells hours-api each meeting's hours facts (`src/hours/`, `HOURS_API_URL`, scope
+│                        # `meeting-hours-notices.send`, specs/20261112-meeting-hours, ADR 20261124-meeting-hours-facts-pushed-by-their-owner-…)
 ├── projects-api/        # Bun + Hono + TypeScript backend (port 8086, DB `projects`) — projects, their team, terms and purchase
 │                        # order, the Bexio order id; authorization-enforcing (projects:access, entity-scoped project:manage,
 │                        # handoff:take, purchase-order:receive, purchase-order:bexio), If-Match on every write, no money; reads
@@ -245,7 +252,10 @@ operai/
 │                        # oversight path (`time-entry:read-all`, live, fail closed), the lists need `time-list:manage` (ADR 20261112-hours-api-time-entries-own-service-hours-catalog);
 │                        # whether a person may record on a project, deal or meeting is asked of its owner as the caller, failing
 │                        # closed (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route); reads a meeting's current deal from meetings-api `GET /system/meetings/hosts` with its own
-│                        # service credential (scope `meetings.hosts.read`); no If-Match, no notifications (specs/20261112-time-tracking)
+│                        # service credential (scope `meetings.hosts.read`); no If-Match, no notifications (specs/20261112-time-tracking);
+│                        # + `POST /system/meeting-hours/v1/notices`, its one service-JWT route (scope `meeting-hours-notices.send`, `sub` `system:meetings-api`
+│                        # only): the automatic entries of a meeting's creator and Operai participants, `src/meetingHours/` (specs/20261112-meeting-hours,
+│                        # ADR 20261124-meeting-hours-facts-pushed-by-their-owner-…, 20261124-a-system-written-time-entry-follows-its-source-fact-only-…)
 ├── .railway/           # railway.ts — the Railway project as code (services, Postgres, buckets, domains, build/deploy,
 │                        # replicas, EU region); variables unmanaged; plan → apply by a person (ADR 20261113-railway-infrastructure-as-code)
 ├── docs/adr/            # Architecture Decision Records (0001–0094; see ## Architecture decisions)
@@ -406,11 +416,28 @@ Per-service specifics:
   in-process Postgres job runner for asked-for work, so it runs as a single replica (ADR 20261104-durable-job-runner-work-queued-state-derived);
   the THIRD reader of bucket bytes, bounded (ADR 20261104-meetings-api-reads-audio-bytes-third-reader); model output is validated structure and
   plain text only (ADR 20261104-ai-output-structured-validated-plain-text); pushes to notify-api as `system:meetings-api` (`notifications.push`)
-  and notices to the host as the same principal (`host-notices.send`), ADR 20261104-meeting-host-contract-resolve-and-notices/0065; for hours-api
+  and notices to the host as the same principal (`host-notices.send`), ADR 20261104-meeting-host-contract-resolve-and-notices/0065, and a meeting's
+  hours facts to hours-api as the same principal (`meeting-hours-notices.send`, below); for hours-api
   (specs/20261112-time-tracking, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route) `GET /meetings?ids=` narrows the caller's own meetings (a host-only reader's is
   absent) and its FIRST `/system/*` route, `GET /system/meetings/hosts` (`ids=` or `dealId=`; scope
   `meetings.hosts.read`, `sub` `system:hours-api` only, `aud=SERVICE_AUDIENCE`, one identical 401), answers
-  each meeting's current host as `{id, host}` and nothing else — never a title, participant or content
+  each meeting's current host as `{id, host}` and nothing else — never a title, participant or content. It also OWNS the facts hours-api turns
+  into automatic entries — when a meeting started, how long it lasted, its creator and its Operai participants — and pushes them as a
+  versioned state through an until-delivered outbox (specs/20261112-meeting-hours, ADR
+  20261124-meeting-hours-facts-pushed-by-their-owner-as-a-versioned-state-built-at-send-time-through-an-until-delivered-outbox-and-applied-by-hours-api-only-when-not-older):
+  a write that changes one (recording stop, upload confirm, `prepare_audio` filling or refusing a duration, a `PATCH` of `startsAt`, a
+  participants `PUT` that changes the set of Operai users, a delete) bumps `Meeting.hoursSeq` and writes a content-free `hours_notice` row and
+  a `deliver_hours_notice` job in its OWN transaction (no FK to the meeting, so a `deleted` notice outlives it; a start on a later Zurich day
+  also queues a second job due at 00:01 that day; a text meeting, a title-only edit or a change of externals records nothing); the job builds the
+  body at SEND time from the meeting as it is then (`src/lib/meetingHoursWire.ts`, a byte-identical copy of hours-api's: no title, no
+  external participant, nothing but ids, instants and a duration) and POSTs it to `HOURS_API_URL` `/system/meeting-hours/v1/notices` as
+  `system:meetings-api` (scope `meeting-hours-notices.send`, `aud=SERVICE_AUDIENCE`, 5 s, no redirect). `HOURS_API_URL` is required in
+  production and `http://localhost:8090` elsewhere; the channel is on only with it and the service credential, and off it records
+  nothing and a queued notice is marked `failed` `disabled`. 200 settles (deletes) the row, 400/422 fails it for good (the row stays,
+  `lastErrorCode` a closed code, logged `meeting_hours.notice_refused` with the meeting id and no user id), and anything else (network,
+  timeout, a 401 after one retry, 404 before hours-api has the route, 5xx) retries after 30 s, 2 min, 10 min, then every 30 min until
+  delivered. The migration `20261124100000_hours_notice` also enqueues the **release backfill**: every meeting with a duration that started in
+  the last 14 days (infra/README.md § Meeting hours release)
 - `projects-api` — Projects (specs/20261103-projects, 026; teams, specs/20261126-teams: a project keeps only the ids of its attached teams in `project_attached_team`, never a name or member, read live from auth `GET /system/teams` as `system:projects-api` with scope `teams:read`, cache ≤ 60 s from send, unknown never shown as nobody; `onProject` = project manager, listed members, counted members of attached teams; its hosts' `assignees` may be `null`): authorization-enforcing (live `/authz/resolve`, fails closed) with
   `projects:access` (read every project, its terms and purchase order), entity-scoped `project:manage` (403
   `out_of_scope`, not 404 — records are readable, ADR 20261101-crm-tool-shape-and-authorization posture), `handoff:take` (sales, own entity; the
@@ -465,7 +492,8 @@ Per-service specifics:
   live and fails closed on every write to the categories and work types (retire and restore, never delete;
   names unique per list, case-insensitively). An entry is a duration in whole 30-minute steps (30 min–24 h) on
   one real day not in the future, never a time of day, on a project, a deal, a meeting or no entity (then with
-  a category); it has one writer, so no `If-Match` (ADR 20261112-hours-api-time-entries-own-service-hours-catalog). Whether a person may record on a project
+  a category); it has one writer, its person, so no `If-Match` (ADR 20261112-hours-api-time-entries-own-service-hours-catalog) — the one other
+  writer is Operai's notice route, below, which only touches an entry its person has not changed. Whether a person may record on a project
   (`assignees` of projects-api's host resolve), a deal (`involved` of crm-api's, or assignee/participant of one
   of its activities from activities-api) or a meeting (creator or participant from meetings-api) is asked of
   the owner as the caller, with the forwarded JWT, at write time and fails closed (403 `not_on_project` /
@@ -481,7 +509,30 @@ Per-service specifics:
   ordinary use stays inside auth's per-person budget (plan amendment of 2026-11-18, T46). A
   `dealId` filter is refused 503 while meetings-api cannot say which meetings are linked, never answered low
   (AC-4.11); port 8090, DB `hours`, no object storage, sends no notification. It holds personal data about
-  workers: informing employees is a go-live sign-off owned by management / HR (specs/20261112-time-tracking O3)
+  workers: informing employees is a go-live sign-off owned by management / HR (specs/20261112-time-tracking O3, widened by the automatic
+  entries below, accepted as risk by the owner at approval, specs/20261112-meeting-hours O3).
+  **Automatic entries** (specs/20261112-meeting-hours, ADR
+  20261124-meeting-hours-facts-pushed-by-their-owner-as-a-versioned-state-built-at-send-time-through-an-until-delivered-outbox-and-applied-by-hours-api-only-when-not-older,
+  ADR 20261124-a-system-written-time-entry-follows-its-source-fact-only-until-its-person-changes-it-and-is-never-written-again-after-the-person-removed-it):
+  the only way one is written is hours-api's FIRST route that takes a **service** credential, `POST /system/meeting-hours/v1/notices` — the
+  facts of a meeting as meetings-api states them now, `{ noticeId, meeting: { id, seq, facts: null | { startsAt, durationMs | null, creatorId,
+  participantIds } } }`, strict (any other key, a `title` included, is 400 `invalid_request` and nothing is written; the schema is
+  `src/lib/meetingHoursWire.ts`, byte-identical to meetings-api's, `mise run shared:check`). Its guard is the shared
+  `src/auth/systemAuth.middleware.ts`: RS256 via `AUTH_JWKS_URL`, `aud=SERVICE_AUDIENCE` (the audience hours-api shows to meetings-api, which
+  it now also VERIFIES), scope `meeting-hours-notices.send`, `sub` `system:meetings-api` only, one identical 401 for every failure (a user JWT of any
+  role included) decided BEFORE the body, attached per route and mounted BEFORE `jwtMiddleware` (mounted after it a service JWT is a 401).
+  `apply()` is one transaction under a row lock on `meeting_hours_meeting`, with no outbound call and no notification: an older `seq` than
+  the one applied changes nothing (`{ applied: false }`), an equal one is applied again; the meeting's UNTOUCHED entries (`followsMeeting`)
+  are made to match — one entry for the creator and for each Operai participant, on the meeting's Europe/Zurich day, for the duration rounded to
+  the nearest 30 minutes (a half step up, 30 min to 24 h); nobody when the duration is unknown or 0, the day is before
+  `meeting_hours_release.since` (the Zurich date hours-api's migration ran: the release day, never configuration) or after today — and
+  an entry its person changed is never touched (any saved `PATCH` clears `followsMeeting`; the `AND "followsMeeting"` of apply's writes is the CAS
+  against a concurrent one), one its person deleted is never written again (`meeting_hours_block` `deleted`, in the DELETE's own transaction),
+  nor one for a person who already had an entry on the meeting (`had_entry`). `time_entry` gains `origin` (`person` | `meeting`),
+  `sourceMeetingId` and `followsMeeting`, with one automatic entry per (user, meeting) by a partial unique index; only `origin` reaches
+  the client (`TimeEntryView`), the mark "From meeting". A `person` and a `meeting` entry count alike in every list, total, filter,
+  export and deal figure. The note of an automatic entry is empty and nothing of a meeting's content is copied. Logs `meeting_hours.applied`
+  with counts, never a user id
 - `notify-api` — notification persistence + ticket-authed SSE stream (ADR 20260713-sse-stream-auth-short-lived-ticket); pinned to a
   single production instance (in-process ticket store + fan-out); email channel via Resend;
   internal `/system/emails` (scope `emails.send`) + `/system/notifications` (scope
@@ -656,7 +707,7 @@ Money is always integer minor units (cents); mileage rates are integer micros (A
 | `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
 | `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims) |
 | `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR 20260714-invitation-lifecycle-derived-expiry-state) |
-| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact`, `host-notices.send`, `estimate-notices.send`, `deal-link-notices.send`, `crm.companies.read`, `accounting.reference.read`, `activities.write`, `teams:read` and/or `meetings.hosts.read`); today `refund-api` (also `accounting.reference.read`, for accounting-api's `/system/v1/*`), `estimai-api`, `inventory-api`, `crm-api` (also `activities.write`, for activities-api's `/system/v1/*`), `meetings-api`, `notify-api`, `projects-api` (also `teams:read`, for auth's `GET /system/teams`; a person adds it to production `SERVICE_CLIENTS` only after the auth that knows the scope is live), `activities-api` (`notifications.push emails.send`) and `hours-api` (`meetings.hosts.read` only — it reads which deal a meeting is linked to from meetings-api's `GET /system/meetings/hosts`, whose `sub` allowlist names `system:hours-api`; every other owner it asks as the caller, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route) (`auth` mints its own in process and may not be a client, ADR 20261013-auth-mints-own-service-credential-in-process/0049); `auth` limits each client to 300 tokens and 600 contact lookups per 10 min, counted per verified service, with one per-address count of 20 invalid credentials (ADR 20261112-system-endpoints-limited-per-verified-service) |
+| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact`, `host-notices.send`, `estimate-notices.send`, `deal-link-notices.send`, `crm.companies.read`, `accounting.reference.read`, `activities.write`, `teams:read`, `meetings.hosts.read` and/or `meeting-hours-notices.send`); today `refund-api` (also `accounting.reference.read`, for accounting-api's `/system/v1/*`), `estimai-api`, `inventory-api`, `crm-api` (also `activities.write`, for activities-api's `/system/v1/*`), `meetings-api` (`notifications.push host-notices.send meeting-hours-notices.send`, the last for hours-api's `POST /system/meeting-hours/v1/notices`, whose `sub` allowlist names `system:meetings-api`; specs/20261112-meeting-hours), `notify-api`, `projects-api` (also `teams:read`, for auth's `GET /system/teams`; a person adds it to production `SERVICE_CLIENTS` only after the auth that knows the scope is live), `activities-api` (`notifications.push emails.send`) and `hours-api` (`meetings.hosts.read` only — it reads which deal a meeting is linked to from meetings-api's `GET /system/meetings/hosts`, whose `sub` allowlist names `system:hours-api`; every other owner it asks as the caller, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route) (`auth` mints its own in process and may not be a client, ADR 20261013-auth-mints-own-service-credential-in-process/0049); `auth` limits each client to 300 tokens and 600 contact lookups per 10 min, counted per verified service, with one per-address count of 20 invalid credentials (ADR 20261112-system-endpoints-limited-per-verified-service) |
 
 ### Inventory (specs/20261006-hardware-inventory)
 
@@ -721,7 +772,8 @@ The authoritative glossary is `.claude/context/glossary.md` § Time tracking.
 
 | Term | Meaning |
 |---|---|
-| `time entry` | One person's own declaration that they spent a duration, on one day, on one thing — a project, a deal, a meeting, or no entity (then with a category); whole 30-minute steps (30 min–24 h), never a time of day. Not an activity, but may point at one (`activityId`, only on a project or a deal) |
+| `time entry` | One person's own declaration — or, for a meeting, one Operai recorded for them (an `automatic entry`) — that they spent a duration, on one day, on one thing — a project, a deal, a meeting, or no entity (then with a category); whole 30-minute steps (30 min–24 h), never a time of day. Not an activity, but may point at one (`activityId`, only on a project or a deal) |
+| `automatic entry` | A time entry Operai records for a person on a Meetings meeting they created or took part in (creator and Operai participants with an active account, never external participants), on the meeting's Europe/Zurich day for its duration rounded to the nearest 30 minutes, once the duration is known and only for a meeting that starts on or after the release day (`meeting_hours_release.since`); never for a typed or pasted meeting (no duration), for a CRM call or meeting activity, or before the meeting's day has come. It is the person's own entry from the moment it exists, counts like any other, has an empty note, sends no notification and is marked **From meeting** (`origin: "meeting"`, kept after a change). **Untouched**: not changed by its person since it was recorded (any saved change of day, duration, note or target); only an untouched entry follows its meeting (day, duration, a participant removed, the meeting deleted). Deleting one is final: it is never recorded again for that person on that meeting; nor is one recorded for a person who already had an entry on the meeting when its duration became known (ADR 20261124-a-system-written-time-entry-follows-its-source-fact-only-…) |
 | `category` | What a time entry on no entity is about (training, talk preparation, administration, …), from a list an admin manages; it may require a note. Not the inventory's asset category |
 | `work type` | The optional kind of work of a time entry on a project or a deal, from one of two lists an admin manages (one per target); never on a meeting or on no entity |
 | `retired` | A category or work type an admin withdrew: no longer offered for a new entry, kept by the entries that already have it, restorable; nobody, admins included, deletes one (AC-3.1, AC-3.2) |
@@ -965,7 +1017,12 @@ person runs `direnv allow hours-api`, copies `hours-api/.env.example` to its git
 or non-secret derivations — but in the uncommitted per-service `.env`. Until hours-api's `.env` exists hours-api exits at start naming each missing variable
 and the rest of the stack keeps running. It also needs an `hours-api` entry (scope `meetings.hosts.read`) in `auth`'s
 `SERVICE_CLIENTS`, its secret kept where auth keeps the others (never a committed file), and `SERVICE_AUDIENCE` in
-meetings-api's environment — without them a meeting's deal reads as unavailable and nothing else is affected.
+meetings-api's environment — without them a meeting's deal reads as unavailable and nothing else is affected. The automatic entries
+(specs/20261112-meeting-hours) need two more things: the `meetings-api` entry of `SERVICE_CLIENTS` must carry `meeting-hours-notices.send`
+(`notifications.push host-notices.send meeting-hours-notices.send`) and hours-api's `SERVICE_AUDIENCE` must equal auth's, since hours-api now verifies
+meetings-api's service JWT. `HOURS_API_URL` needs nothing locally (meetings-api defaults it to `http://localhost:8090`; under `NODE_ENV=test` the channel is
+off whatever the environment holds). Without the scope no meeting records hours: each notice answers 401, waits in the outbox and is delivered once
+the scope is there, nothing lost.
 
 ### Database + object storage (shared)
 ```bash
