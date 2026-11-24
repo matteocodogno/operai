@@ -32,7 +32,7 @@ review, is folded in below).
 > 5. § Security, "Abuse by a meeting's creator": the duration is bounded by 3 h 1 min, so an entry is at most 180 minutes
 >    (not "capped at 24 h"), it is never checked against the audio, and `startsAt` is a third creator-controlled input.
 
-> **Amended 2026-11-24 for the security-review additions (awaiting approval).** The owner added two hardenings to the spec
+> **Amended 2026-11-24 for the security-review additions (approved by the owner 2026-11-24).** The owner added two hardenings to the spec
 > (spec AC-2.3 changed, AC-3.8–AC-3.10 added; ledger D63, D67–D70; `owasp-report.md` L1, I8) and the designer's second pass
 > (design.md, G7) depends on one of them. What this amendment adds or changes:
 > 1. **The measured duration** (AC-3.8–AC-3.10, D63, D68, D69): new § The measured duration; `prepare_audio`'s one commit takes
@@ -393,7 +393,7 @@ reworded for the mark ("while it is recorded on a meeting", hours-ui) and the me
 - **D-P7 — withdrawn by the owner, 2026-11-24** (review I6, accepted as risk; ledger D76): a deleted meeting keeps its blocks, as built.
 - **D-P8 — withdrawn by the owner, 2026-11-24** (review I1, accepted as risk; ledger D74): the shared service-credential guard is unchanged.
 - **D-P9 — withdrawn by the owner, 2026-11-24** (review I3, accepted as risk; ledger D75): the wire's ids stay 1..64 characters, no character set.
-- **D-P10 (amendment; awaiting the owner's answer) A duration correction is logged for the operators** — `[prepare_audio] duration_corrected` with the meeting
+- **D-P10 (amendment; kept by the owner 2026-11-24) A duration correction is logged for the operators** — `[prepare_audio] duration_corrected` with the meeting
   id and the held and measured milliseconds, after the commit, only when a held duration was replaced; no user id, no title.
   It is R9's early signal (how often, and by how much, honest recordings are corrected). Not shown to anyone in the app
   (A43). *Strike it to log nothing; then R9 has no signal after release.*
