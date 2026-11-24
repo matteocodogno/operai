@@ -1,11 +1,12 @@
 /**
  * @vitest-environment jsdom
  *
- * EntryRow — the "From meeting" mark of an automatic entry (specs/20261112-meeting-hours T10; AC-2.3, AC-3.6 (display),
- * AC-4.1, AC-4.3; design S1). One row draws both the List's entry and the entry of a table cell's dialog, so what is shown
- * here is shown in both views. The mark follows `origin` and nothing else: an entry the person changed, moved to another
- * kind of work or whose meeting is no longer visible keeps it, and a hand-made entry (or one from an hours-api that does not
- * send `origin`) draws exactly the row it always did.
+ * EntryRow — the "From meeting" mark of an automatic entry (specs/20261112-meeting-hours T10, T16; AC-2.3 as changed, AC-3.6
+ * (display), AC-4.1, AC-4.3; design S1). One row draws both the List's entry and the entry of a table cell's dialog, so what is
+ * shown here is shown in both views. The mark follows where the entry is recorded NOW (`showsFromMeetingMark`, D67, A47): an
+ * entry Operai recorded from a meeting keeps it while it is on a meeting — its own, another one, or one the viewer can no
+ * longer see — and loses it, with no wrapper left behind, when the person moves it to a project, a deal or other work. A
+ * hand-made entry (or one from an hours-api that does not send `origin`) draws exactly the row it always did.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -52,11 +53,11 @@ describe('an automatic entry carries the mark (AC-2.3)', () => {
   it('draws the mark as plain text: not a control, no tab stop added, nothing that would rename it for a screen reader', () => {
     const tabStops = (container: HTMLElement) =>
       container.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])').length
-    renderRow(timeEntryView({ id: 'a1', minutes: 60, on: projectOn('p1', 'Alpenstrom') }))
+    renderRow(timeEntryView({ id: 'a1', minutes: 60, on: SYNC }))
     const handMade = tabStops(row())
     cleanup()
 
-    renderRow(automatic({ on: projectOn('p1', 'Alpenstrom') }))
+    renderRow(automatic({ on: SYNC }))
     expect(tabStops(row())).toBe(handMade)
     const mark = within(row()).getByText(MARK)
     expect(mark.closest('button, a, [role]')).toBeNull()
@@ -75,32 +76,74 @@ describe('an automatic entry carries the mark (AC-2.3)', () => {
   })
 })
 
-describe('the mark follows origin, not what the entry is on now (AC-2.3, D57)', () => {
-  it('stays on an entry the person moved to a project: "[Project] [From meeting] Project Alpha"', () => {
-    renderRow(automatic({ on: projectOn('p1', 'Project Alpha') }))
-    const kind = within(row()).getByText('Project')
+describe('the mark follows where the entry is recorded now, not where it came from (AC-2.3, D67, A47)', () => {
+  it('stays on an entry the person moved to ANOTHER meeting: "[Meeting] [From meeting] Retro"', () => {
+    renderRow(automatic({ on: meetingOn('m2', 'Retro') }))
+    const kind = within(row()).getByText('Meeting')
     const mark = within(row()).getByText(MARK)
-    const name = within(row()).getByText('Project Alpha')
+    const name = within(row()).getByText('Retro')
     expect(before(kind, mark)).toBe(true)
     expect(before(mark, name)).toBe(true)
   })
 
-  it('stays on an entry moved to a deal', () => {
-    renderRow(automatic({ on: dealOn('d1', 'Brera') }))
-    expect(markIn()).not.toBeNull()
-    expect(within(row()).getByText('Deal')).not.toBeNull()
+  it('is gone from an entry moved to a project: "[Project] Project Alpha", the kind badge alone and no wrapper', () => {
+    renderRow(automatic({ on: projectOn('p1', 'Project Alpha') }))
+    expect(markIn()).toBeNull()
+    expect(screen.queryByTestId('hours-entry-a1-from-meeting')).toBeNull()
+    const kind = within(row()).getByText('Project').parentElement!
+    const name = within(row()).getByText('Project Alpha')
+    // the kind badge and the name are neighbours in the first line, exactly as on a hand-made row: no cluster around it
+    expect(kind.nextElementSibling).toBe(name)
+    expect(kind.parentElement).toBe(name.parentElement)
   })
 
-  it('stays on an entry moved to other work, which has no name: "[Other work] [From meeting]", the category on the meta line', () => {
+  it('is gone from an entry moved to a deal: "[Deal] Brera"', () => {
+    renderRow(automatic({ on: dealOn('d1', 'Brera') }))
+    expect(markIn()).toBeNull()
+    const kind = within(row()).getByText('Deal').parentElement!
+    expect(kind.nextElementSibling).toBe(within(row()).getByText('Brera'))
+  })
+
+  it('is gone from an entry moved to other work, which has no name: "[Other work]" alone, the category on the meta line', () => {
     renderRow(automatic({ on: otherWorkOn('Training', 'c-training') }))
-    expect(markIn()).not.toBeNull()
-    expect(before(within(row()).getByText('Other work'), within(row()).getByText(MARK))).toBe(true)
-    // the category is still the second line
+    expect(markIn()).toBeNull()
+    const kind = within(row()).getByText('Other work').parentElement!
+    // the first line holds the kind badge and nothing else: no cluster wrapper, no mark, no name
+    expect(kind.parentElement!.children).toHaveLength(1)
     expect(within(row()).getByText('Training')).not.toBeNull()
   })
 
-  it('stays on an entry the person edited: the view is the same, the row is the same', () => {
-    // hours-api answers `origin: meeting` after a PATCH (AC-2.3): a changed note and minutes change nothing about the mark.
+  it('draws a moved entry exactly as the same entry typed by hand: the same markup, mark apart', () => {
+    for (const on of [projectOn('p1', 'Project Alpha'), dealOn('d1', 'Brera'), otherWorkOn('Training', 'c-training')]) {
+      const moved = renderRow(automatic({ on }))
+      const html = moved.container.innerHTML
+      moved.unmount()
+      const handMade = renderRow(timeEntryView({ id: 'a1', minutes: 60, on }))
+      expect(handMade.container.innerHTML).toBe(html)
+      handMade.unmount()
+    }
+  })
+
+  it('comes back when the entry is recorded on a meeting again: the same entry, moved off and back, changes only the mark', () => {
+    const { rerender } = renderRow(automatic({ on: SYNC }))
+    expect(markIn()).not.toBeNull()
+
+    rerender(
+      <EntryRow entry={automatic({ on: projectOn('p1', 'Project Alpha') })} onEdit={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(markIn()).toBeNull()
+    const moved = within(row()).getByText('Project').parentElement!
+    expect(moved.nextElementSibling).toBe(within(row()).getByText('Project Alpha'))
+
+    rerender(<EntryRow entry={automatic({ on: SYNC })} onEdit={vi.fn()} onDelete={vi.fn()} />)
+    expect(markIn()).not.toBeNull()
+    const kind = within(row()).getByText('Meeting')
+    expect(before(kind, within(row()).getByText(MARK))).toBe(true)
+    expect(before(within(row()).getByText(MARK), within(row()).getByText('Weekly sync'))).toBe(true)
+  })
+
+  it('stays on an entry the person edited and left on its meeting: the view is the same, the row is the same', () => {
+    // hours-api answers `origin: meeting` after a PATCH (AC-2.3, AC-2.7): a changed note and minutes change nothing about the mark.
     renderRow(automatic({ minutes: 150, note: 'Prepared the agenda' }))
     expect(markIn()).not.toBeNull()
     expect(within(row()).getByText('Prepared the agenda')).not.toBeNull()

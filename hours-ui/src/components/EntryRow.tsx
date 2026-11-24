@@ -9,6 +9,7 @@ import {
   listRowClassName,
   listRowMetaClassName,
 } from '@operai/ui'
+import { showsFromMeetingMark } from '../lib/fromMeetingMark'
 import type { TimeEntryView } from '../lib/hoursApi.types'
 import { activityLine, countsForDealLine, onPhrase, rowName } from '../lib/names'
 import { strings } from '../strings'
@@ -77,10 +78,12 @@ function MetaLine({ pieces }: { pieces: (string | null)[] }) {
  * and the note. Edit and Delete, when the page gives handlers, name the entry in their labels so a screen reader can
  * tell the buttons of one day apart. It sums nothing and compares nothing (D23).
  *
- * An entry Operai recorded from a meeting (`origin: meeting`, specs/20261112-meeting-hours T10; AC-2.3; design S1) carries a
- * "From meeting" badge right after the kind badge and before the name, and keeps it after the person changes the entry, moves
- * it to other work or loses sight of the meeting (the name is then the placeholder, never the title, AC-4.1). Any other
- * `origin`, a missing one included, draws the row as it always was.
+ * An entry Operai recorded from a meeting carries a "From meeting" badge right after the kind badge and before the name
+ * exactly while it is recorded on a meeting (`showsFromMeetingMark`: `origin: meeting` and `on.type: meeting`, specs/20261112-meeting-hours
+ * T10, T16; AC-2.3 as changed, D67, A47; design S1). It keeps the badge when the person changes its day, duration or note, when
+ * they move it to another meeting, and when the meeting is no longer visible to the viewer (the name is then the placeholder,
+ * never the title, AC-4.1); it loses it when they move it to a project, a deal or other work, and gets it back when they record
+ * it on a meeting again. Any other entry, a missing `origin` included, draws the kind badge alone, as it always did.
  */
 export default function EntryRow({ entry, onEdit, onDelete, autoFocusEdit = false }: EntryRowProps) {
   const name = rowName(entry.on)
@@ -94,9 +97,9 @@ export default function EntryRow({ entry, onEdit, onDelete, autoFocusEdit = fals
     <div className={cx(listRowClassName, 'is-interactive flex-wrap')} data-testid={`hours-entry-${entry.id}`}>
       <div className="flex min-w-0 flex-1 basis-60 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          {entry.origin === 'meeting' ? (
+          {showsFromMeetingMark(entry) ? (
             // The kind and the mark are one cluster, so the mark reads as a qualifier of the kind and the name keeps the row's
-            // usual gap after both. A row that is not automatic draws the kind badge alone, as it always did (design S1).
+            // usual gap after both. A row the rule does not mark draws the kind badge alone, with no wrapper, as it always did (design S1).
             <span className="inline-flex flex-wrap items-center gap-1.5">
               {kind}
               <Badge tone="accent" data-testid={`hours-entry-${entry.id}-from-meeting`}>

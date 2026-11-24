@@ -85,7 +85,9 @@ export default function DeleteEntryDialog({ entry, onConfirm, onCancel }: Delete
       <div ref={body} className="break-words">
         {t.body(formatDuration(entry.minutes * 60_000, { style: 'short' }), named(entry.on), formatDate(entry.day))}
         {/* An entry Operai recorded from a meeting is not recorded again once deleted (AC-2.5), which the sentence above does not
-            say: a second paragraph, only for `origin: meeting`. A hand-made entry, or one with no `origin`, is confirmed as before. */}
+            say: a second paragraph, only for `origin: meeting`. A hand-made entry, or one with no `origin`, is confirmed as before.
+            It reads `origin` ALONE and never `showsFromMeetingMark`: an entry moved to a project, a deal or other work has no mark and
+            still will not be recorded again, so it gets the paragraph too (AC-2.7, D70). Two predicates, on purpose. */}
         {entry.origin === 'meeting' && <p className="mt-2">{t.automaticNote}</p>}
       </div>
     </ConfirmDialog>

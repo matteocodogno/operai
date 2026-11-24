@@ -5,12 +5,16 @@
  * design S4, F3). An entry Operai recorded from a meeting (`origin: meeting`) is never recorded again once deleted
  * (AC-2.5), which "This can't be undone" does not say, so the body gains a second paragraph after the existing sentence.
  * The confirmation of an entry typed by hand, and of one from an hours-api that sends no `origin`, says what it always did.
+ * The sentence reads `origin === 'meeting'` ALONE, not the "From meeting" mark's rule (`showsFromMeetingMark`, which also needs the
+ * entry to be recorded on a meeting): an entry the person moved to a project, a deal or other work has no mark and still gets the
+ * sentence, because Operai will not record it again (AC-2.7, D70, A47; specs/20261112-meeting-hours T16). Two predicates, on purpose.
  * The dialog's behaviour (focus, busy, the failure it keeps open) is `DeleteEntryDialog.focus.test.tsx` and the page tests.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import type { TimeEntryView } from '../lib/hoursApi.types'
-import { meetingOn, projectOn, timeEntryView } from '../test-support/fakeApi'
+import { showsFromMeetingMark } from '../lib/fromMeetingMark'
+import { dealOn, meetingOn, otherWorkOn, projectOn, timeEntryView } from '../test-support/fakeApi'
 import DeleteEntryDialog from './DeleteEntryDialog'
 
 afterEach(() => cleanup())
@@ -46,11 +50,27 @@ describe('an automatic entry: the confirmation also says it will not come back (
     expect(description().textContent).toBe(`${FIRST}${NOTE}`)
   })
 
-  it('says it for an entry the person moved off the meeting too: it is where the entry came from that decides (AC-2.3)', () => {
-    renderDialog(automatic({ on: projectOn('p1', 'Alpenstrom') }))
+  it('says it for an entry the person moved off the meeting too, though the row has no "From meeting" mark then: it reads `origin` alone, not the mark\'s rule (AC-2.7, D70, A47)', () => {
+    const moved = automatic({ on: projectOn('p1', 'Alpenstrom') })
+    expect(showsFromMeetingMark(moved)).toBe(false)
+    renderDialog(moved)
     expect(within(dialog()).getByText("1 h on Alpenstrom, 12.11.2026. This can't be undone.")).not.toBeNull()
     expect(within(dialog()).getByText(NOTE)).not.toBeNull()
   })
+
+  it.each([
+    ['a deal', dealOn('d1', 'Brera')],
+    ['other work', otherWorkOn('Training', 'c-training')],
+  ])(
+    'says it for an entry moved to %s too: Operai will not record it again whatever it is on now (AC-2.7, D70)',
+    (_name, on) => {
+      const moved = automatic({ on })
+      expect(showsFromMeetingMark(moved)).toBe(false)
+      renderDialog(moved)
+      expect(description().textContent).toMatch(/^1 h on .+, 12\.11\.2026\. This can't be undone\./)
+      expect(within(dialog()).getByText(NOTE)).not.toBeNull()
+    },
+  )
 
   it('says it for a meeting the viewer cannot read, with the placeholder and never the title (AC-3.6, AC-4.1)', () => {
     const hidden = { ...meetingOn('m1', null, { state: 'none' }, 'hidden'), label: 'Secret board meeting' }

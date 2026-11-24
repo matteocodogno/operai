@@ -55,8 +55,11 @@ export type TimeEntryView = {
   /**
    * Where the entry came from, which hours-api stores and never changes (specs/20261112-meeting-hours AC-2.3): `meeting`
    * for an entry Operai recorded from a meeting, `person` for one a person typed. Optional on the client because an
-   * hours-api that predates the field omits it, and a missing `origin` reads as `person`. Nothing but the "From meeting"
-   * mark reads it (design S1, S2): it is not whether the entry still follows its meeting, which the view never says.
+   * hours-api that predates the field omits it, and a missing `origin` reads as `person`. Two readers, with two different rules
+   * (specs/20261112-meeting-hours AC-2.3 as changed, AC-2.7, D67, D70): the "From meeting" mark asks `showsFromMeetingMark`
+   * (`origin: meeting` AND `on.type: meeting`, so it follows where the entry is recorded now), and `DeleteEntryDialog`'s
+   * second paragraph reads `origin` alone (Operai will not record the entry again, wherever it is). `origin` is not whether
+   * the entry still follows its meeting, which the view never says.
    */
   origin?: 'person' | 'meeting'
   createdAt: string

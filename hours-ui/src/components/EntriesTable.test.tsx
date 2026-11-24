@@ -5,7 +5,8 @@
  * AC-4.7, AC-4.8, AC-4.9, AC-4.10, AC-2.6, AC-3.8; design S4 "Entries card"). Columns Day, Person, On,
  * Details and Time, in the server's order and never re-sorted, with the words for a name the viewer may not
  * read or that did not come, and nothing to write with: no Edit, no Delete, no row action of any kind. The last
- * block is the "From meeting" mark of an automatic entry (specs/20261112-meeting-hours T10; AC-2.3, D-P5; design S2).
+ * block is the "From meeting" mark of an automatic entry (specs/20261112-meeting-hours T10, T16; AC-2.3 as changed, D-P5, D67; design
+ * S2): shown exactly while the entry is recorded on a meeting, by the same predicate as the List's rows (`showsFromMeetingMark`).
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -307,24 +308,54 @@ describe('the "From meeting" mark of an automatic entry (specs/20261112-meeting-
     expect(lines(cells(0).on)).toEqual(['Kick-off call', 'Meeting', 'Counts for deal Acme renewal'])
   })
 
-  it('stays on an entry the person moved to a project, a deal or other work (the mark is where it came from)', () => {
+  it('stays on an entry the person moved to ANOTHER meeting: it is on a meeting, and the mark says where it came from, not where it is', () => {
+    renderTable([automatic({ on: meetingOn('m2', 'Retro') })])
+    const on = cells(0).on
+    expect(before(within(on).getByText(MARK), within(on).getByText('Retro'))).toBe(true)
+    expect(lines(on)).toEqual(['Retro', 'Meeting'])
+  })
+
+  it('is gone from an entry the person moved to a project, a deal or other work: a holder no longer learns from it that the person attended a meeting (AC-2.3, D67)', () => {
+    const ids = ['to-project', 'to-deal', 'to-other']
     renderTable([
-      automatic({ id: 'to-project', on: projectOn('p1', 'Project Alpha') }),
-      automatic({ id: 'to-deal', on: dealOn('d1', 'Brera') }),
-      automatic({ id: 'to-other', on: otherWorkOn('Training', 'c-training') }),
+      automatic({ id: ids[0]!, on: projectOn('p1', 'Project Alpha') }),
+      automatic({ id: ids[1]!, on: dealOn('d1', 'Brera') }),
+      automatic({ id: ids[2]!, on: otherWorkOn('Training', 'c-training') }),
     ])
-    for (const index of [0, 1, 2]) expect(within(cells(index).on).getByText(MARK), `row ${index}`).not.toBeNull()
+    ids.forEach((id, index) => {
+      expect(cells(index).on.textContent, `row ${index}`).not.toContain(MARK)
+      expect(screen.queryByTestId(`hours-entry-${id}-from-meeting`)).toBeNull()
+    })
     expect(lines(cells(0).on)).toEqual(['Project Alpha', 'Project'])
     expect(lines(cells(1).on)).toEqual(['Brera', 'Deal'])
+    expect(lines(cells(2).on)).toEqual(['Other work · Training'])
   })
 
-  it('marks an entry on other work, which has no name, and keeps its one line: the kind and the category', () => {
-    renderTable([automatic({ on: otherWorkOn('Training', 'c-training') })])
-    expect(within(cells(0).on).getByText(MARK)).not.toBeNull()
-    expect(lines(cells(0).on)).toEqual(['Other work · Training'])
+  it('draws a moved entry exactly as the same entry typed by hand: no badge and no wrapper around the name line', () => {
+    for (const on of [projectOn('p1', 'Project Alpha'), dealOn('d1', 'Brera'), otherWorkOn('Training', 'c-training')]) {
+      renderTable([automatic({ on })])
+      const html = cells(0).on.innerHTML
+      cleanup()
+      renderTable([handMade({ on })])
+      expect(cells(0).on.innerHTML).toBe(html)
+      cleanup()
+    }
   })
 
-  it('says "[From meeting] Not visible to you" for a meeting the viewer cannot read, and never its title', () => {
+  it('comes back when the entry is recorded on a meeting again: the same entry, moved off and back, changes only the mark', () => {
+    const { rerender } = renderTable([automatic({ on: meetingOn('m1', 'Weekly sync') })])
+    expect(cells(0).on.textContent).toContain(MARK)
+
+    rerender(<EntriesTable entries={[automatic({ on: projectOn('p1', 'Project Alpha') })]} />)
+    expect(cells(0).on.textContent).not.toContain(MARK)
+
+    rerender(<EntriesTable entries={[automatic({ on: meetingOn('m1', 'Weekly sync') })]} />)
+    const on = cells(0).on
+    expect(before(within(on).getByText(MARK), within(on).getByText('Weekly sync'))).toBe(true)
+    expect(lines(on)).toEqual(['Weekly sync', 'Meeting'])
+  })
+
+  it('says "[From meeting] Not visible to you" for a meeting the viewer cannot read — a deleted one reads as hidden: it is still on a meeting — and never its title', () => {
     const hidden = { ...meetingOn('m1', null, { state: 'none' }, 'hidden'), label: 'Secret board meeting' }
     renderTable([seenByOthers(automatic({ on: hidden }))])
     const on = cells(0).on

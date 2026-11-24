@@ -1,11 +1,13 @@
 /**
  * @vitest-environment jsdom
  *
- * An automatic entry in My hours (specs/20261112-meeting-hours T10; AC-2.1, AC-2.3, AC-2.2 on screen; design F1, S1 "The table grid is
- * not marked"): the entry Operai recorded from a meeting is an ordinary entry of the table view and the List. In the table view
- * its minutes are in the cell, the row, the day and the period like any other, and the grid draws no mark: a cell is a sum, and
- * one cell can hold an automatic entry and a hand-made one on the same meeting and day. The mark is one click in, on the entries
- * of the cell's dialog, and on the rows of the List. Nothing here sums: the figures are the grid's, and the grid is the pure fold.
+ * An automatic entry in My hours (specs/20261112-meeting-hours T10, T16; AC-2.1, AC-2.3 as changed, AC-2.2 on screen; design F1, S1 "The
+ * table grid is not marked"): the entry Operai recorded from a meeting is an ordinary entry of the table view and the List. In the
+ * table view its minutes are in the cell, the row, the day and the period like any other, and the grid draws no mark: a cell is a sum,
+ * and one cell can hold an automatic entry and a hand-made one on the same meeting and day. The mark is one click in, on the entries
+ * of the cell's dialog, and on the rows of the List, and only while the entry is recorded on a meeting: an entry the person moved to
+ * a project (a deal, other work) sits in that row's cell and its dialog shows no mark. Nothing here sums: the figures are the grid's,
+ * and the grid is the pure fold.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -33,6 +35,14 @@ const AUTOMATIC = timeEntryView({ id: 'auto', day: MONDAY, minutes: 60, origin: 
 /** What the person typed on the same meeting and day: half an hour more, the cell holds both. */
 const HAND_MADE = timeEntryView({ id: 'hand', day: MONDAY, minutes: 30, on: SYNC })
 const PROJECT = timeEntryView({ id: 'proj', day: TUESDAY, minutes: 120, on: projectOn('p1', 'Alpenstrom') })
+/** What Operai recorded on the meeting and the person then moved to a project: still `origin: meeting`, now on the project (A47). */
+const MOVED = timeEntryView({
+  id: 'moved',
+  day: MONDAY,
+  minutes: 60,
+  origin: 'meeting',
+  on: projectOn('p1', 'Alpenstrom'),
+})
 
 /** The same entries with no `origin` at all: what the screen drew before the field existed. */
 const withoutOrigin = (entries: readonly TimeEntryView[]) =>
@@ -63,6 +73,7 @@ const renderTable = (grid: TableGrid, onOpenCell = vi.fn()) =>
   )
 
 const meetingRow = (grid: TableGrid): TableGridRow => grid.rows.find((row) => row.key === 'meeting:m1')!
+const projectRow = (grid: TableGrid): TableGridRow => grid.rows.find((row) => row.key === 'project:p1')!
 
 describe('the table view counts an automatic entry and marks nothing (AC-2.1, AC-2.2, design S1)', () => {
   const grid = tableGrid(ENTRIES, DAYS)
@@ -136,6 +147,53 @@ describe('the entries of the cell show the mark, one click in (AC-2.1, AC-2.3, d
     expect(open.getAttribute('aria-label') ?? '').not.toContain(MARK)
     expect(document.getElementById(open.getAttribute('aria-labelledby')!)!.textContent).toBe('Meeting: Weekly sync')
     expect(document.getElementById(open.getAttribute('aria-describedby')!)!.textContent).not.toContain(MARK)
+  })
+})
+
+describe('an entry the person moved off its meeting shows no mark, one click in (AC-2.3, D67, A47)', () => {
+  const grid = tableGrid([AUTOMATIC, MOVED, PROJECT], DAYS)
+
+  /** The dialog a click on the cell of `row` and Monday opens, with what it lists. */
+  const openCell = (row: TableGridRow) =>
+    render(
+      <TableCellDialog
+        row={row}
+        cell={row.cells[MONDAY]!}
+        day={MONDAY}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+  it("sits in its project's cell, counted like any entry: the grid itself has no mark to lose", () => {
+    renderTable(grid)
+    const cells = within(screen.getByTestId('hours-table-row-project:p1')).getAllByRole('cell')
+    expect(cells[DAYS.indexOf(MONDAY)]!.textContent).toBe('1 h')
+    expect(cells[DAYS.indexOf(TUESDAY)]!.textContent).toBe('2 h')
+  })
+
+  it('opens the cell on its project: the moved entry\'s row is the kind badge alone, no "From meeting"', () => {
+    openCell(projectRow(grid))
+    const dialog = within(screen.getByRole('dialog'))
+    const moved = dialog.getByTestId('hours-entry-moved')
+    expect(within(moved).queryByText(MARK)).toBeNull()
+    expect(dialog.queryByText(MARK)).toBeNull()
+    expect(screen.queryByTestId('hours-entry-moved-from-meeting')).toBeNull()
+    // it is still the entry the person moved: its project is named, and Edit and Delete are on it
+    expect(within(moved).getByText('Alpenstrom')).not.toBeNull()
+    expect(within(moved).getByRole('button', { name: /^Edit /i })).not.toBeNull()
+  })
+
+  it("still marks the entry Operai left on the meeting, in the meeting's own cell", () => {
+    openCell(meetingRow(grid))
+    expect(within(within(screen.getByRole('dialog')).getByTestId('hours-entry-auto')).getByText(MARK)).not.toBeNull()
+  })
+
+  it('has no mark on the moved entry in the List either, and one on the entry that is still on its meeting', () => {
+    render(<EntryDayList entries={[AUTOMATIC, MOVED]} dayTotals={new Map([[MONDAY, 120]])} />)
+    expect(within(screen.getByTestId('hours-entry-auto')).getByText(MARK)).not.toBeNull()
+    expect(within(screen.getByTestId('hours-entry-moved')).queryByText(MARK)).toBeNull()
   })
 })
 
