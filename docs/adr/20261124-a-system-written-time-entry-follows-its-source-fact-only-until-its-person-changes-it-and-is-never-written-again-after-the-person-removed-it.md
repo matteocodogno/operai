@@ -138,6 +138,66 @@ not lost.
 - Data residency: compliant with required jurisdiction (both services on EU Railway; no new external host).
 - Audit trail: not required by this ADR. Labour-law go-live sign-off (spec O3) is required before release.
 
+## Amendment — 2026-11-24: the mark follows the entry's target, and the duration risk is corrected
+
+**Decided by:** Owner of the Operai suite (wellD), after the OWASP review of specs/20261112-meeting-hours (ledger D67, D70, D63; review findings I8 and L1). Source: `specs/20261112-meeting-hours/plan.md` § ADR candidates, item 3, and D-P5; spec AC-2.3 (changed), A47, AC-2.7; `specs/20261112-meeting-hours/design.md` (amendment note, S1).
+
+This amendment changes two statements in the Consequences above. It adds no write rule. The Decision, the Options and the Failure shape stand as written.
+
+### (a) The "From meeting" mark follows the entry's current target
+
+The mark is shown exactly while an automatic entry is recorded on a meeting, that is while
+`origin === 'meeting' && on.type === 'meeting'`, where `on` is the entry's **current** target. The rule is computed on
+each read from two fields of the same view, in one predicate that the List, a table cell's entries and Everyone's hours
+all call. A deleted meeting still counts as a meeting (`on.type` stays `meeting`, AC-3.6). Consequently:
+
+- An automatic entry moved to a project, a deal or other work shows no mark. It reads like any typed entry of that kind.
+- An entry moved to another meeting keeps the mark, and so does one moved back onto a meeting.
+- Changing its day, duration or note leaves the mark, as before.
+
+**What is corrected.** The Consequences bullet "The entry's 'From meeting' mark persists after the person changes it (D57)"
+is true only for a change that keeps the entry on a meeting. A move to a project, a deal or other work removes the mark. The
+persistent fact is `origin`, not the mark.
+
+**What does not change.** `origin` is still never recomputed. It stays `meeting` after any change, a move off the meeting
+included, because the delete confirmation's sentence (AC-2.7) and A47 read it. The delete sentence keeps its own rule, `origin`
+alone, so it still shows for a moved entry: deleting it still means Operai will not record it again (D70). The two predicates
+are deliberately different. `TimeEntryView` gains no server-side field for the mark; the client already has both inputs.
+
+**Rejected alternatives:**
+- **The mark on `origin` alone** (the rule of D57 and D62, the previous one). Review I8 found that a read-all holder seeing the
+  mark on a moved entry learned that a person's hours on another target came from a meeting, a fact they could not otherwise
+  read from that entry. The mark now shows only what the entry is recorded on now.
+- **Recomputing `origin` when an entry moves.** It would make the delete sentence (AC-2.7, D70) false for a moved entry and
+  would remove the input A47 reads.
+
+**Implementation status.** The hours-ui code still follows the previous rule (`origin` alone, `EntriesTable.tsx:68` as I8
+describes it) until the hours-ui amendment of the plan lands: one predicate, `showsFromMeetingMark`, in `src/lib/fromMeetingMark.ts`.
+The rule above is the one that code must follow when it does.
+
+### (b) The forged-duration risk: the stated bound was wrong
+
+The Consequences risk that reads "a forged duration is capped by the stored recording chunks and the 24 h entry cap" is **wrong**
+(review L1). It is replaced by the following statement. The original text is not rewritten above.
+
+- The 24 h entry cap is never the binding bound. The held duration is client-reported: each recording chunk ≤ 15 s, and the
+  meeting's total ≤ 3 h 1 min (refused beyond it); an upload's is the container's own claim, ≤ 3 h. So an automatic entry is at
+  most **180 minutes** per person and meeting (A36's rounding of 3 h 1 min).
+- The stored chunks do not bound it. A chunk needs only to be an object of 1 to 8 MiB, and its reported duration is not compared
+  with its bytes.
+- **Once processing reads the audio, the measured duration corrects the held one (D63, AC-3.8 to AC-3.10).** When the measured
+  duration differs from the held one by more than the larger of 30 s and 10 %, the meeting takes the measured duration and an
+  untouched automatic entry follows it. The rule is one pure integer function, `durationAfterMeasure`, applied in
+  `prepare_audio`'s one commit (plan § The measured duration, ADR candidate 4 of the plan, which is to be recorded as its own ADR).
+- **What stays creator-trusted.** The held duration between Stop and the end of processing; a difference within the margin;
+  and audio that cannot be read at all. The review's case (about 722 one-byte chunks each reported at 15 s) fails processing as
+  `audio_unreadable`, and its held duration and the entries built on it stay (D69, AC-3.10). An entry changed by its person is
+  theirs and is not touched by a correction.
+- **`startsAt` is a second creator-controlled input that the original risk omitted.** It is set at create or by PATCH, to any
+  instant, and decides the day of every participant's entry. It is bounded by the release day and today (AC-1.5, A37) and is not
+  checked against the audio or anything else (a non-goal of the spec).
+- Each person can still delete their own entry, and a deleted automatic entry is never recorded again (AC-2.5).
+
 ---
 
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*
