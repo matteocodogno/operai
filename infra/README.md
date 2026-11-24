@@ -3674,7 +3674,7 @@ the data: an entry the widget saves is the entry My hours saves.
 ## Meeting hours release (specs/20261112-meeting-hours, ADR 20261124-meeting-hours-facts-pushed-by-their-owner-as-a-versioned-state-built-at-send-time-through-an-until-delivered-outbox-and-applied-by-hours-api-only-when-not-older, ADR 20261124-a-system-written-time-entry-follows-its-source-fact-only-until-its-person-changes-it-and-is-never-written-again-after-the-person-removed-it; plan § Deploy order, § Release backfill, R1, R3)
 
 A meeting's hours are recorded **automatically** for its creator and its Operai participants once its duration is known: an
-*automatic entry* in My hours, marked "From meeting" ("Da riunione"). `meetings-api` owns the facts (when the meeting started, how
+*automatic entry* in My hours, marked "From meeting" ("Da riunione") while it is recorded on a meeting. `meetings-api` owns the facts (when the meeting started, how
 long it lasted, who created it, which Operai users took part) and tells `hours-api`, which records the entries. This release adds no
 service, no database and no secret.
 
@@ -3682,8 +3682,8 @@ service, no database and no secret.
 |---|---|---|
 | `auth` | Railway | the service scope `meeting-hours-notices.send` becomes known (code only); the `meetings-api` entry of production `SERVICE_CLIENTS` gains it (step 2) |
 | `hours-api` | Railway | migration `…_meeting_hours` (three columns and two CHECKs on `time_entry`, one partial unique index, three small tables, and the **release day**: `meeting_hours_release.since`, stamped with the Zurich date the migration runs) and the route `POST /system/meeting-hours/v1/notices`. No new variable: its `SERVICE_AUDIENCE` now also verifies a service JWT |
-| `meetings-api` | Railway | migration `20261124100000_hours_notice` (the outbox `hours_notice`, `Meeting.hoursSeq`, the job kind `deliver_hours_notice` and the **backfill**), the delivery job, and the new variable **`HOURS_API_URL`** |
-| `hours-ui` | Vercel | the "From meeting" badge and a sentence in the delete confirmation (code only) |
+| `meetings-api` | Railway | migration `20261124100000_hours_notice` (the outbox `hours_notice`, `Meeting.hoursSeq`, the job kind `deliver_hours_notice` and the **backfill**), the delivery job, the new variable **`HOURS_API_URL`**, and `prepare_audio`'s **measured duration** (code only; its one log line is R9's signal, § The measured duration) |
+| `hours-ui` | Vercel | the "From meeting" badge, shown only while the entry is recorded on a meeting, and a sentence in the delete confirmation (code only) |
 
 `crm-api`, `projects-api`, `activities-api`, `notify-api` and the shell do not change. The route is hours-api's first that takes a service
 credential: `sub` `system:meetings-api` only, `aud` = `SERVICE_AUDIENCE`, scope `meeting-hours-notices.send`, one identical 401 for
@@ -3807,6 +3807,51 @@ No rows: nothing is late. Otherwise read `state` and `code` (a closed vocabulary
 
 A `pending` row is delivered by itself once the cause is gone, nothing is lost or recorded twice (hours-api keeps only the newest version of
 a meeting and one automatic entry per person and meeting). Delete or edit no row by hand.
+
+### The measured duration, and R9's signal (plan § The measured duration, § Risks R9, D-P10; ADR 20261124-a-duration-a-client-reports-is-replaced-by-the-one-the-server-measures-when-they-differ-by-more-than-the-larger-of-30-seconds-and-10-percent)
+
+Every automatic entry rests on the meeting's duration, which a recording's browser reports (the sum of the pieces it stored) and an upload's
+container claims. `meetings-api`'s `prepare_audio` now measures the decoded audio and, in the one commit that stores it, replaces the held
+duration when the two differ by more than the larger of 30 seconds and 10 % of the held duration, shorter or longer
+(`src/media/measuredDuration.ts`; the meeting is still `processing`, so an open Meetings page shows the measured figure on its next poll).
+Within the margin the held duration stays, even across a 30-minute step. A correction goes out as an ordinary hours notice: an untouched
+entry follows it, an entry its person changed does not. It adds no step, variable, scope or migration and needs no deploy order (it is
+`meetings-api`'s alone, and any `hours-api` of this release applies a corrected duration like any other change); nothing in the app shows it.
+
+The one trace is a log line, written once after the commit and only when a **held duration was replaced** (not when a missing one was
+filled, not when the held one stood):
+
+```
+[prepare_audio] duration_corrected { meetingId: "<id>", heldMs: <integer>, measuredMs: <integer> }
+```
+
+It carries the meeting id and two integers, never a user id, a title or any content. The overwritten held figure survives only in this line,
+for as long as the platform keeps the log. It is R9's signal: whether the margin corrects **honest** recordings (a systematic gap between the
+pieces a browser reports and the decoded audio, an interrupted and resumed session, a codec's padding), which would resize entries silently.
+
+- **Before the merge (R9's early check).** In development, with the real recorder, record 2 minutes, 15 minutes and one interrupted and resumed
+  session, and upload a 10-minute m4a and a 10-minute webm. Expect **no** `duration_corrected` line from any of them. A line means an honest
+  recording is being corrected: stop and tell the owner before releasing.
+- **After the release.** Count the lines and set them against the meetings processed in the same window (read only, a count and nothing else):
+
+```bash
+railway logs --service meetings-api --since 7d | grep -c 'duration_corrected'
+railway logs --service meetings-api --since 7d | grep 'duration_corrected'    # which meetings and by how much, ids and integers only
+```
+
+```sql
+-- on the meetings database: meetings whose audio was prepared in the same 7 days (what the log count is a share of)
+SELECT count(*) FROM meeting WHERE "audioCreatedAt" >= (now() AT TIME ZONE 'UTC') - interval '7 days';
+```
+
+If the CLI has no `--since`, or the platform keeps less than 7 days, use the dashboard log view and the window it keeps, in both commands.
+
+How to read it: a few lines far apart (a claim of 3 hours measured at 10 minutes) are the rule doing its job. A steady share of ordinary recordings,
+each off by a little more than the margin, is R9: raise the margin (two constants in one pure function, `MEASURE_MARGIN_FLOOR_MS` and
+`MEASURE_MARGIN_DIVISOR`, a one-line change decided with the owner, A42). There is no operator switch for it, and the pause below does not stop
+it: the correction is a Meetings fact written whether or not the hours channel is on, and only its notice depends on the channel. A duration
+already replaced is not put back (the held figure exists only in the log line); each person can still change or delete their own entry.
+Meetings processed before this release are never measured again (R11): the backfill sends their held duration.
 
 ### Rollback by step
 
