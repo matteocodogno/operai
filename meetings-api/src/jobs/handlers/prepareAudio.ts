@@ -37,6 +37,7 @@ import { withFfmpegSlot } from "../../media/ffmpegSlot";
 import { MAX_NORMALIZED_MS, NormalizeError, groupIntoRuns, normalizeAudio, ToolMissingError } from "../../media/normalize";
 import { MAX_AUDIO_MS, pinnedDemuxer, probeMedia, type ProbeVerdict } from "../../media/probe";
 import { announce as defaultAnnounce, type NotifyEvent } from "../../lib/notify";
+import { readHoursFacts, recordHoursNotice } from "../../hours/record";
 import { PermanentJobError, TransientJobError, enqueueJob, type JobContext, type JobHandler } from "../runner";
 import { announceProcessing } from "./processingNotice";
 
@@ -179,11 +180,14 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
 
     const before = await db.meeting.findUnique({ where: { id: meetingId }, select: { id: true, title: true, processingRequestedBy: true, creatorUserId: true } });
     const result = await ctx.commit(async (tx) => {
+      const hoursBefore = await readHoursFacts(tx, meetingId);
       const flipped = await tx.meeting.updateMany({
         where: { id: meetingId, status: "processing", audioKey: null },
         data: { status: "draft", stage: null, failureCode: "too_long", processingStartedAt: null, processingRequestedBy: null, processedAt: null, durationMs: null },
       });
       if (flipped.count === 0) return false;
+      // A duration announced at confirm is taken back: hours-api must remove the entries it made from it (AC-1.3).
+      await recordHoursNotice(tx, meetingId, { before: hoursBefore }, now());
       await source.cleanupRows();
       return true;
     });
@@ -248,6 +252,7 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
       const { sizeBytes } = await storage.putAudioFile(meetingId, output);
       const stamp = now();
       const committed = await ctx.commit(async (tx) => {
+        const hoursBefore = await readHoursFacts(tx, meetingId);
         const updated = await tx.meeting.updateMany({
           where: { id: meetingId, status: "processing", audioKey: null },
           data: {
@@ -258,6 +263,8 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
           },
         });
         if (updated.count === 0) return false;
+        // Only when this step wrote the duration (it was null) does a hours fact differ, and only then is a notice recorded.
+        await recordHoursNotice(tx, meetingId, { before: hoursBefore }, stamp);
         await enqueueJob(tx, { kind: "transcribe", meetingId });
         return true;
       });
