@@ -1,0 +1,246 @@
+{
+ "schema": "wellforge-run/v3",
+ "plugin_version": "2.61.0",
+ "run_id": "2026-11-24T09-15-00Z-orchestrate-20261112-meeting-hours",
+ "command": "orchestrate",
+ "feature": "20261112-meeting-hours",
+ "rigor": "production",
+ "rigor_recorded": null,
+ "started": "2026-11-24T09:15:00Z",
+ "finished": "2026-11-24T14:52:16Z",
+ "reconstructed": true,
+ "reconstruction_note": "Written by the orchestrator at the end of the run from git history (831bf3fb..HEAD on feat/meeting-hours), decisions.md and agent hand-back reports; the session was compacted once, so 'started' is approximate and per-agent timestamps are not recorded.",
+ "agents": [
+  {
+   "agent": "backend-dev",
+   "tasks": [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7",
+    "T8",
+    "T9"
+   ],
+   "outcome": "completed",
+   "commits": [
+    "fe4ad008"
+   ],
+   "note": "original scope, dispatched in dependency batches; decisions in decisions.md T1-T9"
+  },
+  {
+   "agent": "frontend-dev",
+   "tasks": [
+    "T10"
+   ],
+   "outcome": "completed"
+  },
+  {
+   "agent": "devops",
+   "tasks": [
+    "T12"
+   ],
+   "outcome": "completed"
+  },
+  {
+   "agent": "quality-engineer",
+   "tasks": [
+    "T11"
+   ],
+   "outcome": "completed",
+   "commits": [
+    "09153e52"
+   ],
+   "note": "e2e meeting-hours.spec.ts"
+  },
+  {
+   "agent": "owasp-reviewer",
+   "tasks": [
+    "T13"
+   ],
+   "outcome": "PASS",
+   "note": "0 critical/high/medium; L1 low; I1-I8 info"
+  },
+  {
+   "agent": "product-owner",
+   "outcome": "completed",
+   "note": "spec amended with the five owner-added hardenings (25 -> 34 ACs, D63-D73), eb300a81"
+  },
+  {
+   "agent": "designer",
+   "outcome": "completed",
+   "note": "design for changed AC-2.3 and the measured duration, e5c17f66"
+  },
+  {
+   "agent": "architect",
+   "outcome": "completed",
+   "note": "plan amended for the additions, 4ff769b9"
+  },
+  {
+   "agent": "product-owner",
+   "outcome": "completed",
+   "note": "owner withdrew I1, I3, I6 (34 -> 28 ACs, D74-D76), 20defd53"
+  },
+  {
+   "agent": "architect",
+   "outcome": "completed",
+   "note": "plan pruned of the withdrawn items, 20defd53; gate 2 re-approved 64ad1fce"
+  },
+  {
+   "agent": "adr-writer",
+   "outcome": "completed",
+   "note": "amendment of ADR 20261124-a-system-written-time-entry-... (mark rule, duration risk), b787021d"
+  },
+  {
+   "agent": "adr-writer",
+   "outcome": "completed",
+   "note": "new ADR 20261124-a-duration-a-client-reports-is-replaced-..., ef89ef43"
+  },
+  {
+   "agent": "backend-dev",
+   "tasks": [
+    "T15"
+   ],
+   "outcome": "completed",
+   "commits": [
+    "4bcddbed"
+   ],
+   "worktree": "worktree-agent-a85e06a46b7ef3cb8"
+  },
+  {
+   "agent": "frontend-dev",
+   "tasks": [
+    "T16"
+   ],
+   "outcome": "completed",
+   "commits": [
+    "33822e97"
+   ],
+   "worktree": "worktree-agent-a1a39618f8742b991"
+  },
+  {
+   "agent": "devops",
+   "tasks": [
+    "T17"
+   ],
+   "outcome": "completed",
+   "commits": [
+    "117f61bf"
+   ]
+  },
+  {
+   "agent": "owasp-reviewer",
+   "tasks": [
+    "T18"
+   ],
+   "outcome": "PASS",
+   "note": "delta review, 0 critical/high/medium/low, 3 info (N1-N3), 6e5f6714"
+  },
+  {
+   "agent": "quality-engineer",
+   "outcome": "BLOCKED",
+   "commits": [
+    "c3c963b3",
+    "d04d80ad"
+   ],
+   "note": "all gates and 28/28 ACs green; AC-3.8/3.9 e2e blocked on the dev stack (EF-1)"
+  },
+  {
+   "agent": "quality-engineer",
+   "outcome": "PASS",
+   "commits": [
+    "d214f614"
+   ],
+   "note": "blocked row re-run after the owner restarted the stack: 5/5"
+  },
+  {
+   "agent": "evaluator",
+   "outcome": "PASS",
+   "score": 80.0,
+   "note": "rubric default-v2; zero margin; trajectory scored at floor 2 because this trace did not exist yet"
+  }
+ ],
+ "drift_events": [
+  {
+   "agent": "owasp-reviewer",
+   "artifact": "spec.md",
+   "summary": "owner chose to add five optional hardenings (L1, I1, I3, I6, I8) to this spec after the OWASP PASS; gate 1 re-opened, 25 -> 34 ACs",
+   "resolved": true
+  },
+  {
+   "agent": "designer",
+   "artifact": "plan.md",
+   "summary": "plan still carried the old mark rule in four places; G7 requires the measured duration before the meeting leaves processing",
+   "resolved": true
+  },
+  {
+   "agent": "architect",
+   "artifact": "spec.md",
+   "summary": "A45 effect understated (a refused notice costs every participant), A46 unmeetable on dev, stale non-goal and header D-range",
+   "resolved": true
+  },
+  {
+   "agent": "orchestrator",
+   "artifact": "spec.md",
+   "summary": "owner withdrew I1, I3, I6 (D74-D76), 34 -> 28 ACs; plan, design, glossary pruned",
+   "resolved": true
+  }
+ ],
+ "collision_events": [],
+ "env_faults": [
+  {
+   "agent": "orchestrator",
+   "class": "baseline",
+   "detail": "tools/env-doctor push.test.ts red on main (stale after push go-live)",
+   "resolved_by": "fixed on its own branch fix/env-doctor-push-test (e542e562), rebased in"
+  },
+  {
+   "agent": "orchestrator",
+   "class": "runtimes",
+   "detail": "main-tree Prisma generated client stale after a worktree schema change (hours-api, meetings-api)",
+   "resolved_by": "bun run db:generate in each"
+  },
+  {
+   "agent": "orchestrator",
+   "class": "secret env",
+   "detail": "live channel answered unauthorized: auth's SERVICE_CLIENTS lacked meeting-hours-notices.send under direnv/1Password",
+   "resolved_by": "owner added the scope and restarted; queued jobs re-run, 16 delivered"
+  },
+  {
+   "agent": "quality-engineer",
+   "class": "app start",
+   "detail": "EF-1: dev meetings-api under bun --hot held four job-runner LISTEN connections (one per hot reload); stale runners claimed prepare_audio jobs with old code",
+   "resolved_by": "owner restarted mise run dev; one runner; measured spec 5/5"
+  },
+  {
+   "agent": "orchestrator",
+   "class": "databases",
+   "detail": "scratch test databases (hours_t2_test, hours_t3_test, meetings_t8_test, hours_probe_scratch, hours_owasp_review_test, meetings_owasp_review_test, meetings_t15_test, hours_t15_test) could not be dropped: the wellforge guard requires destructive SQL to be run by a person",
+   "resolved_by": "left for the owner"
+  }
+ ],
+ "verdicts": {
+  "qe": "PASS",
+  "security": "PASS",
+  "eval": "PASS"
+ },
+ "security": {
+  "matched_rules": [
+   "always_at_tier:production",
+   "**/handlers/**"
+  ],
+  "dispatched": true,
+  "notes": [
+   "N1 info: L1 residual within the 180-minute bound",
+   "N2 info: crafted container timestamps vs measured duration not verified",
+   "N3 info: origin stays on the JSON for a moved entry (UI hides it)"
+  ]
+ },
+ "result": "completed",
+ "tokens": null,
+ "cost_usd": null,
+ "terse": false,
+ "control_run_id": null
+}
