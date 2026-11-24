@@ -131,6 +131,11 @@ const en = {
   delete: {
     title: 'Delete this entry?',
     body: (duration: string, on: string, date: string) => `${duration} on ${on}, ${date}. This can't be undone.`,
+    /**
+     * A second paragraph for an entry Operai recorded from a meeting (specs/20261112-meeting-hours AC-2.7, D61): deleting it
+     * is final in a way the first sentence does not say. An entry typed by hand has none.
+     */
+    automaticNote: "Operai won't record it again from its meeting. You can still record hours yourself.",
     on: {
       project: { hidden: 'a project that is not visible to you', unavailable: 'a project whose name is unavailable' },
       deal: { hidden: 'a deal that is not visible to you', unavailable: 'a deal whose name is unavailable' },
@@ -321,6 +326,7 @@ const it: typeof en = {
     title: 'Eliminare questa registrazione?',
     body: (duration: string, on: string, date: string) =>
       `${duration} su ${on}, ${date}. L'azione non si può annullare.`,
+    automaticNote: 'Operai non la registrerà di nuovo dalla riunione. Puoi comunque registrare le ore tu.',
     on: {
       project: { hidden: 'un progetto non visibile a te', unavailable: 'un progetto il cui nome non è disponibile' },
       deal: {

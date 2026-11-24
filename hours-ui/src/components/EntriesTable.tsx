@@ -1,4 +1,4 @@
-import { DataTable, VisuallyHidden, cx, formatDate, formatDuration, listRowMetaClassName } from '@operai/ui'
+import { Badge, DataTable, VisuallyHidden, cx, formatDate, formatDuration, listRowMetaClassName } from '@operai/ui'
 import type { DataTableColumn } from '@operai/ui'
 import type { TimeEntryView } from '../lib/hoursApi.types'
 import { activityLine, countsForDealLine, rowName } from '../lib/names'
@@ -57,23 +57,38 @@ function Pieces({ pieces }: { pieces: (string | null)[] }) {
 /**
  * The "On" cell (design S4): the name — a link only for one the viewer may read (AC-4.10) — then the kind
  * and the work type or category, then, for a meeting, the deal its hours count for (AC-2.6). The kind is
- * always said, so a row whose name is withheld still says what sort of work it was.
+ * always said, so a row whose name is withheld still says what sort of work it was. An entry Operai recorded from a meeting
+ * (`origin: meeting`, specs/20261112-meeting-hours AC-2.3, D-P5; design S2) carries the "From meeting" badge on the name
+ * line, before the name and outside every `<p>` of the cell, so the lines a reader (or a test) takes from it are the same;
+ * every other entry, and one from an hours-api that sends no `origin`, draws the cell it always did.
  */
 function On({ entry }: { entry: TimeEntryView }) {
   const name = rowName(entry.on)
   const countsFor = countsForDealLine(entry.on)
+  const automatic = entry.origin === 'meeting'
+  const nameLine = name !== null && (
+    // Beside the badge the name is a flex item: `min-w-0` lets one of 200 characters with no break shrink to the cell and wrap.
+    <p className={cx('text-sm break-words', automatic && 'min-w-0')}>
+      {name.href !== null ? (
+        <a href={name.href} className="link">
+          {name.text}
+        </a>
+      ) : (
+        name.text
+      )}
+    </p>
+  )
   return (
     <div className="flex min-w-36 flex-col gap-1">
-      {name !== null && (
-        <p className="text-sm break-words">
-          {name.href !== null ? (
-            <a href={name.href} className="link">
-              {name.text}
-            </a>
-          ) : (
-            name.text
-          )}
-        </p>
+      {automatic ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Badge tone="accent" data-testid={`hours-entry-${entry.id}-from-meeting`}>
+            {strings.entries.fromMeeting}
+          </Badge>
+          {nameLine}
+        </div>
+      ) : (
+        nameLine
       )}
       <Pieces pieces={[strings.entries.type[entry.on.type], detailName(entry)]} />
       {countsFor !== null && <p className={cx(listRowMetaClassName, 'break-words')}>{countsFor}</p>}

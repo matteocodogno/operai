@@ -76,11 +76,17 @@ function MetaLine({ pieces }: { pieces: (string | null)[] }) {
  * (AC-4.10) — the duration, the work type or category, the activity, the deal a meeting's hours count for (AC-2.6)
  * and the note. Edit and Delete, when the page gives handlers, name the entry in their labels so a screen reader can
  * tell the buttons of one day apart. It sums nothing and compares nothing (D23).
+ *
+ * An entry Operai recorded from a meeting (`origin: meeting`, specs/20261112-meeting-hours T10; AC-2.3; design S1) carries a
+ * "From meeting" badge right after the kind badge and before the name, and keeps it after the person changes the entry, moves
+ * it to other work or loses sight of the meeting (the name is then the placeholder, never the title, AC-4.1). Any other
+ * `origin`, a missing one included, draws the row as it always was.
  */
 export default function EntryRow({ entry, onEdit, onDelete, autoFocusEdit = false }: EntryRowProps) {
   const name = rowName(entry.on)
   const meeting = countsForDealLine(entry.on)
   const duration = minutesIn(entry.minutes, 'short')
+  const kind = <Badge>{strings.entries.type[entry.on.type]}</Badge>
   const label = (describe: typeof strings.entries.editEntry) =>
     describe(duration, onPhrase(entry.on), formatDate(entry.day))
 
@@ -88,7 +94,18 @@ export default function EntryRow({ entry, onEdit, onDelete, autoFocusEdit = fals
     <div className={cx(listRowClassName, 'is-interactive flex-wrap')} data-testid={`hours-entry-${entry.id}`}>
       <div className="flex min-w-0 flex-1 basis-60 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <Badge>{strings.entries.type[entry.on.type]}</Badge>
+          {entry.origin === 'meeting' ? (
+            // The kind and the mark are one cluster, so the mark reads as a qualifier of the kind and the name keeps the row's
+            // usual gap after both. A row that is not automatic draws the kind badge alone, as it always did (design S1).
+            <span className="inline-flex flex-wrap items-center gap-1.5">
+              {kind}
+              <Badge tone="accent" data-testid={`hours-entry-${entry.id}-from-meeting`}>
+                {strings.entries.fromMeeting}
+              </Badge>
+            </span>
+          ) : (
+            kind
+          )}
           {/* The name is written by the record's owner (up to 200 characters, no break in it): `min-w-0` lets this flex item shrink
               to the row and `break-words` wrap it there, in the List's card and in the Week's cell dialog alike (QE pass 4 D1). */}
           {name !== null &&

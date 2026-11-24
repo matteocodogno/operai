@@ -4,13 +4,22 @@
  * EntriesTable — the flat, read-only table of Everyone's hours (specs/20261112-time-tracking T29; AC-1.6, AC-4.3,
  * AC-4.7, AC-4.8, AC-4.9, AC-4.10, AC-2.6, AC-3.8; design S4 "Entries card"). Columns Day, Person, On,
  * Details and Time, in the server's order and never re-sorted, with the words for a name the viewer may not
- * read or that did not come, and nothing to write with: no Edit, no Delete, no row action of any kind.
+ * read or that did not come, and nothing to write with: no Edit, no Delete, no row action of any kind. The last
+ * block is the "From meeting" mark of an automatic entry (specs/20261112-meeting-hours T10; AC-2.3, D-P5; design S2).
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { strings } from '../strings'
 import type { TimeEntryView } from '../lib/hoursApi.types'
-import { meetingOn, otherWorkOn, projectOn, timeEntryView, withIds } from '../test-support/fakeApi'
+import {
+  dealOn,
+  meetingOn,
+  otherWorkOn,
+  projectOn,
+  seenByOthers,
+  timeEntryView,
+  withIds,
+} from '../test-support/fakeApi'
 import {
   ADA_DEAL,
   ADA_PROJECT,
@@ -251,5 +260,119 @@ describe('Details: the activity and the note', () => {
   it('a note long enough to need it breaks inside the cell rather than widening the table', () => {
     renderTable([timeEntryView({ note: 'x'.repeat(1000) })])
     expect(within(cells(0).details).getByText('x'.repeat(1000)).className).toContain('wrap-anywhere')
+  })
+})
+
+describe('the "From meeting" mark of an automatic entry (specs/20261112-meeting-hours AC-2.3, D-P5; design S2)', () => {
+  const MARK = 'From meeting'
+
+  /** An entry Operai recorded for Ada on a meeting, as a holder sees it. */
+  const automatic = (overrides: Parameters<typeof timeEntryView>[0] = {}) =>
+    timeEntryView({ id: 'e-auto', origin: 'meeting', on: meetingOn('m1', 'Weekly sync'), ...overrides })
+
+  /** The same entry typed by hand: what the cell drew before the mark existed. */
+  const handMade = (overrides: Parameters<typeof timeEntryView>[0] = {}) =>
+    timeEntryView({ id: 'e-hand', on: meetingOn('m1', 'Weekly sync'), ...overrides })
+
+  const before = (first: Node, second: Node) =>
+    Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+  it('marks the On cell of an entry whose origin is meeting, before the name: "[From meeting] Weekly sync"', () => {
+    renderTable([automatic()])
+    const on = cells(0).on
+    const mark = within(on).getByText(MARK)
+    expect(before(mark, within(on).getByText('Weekly sync'))).toBe(true)
+  })
+
+  it('keeps the badge outside every <p> of the cell: the lines it holds are the lines it held without the mark', () => {
+    renderTable([automatic()])
+    const on = cells(0).on
+    expect(within(on).getByText(MARK).closest('p')).toBeNull()
+    expect(lines(on)).toEqual(['Weekly sync', 'Meeting'])
+    cleanup()
+
+    renderTable([handMade()])
+    expect(lines(cells(0).on)).toEqual(['Weekly sync', 'Meeting'])
+  })
+
+  it('keeps the lines of a meeting linked to a deal as they were: the mark adds none', () => {
+    const deal = {
+      state: 'linked',
+      visibility: 'visible',
+      id: 'd1',
+      label: 'Acme renewal',
+      href: '/crm/deals/d1',
+    } as const
+    renderTable([automatic({ on: meetingOn('m1', 'Kick-off call', deal) })])
+    expect(lines(cells(0).on)).toEqual(['Kick-off call', 'Meeting', 'Counts for deal Acme renewal'])
+  })
+
+  it('stays on an entry the person moved to a project, a deal or other work (the mark is where it came from)', () => {
+    renderTable([
+      automatic({ id: 'to-project', on: projectOn('p1', 'Project Alpha') }),
+      automatic({ id: 'to-deal', on: dealOn('d1', 'Brera') }),
+      automatic({ id: 'to-other', on: otherWorkOn('Training', 'c-training') }),
+    ])
+    for (const index of [0, 1, 2]) expect(within(cells(index).on).getByText(MARK), `row ${index}`).not.toBeNull()
+    expect(lines(cells(0).on)).toEqual(['Project Alpha', 'Project'])
+    expect(lines(cells(1).on)).toEqual(['Brera', 'Deal'])
+  })
+
+  it('marks an entry on other work, which has no name, and keeps its one line: the kind and the category', () => {
+    renderTable([automatic({ on: otherWorkOn('Training', 'c-training') })])
+    expect(within(cells(0).on).getByText(MARK)).not.toBeNull()
+    expect(lines(cells(0).on)).toEqual(['Other work · Training'])
+  })
+
+  it('says "[From meeting] Not visible to you" for a meeting the viewer cannot read, and never its title', () => {
+    const hidden = { ...meetingOn('m1', null, { state: 'none' }, 'hidden'), label: 'Secret board meeting' }
+    renderTable([seenByOthers(automatic({ on: hidden }))])
+    const on = cells(0).on
+    expect(before(within(on).getByText(MARK), within(on).getByText(n.hidden))).toBe(true)
+    expect(on.textContent).not.toContain('Secret board meeting')
+    expect(lines(on)).toEqual([n.hidden, 'Meeting'])
+  })
+
+  it('is in the On column only: no other cell, no new column, and the same five headers', () => {
+    renderTable([automatic({ note: 'Prepared the agenda' })])
+    const { day, person, details, time } = cells(0)
+    for (const cell of [day, person, details, time]) expect(cell.textContent).not.toContain(MARK)
+    expect(
+      within(table())
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual(['Day', 'Person', 'On', 'Details', 'Time'])
+  })
+
+  it.each([
+    ['person', 'person' as const],
+    ['no origin (an hours-api that does not send it)', undefined],
+  ])('draws no mark, and the cell it always drew, when the origin is %s', (_label, origin) => {
+    renderTable([handMade(origin ? { origin } : {})])
+    const on = cells(0).on
+    expect(on.textContent).not.toContain(MARK)
+    // the cell is the column of lines it was: the name line is its first child, with no wrapper around it
+    expect(on.firstElementChild?.firstElementChild?.tagName).toBe('P')
+    expect(lines(on)).toEqual(['Weekly sync', 'Meeting'])
+  })
+
+  it('draws the same cell for person and for no origin', () => {
+    renderTable([handMade({ origin: 'person' })])
+    const html = cells(0).on.innerHTML
+    cleanup()
+    renderTable([handMade()])
+    expect(cells(0).on.innerHTML).toBe(html)
+  })
+
+  it('marks one row of the table and not its neighbour', () => {
+    renderTable([automatic({ id: 'auto' }), handMade()])
+    expect(cells(0).on.textContent).toContain(MARK)
+    expect(cells(1).on.textContent).not.toContain(MARK)
+  })
+
+  it('stays read-only with an automatic entry in it: no Edit, no Delete, no button (AC-1.6)', () => {
+    renderTable([automatic()])
+    expect(within(table()).queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryByText(strings.entries.edit)).toBeNull()
   })
 })

@@ -36,6 +36,11 @@ const en = {
     meeting: 'Meeting',
     none: 'Other work',
   },
+  /**
+   * The mark on an entry Operai recorded from a meeting (specs/20261112-meeting-hours AC-2.3; design S1, S2): a badge before
+   * the name, kept after the person changes the entry. Italian says "riunione" as the kind badge of the same row does.
+   */
+  fromMeeting: 'From meeting',
   /** How an entry is named in the Edit and Delete buttons when the viewer cannot read its name. */
   onPhrase: {
     project: { hidden: 'a project not visible to you', unavailable: 'a project whose name is unavailable' },
@@ -100,6 +105,7 @@ const it: typeof en = {
     meeting: 'Riunione',
     none: 'Altro lavoro',
   },
+  fromMeeting: 'Da riunione',
   onPhrase: {
     project: { hidden: 'un progetto non visibile a te', unavailable: 'un progetto il cui nome non è disponibile' },
     deal: {

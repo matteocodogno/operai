@@ -32,7 +32,9 @@ const named = (on: EntryOn): string => {
  * AC-1.5). A `ConfirmDialog tone="danger"`: focus on Cancel, "<duration> on <name>, <date>. This can't be
  * undone.", Confirm busy and the dialog locked while the request runs, and a failure shown inline with the
  * dialog open so Delete can be pressed again. Deleting needs no bookability check (plan), so it works for an
- * entry on a project the person has left or cannot read.
+ * entry on a project the person has left or cannot read. For an entry Operai recorded from a meeting (`origin: meeting`) the
+ * body has a second paragraph saying it will not be recorded again from its meeting (specs/20261112-meeting-hours AC-2.7, D61;
+ * design S4); the confirmation of any other entry is unchanged.
  */
 export default function DeleteEntryDialog({ entry, onConfirm, onCancel }: DeleteEntryDialogProps) {
   const t = strings.entry.delete
@@ -82,6 +84,9 @@ export default function DeleteEntryDialog({ entry, onConfirm, onCancel }: Delete
       {/* The sentence names the record (up to 200 characters with no break in it): it wraps inside the dialog (QE pass 4 D1). */}
       <div ref={body} className="break-words">
         {t.body(formatDuration(entry.minutes * 60_000, { style: 'short' }), named(entry.on), formatDate(entry.day))}
+        {/* An entry Operai recorded from a meeting is not recorded again once deleted (AC-2.5), which the sentence above does not
+            say: a second paragraph, only for `origin: meeting`. A hand-made entry, or one with no `origin`, is confirmed as before. */}
+        {entry.origin === 'meeting' && <p className="mt-2">{t.automaticNote}</p>}
       </div>
     </ConfirmDialog>
   )
