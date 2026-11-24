@@ -11,6 +11,10 @@
  *
  * `DELETE` and a `PATCH` that keeps the entry's target ask no owner at all (AC-2.4, AC-2.12, D46): an author who
  * left a project can still correct or delete what they recorded.
+ *
+ * An AUTOMATIC entry (specs/20261112-meeting-hours) is the person's own entry that Operai wrote from a meeting's facts
+ * (`src/meetingHours/apply.ts`), and these two handlers are the person's only writes to it: a successful `PATCH` stops
+ * it following its meeting, a `DELETE` also blocks it from coming back, in the same transaction (AC-2.4, AC-2.5).
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -115,7 +119,8 @@ const updateEntryRoute = createRoute({
   description:
     "At least one member; one that is not sent keeps what is stored, and `on` is replaced whole. Whether the caller may book on the target is " +
     "asked only when `on` names a target other than the stored one. An `activityId` is asked of activities-api only when it is new or carried " +
-    "to another target (`null` and an unchanged one never are). `note_required` is checked when a note is sent or the entry is moved.",
+    "to another target (`null` and an unchanged one never are). `note_required` is checked when a note is sent or the entry is moved. " +
+    "A 200 on an automatic entry (`origin: \"meeting\"`) also means it no longer follows its meeting; its `origin` stays.",
   request: {
     params: IdParams,
     body: { content: { "application/json": { schema: UpdateEntrySchema } }, required: true },
@@ -133,6 +138,7 @@ const deleteEntryRoute = createRoute({
   path: "/time-entries/{id}",
   tags: ["Entries"],
   summary: "Delete one of your own entries, of any age (any session)",
+  description: "Deleting an automatic entry (`origin: \"meeting\"`) also keeps Operai from recording it again for the caller on that meeting.",
   request: { params: IdParams },
   responses: {
     204: { description: "Deleted" },
@@ -358,6 +364,12 @@ entriesRouter.openapi(updateEntryRoute, async (c) => {
         ...(body.workTypeId !== undefined ? { workTypeId: body.workTypeId } : {}),
         ...(body.activityId !== undefined ? { activityId: body.activityId } : {}),
         ...(body.note !== undefined ? { note: storedNote(body.note) } : {}),
+        // A saved change is the person's own: an automatic entry no longer follows its meeting (specs/20261112-meeting-hours
+        // AC-2.4, A39). In THIS statement, not a second one: the CHECK `time_entry_follows_shape` allows a following entry
+        // only on its meeting and with no note, so a change of target or note could not be saved first. Nothing above
+        // reaches here once a rule refused the write, so a refused PATCH leaves the entry following (AC-2.4). `origin`
+        // is never written: the mark stays (AC-2.3). Already false for an entry the person typed.
+        followsMeeting: false,
       },
       include: ENTRY_INCLUDE,
     })
@@ -374,8 +386,25 @@ entriesRouter.openapi(deleteEntryRoute, async (c) => {
   // Scoped to the caller in the statement itself, so no other person's entry can be deleted by a race or a
   // forgotten check; deleting needs no bookability (AC-2.4): an author who left a project can still remove it.
   const userId = c.get("userId");
-  const { count } = await db.timeEntry.deleteMany({ where: { id, userId } });
-  if (count === 0) {
+  const deleted = await db.$transaction(async (tx) => {
+    const gone = await tx.timeEntry.delete({ where: { id, userId }, select: { sourceMeetingId: true } }).catch((error: unknown) => {
+      // No entry of the caller's has this id (not theirs, never there, or removed in another tab): nothing was deleted.
+      if ((error as { code?: unknown } | null)?.code === "P2025") return null;
+      throw error;
+    });
+    if (gone === null) return false;
+    // An automatic entry the person removes is never recorded again for them on its meeting (specs/20261112-meeting-hours
+    // AC-2.5): the block commits WITH the delete, so the committed state always holds the entry or the block, never
+    // neither. (This handler takes no lock of apply()'s: apply() must read a meeting's entries BEFORE its blocks, so that
+    // a delete committing between the two reads is seen as the entry, not as neither.) Untouched or changed alike:
+    // `sourceMeetingId` is set exactly for an automatic entry (CHECK time_entry_origin_shape) and survives its person's
+    // moving it elsewhere. A block that is already there is kept.
+    if (gone.sourceMeetingId !== null) {
+      await tx.meetingHoursBlock.createMany({ data: [{ meetingId: gone.sourceMeetingId, userId, reason: "deleted" }], skipDuplicates: true });
+    }
+    return true;
+  });
+  if (!deleted) {
     throw await entryNotTheCallers({ sub: userId, permEpoch: c.get("permEpoch"), authorization: c.req.header("Authorization") ?? "" }, id);
   }
   return c.body(null, 204);

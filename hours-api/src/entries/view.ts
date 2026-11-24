@@ -73,6 +73,14 @@ export const TimeEntryViewSchema = z
      * `visible` or when the entry is the viewer's own (D44), else `null`.
      */
     activity: z.object({ id: z.string().nullable(), subject: z.string().nullable(), visibility: VisibilitySchema }).strict().nullable(),
+    /**
+     * Who wrote the entry: `meeting` for an automatic entry Operai recorded from a meeting's facts, `person` for every
+     * other one, those that existed before the feature included (specs/20261112-meeting-hours, AC-2.3). It never changes:
+     * an entry its person changed or moved off the meeting is still `meeting`. What decides whether Operai still follows
+     * the meeting (`followsMeeting`) and which meeting it came from (`sourceMeetingId`) are not part of the view: they
+     * say what Operai will do, not what the person reads.
+     */
+    origin: z.enum(["person", "meeting"]),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -170,6 +178,7 @@ export function toView(row: EntryRow, labels: Labels, viewerId: string): TimeEnt
     // Only an entry on a project or a deal can point at an activity (the CHECK `time_entry_activity_target`).
     // Its id follows the activity's own visibility, which already follows the target's (labels/resolve.ts).
     activity: activity === null ? null : { id: idFor(activity.id, activity.visibility, own), subject: activity.subject, visibility: activity.visibility },
+    origin: row.origin,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

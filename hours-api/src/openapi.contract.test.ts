@@ -156,13 +156,20 @@ describe("TimeEntryView records a day and a duration only (AC-1.8)", () => {
   const TIME_OF_DAY = ["start", "end", "startTime", "endTime", "startsAt", "endsAt", "startedAt", "endedAt", "from", "to", "time", "timeOfDay", "hour", "hours", "begin", "finish"];
 
   it("has exactly the members the plan lists, none of them a time of day", () => {
-    expect(Object.keys(view.properties).sort()).toEqual(["activity", "createdAt", "day", "id", "minutes", "note", "on", "person", "updatedAt", "workType"]);
+    expect(Object.keys(view.properties).sort()).toEqual(["activity", "createdAt", "day", "id", "minutes", "note", "on", "origin", "person", "updatedAt", "workType"]);
     const names = new Set([...walk(view)].flatMap(({ path }) => (path.length > 0 ? [path[path.length - 1]!] : [])));
     expect([...names].filter((name) => TIME_OF_DAY.includes(name))).toEqual([]);
     // Any other new member is a decision to look at, not a free addition: it must not be a time of day either.
     expect([...names].sort()).toEqual(
-      ["activity", "category", "createdAt", "day", "deal", "href", "id", "label", "minutes", "name", "note", "on", "person", "retired", "state", "status", "subject", "type", "updatedAt", "visibility", "workType"].sort(),
+      ["activity", "category", "createdAt", "day", "deal", "href", "id", "label", "minutes", "name", "note", "on", "origin", "person", "retired", "state", "status", "subject", "type", "updatedAt", "visibility", "workType"].sort(),
     );
+  });
+
+  it("says who wrote an entry with a required `origin` of `person` or `meeting`, and names nothing of what drives Operai's writes (specs/20261112-meeting-hours)", () => {
+    expect(view.required).toContain("origin");
+    expect({ type: view.properties.origin.type, values: [...view.properties.origin.enum].sort() }).toEqual({ type: "string", values: ["meeting", "person"] });
+    // The document names no member of an entry that Operai keeps for itself: whether it follows its meeting, and which meeting it came from.
+    expect(JSON.stringify(doc)).not.toMatch(/followsMeeting|sourceMeetingId/);
   });
 
   it("types the day as a calendar day string and the duration as an integer number of minutes", () => {

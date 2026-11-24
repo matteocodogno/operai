@@ -62,6 +62,7 @@ describe("an entry on no entity", () => {
         on: { type: "none", category: { id: SEED.categories.administration, name: "Administration", retired: false } },
         workType: null,
         activity: null,
+        origin: "person",
         createdAt: entry.createdAt.toISOString(),
         updatedAt: entry.updatedAt.toISOString(),
       },
@@ -366,6 +367,71 @@ describe("an entry on a meeting", () => {
 
     expect(items[0]).toMatchObject({ minutes: 90, on: { type: "meeting", id: "m1", label: null, href: null, visibility: "unavailable" } });
     expect(unavailable).toEqual(["meetings"]);
+  });
+});
+
+describe("who wrote an entry: `origin` (specs/20261112-meeting-hours, AC-2.3)", () => {
+  it("is `meeting` for an automatic entry and `person` for every other one, whatever it is on", async () => {
+    hosts.meetings.add({ id: "m1", title: "Kick-off", creator: ALICE });
+    const automatic = await makeMeetingEntry("m1", { automatic: "untouched" });
+    const typed = await makeMeetingEntry("m2");
+    const project = await makeProjectEntry("p1");
+    const none = await makeNoEntityEntry();
+
+    const { items } = await viewAs();
+
+    expect(Object.fromEntries(items.map((item) => [item.id, item.origin]))).toEqual({
+      [automatic.id]: "meeting",
+      [typed.id]: "person",
+      [project.id]: "person",
+      [none.id]: "person",
+    });
+  });
+
+  it("stays `meeting` once its person changed the entry or moved it off the meeting: the mark is about who wrote it, not where it is", async () => {
+    const touched = await makeMeetingEntry("m1", { automatic: "touched", minutes: 90 });
+    const moved = await makeProjectEntry("p1", { userId: PERSONAS.bob.sub });
+    await db.timeEntry.update({ where: { id: moved.id }, data: { origin: "meeting", sourceMeetingId: "m2" } });
+
+    const { items } = await viewAs("holder");
+
+    expect(Object.fromEntries(items.map((item) => [item.id, item.origin]))).toEqual({ [touched.id]: "meeting", [moved.id]: "meeting" });
+  });
+
+  it("is the same for every viewer, a holder of read-all or a stranger included: it says nothing about the meeting", async () => {
+    await makeMeetingEntry("m-private", { automatic: "untouched", userId: ALICE });
+
+    for (const viewer of ["alice", "bob", "admin", "holder"] as const) expect((await viewAs(viewer)).items[0]?.origin).toBe("meeting");
+  });
+
+  it("never lets what drives Operai's writes out: no `followsMeeting`, no `sourceMeetingId`, not even `null`", async () => {
+    await makeMeetingEntry("m1", { automatic: "untouched" });
+    await makeMeetingEntry("m2", { automatic: "touched" });
+
+    const { items } = await viewAs();
+
+    expect(items).toHaveLength(2);
+    expect(JSON.stringify(items)).not.toMatch(/followsMeeting|sourceMeetingId/);
+  });
+
+  it("is required by the strict schema, and only `person` or `meeting`", () => {
+    const view = (origin: unknown) => ({
+      id: "e1",
+      day: "2026-11-02",
+      minutes: 60,
+      note: null,
+      person: { id: ALICE, name: "Alice", status: "active" },
+      on: { type: "none", category: { id: "tc-training", name: "Training", retired: false } },
+      workType: null,
+      activity: null,
+      ...(origin === undefined ? {} : { origin }),
+      createdAt: "2026-11-02T08:00:00.000Z",
+      updatedAt: "2026-11-02T08:00:00.000Z",
+    });
+
+    expect(TimeEntryViewSchema.safeParse(view("person")).success).toBe(true);
+    expect(TimeEntryViewSchema.safeParse(view("meeting")).success).toBe(true);
+    for (const bad of [undefined, null, "system", "Person", "", 1, true]) expect({ bad, ok: TimeEntryViewSchema.safeParse(view(bad)).success }).toEqual({ bad, ok: false });
   });
 });
 
@@ -727,6 +793,7 @@ describe("the wire shape (plan § Views)", () => {
       on: { type: "meeting", id: "m1", label: null, href: null, visibility: "hidden", deal },
       workType: null,
       activity: null,
+      origin: "person",
       createdAt: "2026-11-02T08:00:00.000Z",
       updatedAt: "2026-11-02T08:00:00.000Z",
     });
@@ -869,6 +936,7 @@ describe("the id rule (D44, owasp-report.md F1): the id of a record the viewer m
       on,
       workType: null,
       activity,
+      origin: "person",
       createdAt: "2026-11-02T08:00:00.000Z",
       updatedAt: "2026-11-02T08:00:00.000Z",
     });

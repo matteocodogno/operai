@@ -159,9 +159,26 @@ export function makeDealEntry(dealId: string, options: PointingEntryOptions = {}
   });
 }
 
+/** What only an entry on a meeting may be: one Operai recorded from the meeting's facts (specs/20261112-meeting-hours). */
+export interface MeetingEntryOptions extends EntryOptions {
+  /**
+   * Makes it an automatic entry, as `apply()` writes one: `origin: meeting`, `sourceMeetingId` the meeting, no note.
+   * `"untouched"` still follows its meeting (`followsMeeting: true`); `"touched"` is one its person changed
+   * (`followsMeeting: false`, the mark stays). Without it the entry is a person's own. A note goes with `"touched"`
+   * only: the CHECK `time_entry_follows_shape` refuses one on an untouched entry, and Operai writes none (AC-4.1).
+   */
+  readonly automatic?: "untouched" | "touched";
+}
+
 /** An entry on a meeting: no work type and no activity pointer, as the schema requires. */
-export function makeMeetingEntry(meetingId: string, options: EntryOptions = {}) {
-  return insert({ ...base(options), target: "meeting", meetingId });
+export function makeMeetingEntry(meetingId: string, options: MeetingEntryOptions = {}) {
+  const { automatic, ...entry } = options;
+  return insert({
+    ...base(entry),
+    target: "meeting",
+    meetingId,
+    ...(automatic !== undefined ? { origin: "meeting" as const, sourceMeetingId: meetingId, followsMeeting: automatic === "untouched" } : {}),
+  });
 }
 
 /** An entry on no entity (shown as "Other work"): a category, never a work type. Default category Training. */

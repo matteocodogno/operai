@@ -65,6 +65,22 @@ describe("entries inserted directly, one factory per target", () => {
   });
 });
 
+describe("an automatic entry inserted directly (specs/20261112-meeting-hours)", () => {
+  it("is an untouched automatic entry on `automatic: \"untouched\"`: origin meeting, its meeting remembered, following it", async () => {
+    const entry = await makeMeetingEntry("meeting-1", { automatic: "untouched", userId: PERSONAS.bob.sub });
+    expect(entry).toMatchObject({ target: "meeting", meetingId: "meeting-1", origin: "meeting", sourceMeetingId: "meeting-1", followsMeeting: true, note: null, userId: "user-bob" });
+  });
+
+  it("is a touched one on `automatic: \"touched\"`: still marked as from its meeting, no longer following it", async () => {
+    const entry = await makeMeetingEntry("meeting-1", { automatic: "touched", minutes: 90 });
+    expect(entry).toMatchObject({ target: "meeting", meetingId: "meeting-1", origin: "meeting", sourceMeetingId: "meeting-1", followsMeeting: false, minutes: 90 });
+  });
+
+  it("is a person's entry without the option, as before", async () => {
+    expect(await makeMeetingEntry("meeting-1")).toMatchObject({ origin: "person", sourceMeetingId: null, followsMeeting: false });
+  });
+});
+
 describe("the seeded lists", () => {
   it("names every row the migration inserts: SEED holds exactly the twelve fixed ids, and the database has each", async () => {
     const categoryIds = Object.values(SEED.categories);
