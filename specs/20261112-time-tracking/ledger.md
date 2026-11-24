@@ -115,6 +115,18 @@ Decided during /wellforge:design of specs/20261112-meeting-hours (2026-11-24, ga
 - D61 New AC-2.7: deleting an automatic entry, the confirmation also says Operai will not record it again from its meeting and that the person can still record hours themselves — user chose the recommended option over leaving the dialog unchanged (G1)
 - D62 AC-2.3 names Everyone's hours among the places that show the mark (plan D-P5) — user chose the recommended option over removing the mark from Everyone's hours (G4)
 
+Decided by the owner after the OWASP review of specs/20261112-meeting-hours (T13), 2026-11-24 — the review's optional
+hardenings added to that spec, approved again at 34 acceptance criteria (25 before):
+- D63 Operai corrects a recorded or uploaded meeting's duration to the measured length of its audio when it differs by more than the larger of 30 s and 10 % of the held duration (A42); untouched entries follow it (D56), changed ones stay; a meeting whose audio cannot be read keeps its reported duration — review L1
+- D64 A correctly signed service credential refused only for its service or its permission is recorded for the operators (reason and service name, never the credential); the caller's answer stays the one identical refusal — review I1 (how widely: open, at plan)
+- D65 A meeting notice with an identifier containing a character no Operai identifier uses (A45) is refused for good and never retried — review I3
+- D66 Once a meeting is deleted, Operai keeps no record of which of its people deleted or already had an entry on it; the version record stays, so a late notice still records no hours — review I6
+- D67 The "From meeting" mark is shown only while an automatic entry is recorded on a meeting; one its person moved to a project, a deal or other work no longer shows it — review I8, design G6 reversed; amends D57 ("the mark stays after a change") and the Everyone's-hours consequence of D62; D60 unchanged
+- D68 AC-3.8 (the measured duration) stays in specs/20261112-meeting-hours; specs/20261104-meetings is not amended — user accepted the recommended default
+- D69 Audio Operai cannot read keeps its reported duration and the entries built on it (AC-3.10) — user accepted the recommended default
+- D70 AC-2.7's sentence stays for a deleted automatic entry its person had moved off the meeting (it is true) — user accepted the recommended default
+- D71 A meeting dated after the release day with a duration at release gets its entries only at its next change of start, duration or Operai participants (plan § Release backfill); accepted as a known limit — user accepted the recommended default
+
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 

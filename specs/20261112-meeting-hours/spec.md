@@ -12,7 +12,8 @@ depends-on: 20261104-meetings, 20261112-time-tracking, 20261116-record-hours-in-
 # Meeting hours — the hours of a meeting recorded automatically for the people who took part
 
 Decision ledger: `../20261112-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-project-hours and
-specs/20261112-project-alerts; this spec's decisions are D7, D17 as superseded by D54, and D54–D57)
+specs/20261112-project-alerts; this spec's decisions are D7, D17 as superseded by D54, D54–D62, and D63–D67 added after the
+security review)
 
 > **Origin.** Split out of specs/20261112-time-tracking on 2026-11-12 (ledger D26) and approved the same day as
 > *suggested* entries each person confirmed (D17). **Re-opened on 2026-11-24** before any plan: the
@@ -21,6 +22,15 @@ specs/20261112-project-alerts; this spec's decisions are D7, D17 as superseded b
 > for an automatic entry; the one it bends is who creates it (Operai, not the person — D14 narrowed,
 > see US-1). Amended the same day after /wellforge:design: AC-2.3 names Everyone's hours and the
 > Italian mark, AC-2.7 is new (ledger D60–D62).
+>
+> **Amended 2026-11-24 after the security review** (`owasp-report.md`, verdict PASS): the owner added to the scope five
+> hardenings the review had proposed as optional — a meeting's duration corrected to the measured length of its audio when
+> it is materially wrong (AC-3.8–AC-3.10, D63; review L1); a refused but correctly signed service credential recorded for
+> the operators (AC-5.1, AC-5.2, D64; I1); a notice with a malformed identifier refused for good (AC-5.3, AC-5.4, D65; I3);
+> the records of who deleted or already had an entry dropped when a meeting is deleted (AC-4.4, AC-4.5, D66; I6); and the
+> "From meeting" mark shown only while an entry is recorded on a meeting (**AC-2.3 changed**, D67; I8, design G6), which
+> reverses "the mark stays after the person changes the entry" of D57 and D62. The owner approved these additions on 2026-11-24
+> (ledger D63–D71); every other acceptance criterion is unchanged.
 
 ## Problem
 
@@ -33,10 +43,15 @@ hours spent in them are the ones most likely to go missing from every total buil
 
 - **automatic entry** — a time entry Operai records for a person on a Meetings meeting they
   created or took part in, with the meeting's day and its duration rounded to 30 minutes. It is
-  the person's own time entry (specs/20261112-time-tracking) from the moment it exists and counts like any other.
+  the person's own time entry (specs/20261112-time-tracking) from the moment it exists and counts like any other. It stays an
+  automatic entry when its person records it on something else (A47).
   _Avoid:_ suggested entry (the superseded design), proposal (ProposAI's word), draft entry.
 - **untouched** — an automatic entry its person has not changed since Operai recorded it. Only an
   untouched entry follows its meeting (D56).
+- **held duration** / **measured duration** — the held duration is the one a meeting has before Operai processes its audio:
+  a recording's sum of the pieces its browser reported, or an uploaded file's own claim. The measured duration is the length
+  of the audio Operai itself decodes when it processes a recorded or uploaded meeting (review L1). _Avoid:_ real length,
+  actual duration.
 - **meeting**, **creator**, **Operai participant** — as in specs/20261104-meetings; **My hours**, **table view**,
   **List** — as in specs/20261116-record-hours-in-place.
 
@@ -74,9 +89,12 @@ remove it like any other.
   cell for its meeting and day, and as a row of the List (D54).
 - AC-2.2 Given an automatic entry, then it counts in every total, filter result and export like an
   entry typed by hand — Everyone's hours and the deal's figures included (D54).
-- AC-2.3 Given an automatic entry, then wherever entries are listed one by one (the List, the
-  entries of a table view cell, Everyone's hours) it is marked "From meeting" ("Da riunione" in
-  Italian); the mark stays after the person changes the entry (D57, D60, D62).
+- AC-2.3 **(changed after the security review)** Given an automatic entry, then wherever entries are listed one by one (the
+  List, the entries of a table view cell, Everyone's hours) it is marked "From meeting" ("Da riunione" in Italian) exactly
+  while it is recorded on a meeting — one whose meeting has since been deleted included. So changing its day, duration or
+  note leaves the mark; recording it on a project, a deal or other work removes it, in My hours and in Everyone's hours
+  alike; and recording it on a meeting again brings it back (D57 as narrowed, D60, D62, D67, A47).
+  _Before the review it read: "the mark stays after the person changes the entry"._
 - AC-2.4 Given an automatic entry, when its person changes its day, duration, note or what it is
   recorded on, then the change is saved under specs/20261112-time-tracking's rules, and a change those rules refuse
   saves nothing (specs/20261112-time-tracking AC-1.5).
@@ -107,10 +125,20 @@ that is moved, corrected or deleted does not leave wrong hours behind.
   without the meeting's title (D56, A18).
 - AC-3.7 Given a person added to the meeting's participants after its duration is known, then they
   get an automatic entry as in AC-1.1, unless AC-1.4 or AC-2.5 applies to them (A24).
+- AC-3.8 **(added after the security review)** Given a recorded or uploaded meeting that holds a duration, when Operai
+  processes its audio and its measured duration differs from the held duration by more than the larger of 30 seconds and
+  10 % of the held duration, then the meeting's duration becomes the measured one, so that Meetings shows the measured
+  duration wherever it shows the meeting's duration (D63, A42, A43).
+- AC-3.9 **(added)** Given a meeting whose duration became the measured one under AC-3.8, then an untouched automatic entry
+  takes it, rounded as in AC-1.1, and an automatic entry its person has changed does not change (AC-3.2, AC-3.5, D63).
+- AC-3.10 **(added)** Given the same meeting, when the measured duration is within that margin of the held one, or when its
+  audio cannot be measured because processing fails, then the meeting's duration and its automatic entries stay as they
+  are, even when the measured duration would round to another 30-minute step. An uploaded file whose audio proves longer
+  than 3 hours is refused under specs/20261104-meetings AC-3.2 and loses its duration then, as it does today (D63, A42).
 
 ### US-4 Privacy and availability
-As a meeting participant, I want automatic entries to reveal nothing new about meetings, so that
-the Meetings visibility rules still hold.
+As a meeting participant, I want automatic entries to reveal nothing new about meetings — and to keep nothing about who
+took part once a meeting is deleted — so that the Meetings visibility and deletion rules still hold.
 
 - AC-4.1 Given an automatic entry, then it carries only what any entry on a meeting carries — the
   meeting, its day and its duration, with an empty note; no transcript, summary or other content
@@ -121,6 +149,30 @@ the Meetings visibility rules still hold.
   (A40).
 - AC-4.3 Given any new copy (the "From meeting" mark included), then it exists in English and
   Italian, and durations use the library formatters.
+- AC-4.4 **(added after the security review)** Given a meeting that has been deleted, when Operai has applied its
+  deletion, then Operai keeps no record of which of the meeting's people deleted their automatic entry on it or already had
+  an entry of their own on it. An automatic entry its person had changed stays, as AC-3.6 says (D66, A46).
+- AC-4.5 **(added)** Given a meeting that has been deleted, then a notice about it that arrives later, again or out of
+  order still records no hours for it, for anyone (AC-2.5, D66, A46).
+
+### US-5 Refusals are seen, and a bad notice is final
+As an operator of Operai, I want a credential that Operai must refuse to leave a trace, and a notice it can never accept to
+be refused for good, so that I can see who is knocking and a bad notice never keeps its sender retrying.
+
+- AC-5.1 **(added after the security review)** Given a credential that is correctly signed and meant for the channel on which
+  Meetings sends its notices, when the channel refuses it only because the service it names is not allowed to send meeting
+  notices, or because it lacks the permission to send them, then the refusal is recorded for the operators, as the channel's
+  other refused credentials are — saying which of the two reasons it was and which service the credential names — and the
+  record contains nothing of the credential itself (D64, A44).
+- AC-5.2 **(added)** Given the refusal of AC-5.1, then the caller receives the one refusal every other failed credential
+  receives: nothing in it tells the two reasons apart, or a correctly signed credential from a forged one, and nothing is
+  written (D64).
+- AC-5.3 **(added)** Given a meeting notice in which the notice's, the meeting's or a person's identifier contains a
+  character that no Operai identifier uses (A45), when Meetings prepares it or hours receives it, then it is refused as
+  invalid: no entry is written, changed or removed, the refusal is final, and Meetings does not send that notice again
+  (D65).
+- AC-5.4 **(added)** Given the identifiers Operai itself creates — a meeting's, a person's and a notice's — then none is
+  refused under AC-5.3 (A45).
 
 ## Non-goals
 
@@ -137,6 +189,18 @@ the Meetings visibility rules still hold.
 - **Bulk actions** on automatic entries (delete all, undo all).
 - **Notifications** about automatic entries (A26).
 - **Start and end times** — specs/20261112-time-tracking records a day and a duration only (D8).
+- **Checking who took part in a meeting, or when it started**, against anything: the day of an entry and who gets one stay
+  what the meeting's creator set, a trust the owner accepted (AC-1.7); the review's L1 closes only the duration.
+- **Measuring audio that cannot be read at all**, or removing hours because of it: its reported duration and the entries
+  built on it stay (open question).
+- **Resending or repairing a notice refused for good** (AC-5.3): nothing does either.
+- **Alerting on, or limiting, refused credentials**: AC-5.1 records them and does no more.
+- **Removing an entry its person changed when its meeting is deleted** (AC-3.6 stays): AC-4.4 is only about the records of
+  who deleted or already had an entry.
+- **A history of where a moved entry came from**: once recorded on something else, nothing on the entry shows it was ever
+  automatic (AC-2.3).
+- **Telling anyone that a meeting's duration was corrected**: no notification, no earlier figure shown (A26, A43).
+- **The review's other findings** (I2, I4, I5, I7): the review found no change required.
 
 ## Constraints
 
@@ -168,9 +232,59 @@ Added on re-opening (2026-11-24, not grilled — review them):
 - A41 An automatic entry's note is empty (the meeting's title already names it; copying the title or
   anything else into the note would freeze it there).
 
+Added after the security review (2026-11-24, not grilled — review them):
+- A42 "Materially" (AC-3.8, AC-3.10): the measured duration differs from the held duration by more than the larger of
+  30 seconds and 10 % of the held duration, shorter or longer. A smaller gap is the ordinary difference between a browser's
+  timer, a file's own header and the decoded audio, and is left alone so that entries are not resized by noise. A meeting
+  that holds no duration takes the measured one, as AC-1.1 says. The margin is the review's suggestion (L1).
+- A43 Where Meetings shows a duration (AC-3.8): in one place today, the Duration line of a meeting's details, which shows
+  the duration the meeting holds once it is known; after a correction it shows the measured one, with no mention of the
+  earlier figure and no notice (A26). The recorder's running time and the saved time of an interrupted recording are other
+  figures and do not change. Read from specs/20261104-meetings (its design lists Duration among a meeting's details; no
+  acceptance criterion of its spec says how the duration is set) and from the meeting's details screen. Whether this
+  amends specs/20261104-meetings is an open question.
+- A44 The record of a refused credential (AC-5.1) names the reason (service not allowed, or permission missing) and the
+  service the credential claims — a name auth wrote into a correctly signed credential, not text a caller can choose.
+  Unsigned, forged, expired or wrongly addressed credentials are already recorded and stay as they are.
+- A45 An Operai identifier (a meeting's, a person's, a notice's) is made only of letters, digits and the characters hyphen,
+  underscore, dot and colon, within the length limit it already has; a control character or a space is never part of one.
+  The set is the review's proposal (I3). It must be confirmed against every identifier Operai creates before the plan (open
+  question): a character a real identifier uses widens the set and never the refusal, because a refused notice is final
+  and that person would silently get no entry.
+- A46 The record that lets Operai tell a late notice from a current one names no person, so it stays after a meeting is
+  deleted (the review explains why); only the records of who deleted or already had an entry go. The feature is not live
+  yet (its close task is still open), so no deleted meeting has such records; if one has when this ships, they are cleared
+  too.
+- A47 An automatic entry stays its person's one automatic entry for its meeting when they record it on a project, a deal or
+  other work, or on another meeting: Operai records no second one for that meeting, and deleting it still means Operai will
+  not record it again, so AC-2.7's confirmation still applies to it. Only the mark follows what the entry is recorded on
+  now: an entry moved to another meeting keeps it (it is on a meeting), one moved to a project, a deal or other work loses
+  it, and recording it on a meeting again brings it back. This is how the build behaves today; the mark's change makes it
+  visible.
+
 ## Open questions
 
 - [ ] Labour-law check before go-live (ledger O3, carried from specs/20261112-time-tracking): automatic entries record
   hours about a person without the person acting, which widens what informing employees must
   cover (IT: art. 4 L. 300/1970; CH: art. 26 OLL 3) — owner: management / HR. A go-live sign-off,
   not a blocker of the plan. **Accepted as risk by the owner at approval, 2026-11-24.**
+- [x] Does AC-3.8 amend specs/20261104-meetings? It changes a fact Meetings owns, a meeting's duration, after processing.
+  That spec names no rule for how the duration is set and its design lists Duration among the details, but its tasks say
+  processing keeps the sum of the stored chunk durations, which stays true until the audio is measured. If yes, that spec
+  gets the line and AC-3.8's last clause moves there; if no, it stays here — owner: owner, with the Meetings spec.
+  **Decided 2026-11-24 (D68): it stays here; specs/20261104-meetings is not amended.**
+- [x] Audio Operai cannot read at all (processing fails) is never measured, so its reported duration and the entries built
+  on it stay (AC-3.10) — the case the review's forged-pieces example reaches. Keep (an honest recording lost to a glitch
+  keeps its hours, and a person can delete an entry) or remove the untouched entries? Recommended: keep — owner: owner.
+  **Decided 2026-11-24 (D69): keep.**
+- [ ] AC-5.1 as the review proposes it changes the credential check that several services share word for word, so every
+  service-to-service channel that uses it would record the same refusals, not only this one. Accept, or limit to this
+  channel? — owner: owner, with the architect at plan.
+- [ ] Confirm A45 against every identifier Operai creates today (users, meetings, notices) before the plan fixes the set —
+  owner: architect, at plan.
+- [x] AC-2.7's confirmation, for an entry its person recorded on a project, a deal or other work, still says Operai will not
+  record it again from its meeting (A47) although the mark is gone. Keep or hide? Recommended: keep — it is true, and the
+  deletion still has that effect — owner: owner. **Decided 2026-11-24 (D70): keep.**
+- [x] Size: with the additions the spec has 34 acceptance criteria (25 before), and the five hardenings can ship apart from
+  the feature and from each other. One spec, or split (proposal in the return of the amendment)? — owner: owner, at the
+  gate. **Decided 2026-11-24: one spec — the owner added them here.**
