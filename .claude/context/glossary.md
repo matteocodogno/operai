@@ -223,8 +223,8 @@
   change of day, duration, note or what it is recorded on). Only an untouched entry follows its meeting.
   _Avoid:_ unedited, pristine.
 - **Block** (meeting hours): the record that a person must never again get an **Automatic entry** on one meeting,
-  because they deleted theirs or already had an entry of their own on it when its duration became known; dropped
-  when the meeting is deleted (D66). Not the CRM offer wizard's **Block choice**. _Avoid:_ tombstone, ban.
+  because they deleted theirs or already had an entry of their own on it when its duration became known. Not the
+  CRM offer wizard's **Block choice**. _Avoid:_ tombstone, ban.
 - **Hours fact**: one of the three things about a meeting its **Automatic entries** are built from — when it
   started, how long it lasted, and which Operai users took part (creator included). A change of title, content or
   external participants is not an hours fact. _Avoid:_ meeting data.

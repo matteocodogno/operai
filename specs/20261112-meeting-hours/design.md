@@ -5,7 +5,7 @@ status: draft
 
 # Design: Meeting hours — the "From meeting" mark on automatic entries
 
-Inputs read: `spec.md` (approved 2026-11-24, **re-approved the same day after the security review: US-1–US-5, 34 ACs, A4–A47**),
+Inputs read: `spec.md` (approved 2026-11-24, **re-approved the same day after the security review: US-1–US-5, 34 ACs, A4–A47; three hardenings withdrawn the same day, D74–D76: US-1–US-4, 28 ACs**),
 `plan.md` (architecture accepted by the owner; binding here: § API contracts "hours-ui — changed", D-P5), the ledger
 `specs/20261112-time-tracking/ledger.md` (D54–D73), `.claude/context/glossary.md` § Time tracking,
 `operai-ui/docs/{building-pages,design-system}.md`, `operai-ui/src/index.ts`, `specs/20261112-time-tracking/design.md` and
@@ -475,9 +475,8 @@ label and every dialog sentence are unchanged; durations are shown by the existi
 **ACs with no UI surface of their own:** AC-1.1–1.8 (backend: who gets an entry, when, how long, the rules), AC-2.6 (an
 absence: no notification), AC-3.1–3.5 and 3.7 (backend; their only visible effect is a row changing on the next read), **AC-3.9**
 (the same: an untouched entry takes the measured duration on the next read, G7), AC-4.1 (the view carries no title; the mark is a
-fixed word), AC-4.2 (My hours already loads without Meetings), **AC-4.4 and AC-4.5** (what Operai keeps and applies about a deleted
-meeting: nothing a screen shows), **AC-5.1–AC-5.4** (an operator's log line, and a notice refused for good: no screen; a bad notice
-means a person simply gets no entry, which is the same silent absence as F1 step 4).
+fixed word), AC-4.2 (My hours already loads without Meetings). (AC-4.4, AC-4.5 and AC-5.1–AC-5.4, which had no screen either, were
+withdrawn by the owner on 2026-11-24, ledger D74–D76.)
 
 **UI present that no AC asks for:** none. The cluster wrapper is layout for AC-2.3. Not designed (scope creep, reported): a
 mark on a table cell, row or day total; a filter or column "origin" (list, totals or export); a tooltip, legend or help text
@@ -548,7 +547,7 @@ entry) answers the open question the PO raised about AC-2.7.
 ### Drift found in the spec and the plan (for the caller; I edited neither)
 
 - **plan.md still carries the first rule** (the architect is amending it in parallel; at the time of writing the file on disk was still unmodified and
-  has nothing yet for AC-3.8–3.10 or AC-5.x): § Decisions D-P5 ("as AC-2.3 says *wherever* entries are listed", fine, but cites no
+  has nothing yet for AC-3.8–3.10): § Decisions D-P5 ("as AC-2.3 says *wherever* entries are listed", fine, but cites no
   condition); § API contracts › hours-ui — changed, which renders the badge "for `origin === 'meeting'` only" — it must read "for
   `origin === 'meeting'` and `on.type === 'meeting'`", while `DeleteEntryDialog` keeps `origin` alone (D70); § Test strategy, row AC-2.3 (the
   component test "show the mark for `origin: meeting`, … not for `person` or a missing `origin`" needs the moved cases; the I-H test "after a
@@ -559,7 +558,7 @@ entry) answers the open question the PO raised about AC-2.7.
   written before the meeting leaves `processing`) so the plan's sequence in `prepare_audio` is not reordered.
 - **spec.md header lags the ledger:** it says D63–D67 were "added after the security review" and the amendment note says "ledger D63–D71";
   the ledger now runs to D73 (D72 the shared credential check, D73 the glossary). No AC changes; a one-line header fix when the spec is next
-  touched.
+  touched. *(Fixed 2026-11-24 with the withdrawal D74–D76.)*
 - **spec A43 vs the code, a nuance, not a conflict:** "in one place today, the Duration line" is right for the meeting's duration. The Details
   view's `durationMs` is `meeting.durationMs ?? recording.durationMs` (`meetings-api/src/meetings/view.ts`): for a recording not yet saved or
   processed the line can show the stored-chunk sum, which is another figure; after Stop it is the held duration. The spec's wording stands.
