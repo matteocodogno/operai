@@ -215,6 +215,49 @@ describe("an entry its person changed is theirs: no later notice moves, resizes,
   });
 });
 
+// The measured duration (AC-3.8, AC-3.9): meetings-api replaces a held duration the audio contradicts beyond the margin and tells
+// hours-api through the same versioned notice as any other change of a fact. Nothing here is new for the receiver: it is the
+// AC-3.2 and AC-3.5 behaviour driven with the figures of a correction (3 h reported, 10 min measured).
+describe("a correction of the duration is an ordinary newer notice (AC-3.9)", () => {
+  it("an untouched entry takes the measured duration, rounded as on creation; the entry its person changed keeps its values", async () => {
+    // Version 1 announced the 3 h the browser reported; Alice then wrote her own figure in, Bob did not.
+    await apply(notice(1, facts({ durationMs: 3 * HOUR })));
+    expect((await automatic()).map((row) => row.minutes)).toEqual([180, 180]);
+    const mine = await db.timeEntry.findFirstOrThrow({ where: { userId: ALICE } });
+    expect((await call("PATCH", `/time-entries/${mine.id}`, { body: { minutes: 90 } })).status).toBe(200);
+
+    // Version 2: the audio measured 10 minutes, which rounds to the 30-minute floor (A36).
+    const result = await apply(notice(2, facts({ durationMs: 10 * 60_000 })));
+
+    expect(result).toEqual({ applied: true });
+    expect(await automatic()).toEqual([
+      { userId: ALICE, day: "2026-11-12", minutes: 90, followsMeeting: false },
+      { userId: BOB, day: "2026-11-12", minutes: 30, followsMeeting: true },
+    ]);
+  });
+
+  it("a correction that rounds to the step the entry already holds changes nothing", async () => {
+    await apply(notice(1, facts({ durationMs: 20 * 60_000 })));
+    const before = await db.timeEntry.findMany({ orderBy: { userId: "asc" } });
+
+    await apply(notice(2, facts({ durationMs: 10 * 60_000 })));
+
+    // 20 and 10 minutes both round to 30: the rows are byte for byte what they were.
+    expect(await db.timeEntry.findMany({ orderBy: { userId: "asc" } })).toEqual(before);
+    expect((await automatic()).map((row) => row.minutes)).toEqual([30, 30]);
+  });
+
+  it("an older version of the held duration arriving after the correction does not undo it", async () => {
+    await apply(notice(1, facts({ durationMs: 3 * HOUR })));
+    await apply(notice(2, facts({ durationMs: 10 * 60_000 })));
+
+    const late = await apply(notice(1, facts({ durationMs: 3 * HOUR })));
+
+    expect(late).toEqual({ applied: false });
+    expect((await automatic()).map((row) => row.minutes)).toEqual([30, 30]);
+  });
+});
+
 describe("a person who already had an entry on the meeting, or deleted theirs, never gets an automatic one (AC-1.4, AC-2.5, AC-3.7)", () => {
   it("gives a person with an entry of their own on the meeting a block `had_entry` and no automatic entry, while the others get theirs (AC-1.4)", async () => {
     const own = await makeMeetingEntry(M, { userId: BOB, day: "2026-11-12", minutes: 30 });

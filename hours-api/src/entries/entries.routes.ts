@@ -368,7 +368,7 @@ entriesRouter.openapi(updateEntryRoute, async (c) => {
         // AC-2.4, A39). In THIS statement, not a second one: the CHECK `time_entry_follows_shape` allows a following entry
         // only on its meeting and with no note, so a change of target or note could not be saved first. Nothing above
         // reaches here once a rule refused the write, so a refused PATCH leaves the entry following (AC-2.4). `origin`
-        // is never written: the mark stays (AC-2.3). Already false for an entry the person typed.
+        // is never written (AC-2.7 and A47 read it). Already false for an entry the person typed.
         followsMeeting: false,
       },
       include: ENTRY_INCLUDE,

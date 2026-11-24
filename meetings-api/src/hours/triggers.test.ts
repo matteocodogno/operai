@@ -250,9 +250,11 @@ describe("prepare_audio fills a null duration (AC-3.2)", () => {
     expect(await kit.db.meetingJob.count({ where: { meetingId: m.id, kind: "transcribe" } })).toBe(1);
   });
 
+  // AC-3.10: a measurement within the margin (here 2 s of 60 s: under the 30 s floor) leaves the held duration alone, so the step wrote none.
+  // A held duration the audio contradicts beyond the margin is replaced and announced instead (AC-3.8, AC-3.9): `prepareAudio.measured.test.ts`.
   it("records nothing when the duration was already known and it wrote none (a recording, or an upload probed at confirm)", async () => {
     const m = await processingUpload({ durationMs: 60_000, hoursSeq: 1 });
-    await measuring(2_700_000)(ctxFor(m.id));
+    await measuring(62_000)(ctxFor(m.id));
     expect((await kit.db.meeting.findUniqueOrThrow({ where: { id: m.id } })).durationMs).toBe(60_000);
     await expectNoNotice(m.id);
     expect(await hoursSeq(m.id)).toBe(1);
