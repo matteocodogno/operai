@@ -126,6 +126,8 @@ hardenings added to that spec, approved again at 34 acceptance criteria (25 befo
 - D69 Audio Operai cannot read keeps its reported duration and the entries built on it (AC-3.10) — user accepted the recommended default
 - D70 AC-2.7's sentence stays for a deleted automatic entry its person had moved off the meeting (it is true) — user accepted the recommended default
 - D71 A meeting dated after the release day with a duration at release gets its entries only at its next change of start, duration or Operai participants (plan § Release backfill); accepted as a known limit — user accepted the recommended default
+- D72 D64 (refusals recorded) is made in the shared service-credential check itself, so all six copies (meetings-api, hours-api, crm-api, estimai-api, activities-api, accounting-api) change together and stay byte-identical — user chose the recommended option over hours-api alone (which would leave the shared-copies group)
+- D73 Glossary: Untouched, Block (meeting hours), Hours fact, Hours notice, Held duration / Measured duration added, Automatic entry amended for D67 — user accepted all
 
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly

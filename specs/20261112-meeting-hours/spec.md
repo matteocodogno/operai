@@ -277,9 +277,10 @@ Added after the security review (2026-11-24, not grilled — review them):
   on it stay (AC-3.10) — the case the review's forged-pieces example reaches. Keep (an honest recording lost to a glitch
   keeps its hours, and a person can delete an entry) or remove the untouched entries? Recommended: keep — owner: owner.
   **Decided 2026-11-24 (D69): keep.**
-- [ ] AC-5.1 as the review proposes it changes the credential check that several services share word for word, so every
+- [x] AC-5.1 as the review proposes it changes the credential check that several services share word for word, so every
   service-to-service channel that uses it would record the same refusals, not only this one. Accept, or limit to this
   channel? — owner: owner, with the architect at plan.
+  **Decided 2026-11-24 (D72): every copy of the shared check changes together.**
 - [ ] Confirm A45 against every identifier Operai creates today (users, meetings, notices) before the plan fixes the set —
   owner: architect, at plan.
 - [x] AC-2.7's confirmation, for an entry its person recorded on a project, a deal or other work, still says Operai will not
