@@ -203,8 +203,8 @@
   total or in the offer's price. _Avoid:_ optional line (confused with optional block).
 
 ### Time tracking (specs/20261112-time-tracking)
-- **Time entry**: one person's own declaration that they spent a duration, on one day, on
-  one thing — a project, a deal, a meeting, or no entity (then with a category). Not an
+- **Time entry**: one person's own declaration — or recorded for them from a meeting (an
+  **Automatic entry**) — that they spent a duration, on one day, on one thing — a project, a deal, a meeting, or no entity (then with a category). Not an
   activity, but may point at one. _Avoid:_ timesheet row, worklog, booking.
 - **Category** (time tracking): what a time entry on no entity is about (training, talk
   preparation, administration, …), from a list an admin manages. Not the inventory's
@@ -213,9 +213,11 @@
   two lists an admin manages (one for projects, one for deals). _Avoid:_ task type, service.
 - **Contractual day**: 8 h 24 min, from 42 hours a week, Monday to Friday. Nothing checks a
   day against it in specs/20261112-time-tracking.
-- **Suggested entry**: a time entry Operai offers a person from a Meetings meeting they took
-  part in; it counts for nothing until the person confirms it (specs/20261112-meeting-hours). _Avoid:_ proposal
-  (ProposAI's word), draft entry.
+- **Automatic entry**: a time entry Operai records for a person on a Meetings meeting they
+  created or took part in, once its duration is known (rounded to 30 minutes); the person's own
+  from the moment it exists, and, until they change it, it follows the meeting
+  (specs/20261112-meeting-hours). _Avoid:_ suggested entry (the superseded design), proposal (ProposAI's word),
+  draft entry.
 - **Consumption**: the hours recorded on a project set against what its terms sold — the hour
   package, the max effort and estimated man-days, or the positions' planned man-days
   (specs/20261112-project-hours). _Avoid:_ burn, usage.
