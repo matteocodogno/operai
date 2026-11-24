@@ -1,30 +1,79 @@
 # QE report: specs/20261112-meeting-hours (production tier, full mode)
 
-Latest pass only; overwritten on each run. Written by the quality engineer, 2026-11-24.
+Latest pass only; overwritten on each run. Written by the quality engineer, 2026-11-24. This is the second pass: the first (at
+`c3c963b3`) was BLOCKED on one row; this pass re-ran only that row and a regression check after the owner restarted the dev stack,
+and kept every other row as measured.
 
-## QE verdict: BLOCKED  (measured at `c3c963b3`)
+## QE verdict: PASS  (full mode; gates measured at `c3c963b3`, dev-stack e2e re-run at `d04d80ad`)
 
-`c3c963b3` is the commit that adds my tests. The code under test is identical to `6e5f6714` (HEAD when I started; the commits after
-`a662f52b` are the T18 docs only), so the e2e runs below, made before my commit, measured the same code.
+`d04d80ad` differs from `c3c963b3` only under `specs/` (`git diff --name-only c3c963b3..HEAD | grep -v '^specs/'` prints nothing: the
+QE report and its screenshots). The code under test is therefore the code the gates measured, and the gate rows below were not
+re-run. Nothing is blocked; nothing is red.
 
-**Blocked, named first:** one check could not be completed on the stack I was given, for a reason that is the environment and not
-the code (details under *Environment faults*).
-
-- **BLOCKED row: AC-3.8 / AC-3.9 end to end on the dev stack** (design G7, S5). `shell/e2e/meeting-hours-measured.spec.ts` against the
-  running `mise run dev` meetings-api failed 6 of 6 runs: a recording whose pieces claim one hour over 12 s of real audio stays at
-  `3600000` ms and the entry stays at 60 min. The same spec against a meetings-api I started on `c3c963b3` passed 5 of 5, and the real
-  ffprobe/ffmpeg test of the same correction passes. The dev meetings-api process (`bun --hot`, started 13:31) is not running the
-  correction. **Needs: restart the dev meetings-api** (the whole `mise run dev` is the safe way), then
-  `cd shell && <the flags of meeting-hours.spec.ts's header> pnpm e2e meeting-hours-measured.spec.ts`. Green means the environment
-  was the cause; red after a clean restart means a defect and that spec is its reproduction.
-- Everything else I was asked to run was executed and is green. No defect found.
+**The previously BLOCKED row is now executed and green.** `shell/e2e/meeting-hours-measured.spec.ts` against the dev meetings-api
+(:8085, no `E2E_MEETINGS_API_URL`) passed **5 of 5** after the restart; before it, the same spec on the same code failed 6 of 6. The two
+regression specs, `meeting-hours.spec.ts` (3 of 3) and `meeting-hours-moved.spec.ts` (5 of 5), passed on the same restarted stack.
+Environment fault EF-1 is closed: it was the stack, not the code. No defect.
 
 | Check | Threshold | Actual | Result |
 |---|---|---|---|
-| Gates | all green | all 11 rows below green at `c3c963b3` | ✓ |
+| Gates | all green | all 11 rows below green at `c3c963b3`; code unchanged since | ✓ |
 | AC coverage | 28/28 | 28/28 have an executed test (table below) | ✓ |
 | Defects | 0 | 0 | ✓ |
-| AC-3.8 / AC-3.9 e2e on the dev stack | green | 0/6 on dev stack; 5/5 on an isolated `c3c963b3` meetings-api | BLOCKED (environment) |
+| Dev stack restarted and clean | one job runner | one `LISTEN meetings_jobs` connection (was four); meetings-api pid 13687 started 15:39:15 | ✓ |
+| AC-3.8 / AC-3.9 e2e on the dev stack (design G7, S5) | green, at least 3 runs | 5/5 passed (was 0/6 before the restart) | ✓ |
+| Regression after restart: `meeting-hours.spec.ts` | 3/3 | 3 passed (33.9 s) | ✓ |
+| Regression after restart: `meeting-hours-moved.spec.ts` | 5/5 | 5 passed (34.9 s) | ✓ |
+
+## This pass: the previously BLOCKED row, re-run (second pass, 2026-11-24 15:39 to 15:42 CET, at `d04d80ad`)
+
+**1. The restart took.** `/health` answered 200 on auth :3001, meetings-api :8085, hours-api :8090, shell :5173, hours-ui :5184 and
+meetings-ui :5180. The :8085 listener is pid 13687 (`bun run --hot src/index.ts`, started 15:39:15, child of the `mise run dev` shell
+started 15:39:09). Read-only `pg_stat_activity` (`SET default_transaction_read_only = on`, a `SELECT` only, on the compose Postgres :5435):
+
+| Before (first pass) | After (this pass) |
+|---|---|
+| four `LISTEN meetings_jobs` on `meetings`, started 13:31:09, 14:47:09, 14:51:18, 14:51:18 | **one**: database `meetings`, pid 43897, started 14:39:16, `idle`, query `LISTEN meetings_jobs` |
+
+The server clock is UTC, so `14:39:16` is 15:39:16 CET, one second after pid 13687 started. The count was read again after all eight
+e2e runs below: still one, same pid 13687, so nothing restarted or hot-reloaded during the runs. I did not touch the owner's stack.
+
+**2. `meeting-hours-measured.spec.ts` against the dev stack: 5 of 5.** Flags: the eleven `E2E_*_REMOTE_PORT` of the dev ports and
+`E2E_SKIP_ACCOUNTING_SEED=1 E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 E2E_SKIP_LEGAL_ENTITIES_SETUP=1` (the header of `meeting-hours.spec.ts`);
+`E2E_MEETINGS_API_URL` and `E2E_SHELL_MEETINGS_API_URL` unset (`env | grep ^E2E_` printed the fourteen flags and neither of those), so
+both the API calls and the browser step went to the dev meetings-api. `ffmpeg` and `ffprobe` on the PATH (`/opt/homebrew/bin`).
+Command: `cd shell && <those flags> pnpm e2e meeting-hours-measured.spec.ts`, five times in a row (the flags sit in `/tmp/qe-mh-rerun/flags.sh`, local).
+
+| Run | Result | Meeting timeline `(status/stage durationMs)`, first sight of the measured value | Entry minutes |
+|---|---|---|---|
+| 1 | passed (5.6 s) | `processing/preparing 3600000` x8, then `processing/transcribing 12007`, then `ready 12007` | 60, then 30 |
+| 2 | passed (5.3 s) | `processing/preparing 3600000` x8, then `processing/preparing 12007`, then `ready 12007` | 60, then 30 |
+| 3 | passed (6.1 s) | `processing/preparing 3600000` x7, then `processing/preparing 12007`, then `ready 12007` | 60, then 30 |
+| 4 | passed (4.2 s) | `processing/preparing 3600000` x7, then `processing/preparing 12007`, then `ready 12007` | 60, then 30 |
+| 5 | passed (4.5 s) | `processing/preparing 3600000` x6, then `processing/preparing 12007`, `processing/transcribing 12007`, then `ready 12007` | 60, then 30 |
+
+In every run `ffprobe` said the file is 12008 ms and the held sum of pieces 3600000 ms; the corrected value `12007` (within 1 ms of
+ffprobe) was first seen while the meeting was still `processing`, 5 of 5 (the first pass saw it in 4 of 5 on the isolated instance).
+The spec's own assertions all held: the meeting ends at the measured length and not at the held hour (AC-3.8); `recording.durationMs`
+keeps the sum of the stored pieces (A43); the creator's untouched entry goes from 60 to 30 min (AC-3.9); the Details card's Duration line
+shows the measured clock value and not `01:00:00` (design S5). Logs: `/tmp/qe-mh-rerun/measured-1.log` to `measured-5.log` (local, not
+committed; the timelines above are copied from them).
+
+**3. Regression check on the same restarted stack, once each:**
+`meeting-hours.spec.ts` 3 passed (A 19.1 s, B 5.5 s, C 8.3 s; total 33.9 s, AC-1.1, 2.1, 2.3, 2.5, 2.7);
+`meeting-hours-moved.spec.ts` 5 passed (A 13.7 s, B 4.3 s, C 5.6 s, D 6.0 s, E 4.3 s; total 34.9 s, AC-2.3 as changed, AC-2.7, D70).
+Logs: `/tmp/qe-mh-rerun/meeting-hours.spec.ts.log`, `/tmp/qe-mh-rerun/meeting-hours-moved.spec.ts.log`. The moved spec's screenshots went
+to `/tmp/qe-mh-rerun/shots` this time (`E2E_MARK_SHOTS_DIR`), so the committed `qe-evidence/` from the first pass was not touched.
+
+**4. What this does and does not prove.** The spec can fail, and did: 0 of 6 before the restart with four runners, 5 of 5 after with
+one, on the same code and the same spec, and the real-ffmpeg test and the isolated-instance runs of the first pass had already shown the
+code correct. The whole dev stack was restarted between the red and the green, so the restart is the intervention, and the first pass's isolated-instance
+A/B (same auth, hours-api and MinIO, only the meetings-api process differing) is what narrows it to the meetings-api process. Together
+they are the support for "EF-1 was the environment". The mechanism (a runner built before the correction landed keeps its old handler table under `bun --hot`) remains
+the best-supported explanation and is still not proven by observation of the loaded modules; I did not try to reproduce the accumulation
+because that means hot-reloading the owner's meetings-api, which this pass was told not to disturb. The stack had been up about a
+minute when run 1 started, so this pass says nothing about how long the dev stack stays correct: the next long-lived `--hot` session
+may go stale the same way, which the spec's header already warns about.
 
 ## Gates (T14's list, in its order)
 
@@ -82,8 +131,8 @@ runs of the gate table. Paths are under the package named.
 | 3.5 | I-H `apply.test.ts`, including the two-connection PATCH-vs-apply cases. Mutation M3 below fails exactly those | ✓ |
 | 3.6 | I-H `apply.test.ts` (stays; view `hidden`, no label once the meeting is gone); C `EntryRow.test.tsx`, `EntriesTable.test.tsx` ("Not visible to you") | ✓ |
 | 3.7 | I-H `apply.test.ts` (added after the duration is known, unless blocked) | ✓ |
-| 3.8 | U `meetings-api/src/media/measuredDuration.test.ts` (21); I-M `src/jobs/handlers/prepareAudio.measured.test.ts` (14; `status` still `processing`); C-M `meetings-ui/src/pages/MeetingPage.test.tsx` (66); **real ffprobe/ffmpeg, written by QE:** `meetings-api/src/media/prepare.measured.real.test.ts` (3 pass); real stack on an isolated `c3c963b3` meetings-api 5/5. Not on the dev stack: see BLOCKED | ✓ (see BLOCKED) |
-| 3.9 | I-M `prepareAudio.measured.test.ts` (version 2 delivered with the measured duration); I-H `apply.test.ts` (untouched takes it, changed keeps its values); real stack on the isolated instance: entry `60` then `30` min in 5 of 5 runs | ✓ (see BLOCKED) |
+| 3.8 | U `meetings-api/src/media/measuredDuration.test.ts` (21); I-M `src/jobs/handlers/prepareAudio.measured.test.ts` (14; `status` still `processing`); C-M `meetings-ui/src/pages/MeetingPage.test.tsx` (66); **real ffprobe/ffmpeg, written by QE:** `meetings-api/src/media/prepare.measured.real.test.ts` (3 pass); real stack: an isolated `c3c963b3` meetings-api 5/5 (first pass) and the restarted dev stack 5/5 (second pass, spec `meeting-hours-measured.spec.ts`) | ✓ |
+| 3.9 | I-M `prepareAudio.measured.test.ts` (version 2 delivered with the measured duration); I-H `apply.test.ts` (untouched takes it, changed keeps its values); real stack: entry `60` then `30` min in 5 of 5 runs on the isolated instance (first pass) and in 5 of 5 on the restarted dev stack (second pass) | ✓ |
 | 3.10 | U `measuredDuration.test.ts` (within-margin vectors, 44:00 / 46:00); I-M `prepareAudio.measured.test.ts` (within margin, unreadable, `too_long`, upload past 3 h), `prepareAudio.refuse.test.ts` (9); real `prepare.measured.real.test.ts` (12.5 s claimed over 12 s stays 12.5 s) | ✓ |
 | 4.1 | I-H `apply.test.ts` (note null), `notices.routes.test.ts` (strict body, a `title` is 400), `src/lib/meetingHoursWire.test.ts` (38) | ✓ |
 | 4.2 | I-M `deliverHoursNotice.test.ts` (503 then 200, backoff 30 s, 2 min, 10 min, 30 min, 400 settles as failed, channel off), `src/hours/delivery.backfill.test.ts` (6); I-H `apply.test.ts` (same notice twice, older version, all or nothing, row lock); existing `hours-api/src/entries/view.test.ts` ("meetings-api does not answer: still listed and counted"); C `EntryRow.test.tsx` ("Name unavailable, the mark does not need Meetings") | ✓ |
@@ -126,14 +175,15 @@ Also asserted in the same journey: `origin` is still `meeting` in hours-api afte
 Cancel, its accessible description contains both sentences, and Tab then Enter confirms by keyboard; the entry is gone after a reload
 and from hours-api. The admin's Everyone's hours shows the meeting as "Not visible to you" (visibility by participation), as designed.
 
-**AC-3.8 / design G7: driven, with an environment fault.** A fake microphone cannot produce a difference past the 30 s floor, so
+**AC-3.8 / design G7: driven, green on the restarted dev stack (first pass blocked by EF-1, now closed).** A fake microphone cannot produce a difference past the 30 s floor, so
 `shell/e2e/meeting-hours-measured.spec.ts` drives the recording API: a real 12 s Opus file cut into 240 byte slices, each confirmed as 15 s,
 so the meeting holds exactly one hour (the review's L1 case, with readable audio).
 
 | Where it ran | Result |
 |---|---|
 | meetings-api started by me on `c3c963b3`, `meetings_test`, dev auth / hours-api / MinIO | **passed 5 of 5.** Meeting timeline `processing/preparing 3600000` then, in the same `processing` state, `12007`, then `ready 12007` (seen while still processing in 4 of 5 timelines; the fifth flipped inside one 40 ms poll). Recorder figure stays `3600000` (A43). Entry `60` then `30` min in all five timelines (asserted in the last four; the first run was before I added that assertion). The Details card's Duration line read `00:00:1x`, not `01:00:00` (browser step, shell calls rerouted to that instance) |
-| dev stack meetings-api (:8085) | **failed 6 of 6**: timeline `processing/preparing 3600000` then `ready 3600000`, entry stays 60 |
+| dev stack meetings-api (:8085), first pass, before the restart (four job runners) | **failed 6 of 6**: timeline `processing/preparing 3600000` then `ready 3600000`, entry stays 60 |
+| dev stack meetings-api (:8085), second pass, after the owner's restart (one job runner), `d04d80ad` | **passed 5 of 5.** `processing/preparing 3600000` then, while still `processing`, `12007` (5 of 5 timelines), then `ready 12007`; entry `60` then `30` in all five; Duration line asserted by the spec's browser step. Full table under *This pass* |
 | `prepare.measured.real.test.ts` (real ffprobe/ffmpeg through `createPrepareAudio`) | 3 of 3: `heldMs: 3600000, measuredMs: 12007`, `status` still `processing`; claim 5 s over 45 s corrected up; 12.5 s over 12 s kept |
 
 Design G7 as a pure browser observation ("the Duration line changes while the meeting is still processing") was not made: with the fake AI
@@ -146,8 +196,9 @@ None. Nothing is filed against a dev agent.
 
 ## Environment faults (no owning dev agent, no fix round)
 
-**EF-1: the dev meetings-api's job runners are not all running the code on disk.**
-What I checked, in order:
+**EF-1 (CLOSED in the second pass): the dev meetings-api's job runners were not all running the code on disk.**
+Resolution: the owner restarted `mise run dev`; `pg_stat_activity` then showed one `LISTEN meetings_jobs` connection (pid 43897, started 15:39:16 CET)
+and `meeting-hours-measured.spec.ts` passed 5 of 5 against that dev meetings-api (it had failed 6 of 6). First-pass findings, kept for the record:
 1. The failure is not the code. `prepare.measured.real.test.ts` runs the real `createPrepareAudio` with the real ffprobe and ffmpeg on
    `c3c963b3` and corrects `3600000` to `12007` with the meeting still `processing`. A meetings-api I started on `c3c963b3` against the
    same dev auth, hours-api and MinIO passed the e2e spec 5 of 5, the dev one 0 of 6. The only difference is which meetings-api process.
@@ -158,7 +209,8 @@ What I checked, in order:
    instead of replacing it.
 3. What I could not establish: which runner claimed my jobs and which version of `prepareAudio` it held. All six dev runs failed, so it is
    not simply a random pick among four. I could not read that process's loaded modules or its log. Treat "stale runner state from hot
-   reloads" as the best-supported explanation, not a proven one. The restart named under BLOCKED settles it.
+   reloads" as the best-supported explanation, not a proven one. The restart settled the question of fault versus defect (green after a
+   clean restart: the environment); it did not prove the mechanism.
 4. Related and not mine to change: the orchestrator's note says "hot reload means it serves the current code". For the job runner that
    is not true, and any reviewer who runs `meeting-hours-measured.spec.ts` against a long-lived dev stack will see the same red.
 
@@ -184,6 +236,11 @@ Residue from my runs: `@operai.test` people, meetings and entries were removed b
   plan and decisions T5 say "every successful PATCH". The entry dialog sends only changed members (and nothing at all when nothing changed),
   so the UI cannot reach it; a direct API caller can. The ADR rejects value comparison on purpose. Owner: spec author, if A39's wording should
   say "saved PATCH".
+- **Dev-only hazard behind EF-1, not a defect of this feature.** Under `bun --hot` each reload of meetings-api started another job
+  runner (`startWorker()` builds one with the handler table of that moment, observed as four `LISTEN meetings_jobs` connections in the
+  first pass). Production does not run `--hot`, so no AC is affected. If the owner wants dev to match what the code says, the owner of
+  `meetings-api/src/jobs` (backend-dev) could make the runner dispose on hot reload; I did not test such a change and do not recommend it
+  as part of this feature. Until then: restart the dev stack before reading a red `meeting-hours-measured.spec.ts` as a defect.
 - The backfill sends no A37 second delivery (known, ledger D71). Not re-tested.
 - Design status line says `draft`; the plan and spec are approved. Housekeeping for `/wellforge:done`, not a QE finding.
 
@@ -201,8 +258,14 @@ and my tests add no new surface (no new dependency, route, credential or outboun
 
 ## Self-critique
 
-The verdict is BLOCKED rather than PASS because the environment you handed me does not serve the code on disk, and I could only show the
-cause from outside the process: four runner connections and file times, not the loaded modules. The first thing I would distrust in my own
-report is therefore EF-1's mechanism. Second, my proof that the moved-entry journey can fail is the same locator seen present and absent, not
-a mutation of the predicate, which I was not allowed to edit in place. Third, the isolated-instance A/B leans on a service env file I did not
-read for its credentials.
+The verdict moved from BLOCKED to PASS on one change of evidence: the same spec, on the same code, went from 0 of 6 to 5 of 5 once the
+owner restarted the stack, with the runner count going from four to one. That shows the environment was the cause; it does not show *how*,
+and I did not reproduce the stale-runner accumulation (that would mean hot-reloading the owner's meetings-api), so EF-1's mechanism is
+still inferred and the first thing I would distrust. Second, the stack was about a minute old when I ran, so a green here says nothing
+about the next long-lived `--hot` session; a developer who sees the spec red against an old dev stack should restart before filing a
+defect, as the spec's header says. Third, my proof that the moved-entry journey can fail is still the same locator seen present and
+absent, not a mutation of the predicate, which I was not allowed to edit in place, and the isolated-instance A/B of the first pass leans
+on a service env file I did not read for its credentials. Fourth, I re-ran no gate: I relied on `git diff --name-only c3c963b3..HEAD`
+showing only `specs/` files, which is a statement about paths, not about behaviour. Last, the Duration line during `processing`
+(design G7) is still observed through the API timeline and not in the browser, for the reason given above (a 5 s poll over a window of
+about 0.3 s with the fake AI provider).
