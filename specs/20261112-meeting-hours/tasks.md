@@ -71,7 +71,7 @@ env contract `mise run env:doctor`; e2e `cd shell && pnpm e2e meeting-hours.spec
 
 ## End to end, docs, security, close
 
-- [ ] T11: [QE] e2e `meeting-hours.spec.ts`: a recorded meeting gives both people a marked entry — refs: AC-1.1, AC-2.1, AC-2.3 — deps: T1, T7, T9, T10
+- [x] T11: [QE] e2e `meeting-hours.spec.ts`: a recorded meeting gives both people a marked entry — refs: AC-1.1, AC-2.1, AC-2.3 — deps: T1, T7, T9, T10
   - touch: `shell/e2e/meeting-hours.spec.ts`, `shell/e2e/helpers/*`
   - done when: with the stack up (local auth's `SERVICE_CLIENTS` giving meetings-api `meeting-hours-notices.send`; when no entry arrives the spec fails with a message naming that scope and `HOURS_API_URL` as the first things to check — never a skip), a creator records a short meeting with the fake microphone of `meetings-capture.spec.ts` with one Operai participant and stops; once the notice is delivered (poll My hours by navigating, never wait for a live update — design G5), each person's My hours shows, in the table view, 30 minutes on the meeting for today and, in the List and the cell's entries, the row marked "From meeting"; deleting it shows the second paragraph (AC-2.7) and the row stays gone after the next reload; `cd shell && pnpm e2e meeting-hours.spec.ts` passes twice in a row
 
