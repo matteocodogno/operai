@@ -230,3 +230,109 @@ I created three scratch databases in the local compose Postgres (`localhost:5435
 ## Summary
 
 0 critical · 0 high · 0 medium · 1 low · 8 info
+
+## Delta review 2026-11-24 — the security-review additions (T18)
+
+**Verdict: PASS.** 0 critical · 0 high · 0 medium · 0 low · 3 info.
+
+- **Scope.** `git diff ef89ef43..0ae2af50`, docs and specs excluded (commits 4bcddbed T15 and 33822e97 T16). It covers three areas:
+  - `prepare_audio`'s measured duration: `meetings-api/src/media/measuredDuration.ts` and the step-3 commit and log line in `src/jobs/handlers/prepareAudio.ts`.
+  - hours-ui's mark predicate: `src/lib/fromMeetingMark.ts` and its callers `EntryRow.tsx`, `EntriesTable.tsx` and `DeleteEntryDialog.tsx`.
+  - hours-api `src/entries/entries.routes.ts`.
+- **Method.** Read-only and static. The test assertions that bear on a question were read, not re-run.
+- **Stack.** Bun + Hono + Prisma and React, so JPA and jOOQ checks do not apply.
+- **No manifest, lockfile, migration, env or outbound-call change in the diff.** A06, A05 and A10 have nothing new to check.
+
+### Accepted risk, not re-raised
+
+Review notes **I1, I3 and I6** are accepted as risk by the owner (ledger D74, D75, D76: `specs/20261112-time-tracking/ledger.md:132-134`). Their code is untouched by this diff and none of them is re-raised here.
+
+### The T18 questions
+
+**1. Does the correction close L1 as plan § Security claims?** It closes L1 for readable audio, and the claim is stated accurately.
+- **What changed.** Step 3 now reads the held duration under the meeting's row lock, calls `durationAfterMeasure(held, measuredMs)` and writes `durationMs` only when the result differs (`prepareAudio.ts:268-270, :278`). The rule replaces the held value when `difference > 30 s && difference × 10 > held`, in either direction, with integers only (`measuredDuration.ts:27-30`).
+- **Source of the measured figure.** It is `format.duration` of the Ogg that ffmpeg re-encoded (`normalize.ts:197-203`), so the creator's container claim and the browser's per-chunk reports no longer decide an entry for readable audio.
+- **Plan's wording.** § Security says "no longer stands against readable audio", which is what the code does. It does not claim to close the unreadable case.
+
+**2. What stays creator-trusted?** Exactly the three the plan names, plus the failure sub-cases it folds into the third. All are bounded; see Q4.
+- **The window between Stop and the end of `prepare_audio`.** Entries are built from the held duration at Stop. The correction can only land in the step-3 commit.
+- **Differences inside the margin.** The held duration stands when the difference is at most 30 s or at most 10 % of held. The margin is at most 18.1 min (10 % of 181 min), which is less than one 30-minute step (`desired.ts:31`). So a held 3 h 01 min against a real 2 h 43 min leaves a 180-minute entry where the audio alone would give 150. The overstatement is at most one step.
+- **Audio that cannot be measured (D69).** The L1 example, about 722 one-byte chunks reported at 15 s each, still ends as follows:
+  - the local probe is not ok, so `NormalizeError("audio_unreadable")` (`prepareAudio.ts:254`);
+  - the meeting is marked failed and the job is permanent (`:314-315`);
+  - there is no commit, so the held 3 h and the 180-minute entries stand.
+  - `too_long` on a recording and a transient failure that exhausts its retries (`:318`) behave the same way. A creator's retry resumes at `prepare_audio` and corrects then.
+  - An upload that decodes past 3 h still goes back to `draft` with a null duration and a notice (`:305`), as before.
+
+**3. Does the log line leak anything personal?** No.
+- The line is `console.log("[prepare_audio] duration_corrected", { meetingId, heldMs, measuredMs })` (`prepareAudio.ts:293`).
+- It carries an opaque cuid and two integers, no user id and no title. The values are not free text, so there is no log-injection path.
+- It fires after the commit and only when `held !== null && next !== held` (`:285`), so a filled null duration logs nothing.
+- `prepareAudio.measured.test.ts:208-218` asserts that neither the creator id nor the title appears in any logged call.
+
+**4. Can a creator still force an entry beyond the plan's bound (180 min per person and meeting)?** No.
+- The result is always the held or the measured duration, so it is at most the larger of the two caps.
+  - Held is at most `MAX_RECORDING_MS` = 3 h 01 min for a recording (`recording.routes.ts:33, :269`) and at most `MAX_AUDIO_MS` = 3 h for an upload (`probe.ts:34`, the probe's `too_long` reject at `:227`).
+  - Measured is at most `MAX_NORMALIZED_MS` = 3 h 01 min (`normalize.ts:34`). Anything above is `too_long` (`:197`, and `:202` via `MAX_OUTPUT_SECONDS`).
+- 3 h 01 min rounds to 180 min (`desired.ts:31`: `floor((ms + 15 min) / 30 min) × 30`).
+- No other writer of `meeting.durationMs` can act on a `processing` meeting:
+  - `text.routes.ts:82` writes null on create.
+  - `upload.routes.ts:190` and `recording.routes.ts:391` run at the draft-to-processing transition.
+  - `recording.routes.ts:467` is the recording-to-draft abort.
+  - The PATCH route in `core.routes.ts` accepts no duration.
+
+**5. Does the row-lock read keep the decision safe against a concurrent write?** Yes.
+- `readHoursFacts` runs `SELECT … FOR UPDATE` on the meeting row, then reads `durationMs` in a separate statement (`record.ts:62-70`). `ctx.commit` sets no isolation level (`runner.ts:286-294`), so it is the database default, READ COMMITTED. A writer that committed before the lock was granted is therefore seen.
+- The lock is held through `updateMany`, `recordHoursNotice` (which locks again and bumps `hoursSeq`) and `enqueueJob`.
+- The write is guarded by `status: "processing", audioKey: null` (`prepareAudio.ts:273`).
+  - A deleted meeting gives `held = null` and `updateMany` count 0, so nothing is written and the audio object is deleted (`:281`, `:287-291`).
+  - A lost lease gives `committed: false` (`runner.ts:292`).
+- Retrying after a crash is idempotent, because `audioKey !== null` returns early (`:221-225`) and the correction is not applied twice.
+- `prepareAudio.measured.test.ts:232-243` kills the stale-copy variant: a duration written while ffmpeg runs is the one decided against.
+- The lock order is job row, then meeting row. That order is unchanged from before this diff, and Postgres resolves a delete-versus-commit deadlock by aborting one transaction, which the handler retries as transient.
+
+**6. Does the hours-ui predicate leave any path where a moved entry reveals its meeting?** No, by the UI.
+- `showsFromMeetingMark` is `origin === 'meeting' && on?.type === 'meeting'` (`fromMeetingMark.ts:17-18`). It is the only mark reader, called from `EntryRow.tsx:100` and `EntriesTable.tsx:71, :86`. No other source file reads `origin`: not the export, the cell dialog or `EntryDialog`.
+- A moved entry draws the kind badge alone. The mark also needs `on.type === 'meeting'`, so no id or title can come through it, and the view carries neither `sourceMeetingId` nor `followsMeeting` (`hours-api/src/entries/view.ts:80-83`).
+- A hidden or deleted meeting keeps the mark with the placeholder name. That discloses only what Everyone's hours already did and what I8 accepted.
+- `fromMeetingMark.test.ts` pins the U table, including a move off and back, hidden or unavailable names, `person`, a missing `origin` and a missing `on`.
+- See N3 for the one residual, which is in the wire and not in the UI.
+
+**7. Does the delete sentence still key on `origin` alone (D70), and does it leak anything?** Yes and no.
+- `DeleteEntryDialog.tsx:91` reads `entry.origin === 'meeting'` and nothing else.
+- The text is a constant string (`strings/entry.ts:138`) with no entry data.
+- The dialog is mounted only from `MyHoursPage.tsx:757`, over the person's own entries. Everyone's hours (`EntriesTable`) has no delete.
+- `DeleteEntryDialog.test.tsx` pins it for a project, a deal and other work.
+
+**8. hours-api `entries.routes.ts`: comment-only?** Yes. The hours-api diff outside tests is one line, a `//` comment at `:371`. `followsMeeting: false` at `:372` and everything around it are unchanged, and no other hours-api source file changed.
+
+### Findings
+
+None at critical, high, medium or low. Three info notes need no action for PASS.
+
+**N1 — INFO, A04: the residual of L1 is as the plan states it and stays within 180 minutes.** The cases are in Q2 (`measuredDuration.ts:29-30`, `prepareAudio.ts:254, :314-318`). The effect is at most 180 min × 31 people per meeting, which is the accepted creator-trust model (AC-1.7, D54-D57, D69). Nothing to fix.
+
+**N2 — INFO, A04, not verified: whether a crafted container can inflate the measured figure.**
+- The measured figure is the Ogg that ffmpeg wrote, not a count of decoded samples. The arguments at `normalize.ts:127-137` do no timestamp normalisation.
+- No test feeds a readable input with a jump or gap in container timestamps (nothing of the kind in `normalize*.test.ts` or `prepareAudio*.test.ts`).
+- I could not run ffmpeg under the read-only rule, so I did not check whether such an input can make the output claim more than the real audio.
+- The 3 h 01 min cap (`normalize.ts:197, :202`) holds either way, so the 180-minute bound is unaffected. What would be weaker is the plan's sentence "a claimed duration no longer stands against readable audio".
+- Suggested check, cheap and not blocking: in `normalize.real.test.ts` style, build a two-packet container with a 3 h timestamp jump, run it through the real `normalizeAudio`, and read `durationMs`. If it is seconds, record it as checked. If it is about 3 h, add the case to § Security as one more creator input within the same bound.
+
+**N3 — INFO, A01/A04: `origin` is still on the wire for a moved entry.**
+- `hours-api/src/entries/view.ts:83, :181` send `origin: row.origin` for every entry, including to a `time-entry:read-all` holder on a moved one (D70 needs it for the owner's delete sentence).
+- hours-ui no longer renders it for a moved entry, so the UI path I8 named is closed. A holder reading the JSON still learns the provenance bit: the entry began as an automatic meeting entry. I8 had already judged that bit acceptable on screen, so this is no new exposure.
+- Plan § Security says it is "shown to its person only". That is true of the UI and not of the JSON, so I suggest the sentence say so.
+- Optional hardening, not needed for PASS: `toView` already has `own` (`view.ts:166`). It could send `origin: own || row.on is a meeting ? row.origin : "person"`. That changes the "origin never changes" contract for non-owner views only, so weigh it against the OpenAPI text at `entries.routes.ts:123`.
+
+### Checked and clean
+
+- **A03.** No new raw SQL in the diff. `readHoursFacts` is the existing tagged template with a bound `meetingId`.
+- **A02/A09.** Covered in Q3. No secret or personal value in logs, tests or fixtures. The tests use a fixed creator id and title as canaries.
+- **A06/A08.** No dependency or deserialization change.
+- **A10.** No new outbound call. The measured figure is the value ffprobe already returned, so no new reader of bytes (plan § Security's last bullet holds).
+- **hours-ui.** The new code is a pure boolean over two fields, with no HTML sink, no new string and no new route. The type comment in `hoursApi.types.ts` changed only.
+
+### Summary
+
+0 critical · 0 high · 0 medium · 0 low · 3 info. Accepted by the owner and not re-raised: I1, I3 and I6 (D74-D76).

@@ -103,7 +103,7 @@ env contract `mise run env:doctor`; e2e `cd shell && pnpm e2e meeting-hours.spec
   - touch: `AGENTS.md`, `infra/README.md`, `.changeset/meeting-hours-automatic-entries.md`, `meetings-api/src/lib/serviceToken.ts`
   - done when: AGENTS.md's automatic-entry text (Hours row of the tools table, Time tracking table, hours-api paragraph) says the mark shows while the entry is recorded on a meeting and no longer "kept after a change", and meetings-api's write list says "filling, correcting or refusing a duration"; infra/README.md § Meeting hours release documents the `duration_corrected` line as R9's signal (plan § Risks, D-P10); the feature changeset's text names the mark rule (hours-ui) and the measured duration (meetings-api), no new changeset; `meetings-api/src/lib/serviceToken.ts`'s header comment names the three scopes `notifications.push host-notices.send meeting-hours-notices.send` (comment only; `decisions.md` orchestrator note); `mise run changeset:check` passes and `cd meetings-api && bun run typecheck` is green
 
-- [ ] T18: [QE] owasp delta pass over the additions (plan § Security) — refs: AC-3.8, AC-2.3 — deps: T15, T16
+- [x] T18: [QE] owasp delta pass over the additions (plan § Security) — refs: AC-3.8, AC-2.3 — deps: T15, T16
   - touch: `specs/20261112-meeting-hours/owasp-report.md`
   - done when: owasp-report.md gains a dated delta section with a verdict PASS over `prepare_audio`'s correction and the hours-ui predicate (the two items plan § Security names), with I1, I3 and I6 recorded as accepted by the owner (D74–D76), and no finding at medium or above open
 
