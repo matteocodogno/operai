@@ -28,6 +28,12 @@ const { app, MAX_REQUEST_BODY_BYTES } = await import("../index");
 const { db } = await import("../lib/db");
 const { env } = await import("../lib/env");
 
+// The system guard of the notices route is the REAL one (nothing replaces it, unlike the user session guard, which
+// `testAuth.ts` mocks); only the key set it verifies against is the harness's, as the remote one would be auth's.
+// `signServiceToken` mints what that key set accepts. Set here for the whole process, like the jwt mock.
+const { __setDefaultJwksForTests } = await import("../auth/systemAuth.middleware");
+__setDefaultJwksForTests(harness.serviceKeys());
+
 export { app, db, env, MAX_REQUEST_BODY_BYTES };
 
 // ─── The seeded lists (A15, AC-3.7) ──────────────────────────────────────────

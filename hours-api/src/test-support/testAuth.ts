@@ -27,6 +27,7 @@ import {
   type JWK,
   type JWSHeaderParameters,
   type FlattenedJWSInput,
+  type JWTVerifyGetKey,
 } from "jose";
 import { TEST_ISSUER, TEST_JWKS_URL, TEST_AUDIENCE, TEST_SERVICE_AUDIENCE, TEST_KID } from "./env";
 
@@ -44,10 +45,29 @@ export interface SignTokenOptions {
   readonly expiresIn?: string;
 }
 
+export interface SignServiceTokenOptions {
+  /** The service principal. Default `system:meetings-api`, the one caller of hours-api's `/system` route. */
+  readonly sub?: string;
+  /** The space-delimited `scope` claim; `null` leaves the claim out. Default `meeting-hours-notices.send`. */
+  readonly scope?: string | null;
+  /** Default `TEST_SERVICE_AUDIENCE` (auth's SERVICE_AUDIENCE), never the user one. */
+  readonly audience?: string;
+  readonly issuer?: string;
+  /** A jose time string such as "5m" or "-1h" (already expired). Default "5m". */
+  readonly expiresIn?: string;
+}
+
 export interface TestAuthHarness {
   /** Generates the fixture RS256 keypair. Call once, before signing tokens. */
   init(): Promise<void>;
   signToken(options: SignTokenOptions): Promise<string>;
+  /**
+   * A scoped service JWT as `auth POST /system/service-token` mints it (no `email`, a `system:` subject, a `scope`
+   * claim), validly SIGNED: a test of the system guard changes one claim at a time.
+   */
+  signServiceToken(options?: SignServiceTokenOptions): Promise<string>;
+  /** The harness key as a key set, what `systemAuth.middleware` verifies against in a test (see `world.ts`). */
+  serviceKeys(): JWTVerifyGetKey;
   /** The public key as a JWKS document, for tests of the REAL middleware. */
   jwks(): { keys: JWK[] };
 }
@@ -129,6 +149,21 @@ const harness: TestAuthHarness = {
       .setAudience(audience ?? TEST_AUDIENCE)
       .setExpirationTime(expiresIn ?? "1h")
       .sign(privateKey);
+  },
+  async signServiceToken({ sub, scope, audience, issuer, expiresIn }: SignServiceTokenOptions = {}) {
+    if (!privateKey) throw new Error("harness.init() was not called");
+    return new SignJWT(scope === null ? {} : { scope: scope ?? "meeting-hours-notices.send" })
+      .setProtectedHeader({ alg: "RS256", kid: TEST_KID })
+      .setIssuedAt()
+      .setIssuer(issuer ?? TEST_ISSUER)
+      .setSubject(sub ?? "system:meetings-api")
+      .setAudience(audience ?? TEST_SERVICE_AUDIENCE)
+      .setExpirationTime(expiresIn ?? "5m")
+      .sign(privateKey);
+  },
+  serviceKeys() {
+    if (!localJWKS) throw new Error("harness.init() was not called");
+    return localJWKS;
   },
   jwks() {
     if (!publicJwk) throw new Error("harness.init() was not called");

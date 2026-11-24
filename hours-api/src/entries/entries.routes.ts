@@ -395,8 +395,9 @@ entriesRouter.openapi(deleteEntryRoute, async (c) => {
     if (gone === null) return false;
     // An automatic entry the person removes is never recorded again for them on its meeting (specs/20261112-meeting-hours
     // AC-2.5): the block commits WITH the delete, so the committed state always holds the entry or the block, never
-    // neither. (This handler takes no lock of apply()'s: apply() must read a meeting's entries BEFORE its blocks, so that
-    // a delete committing between the two reads is seen as the entry, not as neither.) Untouched or changed alike:
+    // neither. (This handler takes no lock of apply()'s: apply() reads a meeting's entries and its blocks in ONE statement,
+    // `readState` in src/meetingHours/apply.ts, so that a delete committing meanwhile is seen whole, as the entry or as the
+    // block, never as neither.) Untouched or changed alike:
     // `sourceMeetingId` is set exactly for an automatic entry (CHECK time_entry_origin_shape) and survives its person's
     // moving it elsewhere. A block that is already there is kept.
     if (gone.sourceMeetingId !== null) {

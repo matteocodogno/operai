@@ -320,6 +320,68 @@ describe("the POST body is strict (AC-1.6, AC-1.8): what is not a member is refu
   });
 });
 
+// ─── The one service route: meetings-api's notices (specs/20261112-meeting-hours T7) ───────
+
+describe("the notices route is in the document as the one route a service calls, with the strict body of the shared wire (AC-1.6, AC-4.1)", () => {
+  const KEY = "POST /system/meeting-hours/v1/notices";
+  const INT4_MAX = 2_147_483_647;
+
+  it("is the only operation under /system, tagged System, and answers 200, 400, 401 and 500", () => {
+    expect(operations.filter(({ path }) => path.startsWith("/system/")).map(({ key }) => key)).toEqual([KEY]);
+    const { op } = operation(KEY);
+    expect(op.tags).toEqual(["System"]);
+    expect(Object.keys(op.responses).sort()).toEqual(["200", "400", "401", "500"]);
+  });
+
+  it("says who may call it: the scope and the one service, and that a user JWT is never accepted", () => {
+    const { description } = operation(KEY).op;
+    expect(description).toContain("meeting-hours-notices.send");
+    expect(description).toContain("system:meetings-api");
+    expect(description).toMatch(/user JWT is never accepted/);
+  });
+
+  it("takes a closed body at every level, with exactly the members of the wire and the bounds of its schema", () => {
+    const body = bodyOf(KEY);
+    expect(operation(KEY).op.requestBody.required).toBe(true);
+    for (const { path, schema } of walk(body)) {
+      if (schema.type === "object") expect({ path: path.join("."), closed: schema.additionalProperties }).toEqual({ path: path.join("."), closed: false });
+    }
+    expect([...body.required].sort()).toEqual(["meeting", "noticeId"]);
+    const meeting = body.properties.meeting;
+    expect([...meeting.required].sort()).toEqual(["facts", "id", "seq"]);
+    const facts = meeting.properties.facts;
+    // `null` is "the meeting no longer exists", written out: the member is required and nullable, never optional.
+    expect({ nullable: facts.nullable, required: [...facts.required].sort() }).toEqual({ nullable: true, required: ["creatorId", "durationMs", "participantIds", "startsAt"] });
+    expect(Object.keys(facts.properties).sort()).toEqual(["creatorId", "durationMs", "participantIds", "startsAt"]);
+
+    const bounded = (schema: Schema) => ({ minLength: schema.minLength, maxLength: schema.maxLength });
+    expect(bounded(body.properties.noticeId)).toEqual({ minLength: 1, maxLength: 64 });
+    expect(bounded(meeting.properties.id)).toEqual({ minLength: 1, maxLength: 64 });
+    expect(bounded(facts.properties.creatorId)).toEqual({ minLength: 1, maxLength: 64 });
+    expect({ ...bounded(facts.properties.participantIds.items), maxItems: facts.properties.participantIds.maxItems }).toEqual({ minLength: 1, maxLength: 64, maxItems: 100 });
+    expect({ type: meeting.properties.seq.type, minimum: meeting.properties.seq.minimum, maximum: meeting.properties.seq.maximum }).toEqual({ type: "integer", minimum: 1, maximum: INT4_MAX });
+    expect({ type: facts.properties.durationMs.type, nullable: facts.properties.durationMs.nullable, minimum: facts.properties.durationMs.minimum, maximum: facts.properties.durationMs.maximum }).toEqual({
+      type: "integer",
+      nullable: true,
+      minimum: 0,
+      maximum: INT4_MAX,
+    });
+    expect({ type: facts.properties.startsAt.type, format: facts.properties.startsAt.format }).toEqual({ type: "string", format: "date-time" });
+  });
+
+  it("carries no title, no external participant, no host and nothing else of a meeting: the names in the body are the wire's and no others (AC-4.1)", () => {
+    const names = [...new Set([...walk(bodyOf(KEY)).flatMap(({ path }) => (path.length > 0 ? [path[path.length - 1]!] : []))])].filter((name) => name !== "[]");
+    expect(names.sort()).toEqual(["creatorId", "durationMs", "facts", "id", "meeting", "noticeId", "participantIds", "seq", "startsAt"]);
+  });
+
+  it("answers `{ applied }` and nothing more, and its 400 and 401 are Problems", () => {
+    const { responses } = operation(KEY).op;
+    const answer = deref(responses["200"].content["application/json"].schema);
+    expect({ members: Object.keys(answer.properties), required: answer.required, type: answer.properties.applied.type }).toEqual({ members: ["applied"], required: ["applied"], type: "boolean" });
+    for (const status of ["400", "401", "500"]) expect(Object.keys(deref(responses[status].content["application/json"].schema).properties)).toEqual(expect.arrayContaining(["type", "title", "status", "detail", "instance"]));
+  });
+});
+
 // ─── AC-3.2: nobody deletes a category or a work type ────────────────────────
 
 describe("no DELETE exists on the lists (AC-3.2)", () => {
