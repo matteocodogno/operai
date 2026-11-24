@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { checkGroups, extractRegion, SHARED_COPIES, type SharedGroup } from "./check-shared-copies";
@@ -151,15 +151,30 @@ describe("the committed registry", () => {
     }
   });
 
-  test("registers the systemAuth guard of crm-api, estimai-api, activities-api, meetings-api and accounting-api (specs/20261110-activities T10, specs/20261112-time-tracking T9, specs/20261119-accounting T4)", () => {
+  test("registers the systemAuth guard of crm-api, estimai-api, activities-api, meetings-api, accounting-api and hours-api (specs/20261110-activities T10, specs/20261112-time-tracking T9, specs/20261119-accounting T4, specs/20261112-meeting-hours T2)", () => {
     const g = SHARED_COPIES.find((x) => x.name === "systemAuth");
     expect(g?.files.sort()).toEqual([
       "accounting-api/src/auth/systemAuth.middleware.ts",
       "activities-api/src/auth/systemAuth.middleware.ts",
       "crm-api/src/auth/systemAuth.middleware.ts",
       "estimai-api/src/auth/systemAuth.middleware.ts",
+      "hours-api/src/auth/systemAuth.middleware.ts",
       "meetings-api/src/auth/systemAuth.middleware.ts",
     ]);
+    expect(checkGroups(g ? [g] : [], repoRoot)).toEqual([]);
+  });
+
+  // specs/20261112-meeting-hours T2 (plan R2, R7): the notice's body is built by meetings-api and parsed by hours-api with one file.
+  test("registers the meetingHoursWire schema of hours-api and meetings-api, in sync right now", () => {
+    const g = SHARED_COPIES.find((x) => x.name === "meetingHoursWire");
+    expect(g?.files).toEqual(["hours-api/src/lib/meetingHoursWire.ts", "meetings-api/src/lib/meetingHoursWire.ts"]);
+    expect(g?.mode ?? "region").toBe("region");
+    expect(checkGroups(g ? [g] : [], repoRoot)).toEqual([]);
+  });
+
+  test("the two meetingHoursWire files are byte-identical as whole files, not only in their marked region", () => {
+    const [a, b] = ["hours-api", "meetings-api"].map((svc) => readFileSync(join(repoRoot, svc, "src/lib/meetingHoursWire.ts")));
+    expect(a?.equals(b ?? Buffer.alloc(0))).toBe(true);
   });
 
   test("registers accounting-api's problem and logger copies (specs/20261119-accounting T4)", () => {
