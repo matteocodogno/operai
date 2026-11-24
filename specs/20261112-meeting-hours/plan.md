@@ -14,6 +14,22 @@ Design: `design.md` (the mark's placement, tone and copy win over this plan's §
 > "Da riunione" in Italian (D60); the delete confirmation of an automatic entry gains a sentence (spec AC-2.7, D61);
 > AC-2.3 names Everyone's hours (D62). Test rows AC-2.3 and AC-2.7 updated.
 
+> Amended 2026-11-24 after implementation: corrections the implementing agents and the security review surfaced
+> (`decisions.md` T6 to T9 and T12, `owasp-report.md` L1). No scope and no acceptance criterion of `spec.md` changes.
+> 1. § Deploy order: `HOURS_API_URL` on meetings-api is a precondition of meetings-api's deploy (new step 0), because its
+>    production `env.ts` exits at start without it.
+> 2. § API contracts, the notices route: a body over the global 64 KiB cap is a 413, decided before the guard, and a body
+>    not declared as JSON a 415, after it, as on every hours-api route; 400 `invalid_request` stays for a JSON body the
+>    wire refuses; the order of the answers.
+> 3. § Release backfill: the backfill queues no A37 second delivery, so a meeting whose Zurich day is still ahead at the
+>    release gets its entries only at its next change of a hours fact. A known, accepted limit.
+> 4. § Where meetings-api records a notice: `recordHoursNotice(tx, meetingId, { before } | { deleted: true }, now)`, with
+>    `before` a `readHoursFacts` snapshot taken under the meeting's row lock before the write and compared after it.
+>    § Applying a notice step 4 and the DELETE bullet: `apply()` reads entries and blocks in ONE statement (`readState`),
+>    which is what makes a concurrent DELETE safe.
+> 5. § Security, "Abuse by a meeting's creator": the duration is bounded by 3 h 1 min, so an entry is at most 180 minutes
+>    (not "capped at 24 h"), it is never checked against the audio, and `startsAt` is a third creator-controlled input.
+
 ## Architecture
 
 ### Shape in one paragraph
@@ -48,11 +64,18 @@ Nothing changes in crm-api, projects-api, activities-api, notify-api or the shel
 
 ### Where meetings-api records a notice
 
-`recordHoursNotice(tx, meetingId, { deleted }, now)` runs inside the write's own transaction, after the
-write. It records a notice only when a **hours fact** changed — `startsAt`, `durationMs`, the set of
-Operai participant ids (the creator never changes) — **and** the meeting has (or had, before this
-write) a non-null `durationMs`; a deletion records one only when `hoursSeq > 0` (something was sent
-before). It is a no-op when the hours channel is disabled (below).
+`recordHoursNotice(tx, meetingId, change, now)` (`src/hours/record.ts`), with `change = { before: HoursFacts | null }
+| { deleted: true }`, runs inside the write's own transaction. A write that may change a fact first takes a snapshot,
+`before = await readHoursFacts(tx, meetingId)`: the meeting's `startsAt`, `durationMs` and Operai participant ids
+(distinct, sorted), read under the meeting's row lock (`SELECT … FOR UPDATE`), so that no concurrent change can land
+between the snapshot and the write unannounced. Every path takes that lock for its own write anyway, in the same order
+relative to its other rows, so no new deadlock. The path then makes its write and calls
+`recordHoursNotice(tx, id, { before }, now)`, which reads the facts again and compares. It records a notice only when a
+**hours fact** changed — `startsAt`, `durationMs`, the set of Operai participant ids (the creator never changes, so it
+is not compared; the body carries it, read at send time) — **and** the meeting has a non-null `durationMs` before or
+after the write (0 counts as known here; hours-api reads 0 as not known, D-P4). A deletion passes `{ deleted: true }`,
+before `meeting.delete`, and records one only when `hoursSeq > 0` (something was sent before). The rule lives in that
+one function: the seven paths below only snapshot and call it. It is a no-op when the hours channel is disabled (below).
 
 | Write | File (today) | What changed |
 |---|---|---|
@@ -69,7 +92,8 @@ before a duration exists), retry and transcription outcomes (they do not touch t
 title, format, language, source or host. A meeting relinked to another deal sends nothing: the deal it
 counts for is read live by hours-api's views, as today (specs/20261112-time-tracking AC-2.6, A39).
 
-What it writes: `UPDATE meeting SET "hoursSeq" = "hoursSeq" + 1 RETURNING "hoursSeq"` (also a row lock),
+What it writes: `UPDATE meeting SET "hoursSeq" = "hoursSeq" + 1 RETURNING "hoursSeq"` (the row lock, already held
+from the snapshot for a state change; for a deletion only `WHERE "hoursSeq" > 0`),
 one `hours_notice` row `{ meetingId, seq, kind: state|deleted }`, and one `deliver_hours_notice` job
 `{ noticeId, maxAttempts: 1_000_000, runAfter: now }` via `enqueueJob` (`src/jobs/runner.ts:152-167`).
 **A future day (A37):** when `kind = state` and the Zurich day of the new `startsAt` is after today in
@@ -119,8 +143,14 @@ and gets 401). `apply(notice)` runs in one transaction, with no outbound call:
      `day > today` (A37) → nobody.
    - `minutes = clamp(floor((durationMs + 900 000) / 1 800 000) × 30, 30, 1440)` (A36).
    - people = the distinct ids of `creatorId` ∪ `participantIds` (AC-1.2).
-4. Read the meeting's automatic entries (`sourceMeetingId = M`, touched or not), its blocks, and the
-   people who hold another entry with `meetingId = M`.
+4. Read, in **one statement** (`readState` in `src/meetingHours/apply.ts`: a `UNION ALL` of `time_entry WHERE
+   "meetingId" = M OR "sourceMeetingId" = M` and `meeting_hours_block WHERE "meetingId" = M`), the meeting's automatic
+   entries (`sourceMeetingId = M`, touched or not, wherever their person moved them), the people who hold another
+   entry on `M` (their own, or an automatic entry of another meeting they moved onto `M`), and its blocks. One
+   statement is one snapshot (at Read Committed each statement takes its own), and that is what makes a concurrent
+   DELETE safe: the person's DELETE removes the entry and writes its block in one transaction, so this read sees the
+   entry or the block, never neither. Two reads could see neither, and step 6 would record again what the person just
+   deleted (AC-2.5).
 5. Each **untouched** entry (`followsMeeting`): its person not in `desired` → `DELETE … WHERE id = $1
    AND "followsMeeting"` (no block: a re-added person gets one again, AC-3.7); day or minutes differ →
    `UPDATE … SET day, minutes WHERE id = $1 AND "followsMeeting"`. The `AND "followsMeeting"` is the
@@ -140,7 +170,9 @@ The partial unique index `(userId, sourceMeetingId)` is the database's guarantee
   untouched (AC-2.4).
 - DELETE (`:377`): becomes an interactive transaction — delete the caller's own entry `RETURNING
   "sourceMeetingId"`; when non-null, insert block `(sourceMeetingId, userId, deleted)` `ON CONFLICT DO
-  NOTHING` (AC-2.5). The block commits with the delete, so an apply that runs after sees one of the two.
+  NOTHING` (AC-2.5). The block commits with the delete, and apply's one-statement read (step 4) sees that transaction
+  whole or not at all: whenever that read runs, it sees the entry or the block, never neither. The DELETE takes none of
+  apply's locks.
 - POST is unchanged: an entry a person records on a meeting by hand is `origin: person`.
 
 `since` is `meeting_hours_release.since`, written once by hours-api's migration as the Zurich date of
@@ -156,8 +188,24 @@ between the two services' deploys, with no operator step. Rejected: an operator-
 forgotten step silently loses the release day's meetings); a backfill keyed on hours-api's `since`
 (meetings-api cannot know it).
 
+**Known, accepted limit (decisions T8):** the backfill queues only the immediate delivery, never A37's second one
+(§ Where meetings-api records a notice). A meeting that has a duration and whose Zurich day is still after today when
+the migration runs (one already recorded or uploaded whose start was set to a later day, which is rare) is delivered
+once, hours-api creates nothing for a day after today, and nothing sends it again when that day comes. Its entries
+appear only at its next change of a hours fact (start, duration or Operai participants; that notice carries its own A37
+delivery if the day is still ahead), and never if no such change comes. Each person can still record those hours by
+hand. Not repaired: the migration has already run on the development database (decisions T12), a migration a database
+has applied is never edited (ADR 20261119-data-that-moves-…-an-applied-migration-is-never-edited), and no further
+migration is planned for so rare a case.
+
 ### Deploy order
 
+0. **`HOURS_API_URL` on meetings-api, before the merge**: hours-api's private address and port, never its public
+   domain (the service token travels in this call). meetings-api's production `env.ts` lists it in
+   `PRODUCTION_REQUIRED_KEYS` and exits 1 at start without it, so a meetings-api of this release cannot start until it
+   is set, while the running, older code ignores it. It is a precondition of meetings-api's deploy, not a step after it
+   (`infra/README.md` § Meeting hours release, Step 0). For the same reason it is never unset to pause the channel:
+   the pause is removing the scope from the `SERVICE_CLIENTS` entry.
 1. **auth** with the new scope known; only once it is live, add `meeting-hours-notices.send` to the
    `meetings-api` entry of production `SERVICE_CLIENTS` (an unknown scope stops auth, ADR 20261108-crm-pushes-deal-links-to-estimai).
 2. **hours-api** and **meetings-api** in either order: notices sent before hours-api has the route get
@@ -316,10 +364,21 @@ Request (strict: an unknown key anywhere is a 400)
 }
 
 200 { applied: boolean }   // false: an older version than the one applied (nothing changed)
-400 problem+json invalid_request { field }   // malformed or unknown keys — the sender treats it as permanent
+400 problem+json invalid_request { field }   // a JSON body the wire refuses: a missing or unknown key, a value out
+                                             //   of bounds (`field` names the first); malformed or empty JSON is the
+                                             //   same 400 without `field` — the sender treats it as permanent
 401 problem+json (one body)
+413 problem+json           // over the global 64 KiB body cap (src/index.ts, every route), decided BEFORE the guard
+415 problem+json           // a body not declared as JSON (Hono, as on every hours-api route), decided after the guard
 500                        // database failure — the sender retries
 ```
+
+Order of the answers: the body cap (413), the guard (401), the media type (415), the wire (400), then `apply()`. The
+cap (`bodyLimit`, `src/index.ts:44-51`) is global and runs before the route's guard, parsing nothing: a declared
+`Content-Length` over 64 KiB is refused from the header without reading the body, and a body sent without a length
+(chunked) is buffered up to the cap and refused once it passes it. Neither answer says anything about the credential.
+meetings-api meets neither (it always declares JSON, and the wire's caps keep any notice far below 64 KiB); were one
+to occur, the sender would treat it as transient (§ Delivering a notice).
 
 Never in the body: a title, external participants, a host, any content (AC-4.1). No outbound call is
 made while applying (AC-2.6: no notification). Logged per apply: `meeting_hours.applied` with
@@ -447,9 +506,25 @@ on a later Zurich day enqueues a second job due at 00:01 Zurich that day; I-H: t
   write (AC-1.7).
 - **Abuse by a meeting's creator**: they can add colleagues as participants and so give them hours on a
   meeting — the same trust Meetings already places in the creator's participant list (validated active,
-  ≤ 30); each person can delete theirs. The recording duration is client-reported per chunk (≤ 15 s each,
-  `recording.routes.ts:117, :274`), so a forged client cannot exceed its stored chunks; the entry is
-  capped at 24 h.
+  ≤ 30); each person can delete theirs. The creator also controls the two other facts an entry is built
+  from, and neither is checked against the audio:
+  - **Duration.** A recording's is the sum of the per-chunk durations the browser reports when it confirms each
+    chunk (each ≤ 15 s, `MAX_CHUNK_MS`; the meeting's total ≤ `MAX_RECORDING_MS` = 3 h 1 min, a confirm past it
+    refused, `meetings-api/src/capture/recording.routes.ts:33, :269`), never compared with the stored bytes (a chunk
+    need only be an object of 1 B–8 MiB, `src/lib/storage.ts:260`) or with the decoded audio. An upload's is the
+    container's own claim as ffprobe reads it (≤ `MAX_AUDIO_MS` = 3 h, refused beyond, `src/media/probe.ts:34`).
+    `prepare_audio` writes the decoded duration only when none was stored (`src/jobs/handlers/prepareAudio.ts:262`;
+    the decode itself is held to 3 h 1 min), so a claimed duration stands even if processing later fails. An
+    automatic entry is therefore at most **180 minutes** per person and meeting (A36's rounding of 3 h 1 min); A36's
+    24-hour clamp is never the binding bound.
+  - **Start.** `startsAt` is set at create (default now) or by a PATCH (`src/meetings/core.routes.ts:129, :201`), to
+    any instant. It decides the day of every participant's entry, bounded by the release day (AC-1.5) and today
+    (A37), and a PATCH moves every untouched entry with it.
+
+  So a forged client gains nothing that recording 3 h of real silence with 30 colleagues does not already allow: at
+  most 3 h for each of at most 31 people per meeting, on a day of the creator's choosing within those bounds. Each
+  participant is notified when added, sees the entry marked "From meeting", and can change it, or delete it for good. The
+  creator-trust model of AC-1.7 and D54–D57 stands (security review L1, low).
 - **Personal data in transit**: attendance (who, when, how long) crosses services — the minimum the
   feature needs; no title or content (AC-4.1). The outbox stores no personal data (ids built at send);
   hours-api stores only what an entry already holds plus `meeting_hours_block` (meeting id, user id,
