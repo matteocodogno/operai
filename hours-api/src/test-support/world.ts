@@ -90,6 +90,22 @@ export function makeWorkType(list: "project" | "deal" = "project", name = next("
   return db.workType.create({ data: { list, name, retiredAt: options.retired ? new Date() : null, createdBy: "user-admin" } });
 }
 
+// ─── The release day of meeting hours (specs/20261112-meeting-hours, AC-1.5) ──────────────────
+
+/**
+ * The `since` `resetWorld` puts into the one `meeting_hours_release` row. The migration writes the day it
+ * ran, which in a test database is whenever it was deployed, so a test cannot rely on that; this one is
+ * before every day the factories use (2026-11-02 by default), so no fixture is "before the release" unless
+ * a test asks with `setReleaseDay`.
+ */
+export const RELEASE_DAY = "2026-01-01";
+
+/** Sets the release day (`YYYY-MM-DD`): the one row of `meeting_hours_release`, as the migration made it. */
+export async function setReleaseDay(day: string): Promise<void> {
+  const since = new Date(`${day}T00:00:00Z`);
+  await db.meetingHoursRelease.upsert({ where: { id: 1 }, create: { id: 1, since }, update: { since } });
+}
+
 // ─── Entries, inserted directly ──────────────────────────────────────────────
 
 /** What every entry has, whatever it is on. The defaults make a valid 1 h entry of `alice` on a past day. */
@@ -234,10 +250,16 @@ export function onReset(hook: () => void | Promise<void>): void {
 
 /**
  * Puts the world back to its start: no entries, no list rows but the seeded ones, and those as the
- * migration made them (a test may have renamed, retired or restored one), then every registered hook.
+ * migration made them (a test may have renamed, retired or restored one), no applied meeting versions
+ * and no blocks, the one release row back (`RELEASE_DAY`), then every registered hook.
  */
 export async function resetWorld(): Promise<void> {
   await db.timeEntry.deleteMany();
+  await db.meetingHoursBlock.deleteMany();
+  await db.meetingHoursMeeting.deleteMany();
+  // The release table holds ONE row by its CHECK, and `apply()` reads the release day from it: it is put
+  // back, never emptied (the seeded lists below are treated the same way).
+  await setReleaseDay(RELEASE_DAY);
   await db.timeCategory.deleteMany({ where: { id: { notIn: SEED_CATEGORY_ROWS.map((row) => row.id) } } });
   await db.workType.deleteMany({ where: { id: { notIn: SEED_WORK_TYPE_ROWS.map((row) => row.id) } } });
   await db.$transaction([
