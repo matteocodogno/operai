@@ -3,6 +3,7 @@ import { env } from "../../lib/env";
 import type { JobKind } from "../../lib/generated/prisma/client";
 import { createRunner, type JobHandler, type Runner } from "../runner";
 import { deliverHostNotice } from "./deliverHostNotice";
+import { deliverHoursNotice } from "./deliverHoursNotice";
 import { prepareAudio } from "./prepareAudio";
 import { summarize } from "./summarize";
 import { transcribe } from "./transcribe";
@@ -13,6 +14,7 @@ export const handlers: Record<JobKind, JobHandler> = {
   transcribe,
   summarize,
   deliver_host_notice: deliverHostNotice,
+  deliver_hours_notice: deliverHoursNotice,
 };
 
 /**

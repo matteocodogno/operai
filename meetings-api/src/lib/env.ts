@@ -33,7 +33,10 @@ const REAL_PROVIDER_KEYS = [
   "MEETINGS_GCP_SERVICE_ACCOUNT_KEY",
   "MEETINGS_GCS_TRANSIENT_BUCKET",
 ] as const;
-const PRODUCTION_REQUIRED_KEYS = [...NOTIFY_KEYS, "CRM_API_URL"] as const;
+const PRODUCTION_REQUIRED_KEYS = [...NOTIFY_KEYS, "CRM_API_URL", "HOURS_API_URL"] as const;
+
+/** Where hours-api listens on a developer's machine (the default of `HOURS_API_URL` outside production). */
+const LOCAL_HOURS_API_URL = "http://localhost:8090";
 
 const oneOf = <const T extends readonly [string, ...string[]]>(values: T, name: string) =>
   z.enum(values, { error: () => `${name} must be one of: ${values.join(", ")}` });
@@ -105,6 +108,11 @@ const envSchema = z
     // JSON array of host definitions; TEST ONLY, refused in production. Its shape is
     // validated by the host registry (src/hosts/registry.ts).
     MEETINGS_TEST_HOSTS: z.string().optional(),
+
+    // ─── hours-api (specs/20261112-meeting-hours, ADR 20261124-meeting-hours-facts-pushed-by-their-owner-as-a-versioned-state-built-at-send-time-through-an-until-delivered-outbox-and-applied-by-hours-api-only-when-not-older) ───
+    // Where the meeting-hours notices are sent, as `system:meetings-api` (scope `meeting-hours-notices.send`, held through the
+    // notify group's SERVICE_CLIENT_* above). Required in production (Railway private DNS); `http://localhost:8090` otherwise.
+    HOURS_API_URL: z.string().url("HOURS_API_URL must be a valid URL").optional(),
 
     // ─── AI providers (ADR 20261104-meetings-ai-providers-eu-zero-retention principle, ADR 20261105-meetings-ai-providers-google-cloud-eu providers) ──────────────
     MEETINGS_AI_PROVIDER: oneOf(["real", "fake"], "MEETINGS_AI_PROVIDER").default("real"),
@@ -211,6 +219,8 @@ const envSchema = z
   })
   .transform((val) => ({
     ...val,
+    // Production has no default: the production check above refuses it unset (`undefined` here only for the types).
+    HOURS_API_URL: val.HOURS_API_URL ?? (val.NODE_ENV === "production" ? undefined : LOCAL_HOURS_API_URL),
     // Already validated as a JSON array above; the registry validates each element.
     MEETINGS_TEST_HOSTS: (val.MEETINGS_TEST_HOSTS === undefined ? [] : (JSON.parse(val.MEETINGS_TEST_HOSTS) as unknown[])),
   }));

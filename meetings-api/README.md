@@ -40,8 +40,9 @@ More groups (plan.md § Environment). A misconfiguration exits 1 naming the vari
 | Variable | Notes |
 |---|---|
 | `MEETINGS_S3_ENDPOINT` / `_REGION` / `_BUCKET` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | required; own EU bucket (MinIO locally). A non-AWS endpoint also needs `MEETINGS_S3_EU_ENDPOINT_HOSTS`. At start the bucket must carry one unfiltered lifecycle rule of at most 29 days and versioning must not be enabled (AC-4.4) |
-| `NOTIFY_INTERNAL_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET` | all or none; required in production. Client `meetings-api` needs scopes `notifications.push host-notices.send` |
+| `NOTIFY_INTERNAL_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET` | all or none; required in production. Client `meetings-api` needs scopes `notifications.push host-notices.send meeting-hours-notices.send` |
 | `CRM_API_URL` | the CRM host; required in production (defaults to `http://localhost:8084` otherwise) |
+| `HOURS_API_URL` | hours-api, where the meeting-hours notices go (specs/20261112-meeting-hours); required in production, `http://localhost:8090` otherwise. The channel is on only when this resolves **and** the service credential above is configured; off, no notice is recorded, and a notice already queued is marked `failed` `disabled` |
 | `PROJECTS_API_URL` | the Projects host (a meeting linked to a project); unset in production leaves Projects out (defaults to `http://localhost:8086` otherwise) |
 | `SERVICE_AUDIENCE` | auth's `SERVICE_AUDIENCE`: the audience of the scoped service JWTs that `/system/*` accepts (specs/20261112-time-tracking, ADR 20261006-scoped-service-jwt-fourth-notify-caller, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Must differ from `AUTH_AUDIENCE`. Optional on purpose, and **unset means every `/system/*` call answers 401** (fail closed), so set it wherever hours-api must read a meeting's deal; tools/env-doctor requires it in production |
 | `MEETINGS_AI_PROVIDER` | `real` (default, required in production) or `fake` (development and test only) |
@@ -67,7 +68,9 @@ Tests: `src/test-support/testEnv.ts` (the `bunfig.toml` preload) sets placeholde
 above with `??=`. `DATABASE_URL` defaults to `postgresql://postgres:postgres@localhost:5435/meetings_test`;
 where the compose Postgres has other credentials, export `DATABASE_URL` for a migrated `meetings_test`
 database first (`bun run db:deploy`). DB-backed tests: `src/schema.test.ts`, `src/jobs/runner.test.ts`,
-`src/health/health.test.ts`.
+`src/health/health.test.ts`. Under `NODE_ENV=test` the hours channel is off whatever the environment holds (a test never reaches a
+real hours-api with a developer's credentials); a test that wants it sets one (`setHoursChannelForTests`, a fake hours-api in
+`src/test-support/fakeHours.ts`).
 
 ## System routes (specs/20261112-time-tracking, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route)
 
@@ -78,6 +81,29 @@ duration or content (ADR 20261104-meetings-tool-shape-visibility-by-participatio
 scope `meetings.hosts.read`, `sub` `system:hours-api`); a user JWT, another scope, `sub` or audience, a missing token
 and an unset `SERVICE_AUDIENCE` all answer the same 401. An accepted call logs `caller=system:hours-api`, never the
 query. The guard is `src/auth/systemAuth.middleware.ts`, a shared copy kept identical by `mise run shared:check`.
+
+## Hours notices (specs/20261112-meeting-hours, ADR 20261124-meeting-hours-facts-pushed-by-their-owner-as-a-versioned-state-built-at-send-time-through-an-until-delivered-outbox-and-applied-by-hours-api-only-when-not-older)
+
+meetings-api owns the facts hours-api needs to record a meeting's hours automatically: when it started (`startsAt`), how long
+it lasted (`durationMs`), who created it and which Operai users took part. A change to one of them leaves, in its own
+transaction, a content-free row in the **outbox** `hours_notice` (`{ meetingId, seq, kind: state | deleted }`, no foreign key to
+`meeting`, no personal data) and bumps `Meeting.hoursSeq`; a `deliver_hours_notice` job then sends it (`src/hours/`,
+`src/jobs/handlers/deliverHoursNotice.ts`).
+
+- **Send time.** The body is built when the job runs, from the meeting as it is then, with `src/lib/meetingHoursWire.ts`
+  (byte-identical to hours-api's copy): `startsAt`, `durationMs`, `creatorId`, `participantIds` (Operai users only), at the
+  current `hoursSeq`. A `deleted` notice, or a meeting that no longer exists, is `facts: null`. No title, no external
+  participant, no content.
+- **Where.** `POST {HOURS_API_URL}/system/meeting-hours/v1/notices` as `system:meetings-api`, scope `meeting-hours-notices.send`
+  (`aud` = `SERVICE_AUDIENCE`), 5 s, no redirect, one retry after a 401 with the token forgotten.
+- **Outcome.** 200: the row is deleted. 400 or 422: failed for good, the row stays `failed` with its closed code (`invalid_request`,
+  `rejected`; `invalid_notice` when the body breaks the wire; `disabled` when the channel is off) and the log says
+  `meeting_hours.notice_refused` with the meeting id and the code. Anything else (network, timeout, 401 after the retry, 403, 404 before
+  hours-api has the route, 429, 5xx) is retried after 30 s, 2 min, 10 min, then every 30 min, until delivered: nothing but
+  delivery, or a refusal of the body, ends it. Rows are never swept: a `pending` or `failed` row older than an hour is the signal that
+  hours-api or the credential is unavailable (infra/README.md § Meeting hours).
+- **Release backfill.** The migration `..._hours_notice` enqueues one notice for every meeting that already has a duration and started in
+  the last 14 days; hours-api drops what is older than its own release day.
 
 ## Logging (AC-4.10)
 
