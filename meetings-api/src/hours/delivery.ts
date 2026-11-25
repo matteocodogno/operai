@@ -27,7 +27,8 @@
  * harmless.
  *
  * The row and its job carry NO personal data: the user ids are read here, when the body is built. Logs name the meeting id,
- * the version and a closed code. Never a user id, a title, a token or a body (AC-4.10).
+ * the version and a closed code. Never a user id, a title, a token or a body (specs/20261104-meetings AC-4.10; no user id:
+ * this plan § Security).
  */
 
 import { db } from "../lib/db";

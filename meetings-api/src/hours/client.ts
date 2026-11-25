@@ -23,7 +23,7 @@
  * message can carry what was sent.
  *
  * Logging: this module logs nothing. The delivery logs the meeting id and the closed code, and never a user id, a token
- * or a body (AC-4.1, AC-4.10).
+ * or a body (AC-4.1; specs/20261104-meetings AC-4.10; no user id: this plan § Security).
  *
  * A request carries the bearer token, so it NEVER follows a redirect (`redirect: "error"`): a redirect would replay the
  * credential to another host.
