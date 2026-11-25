@@ -780,3 +780,420 @@ for the security-review additions; each names what it rejects.
    record on a mismatch (an honest glitch loses it), deciding after the watched state ends (stale open pages). Predicted path:
    `docs/adr/20261124-a-duration-a-client-reports-is-replaced-by-the-one-the-server-measures-when-they-differ-by-more-than-the-larger-of-30-seconds-and-10-percent.md`;
    referenced from D-P6 and § The measured duration.
+
+## Amendment 2026-11-25 — review cleanup (approved by the owner 2026-11-25)
+
+> Drafted by the architect on 2026-11-25 for the owner's gate. It is a behaviour-preserving cleanup of the seven review items the
+> owner picked for PR #12 (branch `feat/meeting-hours`, checked at HEAD `3bf7c402`, base `origin/main` `a17c260f`). No
+> acceptance criterion, contract, migration, log line or copy changes. No earlier section of this plan changes: item 7 had
+> already been applied (below). `/wellforge:tasks` derives one task from each step S1 to S7.
+
+### Verdicts
+
+| # | Item | What the code shows | Verdict | Step |
+|---|---|---|---|---|
+| 1 | Double row lock | Confirmed. The duplicate is wider than reported: `readHoursFacts` also runs inside `recordHoursNotice` after the write. | Do it: one lock primitive. The statements sent to Postgres stay the same. | S1 |
+| 2 | Participant ids read twice | Confirmed. The two reads also order the ids differently: `record.ts` sorts in JavaScript, `delivery.ts` lets the database sort. | Do it: one reader, in the database's order. The two fact types stay separate. | S2 |
+| 3 | `FromMeetingBadge` | Confirmed. | Do it. | S3 |
+| 4 | P2025 check and day helper | Confirmed. The P2025 check appears twice (the PATCH one predates this feature). The day conversion appears five times, all identical. | Do it for those seven sites. `spanDays` is left as it is. | S4 |
+| 5 | Block write lives in the routes | Confirmed. | Do it. | S5 |
+| 6 | Traceability comments | `AC-4.10` is specs/20261104-meetings' log rule, cited without its spec, so it reads as this spec's, which has none. `AC-1.6` is correct. | Qualify `AC-4.10`. No change for `AC-1.6`. | S6 |
+| 7 | § Security sentence (owasp N3) | Already rewritten by `efc69b48` (§ Security, the bullet "The mark in Everyone's hours", lines 745–749). | Nothing to edit. | — |
+
+### Current state (checked at `3bf7c402`)
+
+**1. The lock.**
+- `readHoursFacts` (`meetings-api/src/hours/record.ts:62-70`) opens with `SELECT "id" FROM "meeting" WHERE "id" = ${meetingId} FOR UPDATE` (`:63`).
+- `lockMeeting` (`meetings-api/src/meetings/lock.ts:12-15`) runs the same statement (`:13`).
+- They behave differently when the row is missing: `lockMeeting` throws the identical 404 (`meetingNotFound()`), and `readHoursFacts` returns `null`.
+
+Callers of `readHoursFacts`:
+- **Before the write:** `capture/recording.routes.ts:385` (`beginProcessing`), `capture/upload.routes.ts:184`, `jobs/handlers/prepareAudio.ts:194` (refused upload) and `:268` (step-3 commit), `meetings/core.routes.ts:194`, `meetings/participants.routes.ts:94`.
+- **After the write:** inside `recordHoursNotice` (`record.ts:110`). Each path above reaches it at `recording.routes.ts:398`, `upload.routes.ts:198`, `prepareAudio.ts:201`, `:283`, `core.routes.ts:255` or `participants.routes.ts:123`.
+- **Not a caller:** `delete.routes.ts`. It takes `lockMeeting` (`:108`), then calls `recordHoursNotice(…, { deleted: true })` (`:121`), which reads no facts.
+
+So while the channel is on, every state path sends the lock statement twice. `core.routes.ts` and `participants.routes.ts` call `lockMeeting` first (`:190`, `:92`), so they send it three times. Re-locking a row the transaction already holds never waits and never deadlocks: the cost is one round trip, and correctness is not affected.
+
+The real fault is the duplicated SQL together with its two missing-row behaviours. A future edit that swaps one for the other would not be noticed:
+- `prepareAudio.ts:281` and `:287-291` rely on `null` for a meeting deleted while ffmpeg ran.
+- No test covers that path.
+- No test pins that `readHoursFacts` holds the lock, which owasp-report.md Q5 relies on.
+
+**2. The participant ids.**
+- `readHoursFacts` reads them at `record.ts:67-68`: `findMany({ where: { meetingId, userId: { not: null } }, select: { userId: true } })`, then a Set, then the JavaScript `.sort()`.
+- `bodyFor` reads them at `meetings-api/src/hours/delivery.ts:79-84`: the same `where` and `select` plus `orderBy: { userId: "asc" }`, then a Set, with no JavaScript sort.
+- The two orders differ whenever ids differ in case. The test databases use `en_US.utf8`: `amy` < `Bob` there, while a JavaScript sort puts `Bob` < `amy`.
+- The database order is the wire's order (decisions T8). Through hours-api's `desiredEntries` (T4: creator, then participants in wire order) it is also the order in which `apply()` creates automatic entries.
+- The Set is defensive: `@@unique([meetingId, userId])` is at `prisma/schema.prisma:266`.
+- `HoursFacts` (`record.ts:47-52`) and `MeetingHoursFacts` (`src/lib/meetingHoursWire.ts:52`) differ in purpose and shape:
+  - `HoursFacts`: `startsAt` is a `Date`, and there is no `creatorId` because the creator is never compared.
+  - `MeetingHoursFacts`: `startsAt` is an ISO string, and `creatorId` is present.
+
+**3. The badge.**
+- The same `` <Badge tone="accent" data-testid={`hours-entry-${entry.id}-from-meeting`}>{strings.entries.fromMeeting}</Badge> `` appears at `hours-ui/src/components/EntryRow.tsx:105-107` and `hours-ui/src/components/EntriesTable.tsx:88-90`.
+- In `EntriesTable.tsx`, that is the only use of the `Badge` import (`:1`).
+- The tests cover copy, test id and placement: `EntryRow*.test.tsx`, `EntriesTable*.test.tsx`, `TableView.fromMeeting.test.tsx`. No test asserts the tone (`badge-accent`).
+
+**4. The helpers.**
+- P2025: `(error as { code?: unknown } | null)?.code === "P2025"` appears at `hours-api/src/entries/entries.routes.ts:378` (PATCH, from specs/20261112-time-tracking) and `:392` (DELETE, this feature).
+- Day to `Date`: `` new Date(`${day}T00:00:00Z`) `` appears at `entries.routes.ts:326` (POST) and `:361` (PATCH), at `filters.ts:94` (`dayOf`, used twice at `:147`), at `list.routes.ts:91` (a local *variable* named `dayDate`, used three times at `:93`), and at `meetingHours/apply.ts:76-77` (a local `dayDate`, used at `:132` and `:147`).
+- Every input is a validated calendar day: `DaySchema`, `isCalendarDay`, or the Zurich day from `desiredEntries`.
+- `filters.ts:71` `spanDays` is not the same conversion: it uses `Date.parse` and returns a count of milliseconds.
+
+**5. The block.**
+- The DELETE handler (`entries.routes.ts:384-412`) runs one interactive transaction:
+  - `tx.timeEntry.delete(… select: { sourceMeetingId: true })` (`:390`), with P2025 mapped to `null`;
+  - a comment explaining the rule and the read order (`:396-402`);
+  - the block insert (`:403-405`): `if (gone.sourceMeetingId !== null) await tx.meetingHoursBlock.createMany({ data: [{ meetingId: gone.sourceMeetingId, userId, reason: "deleted" }], skipDuplicates: true })`.
+- What the tests pin: `automatic.test.ts:159-270` (the block, a moved entry, no block for a typed entry, 404/403, an existing block kept, one transaction) and `meetingHours/apply.test.ts:618` (the DELETE-against-apply race).
+- No test pins that a failed block insert takes the delete back with it.
+
+**6. The citations.**
+- `meetings-api/src/hours/delivery.ts:30` ("Never a user id, a title, a token or a body (AC-4.10)") and `client.ts:25-26` ("(AC-4.1, AC-4.10)") cite AC-4.10 of specs/20261104-meetings (spec.md:473, "logs and error reports hold identifiers and sizes only"). meetings-api cites its own spec bare elsewhere (`hosts/client.ts:26`, `jobs/runner.ts:38`).
+- In these two files the header names specs/20261112-meeting-hours, whose ACs end at AC-4.3. So the bare `AC-4.10` reads as a dangling reference.
+- The stricter "no user id" rule is this feature's own: plan § Security ("Logs carry no user id") and § API contracts.
+- `AC-1.6` at `hours-api/src/meetingHours/notices.routes.ts:3` and `tools/env-doctor/manifest.ts:266` (also `:385`) is deliberate and consistent with the rest of the feature:
+  - plan § Test strategy maps AC-1.6 to the route guard ("only `system:meetings-api` with the scope reaches the route; activities-api and crm-api are unchanged");
+  - tasks T1 and T7 list AC-1.6 in their refs;
+  - `auth/src/system/serviceClients*.test.ts` cites it the same way.
+- The guard is the reason a CRM call or meeting activity can never record an automatic entry. Changing the citation would make the code disagree with the plan and the tasks.
+
+**7.** owasp N3's sentence ("shown to its person only") is no longer in § Security: `efc69b48` replaced it, and the bullet now reads: "On screen it is rendered to its person only, in their own delete confirmation; on the wire it is in the view every reader receives (`hours-api/src/entries/view.ts`)…" (lines 745–749, commit `efc69b48`, which also synced tasks.md). That matches the build and the owner's decision of 2026-11-25 to keep the wire as it is (ledger D77, which also rewords spec.md's non-goal "A history of where a moved entry came from").
+
+### Target state
+
+**S1: one lock primitive** (`meetings-api/src/meetings/lock.ts`):
+
+```ts
+/** Takes one meeting's row lock until the transaction ends; `false` when there is no such row (it never throws for one). */
+export async function lockMeetingRow(tx: Prisma.TransactionClient, id: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "meeting" WHERE "id" = ${id} FOR UPDATE`;
+  return rows.length > 0;
+}
+
+/** Locks the row, or throws the identical 404 when it is gone (deleted since the caller opened it). */
+export async function lockMeeting(tx: Prisma.TransactionClient, id: string): Promise<void> {
+  if (!(await lockMeetingRow(tx, id))) throw meetingNotFound();
+}
+```
+
+- `readHoursFacts` begins with `if (!(await lockMeetingRow(tx, meetingId))) return null;` (`null`, never the 404). Its doc comment says that it locks and why, and the rest of the function is unchanged.
+- The SQL statements, their order and their count are exactly today's on every path.
+- Import graph: `lock.ts` → `./visibility` → `lib/db`, `lib/problem`, `lib/identities`, `hosts/client`, `hosts/registry`. None of them imports `src/hours/`, so there is no cycle.
+
+Rejected:
+- (a) `readHoursFacts` takes no lock and trusts its caller. Recording stop, upload confirm and both `prepare_audio` commits would each need their own lock, and "the snapshot is never stale" would depend on every future caller remembering it.
+- (b) Drop `lockMeeting` from core and participants, and answer 404 when `readHoursFacts` returns `null`. That hands the routes' own lock to the hours module (it guards `core.routes.ts:191`'s row read and the participant diff) and reorders their statements.
+- (c) `readHoursFacts` calls `lockMeeting` and catches the 404. That is an exception used for control flow, which is exactly the swap this step guards against.
+
+The runtime repeats stay. They are a no-op on a row the transaction already holds.
+
+**S2: one participant reader.** New file `meetings-api/src/hours/participants.ts`:
+
+```ts
+/**
+ * The distinct user ids of a meeting's Operai participants (an external participant has none), in the order the database sorts
+ * `userId`: the order of the notice body (decisions T8) and, through hours-api's `desiredEntries`, the order automatic entries are
+ * created in. Never re-sorted in JavaScript (a code-unit sort differs from the database's for mixed case). Reads only, no lock:
+ * `readHoursFacts` has locked the meeting before it, the delivery reads in its own repeatable-read snapshot.
+ */
+export async function operaiParticipantIds(tx: Prisma.TransactionClient, meetingId: string): Promise<string[]> {
+  const people = await tx.meetingParticipant.findMany({
+    where: { meetingId, userId: { not: null } },
+    select: { userId: true },
+    orderBy: { userId: "asc" },
+  });
+  return [...new Set(people.flatMap((p) => (p.userId !== null ? [p.userId] : [])))];
+}
+```
+
+- `bodyFor` (`delivery.ts:79-84`) becomes `return { meeting, participantIds: await operaiParticipantIds(tx, row.meetingId) };`. That is the same query as today, so the body stays byte-identical.
+- `readHoursFacts` uses the new reader and drops its JavaScript `.sort()` (`record.ts:68`). The `HoursFacts` doc changes from "sorted and distinct" to "distinct, in the database's order of user id". It also points to `MeetingHoursFacts` as the wire form of the same facts.
+- `sameFacts` is unchanged. Its answer is the same for every pair of snapshots:
+  - before and after are both read in one transaction, through one `ORDER BY` on one deterministic collation (ties are broken bytewise), so one set of ids always comes back in one order;
+  - a positional compare of two lists, each sorted by the same total order, is a set compare.
+- The array order inside `HoursFacts` is the only thing that differs from today. It is not logged, stored or sent.
+
+Rejected:
+- Keeping a JavaScript sort in the shared reader. It would change the wire order, and with it the creation order of entries, for any ids the two orders disagree on.
+- Keeping the sort in `record.ts` only. That leaves two orders for one fact, which is the drift this item is about.
+- Deriving `HoursFacts` from `MeetingHoursFacts`. It would tie the lock-time compare to the shared wire file (R2), and the two differ in `startsAt` type and in `creatorId`.
+
+`meetingHoursWire.ts` is not touched in either copy.
+
+**S3: one badge.** New file `hours-ui/src/components/FromMeetingBadge.tsx`:
+
+```tsx
+import { Badge } from '@operai/ui'
+import { strings } from '../strings'
+
+/**
+ * The "From meeting" mark of one entry (specs/20261112-meeting-hours AC-2.3, AC-4.3; design S1, S2): its tone, copy and test id
+ * in one place for `EntryRow` and `EntriesTable`. It draws unconditionally: whether to draw it is `showsFromMeetingMark`
+ * (src/lib/fromMeetingMark.ts), and where is each caller's layout. hours-specific, so not in @operai/ui.
+ */
+export default function FromMeetingBadge({ entryId }: { entryId: string }) {
+  return (
+    <Badge tone="accent" data-testid={`hours-entry-${entryId}-from-meeting`}>
+      {strings.entries.fromMeeting}
+    </Badge>
+  )
+}
+```
+
+- `EntryRow.tsx:105-107` and `EntriesTable.tsx:88-90` become `<FromMeetingBadge entryId={entry.id} />`. `Badge` leaves `EntriesTable.tsx`'s import (`:1`).
+- The predicate calls (`EntryRow.tsx:100`, `EntriesTable.tsx:71`), the wrappers and `min-w-0` stay where they are. The DOM is identical.
+
+Rejected:
+- The predicate inside the component, returning `null` otherwise. Both callers need the predicate's answer for their own wrappers, so it would be asked twice.
+- An `entry` prop. Only the id is used.
+
+**S4: two helpers.**
+
+In `hours-api/src/entries/rules.ts`, § A day, beside `isCalendarDay` (pure, which fits the module's rule). Not `today.ts`, which is the clock, and not a new module for one line:
+
+```ts
+/** A `YYYY-MM-DD` day as the UTC midnight the `date` column stores and compares (every entry write and every day filter). */
+export const dayDate = (day: string): Date => new Date(`${day}T00:00:00Z`);
+```
+
+It is used at:
+- `entries.routes.ts:326` and `:361`;
+- `filters.ts:147`, where `dayOf` (`:94`) is removed and `dayDate` is imported from `./rules`;
+- `list.routes.ts:91-93`, where the local variable is renamed (`const dayAt = dayDate(day);`, then `dayAt` three times);
+- `meetingHours/apply.ts:132` and `:147`, where the local `:76-77` is removed and `dayDate` is imported from `../entries/rules`, as `desired.ts` already does.
+
+In `entries.routes.ts`, module-local, because both uses are in this file:
+
+```ts
+/** Prisma's P2025: the row the statement addressed is not there (deleted meanwhile, or never the caller's). */
+const isRecordNotFound = (error: unknown): boolean => (error as { code?: unknown } | null)?.code === "P2025";
+```
+
+- `:378` becomes `throw isRecordNotFound(error) ? entryNotFound() : error;`.
+- `:392` becomes `if (isRecordNotFound(error)) return null;`.
+- The expression is unchanged, so the result is identical for every input.
+
+**S5: the rule under `meetingHours/`.** New file `hours-api/src/meetingHours/blocks.ts`:
+
+```ts
+/**
+ * AC-2.5: an automatic entry its person deletes is never recorded again for them on its meeting. Called by the DELETE route
+ * (src/entries/entries.routes.ts) INSIDE ITS OWN TRANSACTION, right after the delete statement, with what that statement returned:
+ * the block commits with the delete, so the committed state holds the entry or the block, never neither, and apply()'s
+ * one-statement read (`readState`) sees one of them. It takes no lock and reads nothing (a lock here would invert apply()'s
+ * order, decisions T5). Nothing for an entry its person typed (`sourceMeetingId` null, CHECK time_entry_origin_shape); a block
+ * already there is kept with its reason (`ON CONFLICT DO NOTHING`).
+ */
+export async function blockDeletedEntry(
+  tx: Prisma.TransactionClient,
+  deleted: { readonly userId: string; readonly sourceMeetingId: string | null },
+): Promise<void> {
+  if (deleted.sourceMeetingId === null) return;
+  await tx.meetingHoursBlock.createMany({
+    data: [{ meetingId: deleted.sourceMeetingId, userId: deleted.userId, reason: "deleted" }],
+    skipDuplicates: true,
+  });
+}
+```
+
+- `entries.routes.ts:403-405` becomes `await blockDeletedEntry(tx, { userId, sourceMeetingId: gone.sourceMeetingId });`.
+- The parameter is an object so that the two ids, both strings, cannot be swapped without the compiler noticing.
+- What stays in the route:
+  - the delete statement and its P2025 → `null`;
+  - the 404 / 403 `owner_only` answer;
+  - the read-order sentence of its comment ("This handler takes no lock of apply()'s: apply() reads … in ONE statement, `readState` …"), which T7's done-when placed there.
+- The rest of the comment moves to `blocks.ts`.
+- The DELETE transaction still runs exactly: the delete with `RETURNING "sourceMeetingId"`, then, only when that is non-null, `INSERT … ON CONFLICT DO NOTHING`.
+
+Rejected:
+- Moving the delete statement too (a `deleteOwnEntry`). It carries the route's 404 decision.
+- Putting the function in `apply.ts`. That file is the notice's transaction, and the DELETE is the person's.
+- Folding in apply's own `had_entry` insert (`apply.ts:141`). It is not this item, and its count feeds the `meeting_hours.applied` log line (listed below as observed, not planned).
+
+**S6: qualified citations** (comment-only edits):
+- `delivery.ts:30` becomes "… Never a user id, a title, a token or a body (specs/20261104-meetings AC-4.10; no user id: this plan § Security)."
+- `client.ts:25-26` becomes "… never a user id, a token or a body (AC-4.1; specs/20261104-meetings AC-4.10; no user id: this plan § Security)."
+- `AC-1.6` is not edited.
+
+### Invariants (must hold after every step)
+
+- **I1 No wire or OpenAPI change.**
+  - `meetingHoursWire.ts` is untouched in both copies.
+  - The body meetings-api sends is byte-identical for the same meeting, including the order of `participantIds`.
+  - `TimeEntryView`, the routes and the OpenAPI document are unchanged.
+- **I2 No migration added or edited.** `git diff 3bf7c402 -- meetings-api/prisma hours-api/prisma` is empty.
+- **I3 No shared-copy group changed.**
+  - `scripts/check-shared-copies.ts` is untouched.
+  - No touched file is in a group. The groups' files in these apps are `systemAuth.middleware.ts`, `logger.ts`, `meetingHoursWire.ts`, `problem.ts`, `serviceToken.ts` and `s3Residency.ts`.
+  - `mise run shared:check` is green.
+- **I4 No log line changed.** `git diff 3bf7c402 -U0 -- '*.ts' '*.tsx' | grep -E '^[-+][^-+].*console\.'` is empty.
+- **I5 No user-visible copy or DOM changed.**
+  - `hours-ui/src/strings/**` is untouched.
+  - The badge renders the same element, class, test id and text.
+- **I6 Same statements in the same transactions.**
+  - Every meetings-api write path sends the same SQL, in the same order and count (S1, and S2's reads).
+  - The DELETE runs delete, then a conditional `INSERT … ON CONFLICT DO NOTHING` in one transaction, with no lock and no read added (S5).
+- **I7 Same answers at the edges.**
+  - `readHoursFacts` of a missing meeting is `null` and never throws.
+  - `lockMeeting` of a missing meeting throws the identical 404.
+  - `sameFacts` answers the same for every pair of snapshots.
+  - PATCH and DELETE keep mapping P2025 to 404 / "nothing deleted" and rethrow anything else.
+- **I8 Tests only grow.**
+  - Every existing test is green and none is weakened.
+  - `git diff 3bf7c402 --numstat -- '*.test.ts' '*.test.tsx'` shows 0 deleted lines. No moved symbol is imported by a test, so no existing test line needs to follow one.
+- **I9 No new environment variable, scope, dependency or public export.** hours-ui's `exposes` and the `RecordHours.graph.test.ts` walk are unchanged.
+
+### Steps
+
+Each step lists `touch:` (every file it creates or modifies), `done when:` (runnable) and `deps:`. Every new test is written first and is green on `3bf7c402`: it characterises today's behaviour. It is then shown red under the mutation named next to it (applied by hand and reverted) before the refactor is made.
+
+**Scheduling:**
+- meetings-api: S1 and S6 can run in parallel (no shared file). S2 comes after both: it shares `record.ts` with S1 and `delivery.ts` with S6.
+- hours-api: S4, then S5 (both touch `entries.routes.ts`).
+- hours-ui: S3 can run at any time.
+- Across apps: the meetings-api chain, the hours-api chain and S3 are parallel to each other.
+- S7 comes last.
+
+- **S1 [BE] meetings-api: one lock primitive.** Refs: AC-3.1–AC-3.4, AC-3.8 (the snapshot every notice and the measured duration are decided from). Deps: none. Parallel with S3, S4, S5, S6.
+  - touch: `meetings-api/src/meetings/lock.ts`, `meetings-api/src/hours/record.ts`, `meetings-api/src/hours/record.test.ts`.
+  - new tests in `record.test.ts`:
+    - (a) "readHoursFacts holds the meeting's row lock until its transaction ends". Inside `db.$transaction`, after `readHoursFacts(tx, m.id)`, a query on another connection, `SELECT "id" FROM "meeting" WHERE "id" = ${m.id} FOR UPDATE SKIP LOCKED`, returns no row. After the commit it returns one. Mutation: remove the lock.
+    - (b) "readHoursFacts of a meeting that is not there is null, not a 404". Mutation: call `lockMeeting` instead.
+  - done when:
+    - `lockMeetingRow` and `lockMeeting` are as in § Target state S1, and `readHoursFacts` calls `lockMeetingRow`.
+    - `grep -n 'SELECT "id" FROM "meeting"' meetings-api/src/hours/record.ts` prints nothing. (Grep the statement, not `FOR UPDATE`: the doc comment at `record.ts:59` names it.)
+    - `grep -c 'SELECT "id" FROM "meeting"' meetings-api/src/meetings/lock.ts` prints `1`.
+    - (a) and (b) pass.
+    - `cd meetings-api && bun run typecheck && DATABASE_URL=postgresql://postgres:postgres@localhost:5435/meetings_test bun test` is green.
+- **S2 [BE] meetings-api: one participant reader.** Refs: AC-1.1, AC-1.2, AC-3.3, AC-4.1. Deps: S1, S6.
+  - touch: `meetings-api/src/hours/participants.ts` (new), `meetings-api/src/hours/record.ts`, `meetings-api/src/hours/delivery.ts`, `meetings-api/src/jobs/handlers/deliverHoursNotice.test.ts`.
+  - new test in `deliverHoursNotice.test.ts`, under "the body is built at send time": "lists the Operai participants in the database's order of user id, never re-sorted (decisions T8)".
+    - Participants `zed-1`, `Bob-2`, `amy-3`.
+    - The delivered `participantIds` must equal `SELECT "userId" FROM meeting_participant WHERE "meetingId" = … AND "userId" IS NOT NULL ORDER BY "userId"`, run by the test.
+    - The test also asserts that this order differs from `[...ids].sort()`, so it would fail on a database whose collation agrees with JavaScript instead of passing for nothing.
+    - Mutations: add `.sort()` to the reader, or drop its `orderBy`.
+  - done when:
+    - `grep -rn 'userId: { not: null }' meetings-api/src/hours --include='*.ts' | grep -v '\.test\.ts'` prints `participants.ts` only.
+    - `grep -n '\.sort()' meetings-api/src/hours/record.ts meetings-api/src/hours/participants.ts` prints nothing.
+    - `meetingHoursWire.ts` is untouched in both copies (`git diff 3bf7c402 --stat -- '*/src/lib/meetingHoursWire.ts'` is empty).
+    - The new test passes, and `record.test.ts:84-139` (the compare rules, "the same people in another order … is no change" included), `triggers.test.ts` and `deliverHoursNotice.test.ts` pass unchanged.
+    - The meetings-api command of S1 is green.
+- **S3 [FE] hours-ui: `FromMeetingBadge`.** Refs: AC-2.3, AC-4.3. Deps: none. Parallel with everything else.
+  - touch: `hours-ui/src/components/FromMeetingBadge.tsx` (new), `hours-ui/src/components/FromMeetingBadge.test.tsx` (new), `hours-ui/src/components/EntryRow.tsx`, `hours-ui/src/components/EntriesTable.tsx`.
+  - new test `FromMeetingBadge.test.tsx` (jsdom): `<FromMeetingBadge entryId="e1" />` renders `hours-entry-e1-from-meeting` with the text "From meeting" and a class list containing `badge-accent`, the one property no existing test pins. Mutation: another `tone`.
+  - done when:
+    - `grep -rn 'from-meeting' --include='*.tsx' hours-ui/src | grep -v '\.test\.tsx'` prints `FromMeetingBadge.tsx` only. (Grep the test id, not `tone="accent"`: `TableView.tsx:86, :105` use that tone for "Today".)
+    - `grep -n 'Badge' hours-ui/src/components/EntriesTable.tsx` prints only `FromMeetingBadge` lines.
+    - `EntryRow.test.tsx`, `EntryRow.it.test.tsx`, `EntriesTable.test.tsx`, `EntriesTable.it.test.tsx` and `TableView.fromMeeting.test.tsx` pass unchanged.
+    - `cd hours-ui && pnpm lint && pnpm exec tsc -b && pnpm test` is green (`noHardcodedStrings` and `catalogGaps` included).
+- **S4 [BE] hours-api: `dayDate` and `isRecordNotFound`.** Refs: AC-1.1 (the entry's day), time-tracking AC-1.3. Deps: none. Parallel with S1, S2, S3, S6.
+  - touch: `hours-api/src/entries/rules.ts`, `hours-api/src/entries/rules.test.ts`, `hours-api/src/entries/filters.ts`, `hours-api/src/entries/list.routes.ts`, `hours-api/src/entries/entries.routes.ts`, `hours-api/src/meetingHours/apply.ts`.
+  - new test in `rules.test.ts`: `dayDate("2026-03-29").getTime() === Date.UTC(2026, 2, 29)` (a European daylight-saving day). It is a direct test of the new export. It catches a missing `Z` only when the test process's zone is not UTC. The end-to-end proof is the existing day tests below.
+  - done when:
+    - `grep -rn 'T00:00:00Z' hours-api/src --include='*.ts' | grep -v '\.test\.ts' | grep -v test-support` prints `rules.ts` (`dayDate`) and `filters.ts:71` (`spanDays`) only.
+    - `grep -c '"P2025"' hours-api/src/entries/entries.routes.ts` prints `1`.
+    - `write.test.ts` (the day rule at `:122`, the PATCH race to 404 at `:587`, DELETE at `:404`), `list.test.ts` (from/to and the cursor), `apply.test.ts` and `automatic.test.ts:224` (second DELETE gives 404) pass unchanged.
+    - `cd hours-api && bun run typecheck && bun test` is green.
+- **S5 [BE] hours-api: the DELETE's block rule in `meetingHours/blocks.ts`.** Refs: AC-2.5. Deps: S4.
+  - touch: `hours-api/src/meetingHours/blocks.ts` (new), `hours-api/src/entries/entries.routes.ts`, `hours-api/src/entries/automatic.test.ts`.
+  - new test in `automatic.test.ts`, under the DELETE describe (`:159`): "a block the database refuses takes the delete back with it: 500, the entry still there, no block".
+    - A temporary `BEFORE INSERT` trigger on `meeting_hours_block` that raises, created and dropped in `finally`, as `apply.test.ts:691-703` does.
+    - Mutation: a `try/catch` that swallows the insert ("best effort"), which would commit the delete with no block and let the next notice record the entry again.
+  - done when:
+    - `grep -rn 'meetingHoursBlock' hours-api/src/entries --include='*.ts' | grep -v '\.test\.ts'` prints nothing.
+    - The DELETE calls `blockDeletedEntry(tx, …)` with its own transaction's `tx`: `grep -n 'blockDeletedEntry(db' -r hours-api/src` prints nothing. No test can tell `tx` from `db` here, so this check is the proof.
+    - The new test passes, and `automatic.test.ts:159-270` and `apply.test.ts:618` (the race) pass unchanged.
+    - The hours-api command of S4 is green.
+- **S6 [BE] meetings-api: qualified `AC-4.10`.** Refs: AC-4.1, specs/20261104-meetings AC-4.10. Deps: none. Parallel with S1, S3, S4, S5.
+  - touch: `meetings-api/src/hours/delivery.ts`, `meetings-api/src/hours/client.ts` (comments only).
+  - done when:
+    - `grep -n 'AC-4.10' meetings-api/src/hours/delivery.ts meetings-api/src/hours/client.ts` shows each occurrence preceded by `specs/20261104-meetings`.
+    - `git diff -U0 -- meetings-api/src/hours/delivery.ts meetings-api/src/hours/client.ts | grep -E '^[-+][^-+]' | grep -vE '^[-+]\s*(\*|//)'` prints nothing (comment lines only).
+    - `cd meetings-api && bun run typecheck` is green.
+- **S7 [QE] gates.** Deps: S1–S6.
+  - touch: none.
+  - done when: the three app commands above are green, `mise run shared:check` is green, and `node scripts/check-changeset.mjs --base=$(git merge-base HEAD origin/main) --head=HEAD` prints OK. Run it this way because local `main` is behind `origin/main`, so `mise run changeset:check` would compare against an older base.
+  - Every check of I1 to I9 holds: the empty diffs of I2 and I4, I8's zero deleted test lines, and the `shared:check` of I3.
+
+### Test strategy
+
+| Invariant | Existing tests (unchanged) | Added by this amendment |
+|---|---|---|
+| I1 wire and wire order | `deliverHoursNotice.test.ts:93-148` (`toEqual` on the whole body), `triggers.test.ts` (each path's delivered facts), `client.test.ts`; hours-api `meetingHoursWire.test.ts`, `notices.routes.test.ts`, `openapi.contract.test.ts`; `mise run shared:check` | S2 order test |
+| I6 / I7 the lock and the snapshot | `prepareAudio.measured.test.ts:232` (held duration read in the commit), `record.test.ts:59-204` (the compare, deletion, rollback), `triggers.test.ts` (seven paths, one notice each) | S1 (a) lock held, S1 (b) `null` not 404 |
+| I7 `lockMeeting`'s 404 | the route suites that lock (core, participants, delete, consent, agenda, attachments, retry), all in the meetings-api run | — |
+| I5 badge DOM and copy | `EntryRow.test.tsx`, `EntryRow.it.test.tsx`, `EntriesTable.test.tsx`, `EntriesTable.it.test.tsx`, `TableView.fromMeeting.test.tsx`, `noHardcodedStrings.test.ts`, `strings.test.ts` | S3 tone test |
+| I7 day conversion | `write.test.ts:122`, `list.test.ts`, `apply.test.ts` (entry days), `automatic.test.ts` | S4 vector |
+| I7 P2025 | `write.test.ts:587` (PATCH race to 404), `automatic.test.ts:224`, `write.test.ts:404` | — |
+| I6 the DELETE's block | `automatic.test.ts:159-270` (one transaction at `:233`, existing block kept at `:213`), `apply.test.ts:618` | S5 rollback test |
+| I4 logs | `meetings-api/src/logPrivacy.test.ts`, `client.test.ts:190`, `apply.test.ts` (log line) | — (diff check in S7) |
+
+Suites and commands:
+- **meetings-api:** `cd meetings-api && bun run typecheck && DATABASE_URL=postgresql://postgres:postgres@localhost:5435/meetings_test bun test`.
+  - Always set `DATABASE_URL` explicitly. `src/test-support/testEnv.ts:11` only defaults it (`??=`), so a shell where direnv has loaded meetings-api's `.envrc` would truncate the dev database.
+  - Never run `bun test` from the repo root.
+  - Migrate `meetings_test` first only if it is behind (`DATABASE_URL=… bun run db:deploy`); this amendment adds no migration.
+- **hours-api:** `cd hours-api && bun run typecheck && bun test`. Its preload forces `hours_test` (`src/test-support/env.ts:26-32`).
+- **hours-ui:** `cd hours-ui && pnpm lint && pnpm exec tsc -b && pnpm test`.
+- **Repo-wide:** `mise run shared:check`, and the changeset check of S7.
+- **Not run:**
+  - auth and tools/env-doctor: untouched.
+  - The e2e (`shell/e2e/meeting-hours*.spec.ts`): no wire, DOM or copy change, and it needs the whole stack. QE may run `cd shell && pnpm e2e meeting-hours.spec.ts` if the stack is up.
+
+### Changeset
+
+No new changeset. `.changeset/meeting-hours-automatic-entries.md` is already added on this branch and names `@operai/hours-api`, `@operai/meetings-api` and `@operai/hours-ui` (minor). The cleanup lands in the same unreleased PR #12, before any release of that changeset.
+
+`node scripts/check-changeset.mjs --base=a17c260f --head=HEAD` answers OK today ("matched changeset(s): .changeset/meeting-hours-automatic-entries.md"). Because the branch diff keeps adding that file, the check stays OK after S1–S6.
+
+A patch changeset would add a CHANGELOG line describing no change, and the release would still bump each app minor. tools/env-doctor is no longer touched (S6 leaves `manifest.ts` alone), and it is not a Changesets package.
+
+### Security
+
+**Security-sensitive: YES, a delta pass only.** There is no new surface: no new route, credential, outbound call, data, wire field or log line. But S1 and S5 move two integrity controls that the feature's security review relied on:
+- `readHoursFacts`' row lock: owasp-report.md Q5, "the row-lock read keeps the decision safe".
+- The DELETE's same-transaction block: AC-2.5, and plan § Applying a notice, "The person's writes".
+
+Both fail silently when moved wrongly. A stale snapshot announces nothing for a change that happened. A block written outside the transaction, or swallowed, leaves an entry deleted with no block, and the next notice records it again.
+
+Orchestrator: schedule an owasp-reviewer delta pass in parallel with QE, over:
+- `meetings-api/src/meetings/lock.ts` and `meetings-api/src/hours/record.ts` (`readHoursFacts`);
+- `hours-api/src/meetingHours/blocks.ts` and the DELETE handler of `hours-api/src/entries/entries.routes.ts`.
+
+What it checks:
+- the same SQL and statement order;
+- `tx` and never `db`;
+- no lock added to the DELETE (decisions T5);
+- `null`, never 404, for a missing meeting.
+
+For S2, S3, S4 and S6 it only confirms from the diff that no wire field, log line or copy changed. Not regulated data; standard tier.
+
+### Risks of this amendment
+
+- **RA1 A step changes what reaches Postgres or the wire while every existing test stays green.** The cases are the two orders, the lock, and a block that leaves the transaction.
+  - Mitigation: the four characterisation tests (S1 a/b, S2, S5), each shown red under its mutation before the refactor, plus the S7 diff checks.
+  - Early check: S1 and S2 are the first meetings-api steps.
+- **RA2 A meetings-api test run hits the dev database.** Mitigation: the explicit `DATABASE_URL` in every command.
+  - tasks.md's "Test commands" sentence ("each preload rewrites `DATABASE_URL`") is true of hours-api only. `/wellforge:tasks` must copy the meetings-api command from here.
+- **RA3 Commits after QE, owasp and eval PASS make those verdicts stale for the touched files.** Mitigation: S7 reruns QE's suites, and the owasp delta covers S1 and S5. Whether the eval reruns is the orchestrator's call: the rubric's evidence paths change only by line numbers.
+
+### ADR candidates
+
+None. Each step places code inside decisions already recorded: ADR 20261124-meeting-hours-facts-pushed-by-their-owner-… and ADR 20261124-a-system-written-time-entry-follows-its-source-fact-only-…. The one choice with a rejected alternative, S1 keeping the lock inside the reader rather than trusting the caller, restates § Where meetings-api records a notice. It does not constrain new work. No glossary candidate.
+
+### Not done (owner declined)
+
+- A `withHoursNotice` wrapper for the seven `readHoursFacts` / `recordHoursNotice` call sites.
+- Making `meetings-api/src/hours/recordDay.ts`'s Zurich-day rule a shared copy with hours-api's `src/entries/today.ts`.
+- Shared e2e helpers for `shell/e2e/meeting-hours*.spec.ts`.
+- Shortening `.changeset/meeting-hours-automatic-entries.md`.
+- Sending `origin` only to the entry's owner (the wire stays as it is, owner decision 2026-11-25, ledger D77; § Security already says so).
+
+### Observed, not planned (outside the owner's list)
+
+- `meetings-api/src/transcript/transcript.routes.ts:242` keeps an older copy of the lock statement as its own local `lockMeeting`, from specs/20261104-meetings and not this feature's diff. It could use `lockMeetingRow` / `lockMeeting` after S1.
+- `hours-api/src/lists/lists.routes.ts:159` `isUniqueViolation` (P2002) has the same shape as S4's `isRecordNotFound`. A shared Prisma-error helper would be a change to time-tracking code.
+- `hours-api/src/meetingHours/apply.ts:141` (the `had_entry` insert) is the other writer of `meeting_hours_block`. It could call into `blocks.ts`, but its count feeds the log line.
+- `meetings-api/src/hours/client.test.ts:190` has the same unqualified `AC-4.10` in a `describe` title. It is left because I8 lets test text change only to follow a moved symbol. The owner may add it to S6.
+- The inverse conversion, a `Date` back to `YYYY-MM-DD` (`hours-api/src/entries/view.ts:171`, `list.routes.ts:62`, `totals/totals.ts:18`, `meetingHours/apply.ts:118`), repeats too. It is not item 4.

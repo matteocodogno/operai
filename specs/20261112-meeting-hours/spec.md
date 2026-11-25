@@ -1,7 +1,7 @@
 ---
 id: 20261112
 slug: meeting-hours
-status: done
+status: in-progress
 rigor: production
 created: 2026-11-12
 reopened: 2026-11-24
@@ -14,7 +14,7 @@ depends-on: 20261104-meetings, 20261112-time-tracking, 20261116-record-hours-in-
 
 Decision ledger: `../20261112-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-project-hours and
 specs/20261112-project-alerts; this spec's decisions are D7, D17 as superseded by D54, D54–D62, and D63–D76 added after the
-security review — D64, D65, D66 and D72 were withdrawn the same day by D74, D75 and D76)
+security review — D64, D65, D66 and D72 were withdrawn the same day by D74, D75 and D76; and D77 after the PR #12 review)
 
 > **Origin.** Split out of specs/20261112-time-tracking on 2026-11-12 (ledger D26) and approved the same day as
 > *suggested* entries each person confirmed (D17). **Re-opened on 2026-11-24** before any plan: the
@@ -34,6 +34,13 @@ security review — D64, D65, D66 and D72 were withdrawn the same day by D74, D7
 > D64 and D72, withdrawn by D74), the refusal for good of a notice with a malformed identifier (I3, D65, withdrawn by D75),
 > and the dropping of the records of who deleted or already had an entry when a meeting is deleted (I6, D66, withdrawn by
 > D76); each is now a non-goal. Every other acceptance criterion is unchanged.
+>
+> **Amended 2026-11-25 after the PR #12 review** (a drift correction, no change of scope or behaviour; ledger D77): the
+> non-goal "A history of where a moved entry came from" said that once an entry is recorded on something else nothing on it
+> shows it was ever automatic. The build does not do that: hours-ui shows no mark on an entry recorded on a project, a deal
+> or other work (AC-2.3), but the entry's `origin` stays `meeting`, reaches every viewer, and still decides the delete
+> confirmation's sentence (AC-2.7, D70). The owner reworded the non-goal to say so, rather than change what the API sends,
+> and the security review had accepted that residual (`owasp-report.md` I8, N3). No acceptance criterion changed.
 
 ## Problem
 
@@ -174,8 +181,11 @@ rules still hold.
   built on it stay (AC-3.10; decided by D69).
 - **Removing an entry its person changed when its meeting is deleted**: it is the person's own entry from then on, and
   AC-3.6 stays (D56).
-- **A history of where a moved entry came from**: once recorded on something else, nothing on the entry shows it was ever
-  automatic (AC-2.3).
+- **A history of where a moved entry came from**: no log of what it was recorded on before is kept or shown, and once it is
+  recorded on a project, a deal or other work no "From meeting" mark shows on it (AC-2.3). It stays an automatic entry:
+  `origin` stays `meeting` and is never rewritten, the API still carries it for every viewer, a holder of see everyone's
+  hours included (review I8 and N3, accepted), and on such an entry it drives only the delete confirmation's sentence
+  (AC-2.7, D70, D77).
 - **Telling anyone that a meeting's duration was corrected**: no notification, no earlier figure shown (A26, A43).
 - **Recording a correctly signed service credential that is refused for its service or its permission** (review I1,
   accepted as risk by the owner, D74): the sender already shows the refusal, and a record in the shared credential check

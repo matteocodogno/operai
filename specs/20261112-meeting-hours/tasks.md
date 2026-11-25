@@ -24,8 +24,15 @@ no task. T14 now closes after them.
 compared; plan § Security states that `origin` is on the wire for every reader, OWASP N3; two stale comments fixed):
 no AC, contract or task changes.
 
-Test commands: hours-api and meetings-api `bun run typecheck && bun test` against their `*_test` databases (each preload
-rewrites `DATABASE_URL`; migrate them with `bun run db:deploy` first; never point a test run at a dev database); auth the
+**Re-synced 2026-11-25 after the PR #12 review** (spec non-goal reworded, ledger D77, no AC change; plan § Amendment
+2026-11-25 — review cleanup, approved by the owner the same day): T1–T18 and T14 stand as built. T19–T26 are the
+behaviour-preserving cleanup, one task per plan step S1–S6, the owasp delta the amendment's § Security asks for, and a new
+close (S7 + QE + eval + `/wellforge:done`). Invariants I1–I9 of that section bind every one of them.
+
+Test commands: hours-api `bun run typecheck && bun test` (its preload forces `hours_test`); meetings-api `bun run typecheck &&
+DATABASE_URL=postgresql://postgres:postgres@localhost:5435/meetings_test bun test` (its preload only DEFAULTS `DATABASE_URL`,
+so always set it; plan amendment RA2); migrate the `*_test` databases with `bun run db:deploy` first when behind; never point a
+test run at a dev database and never run `bun test` from the repo root; auth the
 same with a scratch `DATABASE_URL`; hours-ui `pnpm lint && pnpm build && pnpm test`; shared copies `mise run shared:check`;
 env contract `mise run env:doctor`; e2e `cd shell && pnpm e2e meeting-hours.spec.ts` with the stack up (`mise run dev`).
 
@@ -114,3 +121,41 @@ env contract `mise run env:doctor`; e2e `cd shell && pnpm e2e meeting-hours.spec
 - [x] T14: Close: all gates green (typecheck and tests in auth, hours-api, meetings-api; lint, build and tests in hours-ui and meetings-ui; `shared:check`, `env:doctor`, `changeset:check`; e2e), owasp PASS (T13, T18), QE PASS, eval, spec status → done via `/wellforge:done` — refs: all — deps: T11, T12, T13, T15, T16, T17, T18
   - touch: `specs/20261112-meeting-hours/qe-report.md`, `specs/20261112-meeting-hours/eval-report.md`, `specs/20261112-meeting-hours/spec.md`
   - done when: `/wellforge:done 20261112-meeting-hours` accepts the transition
+
+## Review cleanup (amendment 2026-11-25, PR #12)
+
+Contract: plan.md § Amendment 2026-11-25 — review cleanup (Current state, Target state, Invariants I1–I9, Steps S1–S7, Test
+strategy, Security). Each new test is written first, green on `3bf7c402`, and shown red under the mutation the step names
+before the refactor. Three independent chains: meetings-api T19 ∥ T20 → T21; hours-api T23 → T24; hours-ui T22.
+
+- [ ] T19: [BE] meetings-api: one lock primitive, `lockMeetingRow`, used by `lockMeeting` and `readHoursFacts` (plan S1) — refs: AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-3.8 — deps: none
+  - touch: `meetings-api/src/meetings/lock.ts`, `meetings-api/src/hours/record.ts`, `meetings-api/src/hours/record.test.ts`
+  - done when: `lockMeetingRow` and `lockMeeting` are as in plan § Target state S1 and `readHoursFacts` calls `lockMeetingRow`; `grep -n 'SELECT "id" FROM "meeting"' meetings-api/src/hours/record.ts` prints nothing and `grep -c 'SELECT "id" FROM "meeting"' meetings-api/src/meetings/lock.ts` prints `1`; the two new `record.test.ts` cases pass — (a) "readHoursFacts holds the meeting's row lock until its transaction ends", (b) "readHoursFacts of a meeting that is not there is null, not a 404" (mutation: call `lockMeeting`); `cd meetings-api && bun run typecheck && DATABASE_URL=postgresql://postgres:postgres@localhost:5435/meetings_test bun test` is green
+
+- [ ] T20: [BE] meetings-api: qualify the `AC-4.10` citations as specs/20261104-meetings (plan S6) — refs: AC-4.1 — deps: none
+  - touch: `meetings-api/src/hours/delivery.ts`, `meetings-api/src/hours/client.ts`
+  - done when: `grep -n 'AC-4.10' meetings-api/src/hours/delivery.ts meetings-api/src/hours/client.ts` shows each occurrence preceded by `specs/20261104-meetings`; `git diff 3bf7c402 -U0 -- meetings-api/src/hours/delivery.ts meetings-api/src/hours/client.ts | grep -E '^[-+][^-+]' | grep -vE '^[-+]\s*(\*|//)'` prints nothing (comment lines only); `cd meetings-api && bun run typecheck` is green
+
+- [ ] T21: [BE] meetings-api: one Operai-participant reader, `src/hours/participants.ts`, in the database's order (plan S2) — refs: AC-1.1, AC-1.2, AC-3.3, AC-4.1 — deps: T19, T20
+  - touch: `meetings-api/src/hours/participants*`, `meetings-api/src/hours/record.ts`, `meetings-api/src/hours/delivery.ts`, `meetings-api/src/jobs/handlers/deliverHoursNotice.test.ts`
+  - done when: `grep -rn 'userId: { not: null }' meetings-api/src/hours --include='*.ts' | grep -v '\.test\.ts'` prints `participants.ts` only; `grep -n '\.sort()' meetings-api/src/hours/record.ts meetings-api/src/hours/participants.ts` prints nothing; `git diff 3bf7c402 --stat -- '*/src/lib/meetingHoursWire.ts'` is empty; the new `deliverHoursNotice.test.ts` case "lists the Operai participants in the database's order of user id, never re-sorted (decisions T8)" passes (participants `zed-1`, `Bob-2`, `amy-3`; it also asserts that order differs from `[...ids].sort()`; mutations: add `.sort()`, drop `orderBy`); `record.test.ts:84-139`, `triggers.test.ts` and `deliverHoursNotice.test.ts` pass unchanged; the meetings-api command of T19 is green
+
+- [ ] T22: [FE] hours-ui: `FromMeetingBadge`, the one place the "From meeting" badge is drawn (plan S3) — refs: AC-2.3, AC-4.3 — deps: none
+  - touch: `hours-ui/src/components/FromMeetingBadge*`, `hours-ui/src/components/EntryRow.tsx`, `hours-ui/src/components/EntriesTable.tsx`
+  - done when: after loading `operai-ui/docs/building-pages.md` and `design-system.md`; `grep -rn 'from-meeting' --include='*.tsx' hours-ui/src | grep -v '\.test\.tsx'` prints `FromMeetingBadge.tsx` only; `grep -n 'Badge' hours-ui/src/components/EntriesTable.tsx` prints only `FromMeetingBadge` lines; the new `FromMeetingBadge.test.tsx` passes (`<FromMeetingBadge entryId="e1" />` renders test id `hours-entry-e1-from-meeting`, text "From meeting", a class list containing `badge-accent`; mutation: another `tone`); `EntryRow.test.tsx`, `EntryRow.it.test.tsx`, `EntriesTable.test.tsx`, `EntriesTable.it.test.tsx` and `TableView.fromMeeting.test.tsx` pass unchanged; `hours-ui/src/strings/**` untouched; `cd hours-ui && pnpm lint && pnpm exec tsc -b && pnpm test` is green
+
+- [ ] T23: [BE] hours-api: `dayDate` in `rules.ts` and a local `isRecordNotFound` (plan S4) — refs: AC-1.1 — deps: none
+  - touch: `hours-api/src/entries/rules.ts`, `hours-api/src/entries/rules.test.ts`, `hours-api/src/entries/filters.ts`, `hours-api/src/entries/list.routes.ts`, `hours-api/src/entries/entries.routes.ts`, `hours-api/src/meetingHours/apply.ts`
+  - done when: `grep -rn 'T00:00:00Z' hours-api/src --include='*.ts' | grep -v '\.test\.ts' | grep -v test-support` prints `rules.ts` (`dayDate`) and `filters.ts` (`spanDays`) only; `grep -c '"P2025"' hours-api/src/entries/entries.routes.ts` prints `1`; the new `rules.test.ts` case `dayDate("2026-03-29").getTime() === Date.UTC(2026, 2, 29)` passes; `write.test.ts`, `list.test.ts`, `apply.test.ts` and `automatic.test.ts` pass unchanged; `cd hours-api && bun run typecheck && bun test` is green
+
+- [ ] T24: [BE] hours-api: the DELETE's block rule moves to `src/meetingHours/blocks.ts` (`blockDeletedEntry(tx, …)`) (plan S5) — refs: AC-2.5 — deps: T23
+  - touch: `hours-api/src/meetingHours/blocks*`, `hours-api/src/entries/entries.routes.ts`, `hours-api/src/entries/automatic.test.ts`
+  - done when: `grep -rn 'meetingHoursBlock' hours-api/src/entries --include='*.ts' | grep -v '\.test\.ts'` prints nothing; `grep -rn 'blockDeletedEntry(db' hours-api/src` prints nothing (the DELETE passes its own transaction's `tx`); the route keeps the delete statement and its read-order comment; the new `automatic.test.ts` case under the DELETE describe "a block the database refuses takes the delete back with it: 500, the entry still there, no block" passes (temporary raising `BEFORE INSERT` trigger on `meeting_hours_block`, dropped in `finally`; mutation: a swallowing `try/catch`); `automatic.test.ts:159-270` and `apply.test.ts:618` pass unchanged; the hours-api command of T23 is green
+
+- [ ] T25: [QE] owasp delta pass over the cleanup (plan amendment § Security) — refs: AC-2.5, AC-3.1 — deps: T19, T20, T21, T22, T23, T24
+  - touch: `specs/20261112-meeting-hours/owasp-report.md`
+  - done when: owasp-report.md gains a dated 2026-11-25 delta section with verdict PASS over `meetings-api/src/meetings/lock.ts` + `readHoursFacts` (same SQL and order, `null` never 404 for a missing meeting) and `hours-api/src/meetingHours/blocks.ts` + the DELETE handler (`tx` never `db`, same statements, no lock added, decisions T5), confirming from the diff that T20–T23 change no wire field, log line or copy; no finding at medium or above open
+
+- [ ] T26: Close the cleanup: plan S7 gates green, I1–I9 hold, QE PASS, eval re-run PASS, `/wellforge:done` re-verifies — refs: all — deps: T19, T20, T21, T22, T23, T24, T25
+  - touch: `specs/20261112-meeting-hours/qe-report.md`, `specs/20261112-meeting-hours/eval-report.md`, `specs/20261112-meeting-hours/spec.md`
+  - done when: the three app commands of T19, T22 and T23 are green; `mise run shared:check` is green; `node scripts/check-changeset.mjs --base=$(git merge-base HEAD origin/main) --head=HEAD` prints OK; `git diff 3bf7c402 -- meetings-api/prisma hours-api/prisma` and `git diff 3bf7c402 -U0 -- '*.ts' '*.tsx' | grep -E '^[-+][^-+].*console\.'` are empty and `git diff 3bf7c402 --numstat -- '*.test.ts' '*.test.tsx'` shows 0 deleted lines; QE PASS in `qe-report.md`; a fresh `eval-report.md` PASS; `/wellforge:done 20261112-meeting-hours` accepts the transition
