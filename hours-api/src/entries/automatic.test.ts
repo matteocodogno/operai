@@ -274,8 +274,9 @@ describe("DELETE /time-entries/{id} of an automatic entry blocks it from coming 
 
   it("a block the database refuses takes the delete back with it: 500, the entry still there, no block", async () => {
     const entry = await makeMeetingEntry("m1", { automatic: "untouched" });
-    // A database that refuses the block: the delete statement has already run when the insert fails. A block that were
-    // "best effort" would commit the delete with no block, and the next notice would record the entry again (AC-2.5).
+    // A database that refuses the block: the delete statement has already run when the insert fails. Swallowing that failure
+    // ("best effort") would not commit the delete: Prisma opens no savepoint, so the aborted transaction's COMMIT is a
+    // rollback, and the route would answer 204 with the entry still there and no block (AC-2.5).
     await db.$executeRawUnsafe(`CREATE FUNCTION t24_refuse_block() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'refused by the test'; END $$`);
     await db.$executeRawUnsafe(`CREATE TRIGGER t24_refuse_block BEFORE INSERT ON meeting_hours_block FOR EACH ROW EXECUTE FUNCTION t24_refuse_block()`);
     const error = spyOn(console, "error").mockImplementation(() => {});
