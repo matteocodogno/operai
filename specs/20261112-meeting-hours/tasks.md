@@ -1,7 +1,7 @@
 ---
 spec: 20261112
 generated: 2026-11-24
-synced: 2026-11-24
+synced: 2026-11-25
 ---
 
 # Tasks: Meeting hours — the hours of a meeting recorded automatically for the people who took part
@@ -19,6 +19,10 @@ as built; T15–T18 add the two additions that stay — the measured duration (A
 D-P10, R9–R11) and the mark that shows only while an automatic entry is on a meeting (AC-2.3 changed, plan § hours-ui —
 changed, D-P5; design S1, F5, S5, § What this changes in the built code). The three withdrawn hardenings (ledger D74–D76) have
 no task. T14 now closes after them.
+
+**Re-checked 2026-11-25** after the eval's wording corrections (spec A39 now says any saved edit counts, values not
+compared; plan § Security states that `origin` is on the wire for every reader, OWASP N3; two stale comments fixed):
+no AC, contract or task changes.
 
 Test commands: hours-api and meetings-api `bun run typecheck && bun test` against their `*_test` databases (each preload
 rewrites `DATABASE_URL`; migrate them with `bun run db:deploy` first; never point a test run at a dev database); auth the

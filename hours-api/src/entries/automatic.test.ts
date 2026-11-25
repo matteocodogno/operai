@@ -96,7 +96,7 @@ describe("PATCH /time-entries/{id} on an automatic entry stops it following its 
 
     expect(res.status).toBe(200);
     expect(res.json).toMatchObject({ on: { type: "project", id: "p1" }, origin: "meeting" });
-    // It remembers its meeting even from the project: the mark stays, and the unique index keeps it the person's only one for `m1`.
+    // It remembers its meeting even from the project: `origin` stays `meeting` (read by the delete sentence, D70; hours-ui hides the mark while it is on a project, AC-2.3, D67), and the unique index keeps it the person's only one for `m1`.
     expect(await row(entry.id)).toMatchObject({ target: "project", projectId: "p1", meetingId: null, origin: "meeting", sourceMeetingId: "m1", followsMeeting: false });
   });
 

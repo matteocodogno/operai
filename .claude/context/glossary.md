@@ -219,9 +219,10 @@
   (specs/20261112-meeting-hours). It stays an automatic entry when its person records it on something else;
   its "From meeting" mark shows only while it is recorded on a meeting (D67). _Avoid:_ suggested entry (the
   superseded design), proposal (ProposAI's word), draft entry.
-- **Untouched**: said of an **Automatic entry** its person has not changed since Operai recorded it (no saved
-  change of day, duration, note or what it is recorded on). Only an untouched entry follows its meeting.
-  _Avoid:_ unedited, pristine.
+- **Untouched**: said of an **Automatic entry** its person has not changed since Operai recorded it. Any edit its
+  person saves is a change, whether or not the values differ (saving the stored values again counts; Operai does
+  not compare values, A39). Reading it, or its meeting being relinked to another deal, is not a change. Only an
+  untouched entry follows its meeting. _Avoid:_ unedited, pristine.
 - **Block** (meeting hours): the record that a person must never again get an **Automatic entry** on one meeting,
   because they deleted theirs or already had an entry of their own on it when its duration became known. Not the
   CRM offer wizard's **Block choice**. _Avoid:_ tombstone, ban.

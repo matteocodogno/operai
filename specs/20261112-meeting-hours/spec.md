@@ -211,8 +211,13 @@ Added on re-opening (2026-11-24, not grilled — review them):
 - A37 A meeting whose day is after today records nothing until that day (specs/20261112-time-tracking AC-1.3); an
   untouched entry whose meeting moves to a later day than today is removed until then.
 - A38 Only Operai participants whose account is active get an automatic entry.
-- A39 "Changed" (untouched no more) means any saved change of day, duration, note or what the entry
-  is recorded on; reading it, or the meeting being relinked to another deal, is not a change.
+- A39 "Changed" (untouched no more) means any edit its person saves, whether or not the values end up different:
+  saving the entry again with the values it already holds counts too. Whether the values differ is deliberately not
+  compared: a person who sets a value back to what Operai wrote has still made a choice, and the ADR rejects "value
+  comparison for untouched" (ADR 20261124-a-system-written-time-entry-follows-its-source-fact-only-…). Reading the
+  entry, or the meeting being relinked to another deal, is not a change. My hours' entry dialog sends only what the
+  person changed and sends nothing when nothing changed, so only a direct API caller can save an edit that changes
+  nothing. This is how the build behaves.
 - A40 When Meetings cannot be reached, automatic entries are late, never lost or doubled.
 - A41 An automatic entry's note is empty (the meeting's title already names it; copying the title or
   anything else into the note would freeze it there).

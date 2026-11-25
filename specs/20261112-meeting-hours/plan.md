@@ -742,8 +742,11 @@ entry is built from) and hours-ui's predicate (`src/lib/fromMeetingMark.ts` and 
 - **(amendment) The mark in Everyone's hours (design G6, review I8): superseded by D67.** The mark now shows only while an entry
   is on a meeting, so a `time-entry:read-all` holder no longer learns from it that a person attended a meeting whose hours they
   recorded elsewhere. What a holder can still read is what they always could: the entries on a meeting, and that such an entry
-  was recorded by Operai. `origin` still reaches the client for a moved entry (the delete sentence, D70); it is shown to its
-  person only, in their own delete confirmation.
+  was recorded by Operai. `origin` still reaches the client for a moved entry (the delete sentence, D70). On screen it is
+  rendered to its person only, in their own delete confirmation; on the wire it is in the view every reader receives
+  (`hours-api/src/entries/view.ts`), so a `time-entry:read-all` holder reading the JSON learns that a moved entry began as an
+  automatic meeting entry. I8 had already judged that bit acceptable on screen, so this is accepted as no new exposure (owasp
+  delta review N3); masking `origin` in a non-owner view was not taken.
 - **Labour-law go-live sign-off (spec O3, accepted as risk)** — automatic recording of hours about a
   person: management / HR before go-live.
 - No new external host, no data-residency change, and (amendment) no new reader of bytes: the measured duration is the one

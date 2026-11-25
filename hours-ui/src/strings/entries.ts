@@ -37,8 +37,9 @@ const en = {
     none: 'Other work',
   },
   /**
-   * The mark on an entry Operai recorded from a meeting (specs/20261112-meeting-hours AC-2.3; design S1, S2): a badge before
-   * the name, kept after the person changes the entry. Italian says "riunione" as the kind badge of the same row does.
+   * The mark on an entry Operai recorded from a meeting (specs/20261112-meeting-hours AC-2.3, D67; design S1, S2): a badge before
+   * the name, shown while the entry is recorded on a meeting (`showsFromMeetingMark`). Italian says "riunione" as the kind
+   * badge of the same row does.
    */
   fromMeeting: 'From meeting',
   /** How an entry is named in the Edit and Delete buttons when the viewer cannot read its name. */
