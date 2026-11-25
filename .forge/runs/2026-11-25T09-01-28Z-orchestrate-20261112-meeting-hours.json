@@ -1,0 +1,47 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.61.0",
+  "run_id": "2026-11-25T09-01-28Z-orchestrate-20261112-meeting-hours",
+  "command": "orchestrate",
+  "feature": "20261112-meeting-hours",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "pipeline": "refactor (PR #12 review cleanup on a done feature)",
+  "started": "2026-11-25T09:01:28Z",
+  "finished": "2026-11-25T10:35:00Z",
+  "agents": [
+    { "agent": "product-owner", "artifact": "spec.md non-goal + ledger D77", "outcome": "completed" },
+    { "agent": "architect", "artifact": "plan.md § Amendment 2026-11-25 — review cleanup", "outcome": "completed", "gate": "approved by the owner 2026-11-25" },
+    { "agent": "product-owner", "artifact": "spec.md ledger pointer (D77)", "outcome": "completed" },
+    { "agent": "backend-dev", "tasks": ["T23", "T24"], "outcome": "env_fault", "commits": [], "worktree": "worktree-agent-a6be13f4c118ef452" },
+    { "agent": "frontend-dev", "tasks": ["T22"], "outcome": "completed", "commits": ["ee0c8c09"], "worktree": "worktree-agent-ad1e346d4845c7f13" },
+    { "agent": "backend-dev", "tasks": ["T23", "T24"], "outcome": "completed", "commits": ["ff1cf2a1", "50e6fa05"], "worktree": "worktree-agent-a42baa301ea96a114" },
+    { "agent": "backend-dev", "tasks": ["T19", "T20", "T21"], "outcome": "completed", "commits": ["0773d58a", "aba5691a", "0cc70ab0"], "worktree": "worktree-agent-aa645f4d50a52f5fb" },
+    { "agent": "architect", "artifact": "plan.md amendment corrected after implementation (S2, S5, S6)", "outcome": "completed" },
+    { "agent": "owasp-reviewer", "tasks": ["T25"], "outcome": "PASS" },
+    { "agent": "quality-engineer", "outcome": "PASS" },
+    { "agent": "backend-dev", "tasks": ["T24"], "outcome": "completed", "commits": ["3921c3c6"], "note": "comment-only follow-up of QE O2 / owasp C1, after QE PASS" },
+    { "agent": "evaluator", "outcome": "PASS", "score": 83.5 }
+  ],
+  "drift_events": [
+    { "agent": "code-review (main loop)", "artifact": "spec.md", "summary": "non-goal 'A history of where a moved entry came from' contradicted the build (origin stays on the wire, drives the delete sentence); owner chose to reword it (ledger D77), no AC change", "resolved": true },
+    { "agent": "backend-dev", "artifact": "plan.md", "summary": "S5 rationale: a swallowed block insert aborts the Prisma interactive transaction (204, entry still there), it does not commit the delete with no block", "resolved": true },
+    { "agent": "backend-dev", "artifact": "plan.md", "summary": "S2: a dropped orderBy is not observable through the wire (unique-index scan order); pinned by participants.test.ts with SET LOCAL instead", "resolved": true },
+    { "agent": "backend-dev", "artifact": "tasks.md", "summary": "T20/S6 comment-only check against 3bf7c402 cannot hold once T21 changes delivery.ts; now reads T20's own commit", "resolved": true }
+  ],
+  "collision_events": [],
+  "env_faults": [
+    { "agent": "orchestrator (preflight)", "class": "app start", "detail": "auth :3001 not running", "resolved_by": "owner restarted the stack (mise run dev); preflight re-run green" },
+    { "agent": "orchestrator (preflight)", "class": "external service", "detail": "accounting-api :8089 not running, e2e global setup refused", "resolved_by": "E2E_SKIP_ACCOUNTING_SEED=1 E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 (these specs never touch Refund/Accounting)" },
+    { "agent": "backend-dev", "class": "secret env / generated artefact", "detail": "gitignored Prisma client (src/lib/generated/) absent in fresh worktrees: hours-api baseline red (TS2307), meetings-api first typecheck red", "resolved_by": "copied meetings-api client into its worktree; hours-api re-dispatched with db:generate against hours_test as carry-in" },
+    { "agent": "orchestrator (baseline)", "class": "cpu load", "detail": "hours-ui MyHoursPage.export.test.tsx 2 timeouts under parallel suite load (file untouched)", "resolved_by": "re-run alone and full suite: 2794/2794" },
+    { "agent": "quality-engineer", "class": "dev stack", "detail": "meetings-api under bun --hot has 3 LISTEN meetings_jobs connections (extra job runners); meeting-hours-measured.spec.ts not run", "resolved_by": "not needed for this pass; owner to restart the stack before running it" }
+  ],
+  "verdicts": { "qe": "PASS", "security": "PASS", "eval": "PASS" },
+  "security": { "matched_rules": ["always_at_tier:production", "**/handlers/**"], "dispatched": true, "notes": ["C1 plan S5 rationale (fixed)", "C2 ORDER BY on the lock-time participant read (planned)", "C3 tx vs db not type-enforced; grep + deferred-trigger test"] },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}

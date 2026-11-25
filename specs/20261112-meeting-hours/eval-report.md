@@ -2,147 +2,128 @@
 spec: 20261112
 evaluated: 2026-11-25
 rubric: default-v2
-score: 86.1
+score: 83.5
 verdict: PASS
 ---
 # Eval report: Meeting hours — the hours of a meeting recorded automatically for the people who took part
 
-**This is the second eval pass.** The first, at `fb85544d`, scored PASS 80.0. This pass re-scores every dimension from the evidence at
-`48ec8690`. It does not carry the earlier scores over.
+Previous pass: PASS 86.1 at `48ec8690` before the rebase (`efc69b48` after it), on 2026-11-25. Before that: PASS 80.0. This pass re-scores
+every dimension from the evidence at HEAD `71393244` and carries no score over.
 
-**Rubric:** `default-v2`, the tool-bundled copy at `~/.claude/plugins/cache/wellforge/wellforge/2.61.0/config/eval-rubric.yml`. I
-resolved it from `installPath` of the `wellforge@wellforge` entry for this project in `~/.claude/plugins/installed_plugins.json`.
-`gates/configs/eval-rubric.yml` and `.wellforge-gates/gates/configs/eval-rubric.yml` do not exist. The spec has no `eval.md`, so no
+**Rubric:** `default-v2`. I used the tool-bundled copy at `~/.claude/plugins/cache/wellforge/wellforge/2.61.0/config/eval-rubric.yml`,
+found through `installPath` of the `wellforge@wellforge` entry for this project in `~/.claude/plugins/installed_plugins.json`.
+Neither `gates/configs/eval-rubric.yml` nor `.wellforge-gates/gates/configs/eval-rubric.yml` exists. The spec has no `eval.md`, so no
 overrides apply. `design.md` exists, so the conditional `design_fidelity` dimension applies and the weight pool is 115.
 
-**What I evaluated:** `feat/meeting-hours` at `48ec8690` (merge base `831bf3fb`). Since the last eval, `git diff fb85544d..HEAD` changes
-two code comments (`hours-ui/src/strings/entries.ts:39-43`, `hours-api/src/entries/automatic.test.ts:99`) plus spec A39, plan § Security,
-the glossary's **Untouched** and the tasks header. The run trace `.forge/runs/2026-11-24T09-15-00Z-orchestrate-20261112-meeting-hours.json`
-was added in `fb85544d`. `qe-report.md` ends at **PASS** (not BLOCKED). `owasp-report.md` is PASS, and its T18 delta is PASS.
+**What I evaluated:** the whole feature at HEAD, `git diff a17c260f...HEAD` (58 commits; base `origin/main` `a17c260f`). The PR #12
+cleanup is `3bf7c402..HEAD`:
+- six code commits: `ee0c8c09` T22, `ff1cf2a1` T23, `50e6fa05` T24, `0773d58a` T19, `aba5691a` T20, `0cc70ab0` T21;
+- one comment-only test commit, `3921c3c6`;
+- the spec non-goal reword (ledger D77), plan § Amendment 2026-11-25, tasks T19–T26, the QE cleanup pass (PASS) and the owasp T25 delta
+  (PASS).
 
-**What I re-ran myself.** I edited nothing in the repo. Backend tests used only the `*_test` databases.
+`qe-report.md` ends at **PASS**, not BLOCKED. Its top section is the cleanup pass. I did not run the backend suites, as the brief asked
+(they can truncate dev databases). QE's backend runs stand: meetings-api 2150 pass in 93 files and hours-api 2117 pass in 51 files, both on
+`*_test`.
 
-| Check | Result | Matches QE |
-|---|---|---|
-| hours-api `bun run typecheck && bun test` (`DATABASE_URL=…/hours_test`) | 0 errors; **2114 pass, 0 fail**, 51 files | yes |
-| meetings-api `bun run typecheck && bun test` (`DATABASE_URL=…/meetings_test`, set explicitly because its preload only defaults it) | exit 0; **2145 pass, 0 fail**, 92 files | yes |
-| hours-ui `pnpm lint && pnpm build && pnpm test` | lint 0; build OK; **2794 pass**, 94 files | yes |
-| meetings-ui `MeetingPage.test.tsx` | 66 pass | yes |
-| `mise run shared:check` / `env:doctor` / `changeset:check` | 35 groups in sync / all checks passed / OK | yes |
+**What I checked myself.** Apart from this report I edited nothing in the repo, and `git status` showed no other change when I finished.
 
-**Mutations I ran myself** to see whether the tests fail when the behaviour breaks. They are not QE's M1–M5. Each ran on a throwaway copy
-under `/tmp` (since deleted), and the repo was confirmed clean after each one.
+| Check | Result |
+|---|---|
+| hours-ui `pnpm lint`, `pnpm exec tsc -b`, `pnpm test` | lint 0, tsc 0, **2798 pass, 95 files**, the same as QE |
+| `mise run shared:check` | 35 groups in sync, `meetingHoursWire` and `systemAuth` included. `cmp` finds the two wire files identical |
+| `node scripts/check-changeset.mjs --base=$(git merge-base HEAD origin/main) --head=HEAD` | OK, matched `.changeset/meeting-hours-automatic-entries.md` |
+| Invariants I2, I4, I8 since `3bf7c402` | the prisma diff is empty and no `console.` line changed; the test numstat is 6 files, **0 deleted lines**, 235 added; the wire, `hours-ui/src/strings` and `check-shared-copies.ts` are untouched |
+| `3921c3c6` (a commit after QE PASS) | comment lines only: the two changed lines are `//` lines |
+| The rebase | `git patch-id` is identical for five sampled pairs of pre- and post-rebase commits (`4bcddbed`/`a870bc10`, `33822e97`/`520ea8be`, `d5c46eb1`/`0610106b`, `48ec8690`/`efc69b48`, `c3c963b3`/`fe2318a4`) |
+| **My own mutations** (hours-ui, run in a `git archive` copy under `/tmp` that I deleted afterwards) | M-A, Everyone's hours drops `<FromMeetingBadge>`: **8 red** (`EntriesTable.test.tsx`, `EntriesTable.it.test.tsx`). M-B, the mark moved before the kind badge in `EntryRow`: **4 red** (`EntryRow.test.tsx` "right after the kind badge and before the name", the hidden meeting, moved to another meeting, moved off and back) |
 
-| # | Mutation | Tests that went red |
-|---|---|---|
-| MA | `showsFromMeetingMark` back to the retired rule `origin === 'meeting'` | 18 across 5 files (`fromMeetingMark`, `EntryRow`, `EntriesTable`, `TableView.fromMeeting`, `DeleteEntryDialog`) |
-| MB | `DeleteEntryDialog` shows its paragraph by the mark rule instead of `origin` (D70 broken) | exactly the 3 D70 tests |
-| MC | `apply()` no longer re-applies an equal `seq` (`<` → `<=`) | 5: AC-4.2 repeats, both A37 day-of-meeting cases, the concurrent first delivery |
-| MD | `apply()` without the `FOR UPDATE` row lock | 1: "waits for an apply of the same meeting that is still running" |
-| ME | notice router mounted after `jwtMiddleware` (R8) | 12 or more route tests, including "is reached through the assembled app's own order" |
-| MG | `apply()` ignores an existing own entry (AC-1.4) | 7, including every AC-1.4 case |
-| MH | a half step rounds down (A36) | 3: the 45:00, 1:15:00 and 23:45:00 vectors |
-| MI | the sender treats a 404 as permanent (AC-4.2 says retry) | 2: `client.test` "404 is transient", delivery "hours-api not yet deployed" |
-| MJ | a change of Operai participants is no longer a hours fact | 3: the `record.test` case and two participants-route cases |
-
-| Dimension | Weight | Score (/5) | Floor | Weighted | Change since last pass | Evidence |
+| Dimension | Weight | Score (/5) | Floor | Weighted | Since last pass | Evidence |
 |---|---|---|---|---|---|---|
-| AC satisfaction | 35 | 4 | 4 | 28.0 | = (4) | All 28 ACs met, each with an executed test (qe-report § AC sweep, which my suite runs reproduce count for count). The core path is also green end to end on the real dev stack: `meeting-hours.spec.ts` A–C, `meeting-hours-moved.spec.ts` B–E and `meeting-hours-measured.spec.ts` 5/5. A39 now matches the build (spec.md:214-220 vs `entries.routes.ts:372`), and its new claim about the UI is true: `toPatch` sends only changed members (`EntryDialogModel.ts:386-411`) and an empty patch closes without a request (`EntryDialog.tsx:277-283`). Still thin, either test or behaviour but not both: AC-1.6 is proven by structure only (`matrix.test.ts` pins the one `/system/` route; `apply.ts:151` is the only writer of `origin: "meeting"`; crm-api and activities-api are untouched). AC-4.3's Italian is proven in jsdom only. AC-2.2's export clause is inferred from the shared walk (`HoursExport.tsx:44` → `readAllEntries`), with no test of an automatic entry in a workbook. |
-| Spec fidelity | 20 | 4 | 3 | 16.0 | = (4) | Contracts as planned: the wire is byte-identical in both services; the route is mounted before the user gate (`hours-api/src/index.ts:67` vs `:76`, pinned by mutation ME); the seven write paths match the plan; the measured-duration commit matches it (`prepareAudio.ts:268-293`); there are two separate rules for mark and paragraph (`EntryRow.tsx:100`, `EntriesTable.tsx:71`, `DeleteEntryDialog.tsx:91`). The withdrawn D74–D76 work is absent. Last pass's doc mismatches are fixed: plan § Security now states `origin` is on the wire (N3), and A39 now agrees with the ADR's rejected Option B (ADR `20261124-a-system-written-…`:51, 76, which predates the code, `b826a48e`). `design.md` `draft` is the plugin default, not drift (`commands/design.md:54-55`). Still present: trivial, documented additions (`on?.type`; the sender-side `invalid_notice`, `delivery.ts:128`, unreachable because meetings-api caps participants at 30, `participants.routes.ts:28`; an adapted header on the `systemAuth` copy, decisions.md:7) and a stale sentence in AGENTS.md:757 (see Findings). |
-| Test quality | 20 | 5 | 3 | 20.0 | = (5) | Tests at U, I-H, I-M, C, C-M and E levels on real Postgres, including two-connection races (PATCH vs apply, DELETE vs apply, six versions at once), all-or-nothing under a trigger fault, both sides of the A36 rounding and A42 margin, and the one 401 checked before the body. The tests fail when the behaviour breaks, which my own nine mutations show independently of QE's M1–M5. MA–MJ each turned the tests named for that behaviour red, and no mutation survived. |
-| Code quality & conventions | 15 | 5 | 3 | 15.0 | **↑ 4 → 5** | The two stale comments that held it at 4 are fixed and accurate (`strings/entries.ts:40-42`, `automatic.test.ts:99`). A wider search for the retired rule's wording finds none left: the two remaining "the mark stays" are still correct, a hidden meeting at `EntryRow.test.tsx:154` and `world.ts:173` (whose helper only builds entries on a meeting). Idiomatic: `createRoute` with a per-route guard, a strict zod wire as a shared copy, Prisma transactions with raw SQL only as tagged templates, and CHECKs plus a partial unique index in the migration. Error handling is realistic: P2025 maps to 404 or "nothing deleted" (`entries.routes.ts:378`, `:392`); the sender separates transient from permanent outcomes (`client.ts:148-150`), never follows a redirect, times out after 5 s and retries a 401 once (`:127-138`); the delivery uses closed codes and logs no user id. The measured-duration rule is integer-only (`measuredDuration.ts:27-30`). No dependency changed (`git diff 831bf3fb..HEAD` touches no `package.json` or lockfile), and typecheck, lint and build are green. I also checked a person's POST racing `apply()`: the result is the same as "apply, then POST", so no anomaly. |
-| Design fidelity (UI) | 15 | 4 | 3 | 12.0 | = (4) | design.md is complete: F1–F5, S1–S5 with variants, every state referenced, an a11y plan with measured contrast (4.99 / 6.29) and four hotspots, and no new component. The build realises S1, S2, S4 and S5. Hotspot 3 (the badge outside the `<p>` lines) is realised, and hotspot 4 (one predicate) is shown by MA flipping both call sites. QE checked keyboard and focus in a real browser (moved spec E). Not done: hotspot 1, the VoiceOver/NVDA listen (design.md:416-417, 457); a fresh measurement of contrast (hotspot 2) and of zoom (design.md:427, "zoom itself not run"); and the G7 browser observation, for which QE used the API timeline and a C-M polling test. |
-| Trajectory | 10 | 4 | 2 | 8.0 | **↑ 2 → 4** | A `wellforge-run/v3` trace now exists. The independent hook events in `.forge/runs/.events.jsonl` corroborate it: every `subagent_stop` from 09:39Z to 14:51Z on 2026-11-24 matches the trace's agents in type and order. Git shows every task committed after its `deps:` (for example T4 after T2, T6 after T3/T4/T5, T7 after T6, T11 after T1/T7/T9/T10, T17 and T18 after T15/T16). OWASP ran twice, plan gate 2 was re-approved (`64ad1fce`), and QE ran BLOCKED then PASS, re-run and not waived. It falls short of 5 because the trace was reconstructed after the fact, with an incomplete commit attribution, and the 2026-11-25 round is untraced, with a non-WellForge agent editing code (see Findings). |
-| **Total** | **115** | | | **99.0 → 86.1/100** | **was 80.0** | normalised: 99.0 / 115 × 100 |
+| AC satisfaction | 35 | 4 | 4 | 28.0 | = (4) | **All 28 ACs are met.** Each has an executed test (qe-report § AC sweep, 28/28). After the cleanup they are re-proven by the green suites (QE: 2150 / 2117 / 2798) and by `meeting-hours.spec.ts` + `meeting-hours-moved.spec.ts`, **8/8 twice in a real browser**, with screenshots B1–E1. **The ACs the cleanup touches:** AC-2.5 (`blockDeletedEntry(tx, …)`, `entries.routes.ts:405`; a refused block takes the delete back, `automatic.test.ts:275`); AC-1.1, AC-1.2 and AC-3.3 (one participant reader, `participants.ts:15-22`, used at `record.ts:74` and `delivery.ts:81`); AC-3.1–3.4 and AC-3.8 (the snapshot lock, `record.ts:71`, pinned by `record.test.ts:63`); AC-2.3 and AC-4.3 (`FromMeetingBadge`; 16 renders byte-identical before and after). **Still thin (test or behaviour, not both):** AC-1.6 is shown by structure only (`matrix.test.ts` pins the one `/system/` route, the `sub` allowlist, and `apply.ts` as the only writer of `origin: "meeting"`). AC-2.2's export clause is inferred from the shared walk: no workbook test holds an `origin: 'meeting'` entry. AC-3.8 is covered by the I-M `prepareAudio.measured.test.ts` inside the green run; its real-stack e2e was not re-run after `readHoursFacts` changed (QE O4: the dev stack again holds 3 job runners) |
+| Spec fidelity | 20 | 4 | 3 | 16.0 | = (4) | **The cleanup is the approved amendment, step for step.** S1 (`lock.ts:12-20`), S2 (`participants.ts`), S3 (`FromMeetingBadge.tsx`), S4 (`rules.ts:47`; `isRecordNotFound` at `entries.routes.ts:52`, used at `:383` and `:397`), S5 (`blocks.ts`) and S6 (`delivery.ts:30-31`, `client.ts:26`). Every done-when grep holds (QE rows 14–19). I1–I9 hold: no wire, OpenAPI, migration, log line, copy, env, scope, dependency or export change. The spec's only change is the D77 non-goal, which now says what the build does (`origin` stays on the wire); no stale "nothing shows it was automatic" sentence is left anywhere in the repo. The plan was corrected after implementation (S2's undetectable `orderBy` mutation, S5's failure mode, S6's check, `810dffaa`), openly and with decisions recorded. The extra tests beyond the plan are recorded in decisions.md (T19–T24). **What keeps it at 4:** **AGENTS.md:763** still defines **Untouched** as "any saved change of day, duration, note or target". That is the pre-A39 wording, named in the last eval and still not fixed. `design.md`'s inventory says "NEW: none" and draws the `Badge` inline, while the code now has `FromMeetingBadge`: the newer plan amendment supersedes it and the DOM is identical, but the design file was not updated. The earlier documented trivia stand (`on?.type`; the unreachable `invalid_notice`; the adapted `systemAuth` header). The env-doctor test fix `d9673794` rides on the branch, recorded as a baseline environment fault in the trace |
+| Test quality | 20 | 5 | 3 | 20.0 | = (5) | **The cleanup's tests are characterisation tests that check their own preconditions:** the second-connection `FOR UPDATE SKIP LOCKED` probe of the lock (`record.test.ts:63`); `null`, not a 404 (`:77`); the mixed-case participant order, which fails on a collation that agrees with JavaScript (`deliverHoursNotice.test.ts`, `participants.test.ts`); index scans turned off with `SET LOCAL`, so the case can see a dropped `orderBy`; a raising `BEFORE INSERT` trigger and a constraint trigger deferred to COMMIT, the only test that tells `tx` from `db` (`automatic.test.ts:275`, `:301`); `dayDate` checked in four process zones; the badge's tone pinned for the first time. **They fail when the behaviour breaks:** QE's 12 cleanup mutations each turned the named test red, and my M-A and M-B did too. The feature's own tests are as last pass found them: U, I-H, I-M, C, C-M and E levels; two-connection races; all-or-nothing under a fault; the A36 and A42 vectors on both sides; and my earlier MA–MJ mutations |
+| Code quality & conventions | 15 | 4 | 3 | 12.0 | **↓ 5 → 4** | **The production code is better than at the last pass.** The six items PR #12's review found in the code that pass scored 5 are fixed. The worst was two participant reads in two orders for one fact; the others were two copies of the lock SQL with different missing-row behaviour, the badge drawn twice, the helpers repeated, the block rule in the route, and unqualified AC citations. The new helpers are small and documented, and their contracts are explicit: `lockMeetingRow` never throws, `lockMeeting` throws the identical 404, and `blockDeletedEntry` takes an object so two string ids cannot be swapped and catches nothing. No `try/catch` swallows anything, and no dependency changed. **What holds it at 4 (minor nits, all cosmetic):** (1) `automatic.test.ts:17-18` and `rules.test.ts` import twice from a module they already import (`bun:test`, `./rules`), on purpose, so that I8's "0 deleted test lines" holds literally (decisions T23/T24, QE O3). That is code shaped to a metric, not idiom, and hours-api has no lint to catch it. (2) The feature's own `apply.ts:116` still repeats the inverse day conversion (`toISOString().slice(0, 10)`), which the amendment observed and left. (3) `Prisma.TransactionClient` cannot stop `blockDeletedEntry(db, …)` from compiling (owasp C3); only a grep and one test guard it |
+| Design fidelity (UI) | 15 | 4 | 3 | 12.0 | = (4) | design.md is complete: F1–F5, S1–S5, every state, an a11y plan with measured contrast (4.99 / 6.29), four hotspots, and reuse mapped. The cleanup keeps S1 and S2 exact: 16 renders are byte-identical (`class="badge badge-accent"`, the same test id), the e2e runs 8/8 twice, and M-A and M-B show the placement is pinned. Hotspot 2 is stronger than last pass: the tone can no longer change unnoticed (`FromMeetingBadge.test.tsx`). Reuse is honoured: `FromMeetingBadge` wraps the library `Badge` and adds nothing. **Not done, as before:** the VoiceOver/NVDA listen of hotspot 1 (design.md:417, 457), a fresh measurement of contrast and of zoom (design.md:427, "zoom itself not run"), and G7 observed in a browser (it was observed through the API timeline instead) |
+| Trajectory | 10 | 4 | 2 | 8.0 | = (4) | The `wellforge-run/v3` trace exists. This run's trace is written after this eval, so for the cleanup round the evidence is the hook events in `.forge/runs/.events.jsonl`. On 2026-11-25 they show: product-owner 09:11Z, architect 09:25Z, product-owner 09:54Z (spec and tasks, `e7037591`), backend-dev 09:56Z (stopped on the missing Prisma client, decisions.md), frontend-dev 10:00Z (T22), backend-dev 10:05Z (T23 → T24), backend-dev 10:10Z (T19 ∥ T20 → T21), architect 10:17Z (plan corrections, `810dffaa`), owasp-reviewer 10:17Z (T25), quality-engineer 10:25Z (PASS), backend-dev 10:25Z (comment follow-up `3921c3c6`). Every one is a WellForge agent, and each commit lands in its task's dependency order. Verification ran and was not waived: the owasp delta, then QE with 12 mutations and the e2e. **Why not 5:** the trace is a reconstruction (`"reconstructed": true`, no per-agent timestamps, `tokens` null). Its commit hashes and the older QE section's hashes are pre-rebase objects on no branch: I verified they are patch-identical, but they do not resolve on the branch. The round of 2026-11-25 08:08Z made a code-comment edit by a non-WellForge agent (`caveman:cavecrew-builder`, recorded in the trace). One commit landed after QE PASS, and I verified it is comment-only |
+| **Total** | **115** | | | **96.0 → 83.5/100** | **was 86.1** | normalised: 96.0 / 115 × 100 = 83.48 |
 
-**Verdict: PASS.** 86.1 against a `pass_score` of 80, and every applicable dimension is at or above its floor. The total now has a 6.1-point
-margin, and no single-anchor drop in spec fidelity, code quality, design or trajectory would fail it (the worst, code quality 5→4, gives
-83.5). **AC satisfaction still sits exactly on its floor (4/4)**, though: one AC found unmet, or its evidence found weak, would make this a
-FAIL whatever the total.
+**Verdict: PASS.** 83.5 against a `pass_score` of 80, and every applicable dimension is at or above its floor. **AC satisfaction sits exactly
+on its floor (4/4).** One AC found unmet, or its evidence found weak, would make this a FAIL whatever the total. The margin above 80 is 3.5
+points. A one-anchor drop in spec fidelity or test quality would land on exactly 80.0 (still a pass). A one-anchor drop in design, code
+quality or trajectory would land between 80.9 and 81.7.
 
 ## Findings
 
+### Code quality & conventions: 4 (was 5)
+- **Why it moved:** the last pass gave 5 and found nothing. PR #12's review then found six code-quality items in that same code, and the
+  cleanup fixed every one. That 5 was generous. The code at HEAD is cleaner than the code it was given for. What decides the anchor is that
+  concrete nits remain, and anchor 4 is "Clean and conventional; minor nits".
+  - `hours-api/src/entries/automatic.test.ts:17-18` (`import { spyOn } from "bun:test"` beside the existing `bun:test` import) and
+    `hours-api/src/entries/rules.test.ts` (a second `import { dayDate } from "./rules"`). They were written that way so the I8 numstat
+    reads "0 deleted". The invariant's purpose is "no existing test weakened", and merging an import line weakens nothing.
+  - `hours-api/src/meetingHours/apply.ts:116` repeats the `Date` → `YYYY-MM-DD` conversion that `view.ts:171`, `list.routes.ts:62` and
+    `totals/totals.ts:18` also hold (plan amendment § Observed, not planned).
+- **To reach 5:** merge the two duplicate imports (it costs two deleted test lines; the I8 check would need to accept import-line merges).
+  Optionally, a `dayText` beside `dayDate` in `rules.ts`, used by `apply.ts`. Owner: backend-dev.
+
 ### AC satisfaction: 4 (floor 4, met; unchanged)
-- **Resolved since last pass:** the A39 wording. The spec (spec.md:214-220) and the glossary now say what the handler does: any saved
-  edit stops the entry following its meeting, values not compared, as the ADR decided before the code was written. The new sentence about
-  the UI is true. `toPatch` (`hours-ui/src/components/EntryDialogModel.ts:386-411`) builds the body from differing members only, and
-  `EntryDialog.tsx:277-283` closes without a request when nothing differs, so only a direct API caller can save an edit that changes
-  nothing.
+- **The cleanup is behaviour-preserving, and the evidence agrees.** QE traced the SQL before and after: the statements, their order and
+  their count are identical, and the one planned difference is `ORDER BY` on the lock-time read. The DOM before and after is identical.
+  The suites are green. The real-browser journeys pass 8/8 twice.
 - **Still thin (each "test OR behaviour, not both"):**
-  - **AC-1.6** (CRM call and meeting activities record nothing) is shown by structure, which is the right proof for a negative but is
+  - **AC-1.6** (CRM call and meeting activities record nothing) is proven by structure. That is the right proof for a negative, but it is
     not observed behaviour.
-  - **AC-4.3** (Italian) is shown by `EntryRow.it.test.tsx`, `EntriesTable.it.test.tsx`, `DeleteEntryDialog.it.test.tsx` and
-    `catalogGaps` in jsdom; nobody ran a real browser in Italian (qe-report § Not run).
   - **AC-2.2's export clause** has no test with an automatic entry in the workbook. It holds because the export walks the same complete
-    list (`HoursExport.tsx:44`) that `TableView.fromMeeting.test.tsx` and `apply.test.ts:763-798` cover, and the workbook has no branch
-    on `origin`.
-- **To reach 5:** a real-browser pass in Italian (owner: quality-engineer). Optionally, a `hoursWorkbook.test.ts` case with an
-  `origin: 'meeting'` entry (owner: frontend-dev).
+    list (`HoursExport.tsx` → `readAllEntries`) and the workbook has no branch on `origin`.
+  - **AC-3.8 after the cleanup:** `readHoursFacts` now locks through `lockMeetingRow`, and `prepareAudio.ts`'s step-3 commit calls it.
+    The I-M `prepareAudio.measured.test.ts` passes in QE's meetings-api run, but `meeting-hours-measured.spec.ts` was not re-run on a
+    clean stack after the change (QE O4).
+- **To reach 5:** a `hoursWorkbook` case with an `origin: 'meeting'` entry (owner: frontend-dev), and a re-run of
+  `meeting-hours-measured.spec.ts` after a dev-stack restart (owner: quality-engineer).
 
 ### Spec fidelity: 4 (unchanged)
-- **Resolved since last pass:** plan § Security now says that `origin` is on the wire for every reader and accepts it as no new
-  exposure (N3). A39 is settled. `design.md` `status: draft` is the plugin's default when `/wellforge:design` runs without `--gate`
-  (`commands/design.md:54-55`), so I no longer count it as drift.
-- **Residual documentation drift (no behaviour change):** **AGENTS.md:757** still defines **Untouched** as "any saved change of day,
-  duration, note or target". That is the wording A39 was rewritten to replace; spec.md:214-220 and the glossary now say any saved edit,
-  values not compared. AGENTS.md:524 ("any saved `PATCH` clears `followsMeeting`") is already right, so the file disagrees with itself.
-  Owner: whoever closes T14 (the orchestrator), a one-line edit.
-- **Trivial additions, each documented with a reason in decisions.md:**
-  - `on?.type` (T16).
-  - The sender refusing a body its own wire rejects (`invalid_notice`, `delivery.ts:128`; decisions.md:59). In practice it is
-    unreachable: 30 participants at most (`participants.routes.ts:28`) against the wire's 100, and ids at most 64 on both sides.
-  - The `systemAuth` copy's adapted header against T2's "byte for byte"; the marked region is identical (decisions.md:7).
-- These keep it at 4 ("trivial additions that don't change behaviour") rather than 5 ("zero unrequested scope"). No action needed.
+- **Still open from the last pass:** AGENTS.md:763 (it was :757) defines **Untouched** as "any saved change of day, duration, note or
+  target". spec A39 and `.claude/context/glossary.md:222-225` say any edit the person saves counts, values not compared, and AGENTS.md:524
+  ("any saved `PATCH` clears `followsMeeting`") already says so. The file disagrees with itself. Owner: the orchestrator, a one-line edit at
+  close.
+- **New, documentation only:** design.md § Component inventory (lines 333 and 346, "NEW: none") still draws the mark as an inline `Badge`
+  in both components. Since T22 it is drawn by `FromMeetingBadge`. Plan § Amendment S3 is the newer contract and the DOM is identical, so
+  this is not divergence. A one-line note in design.md would keep the design the source of truth for the UI. Owner: designer or
+  orchestrator.
+- The plan corrections after implementation (S2, S5, S6) are recorded in decisions.md and in the plan's own header line. That is the
+  workflow working as intended, not drift.
 
 ### Design fidelity (UI): 4 (unchanged)
-- **The screen-reader listen is still not done** (design hotspot 1, design.md:416-417 and 457): "Meeting, From meeting, Weekly sync"
-  read once with VoiceOver and NVDA. Its fix, if it reads badly, is a visually hidden comma. Contrast (4.99 / 6.29) and the 320–375 px
-  reflow are the designer's measurements on a fixture; zoom itself was never run.
-- **G7** ("the Duration line changes while processing") was not observed in a browser. With the fake AI provider the window is
-  about 0.3 s against a 5 s poll, so QE used the API timeline (5/5) and the C-M polling test. The evidence is reasonable, but it is not
-  the design's own observation.
-- Owner: the quality-engineer for the listen and the re-measurement (it needs a person with VoiceOver/NVDA). G7 needs no action.
+- The screen-reader listen (hotspot 1) is still not done. Its fix, if it reads badly, is a visually hidden comma. Contrast and the
+  320–375 px reflow are the designer's measurements on a fixture, and zoom was never run. G7 was observed through the API timeline, not in
+  the browser. Owner: quality-engineer, with a person who has VoiceOver or NVDA.
 
-### Trajectory: 4 (was 2; the run trace now exists)
-- **What lifts it:** the trace (`.forge/runs/2026-11-24T09-15-00Z-orchestrate-20261112-meeting-hours.json`) names every agent, the four
-  drift events, the five environment faults and the QE / security / eval verdicts. Independent evidence agrees with it:
-  - Hook events: backend-dev ×3 at 09:39–09:41Z (T1–T3), frontend-dev 09:44Z (T10), devops 10:36Z (T12), owasp-reviewer 10:37Z (T13),
-    quality-engineer 12:44Z (T11), then designer, architect, product-owner, architect, adr-writer ×2, frontend-dev (T16), backend-dev
-    (T15), devops (T17), owasp-reviewer (T18), quality-engineer ×2 and evaluator 14:51Z.
-  - Commit times agree with those events.
-- **Why not 5:**
-  1. **The trace is a reconstruction.** It says `"reconstructed": true`, it was written after the first eval named its absence, it has
-     no per-agent timestamps, and `rigor_recorded` and `tokens` are null. Its commit attribution is incomplete: backend-dev's T1–T9 cites
-     only `fe4ad008` although nine commits exist (`fe4ad008 e4e09d84 de7bcbc4 1f866176 ae181e29 f2d23b6c 9e39edde 3ab404ea 686c0a39`),
-     and T10 (`d5c46eb1`) and T12 (`b1e383f6`) cite none. That is a correct trajectory with evidence gaps, which is anchor 4.
-  2. **The 2026-11-25 remediation round is in no trace.** It consists of `48ec8690` plus three `subagent_stop` events at 08:08–08:09Z.
-     The two code-comment fixes in it were made by `caveman:cavecrew-builder`, which is not a WellForge agent, rather than the frontend-dev
-     and backend-dev the last eval named. The edit is comment-only and correct, so this is not "unauthorized work" in the anchor-1 sense,
-     but code edits in this project belong to the WellForge dev agents.
-- Owner: the orchestrator. Complete the trace's commit lists, and append the 2026-11-25 round (or record it in a follow-up trace).
-
-### Code quality & conventions: 5 (was 4)
-- No finding. What I checked beyond last pass's nits:
-  - **Logging style.** The unprefixed, plan-named `meeting_hours.applied` (`apply.ts:167`) is not a divergence: the repo has no single
-    log format (bracket prefixes in hours-api, `event:` JSON objects in refund-api, `decide.routes.ts:168`).
-  - **A person's POST racing `apply()`.** The POST takes no lock of `apply()`'s, but the outcome is the same as the serial order
-    "apply, then POST", so AC-1.4 holds.
+### Trajectory: 4 (unchanged)
+- The cleanup round ran the right WellForge agents in dependency order, and verification ran after the code (owasp delta, then QE). Hook
+  events and commit times agree.
+- Gaps:
+  1. The cleanup round is not yet in a trace. The orchestrator writes it after this eval, so it should list the post-rebase commits.
+  2. The existing trace and the older QE section cite pre-rebase hashes (for example `4bcddbed`, `c3c963b3`) that are on no branch.
+     Their post-rebase equivalents are patch-identical (checked), but a reader cannot follow those references on the branch.
+  3. The earlier non-WellForge comment edit (`efc69b48`) stays in history.
+- Owner: the orchestrator. Write this run's trace with post-rebase hashes, and add a line mapping the old hashes to the new ones.
 
 ### Open items outside the ACs (from the pipeline's own reports; noted, not scored)
-- **R9 pre-merge check:** real-recorder sessions of 2 and 15 min, one interrupted and resumed, and 10-minute m4a and webm uploads,
-  expecting no `duration_corrected` line. It is the only evidence of whether max(30 s, 10 %) leaves honest recordings alone. It needs a
-  person with a microphone. Owner: the owner, **before the merge** (plan § Risks, infra/README § The measured duration).
-- **OWASP delta N2:** can a crafted container's timestamps inflate the measured figure? Not checked; the 180-minute bound holds either
-  way. Owner: backend-dev, optional.
-- **Dev-only hazard behind EF-1:** `bun --hot` stacks job runners in the dev meetings-api. This is pre-existing code, not this feature's.
-  Restart the dev stack before reading a red `meeting-hours-measured.spec.ts` as a defect. Owner: backend-dev, outside this spec.
-- **Scratch test databases** listed in the trace's env faults (`hours_t2_test` … `hours_t15_test`) are left for the owner to drop.
+- **R9 pre-merge check**: real-recorder sessions of 2 and 15 min and one interrupted and resumed session, plus 10-minute m4a and webm
+  uploads. None of them should log a `duration_corrected` line. It is the only evidence of whether max(30 s, 10 %) leaves honest
+  recordings alone, and it needs a person with a microphone. It is still not done. Owner: the owner, **before the merge** (plan § Risks,
+  infra/README § The measured duration).
+- **QE O4 / EF-1:** the dev meetings-api has accumulated three job runners under `bun --hot` again. Restart the stack before reading a red
+  `meeting-hours-measured.spec.ts` as a defect. The hazard is pre-existing and not this feature's.
+- The scratch test databases named in the trace's environment faults are left for the owner to drop.
 
 ## Recommended next step
-- **PASS.** With no AC to revisit, T14 may proceed and the spec may move to `done` through `/wellforge:done`. Before or at close:
-  1. **The owner runs R9's real-recorder check before the merge**, as the plan requires. This is the only item the plan itself makes a
-     precondition.
-  2. The orchestrator corrects AGENTS.md:757's **Untouched** to match A39 and completes the run trace (commit lists, the 2026-11-25
-     round).
-  3. Optional, toward 5s: the quality-engineer does the VoiceOver/NVDA listen and a real-browser pass in Italian, and frontend-dev adds a
-     workbook test with an automatic entry.
+- **PASS.** No AC needs revisiting, so T26 may proceed and `/wellforge:done 20261112-meeting-hours` may run. Before or at close:
+  1. **The owner runs R9's real-recorder check before the merge.** It is the one precondition the plan itself sets.
+  2. The orchestrator corrects AGENTS.md:763's **Untouched** to match A39. It writes this run's trace with post-rebase hashes.
+  3. Optional, toward 5s:
+     - backend-dev merges the two duplicate test imports;
+     - frontend-dev adds a workbook test with an automatic entry;
+     - the quality-engineer re-runs `meeting-hours-measured.spec.ts` on a freshly restarted stack, and does the VoiceOver/NVDA listen;
+     - the designer notes `FromMeetingBadge` in design.md's inventory.
