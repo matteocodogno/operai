@@ -1,5 +1,148 @@
 # QE report: specs/20261112-meeting-hours (production tier, full mode)
 
+This file holds two passes. The first section below is the **review-cleanup pass of 2026-11-25** (T26: plan.md § Amendment 2026-11-25,
+invariants I1–I9, steps S1–S7). Under it, unchanged, is the feature's own pass of 2026-11-24 (second pass of that day), which still stands
+for everything the cleanup did not touch. Written by the quality engineer.
+
+# Review cleanup pass, 2026-11-25 (T26)
+
+## QE verdict: PASS  (full mode; measured at `60e6373a`, code identical at HEAD `189358c5`)
+
+`git diff --name-only 60e6373a 189358c5` lists `specs/20261112-meeting-hours/{owasp-report,plan,tasks}.md` and nothing else, so every
+gate below measured the code that is at HEAD. Nothing is blocked, nothing is red, no defect is filed. "Before" is `3bf7c402`, "after" is
+`60e6373a` (the code commits are `0773d58a` T19, `aba5691a` T20, `0cc70ab0` T21, `ee0c8c09` T22, `ff1cf2a1` T23, `50e6fa05` T24;
+each touches only the files its task's `touch:` names, checked with `git show --stat`; no file is deleted or renamed:
+`git diff 3bf7c402 --name-status | grep -E '^(D|R)'` prints nothing). I added no test: the six the agents wrote cover every step, and I saw each one fail under a mutation (table below).
+
+| # | Check (T26 `done when:` / plan S7) | Command and result | Result |
+|---|---|---|---|
+| 1 | meetings-api typecheck + tests | `cd meetings-api && bun run typecheck && DATABASE_URL=postgresql://postgres:postgres@localhost:5435/meetings_test bun test`: typecheck exit 0; **2150 pass, 0 fail, 93 files** (155.6 s). Before the cleanup: 2145 / 92 files; +5 = the 5 new tests | ✓ |
+| 2 | hours-api typecheck + tests | `cd hours-api && bun run typecheck && bun test` (preload forces `hours_test`): exit 0; **2117 pass, 0 fail, 51 files** (42.0 s). Before: 2114; +3 = the 3 new tests | ✓ |
+| 3 | hours-ui lint, tsc, tests | `cd hours-ui && pnpm lint && pnpm exec tsc -b && pnpm test`: lint 0, tsc 0; **95 files, 2798 tests pass** (28.5 s). `MyHoursPage.export.test.tsx` did not time out | ✓ |
+| 4 | I3 shared copies | `mise run shared:check`: 35 groups in sync, `meetingHoursWire` and `systemAuth` included. `git diff 3bf7c402 -- scripts/check-shared-copies.ts` empty; none of the 20 changed code files is a group member (`systemAuth.middleware.ts`, `logger.ts`, `meetingHoursWire.ts`, `problem.ts`, `serviceToken.ts`, `s3Residency.ts`) | ✓ |
+| 5 | Changeset | `node scripts/check-changeset.mjs --base=$(git merge-base HEAD origin/main) --head=HEAD`: `OK — … matched changeset(s): .changeset/meeting-hours-automatic-entries.md` (base `a17c260f`) | ✓ |
+| 6 | I2 no migration | `git diff 3bf7c402 -- meetings-api/prisma hours-api/prisma`: 0 bytes | ✓ |
+| 7 | I1 wire and OpenAPI | `git diff 3bf7c402 --stat -- '*/src/lib/meetingHoursWire.ts'`: empty; `view.ts`, `schemas.ts`, the OpenAPI registry and `notices.routes.ts` are not in the diff. `bodyFor`'s participant query is the same Prisma call moved verbatim into `participants.ts` (same `where`, `select`, `orderBy`). `deliverHoursNotice.test.ts` (whole-body `toEqual`), `triggers.test.ts`, `client.test.ts` and hours-api `meetingHoursWire.test.ts`, `notices.routes.test.ts`, `openapi.contract.test.ts` pass inside rows 1 and 2 | ✓ |
+| 8 | I4 no log line | T26's literal `git diff 3bf7c402 -U0 -- '*.ts' '*.tsx' \| grep -E '^[-+][^-+].*console\.'`: empty (test files included). Independent check, because that pattern would miss a `logger` call: the production diff filtered for `log\|warn\|error\|console\|throw\|catch` shows only the two P2025 sites and `lockMeeting`'s `throw meetingNotFound()` (error paths, same expression) | ✓ |
+| 9 | I5 no copy or DOM change | `git diff 3bf7c402 --stat -- 'hours-ui/src/strings/**'`: empty. DOM probe (below): 16 renders byte-identical before and after. Real browser (below) | ✓ |
+| 10 | I6 same statements, same transactions | SQL trace before/after (below): identical statements, order and count, the one planned difference is `ORDER BY "userId" ASC` on the lock-time participant read. The DELETE: by diff (the same `createMany({ data, skipDuplicates: true })` call on `tx`, in the same place) and by the three tests that pin it, not by a SQL trace (see self-critique) | ✓ |
+| 11 | I7 same answers at the edges | trace: `readHoursFacts` of a missing meeting `null` (both trees), `lockMeeting` of a missing meeting `404 ProblemError` (both trees); P2025 mapping pinned: `isRecordNotFound` forced to `false` turns 6 tests red; `sameFacts` is untouched and `record.test.ts:84-139` passes unchanged | ✓ |
+| 12 | I8 tests only grow | `git diff 3bf7c402 --numstat -- '*.test.ts' '*.test.tsx'`: six files, **0 deleted lines, 234 added** (50 + 27 + 47 + 69 + 23 + 18) | ✓ |
+| 13 | I9 no env, scope, dependency or export | `git diff 3bf7c402 --stat` on `*/package.json`, lockfiles, `hours-ui/vite.config.ts` (`exposes`), `tools/env-doctor`, `auth`, `RecordHours*`: empty; `RecordHours.graph.test.ts` is inside the green row 3 | ✓ |
+| 14 | T19 greps | `grep -n 'SELECT "id" FROM "meeting"' meetings-api/src/hours/record.ts`: nothing; same grep `-c` on `meetings/lock.ts`: `1` | ✓ |
+| 15 | T20 greps | `AC-4.10` at `delivery.ts:30` and `client.ts:26`, each preceded by `specs/20261104-meetings` on the same line; T20's own commit (`aba5691a`) changes comment lines only (the filter prints nothing) | ✓ |
+| 16 | T21 greps | `userId: { not: null }` outside tests: `participants.ts:17` only; `.sort()` in `record.ts` and `participants.ts`: nothing; wire diff empty | ✓ |
+| 17 | T22 greps | `from-meeting` in non-test `.tsx`: `FromMeetingBadge.tsx:11` only; `Badge` in `EntriesTable.tsx`: only `FromMeetingBadge` lines (`:7`, `:89`); strings untouched | ✓ |
+| 18 | T23 greps | `T00:00:00Z` outside tests: `rules.ts:47` (`dayDate`) and `filters.ts:72` (`spanDays`) only; `grep -c '"P2025"' entries.routes.ts`: `1` | ✓ |
+| 19 | T24 greps | `meetingHoursBlock` under `src/entries` outside tests: nothing; `blockDeletedEntry(db`: nothing; the one call is `entries.routes.ts:405`, `blockDeletedEntry(tx, …)` | ✓ |
+| 20 | New tests can fail (task 3 of the brief) | 12 mutations, every one red on the named test, tree untouched (table below) | ✓ |
+| 21 | UI in a real browser (T22 was `RENDERED: no`) | `meeting-hours-moved.spec.ts` + `meeting-hours.spec.ts`: **8 of 8, twice in a row** (1.3 min, 1.2 min). Screenshots viewed (below) | ✓ |
+| 22 | Defects, blocked rows, environment faults | 0, 0, 0 | ✓ |
+
+Not mine and still open: the eval re-run and `/wellforge:done` (T26's own last two items, as the brief says). T25's owasp delta pass is
+now in the repository (`189358c5`, PASS, 0 critical to low); my SQL trace and mutations agree with its Q1, C1 and C2.
+
+## I6 and I7 before and after: the SQL a write path sends
+
+Throwaway script `/tmp/qe-cleanup/trace.ts` (local, not committed), run once from a detached worktree at `3bf7c402` and once from this
+tree, both against `meetings_test` with the tests' preload (`bun --preload ./src/test-support/testEnv.ts`). It logs every statement through
+Prisma's `query` event around `readHoursFacts` (present and missing meeting), `lockMeeting` (present and missing) and the write-path
+shape `readHoursFacts` then an update. Outputs `/tmp/qe-cleanup/trace-before.json`, `trace-after.json`; `diff` of the two:
+
+- Statement list: the same statements, in the same order and number (lock `SELECT "id" FROM "meeting" … FOR UPDATE`, `meeting` read,
+  participant read, update).
+- Exactly two textual differences, both the participant read of `readHoursFacts`: ` ORDER BY "meeting_participant"."userId" ASC` is now in the
+  statement (planned: plan S2, "one reader, in the database's order"; owasp C2).
+- Exactly one value difference: the snapshot `participantIds` for `zed-1`, `Bob-2`, `amy-3` was `["Bob-2","amy-3","zed-1"]` (JavaScript
+  code-unit sort) and is `["amy-3","Bob-2","zed-1"]` (the database's `en_US.utf8` order, which is also the order `bodyFor` already sent).
+  That array is read only by `sameFacts` in the same transaction as its pair, so the answer cannot change; it is not logged, stored or sent.
+- `lockMissing: "404 ProblemError"` and `missing: null` are identical in both files.
+
+## The characterisation tests really pin what they claim (brief item 3)
+
+Method: each mutation was applied by hand in a throwaway `git worktree` of `60e6373a` under `/tmp/qe-mut` (generated Prisma clients copied,
+`node_modules` linked), the named tests were run, and the mutation reverted with `git checkout`; the worktrees are removed and `git status`
+of the real tree is clean. I did not edit the real tree on purpose: the dev stack runs `bun --hot` from it, so an in-place edit would have
+hot-reloaded `meetings-api` (one more job runner, the known hazard) under my own e2e. Each unmutated baseline was green first
+(`record` + `participants` + `deliverHoursNotice` 44 pass; `automatic` + `rules` 36 pass; badge + row/table tests 67 pass).
+
+| Step | Mutation | What went red (and what stayed green) |
+|---|---|---|
+| S1 a | `readHoursFacts` checks the row exists but takes no lock | 1 of 22 in `record.test.ts`: "holds the meeting's row lock until its transaction ends" |
+| S1 b | `readHoursFacts` calls `lockMeeting` (404 on a missing meeting) | 1 of 22: "of a meeting that is not there is null, not a 404" |
+| S2 | JavaScript `.sort()` in `operaiParticipantIds` | 3: both `participants.test.ts` cases and the `deliverHoursNotice.test.ts` order case |
+| S2 | the reader's `orderBy` dropped | 1: only the `participants.test.ts` `SET LOCAL` case. The delivery test and the first participants case stay green, so the `SET LOCAL` case is the only guard of the `orderBy`: the agents' decision note is right, and the case is not decoration |
+| S2 | a JavaScript `.sort()` added in `delivery.ts` only | 1: the delivery order case |
+| S5 a | `try/catch` swallowing the block insert | 1: "a block the database refuses takes the delete back with it" |
+| S5 b | `blockDeletedEntry(db, …)` instead of `tx` | 1: "writes the block on the DELETE's own transaction"; the other 69 DELETE and apply tests stay green, so it is the only test that tells `tx` from `db` (plus the grep, row 19) |
+| S5 | the block is never written (control) | 5 red in `automatic.test.ts` |
+| S4 | `dayDate` without the `Z` | `rules.test.ts` "UTC midnight whatever the zone": red. The existing day suites (`write`, `list`, `apply`, `automatic`, 219 tests) catch it too in this host's zone (CET: 5 red) and in `America/Los_Angeles` (2 red), but **not** with `TZ=UTC` (149 pass): on a UTC CI host the new vector is the only guard |
+| S4 | `isRecordNotFound` always `false` | 6 red across `write.test.ts` and `automatic.test.ts` (the PATCH race, the second DELETE, someone else's entry) |
+| S3 | `tone="neutral"` | 1 of 687 across the badge, row, table and page tests: only the new "accent tone" case |
+| S3 | the test id loses `entryId` | 3 red, the new test file |
+
+## DOM before and after, then a real browser
+
+**DOM probe (I5).** `/tmp/qe-cleanup/zzDomProbe.test.tsx` (copied into the two throwaway worktrees only, never committed) renders `EntryRow`
+and `EntriesTable` for an entry on a meeting, a project, a deal and other work, each with `origin` `meeting` and `person`: 16 renders, the
+`innerHTML` written to `dom-before.json` (at `3bf7c402`) and `dom-after.json` (this tree). `cmp`: **identical**, 18 599 bytes each; the
+marked renders hold `class="badge badge-accent" data-testid="hours-entry-a1-from-meeting"` in both.
+
+**Real browser (T22's missing step).** The dev stack from this tree: `curl http://localhost:5184/src/components/EntryRow.tsx` (the dev
+hours-ui) serves `import FromMeetingBadge … <FromMeetingBadge entryId={entry.id}>`, so the browser ran the new component. Command, twice in a
+row:
+`cd shell && source /tmp/qe-mh-rerun/flags.sh && E2E_MARK_SHOTS_DIR=/tmp/qe-cleanup/shots pnpm e2e meeting-hours-moved.spec.ts meeting-hours.spec.ts --reporter=list`
+(`flags.sh` is the previous pass's: the eleven `E2E_*_REMOTE_PORT` of the dev ports and `E2E_SKIP_ACCOUNTING_SEED=1
+E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 E2E_SKIP_LEGAL_ENTITIES_SETUP=1`; the brief's command lacked the ports, which make Playwright reuse the
+dev remotes instead of building and previewing all of them). Results: run 1, 8 passed (1.3 m); run 2, 8 passed (1.2 m) (`meeting-hours-moved` A–E,
+`meeting-hours` A–C: the table, the List, the cell's entries, Everyone's hours, the moved entry without the mark, the delete confirmation's
+second paragraph). Logs `/tmp/qe-cleanup/e2e-run1.log`, `e2e-run2.log`. Screenshots viewed: `/tmp/qe-cleanup/shots/B1-list-on-meeting-marked.png`
+(`[Meeting] [From meeting] <title>`), `B2-cell-dialog-on-meeting-marked.png` (the same row in the cell's dialog), `B3-everyone-on-meeting-marked.png`
+(`[From meeting] Not visible to you` / `Meeting`); the others (`C1`–`E1`) are in the same directory, from run 1
+(run 2's are in `shots2`).
+
+## Defects
+
+None. Nothing is filed against a dev agent.
+
+## Observations (none blocks; owners named)
+
+- **O1, planned delta of I6, recorded so nobody reads "same SQL" literally:** the lock-time participant read gained `ORDER BY "userId" ASC`
+  and its array order moved from code-unit order to the database's (trace above). Plan S2 and owasp C2 say so; no wire, log or store sees it.
+- **O2, stale comment, class "documentation accuracy", one placement:** the comment above the first new case of
+  `hours-api/src/entries/automatic.test.ts` says a best-effort block "would commit the delete with no block". Under a swallowed insert on `tx`
+  Postgres aborts the transaction and the COMMIT becomes a rollback (the route would answer 204 with the entry still there); only a swallowed
+  block on `db` commits the delete without one. owasp C1 already names it and the corrected plan (`810dffaa`) states it right; the code,
+  `blocks.ts`'s doc and the test's assertions are right. Owner: backend-dev, a comment edit with the plan correction.
+- **O3, style, one placement:** `automatic.test.ts` and `rules.test.ts` add a second `import` line from a module they already import
+  (`bun:test`, `./rules`), a deliberate choice recorded in decisions T23/T24 so that I8's "0 deleted lines" holds. hours-api has no lint
+  script, so nothing flags it.
+- **O4, environment, not touched by this pass:** the dev `meetings-api` has **three** `LISTEN meetings_jobs` connections on `meetings`
+  (pids 60059 from 10:07, 69162 and 69164 from 11:11 CET), the `--hot` accumulation the earlier pass named EF-1. It was 3 before my e2e and 3
+  after, and neither spec in scope depends on the correction path, so both stayed green. `meeting-hours-measured.spec.ts` (AC-3.8) would be
+  unreliable on this stack until the owner restarts it; I did not run it (nothing in the cleanup touches `prepare_audio`'s correction beyond the
+  lock helper, which `prepareAudio.measured.test.ts` covers inside row 1).
+- **O5, what the e2e does not prove:** the dev `hours-api` and `meetings-api` hot-reload from this tree, but I cannot observe which module
+  versions they hold, so for them the green e2e is regression evidence only. The proof of the back-end steps is rows 1, 2, 10 and 11 and the
+  mutations, which run the source directly.
+- A concurrent edit of `plan.md` and two docs commits (`810dffaa`, `189358c5`) landed in this tree while I worked; none is mine, none touches
+  code, and the tree was clean when I finished (apart from this report).
+
+## Self-critique
+
+The weakest evidence is I6's DELETE half: I traced the SQL of the lock and snapshot paths before and after, but for the DELETE I rely on the
+diff (the identical `createMany` call on `tx`) and on three tests, not on a trace, so a statement-level difference there would have to hide in
+a call whose arguments I read as equal. Second, the browser run cannot tell the old back-end code from the new, because the dev services
+hot-reload and I could not read what they loaded; the e2e is therefore a UI proof (the badge) and a regression net, and the back-end claim
+rests on the unit and integration runs. Third, I did not run the literal e2e command of the brief (I added the dev ports, as the specs'
+headers and the earlier pass do), and I did not re-run the AC-3.8 measured spec, which the stale runners of the dev stack would make a poor
+witness.
+
+---
+
+# Feature pass, 2026-11-24 (earlier; kept unchanged below)
+
+
 Latest pass only; overwritten on each run. Written by the quality engineer, 2026-11-24. This is the second pass: the first (at
 `c3c963b3`) was BLOCKED on one row; this pass re-ran only that row and a regression check after the owner restarted the dev stack,
 and kept every other row as measured.
