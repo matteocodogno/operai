@@ -1,9 +1,10 @@
-import { Badge, DataTable, VisuallyHidden, cx, formatDate, formatDuration, listRowMetaClassName } from '@operai/ui'
+import { DataTable, VisuallyHidden, cx, formatDate, formatDuration, listRowMetaClassName } from '@operai/ui'
 import type { DataTableColumn } from '@operai/ui'
 import { showsFromMeetingMark } from '../lib/fromMeetingMark'
 import type { TimeEntryView } from '../lib/hoursApi.types'
 import { activityLine, countsForDealLine, rowName } from '../lib/names'
 import { strings } from '../strings'
+import FromMeetingBadge from './FromMeetingBadge'
 import { personName } from './PersonFilterOptions'
 
 export type EntriesTableProps = {
@@ -85,9 +86,7 @@ function On({ entry }: { entry: TimeEntryView }) {
     <div className="flex min-w-36 flex-col gap-1">
       {marked ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <Badge tone="accent" data-testid={`hours-entry-${entry.id}-from-meeting`}>
-            {strings.entries.fromMeeting}
-          </Badge>
+          <FromMeetingBadge entryId={entry.id} />
           {nameLine}
         </div>
       ) : (

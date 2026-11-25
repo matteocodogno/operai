@@ -13,6 +13,7 @@ import { showsFromMeetingMark } from '../lib/fromMeetingMark'
 import type { TimeEntryView } from '../lib/hoursApi.types'
 import { activityLine, countsForDealLine, onPhrase, rowName } from '../lib/names'
 import { strings } from '../strings'
+import FromMeetingBadge from './FromMeetingBadge'
 
 export type EntryRowProps = {
   entry: TimeEntryView
@@ -102,9 +103,7 @@ export default function EntryRow({ entry, onEdit, onDelete, autoFocusEdit = fals
             // usual gap after both. A row the rule does not mark draws the kind badge alone, with no wrapper, as it always did (design S1).
             <span className="inline-flex flex-wrap items-center gap-1.5">
               {kind}
-              <Badge tone="accent" data-testid={`hours-entry-${entry.id}-from-meeting`}>
-                {strings.entries.fromMeeting}
-              </Badge>
+              <FromMeetingBadge entryId={entry.id} />
             </span>
           ) : (
             kind
