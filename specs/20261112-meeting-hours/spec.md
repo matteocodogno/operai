@@ -1,11 +1,12 @@
 ---
 id: 20261112
 slug: meeting-hours
-status: in-progress
+status: done
 rigor: production
 created: 2026-11-12
 reopened: 2026-11-24
 approved: 2026-11-24
+done: 2026-11-25
 depends-on: 20261104-meetings, 20261112-time-tracking, 20261116-record-hours-in-place
 ---
 
