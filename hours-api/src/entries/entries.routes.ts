@@ -35,6 +35,7 @@ import {
   assertNoteRequired,
   assertNotFuture,
   chosenCategory,
+  dayDate,
   storedNote,
   workTypeListOf,
   workTypeNotAllowed,
@@ -45,6 +46,9 @@ import {
 import { CreateEntrySchema, UpdateEntrySchema, type CreateEntry, type On, type UpdateEntry } from "./schemas";
 import { today } from "./today";
 import { ENTRY_INCLUDE, TimeEntryViewSchema, viewEntries, type EntryRow } from "./view";
+
+/** Prisma's P2025: the row the statement addressed is not there (deleted meanwhile, or never the caller's). */
+const isRecordNotFound = (error: unknown): boolean => (error as { code?: unknown } | null)?.code === "P2025";
 
 const problemDoc = (description: string) => ({ description, content: { "application/json": { schema: ProblemSchema } } });
 
@@ -323,7 +327,7 @@ entriesRouter.openapi(createEntryRoute, async (c) => {
   const row = await db.timeEntry.create({
     data: {
       userId,
-      day: new Date(`${body.day}T00:00:00Z`),
+      day: dayDate(body.day),
       minutes: body.minutes,
       ...targetColumns(body.on),
       workTypeId: body.workTypeId ?? null,
@@ -358,7 +362,7 @@ entriesRouter.openapi(updateEntryRoute, async (c) => {
     .update({
       where: { id, userId },
       data: {
-        ...(body.day !== undefined ? { day: new Date(`${body.day}T00:00:00Z`) } : {}),
+        ...(body.day !== undefined ? { day: dayDate(body.day) } : {}),
         ...(body.minutes !== undefined ? { minutes: body.minutes } : {}),
         ...(movedTo !== null ? targetColumns(movedTo) : {}),
         ...(body.workTypeId !== undefined ? { workTypeId: body.workTypeId } : {}),
@@ -375,7 +379,7 @@ entriesRouter.openapi(updateEntryRoute, async (c) => {
     })
     .catch((error: unknown) => {
       // Deleted (in another tab) between the lookup and this statement: it is simply no longer there.
-      throw (error as { code?: unknown } | null)?.code === "P2025" ? entryNotFound() : error;
+      throw isRecordNotFound(error) ? entryNotFound() : error;
     });
   const { items } = await viewEntries(authorization, [row], userId);
   return c.json(items[0]!, 200);
@@ -389,7 +393,7 @@ entriesRouter.openapi(deleteEntryRoute, async (c) => {
   const deleted = await db.$transaction(async (tx) => {
     const gone = await tx.timeEntry.delete({ where: { id, userId }, select: { sourceMeetingId: true } }).catch((error: unknown) => {
       // No entry of the caller's has this id (not theirs, never there, or removed in another tab): nothing was deleted.
-      if ((error as { code?: unknown } | null)?.code === "P2025") return null;
+      if (isRecordNotFound(error)) return null;
       throw error;
     });
     if (gone === null) return false;

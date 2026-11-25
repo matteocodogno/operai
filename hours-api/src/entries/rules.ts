@@ -43,6 +43,9 @@ export function isCalendarDay(text: string): boolean {
   return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) === text;
 }
 
+/** A `YYYY-MM-DD` day as the UTC midnight the `date` column stores and compares (every entry write and every day filter). */
+export const dayDate = (day: string): Date => new Date(`${day}T00:00:00Z`);
+
 /**
  * 422 `future_day` when `day` (already a calendar day) is after `today` (a day in `Europe/Zurich`,
  * src/entries/today.ts). Both are fixed-width `YYYY-MM-DD`, so a string comparison is a date comparison.

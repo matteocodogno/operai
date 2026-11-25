@@ -29,6 +29,7 @@
 
 import type { Prisma } from "../lib/generated/prisma/client";
 import { db } from "../lib/db";
+import { dayDate } from "../entries/rules";
 import { today } from "../entries/today";
 import type { MeetingHoursNotice } from "../lib/meetingHoursWire";
 import { desiredEntries } from "./desired";
@@ -72,9 +73,6 @@ interface StateRow {
   readonly day: string | null;
   readonly minutes: number | null;
 }
-
-/** A `YYYY-MM-DD` day as the UTC midnight the `date` column reads (as the routes write it). */
-const dayDate = (day: string): Date => new Date(`${day}T00:00:00Z`);
 
 /**
  * The meeting's entries and its blocks, in ONE statement, so that both come from one snapshot. The person's DELETE

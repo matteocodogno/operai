@@ -20,7 +20,7 @@ import { isWellFormedId } from "../lists/idRule";
 import { readScope } from "../oversight/scope";
 import { conflict } from "../lib/problem";
 import { entryQuery, filterShape, invalidRequest, readFilters } from "./filters";
-import { isCalendarDay } from "./rules";
+import { dayDate, isCalendarDay } from "./rules";
 import { ENTRY_INCLUDE, TimeEntryViewSchema, viewEntries } from "./view";
 
 export const DEFAULT_LIMIT = 100;
@@ -88,9 +88,9 @@ function readCursor(cursor: string, from: string, to: string, withDeal: boolean)
 
 /** The rows strictly after `position` in the list's order (`day desc, createdAt desc, id desc`). */
 function after({ day, createdAtMs, id }: Position): Prisma.TimeEntryWhereInput {
-  const dayDate = new Date(`${day}T00:00:00Z`);
+  const dayAt = dayDate(day);
   const createdAt = new Date(createdAtMs);
-  return { OR: [{ day: { lt: dayDate } }, { day: dayDate, createdAt: { lt: createdAt } }, { day: dayDate, createdAt, id: { lt: id } }] };
+  return { OR: [{ day: { lt: dayAt } }, { day: dayAt, createdAt: { lt: createdAt } }, { day: dayAt, createdAt, id: { lt: id } }] };
 }
 
 // ─── The route ───────────────────────────────────────────────────────────────
