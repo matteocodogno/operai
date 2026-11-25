@@ -24,6 +24,7 @@ import { invalidRequestHook } from "../lib/errors";
 import { notFound, type ProblemError } from "../lib/problem";
 import { ProblemSchema } from "../lists/errorDocs";
 import { IdSchema } from "../lists/idRule";
+import { blockDeletedEntry } from "../meetingHours/blocks";
 import { ownerOnly } from "../oversight/errors";
 import { isHolderOfSomeoneElsesEntry, type Session } from "../oversight/oversight";
 import { assertActivityOf } from "../targets/activity";
@@ -398,15 +399,10 @@ entriesRouter.openapi(deleteEntryRoute, async (c) => {
     });
     if (gone === null) return false;
     // An automatic entry the person removes is never recorded again for them on its meeting (specs/20261112-meeting-hours
-    // AC-2.5): the block commits WITH the delete, so the committed state always holds the entry or the block, never
-    // neither. (This handler takes no lock of apply()'s: apply() reads a meeting's entries and its blocks in ONE statement,
-    // `readState` in src/meetingHours/apply.ts, so that a delete committing meanwhile is seen whole, as the entry or as the
-    // block, never as neither.) Untouched or changed alike:
-    // `sourceMeetingId` is set exactly for an automatic entry (CHECK time_entry_origin_shape) and survives its person's
-    // moving it elsewhere. A block that is already there is kept.
-    if (gone.sourceMeetingId !== null) {
-      await tx.meetingHoursBlock.createMany({ data: [{ meetingId: gone.sourceMeetingId, userId, reason: "deleted" }], skipDuplicates: true });
-    }
+    // AC-2.5, src/meetingHours/blocks.ts): the block is written on THIS transaction, so it commits WITH the delete. This
+    // handler takes no lock of apply()'s: apply() reads a meeting's entries and its blocks in ONE statement, `readState` in
+    // src/meetingHours/apply.ts, so that a delete committing meanwhile is seen whole, as the entry or as the block, never as neither.
+    await blockDeletedEntry(tx, { userId, sourceMeetingId: gone.sourceMeetingId });
     return true;
   });
   if (!deleted) {

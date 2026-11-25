@@ -15,6 +15,7 @@
  * Import order: `../test-support/world` first (see its TRAP note).
  */
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
+import { spyOn } from "bun:test";
 import {
   PERSONAS,
   SEED,
@@ -269,5 +270,54 @@ describe("DELETE /time-entries/{id} of an automatic entry blocks it from coming 
     expect(res.status).toBe(204);
     expect(await db.timeEntry.count()).toBe(0);
     expect(await blocks()).toMatchObject([{ meetingId: "m1", userId: ALICE, reason: "had_entry" }]);
+  });
+
+  it("a block the database refuses takes the delete back with it: 500, the entry still there, no block", async () => {
+    const entry = await makeMeetingEntry("m1", { automatic: "untouched" });
+    // A database that refuses the block: the delete statement has already run when the insert fails. A block that were
+    // "best effort" would commit the delete with no block, and the next notice would record the entry again (AC-2.5).
+    await db.$executeRawUnsafe(`CREATE FUNCTION t24_refuse_block() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'refused by the test'; END $$`);
+    await db.$executeRawUnsafe(`CREATE TRIGGER t24_refuse_block BEFORE INSERT ON meeting_hours_block FOR EACH ROW EXECUTE FUNCTION t24_refuse_block()`);
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    let res: Awaited<ReturnType<typeof remove>>;
+    let logged: unknown[][];
+    try {
+      res = await remove(entry.id);
+    } finally {
+      logged = [...error.mock.calls];
+      error.mockRestore();
+      await db.$executeRawUnsafe(`DROP TRIGGER t24_refuse_block ON meeting_hours_block`);
+      await db.$executeRawUnsafe(`DROP FUNCTION t24_refuse_block()`);
+    }
+
+    expect(res.status).toBe(500);
+    // The fault path of the global handler, not a typed refusal: the entry's own 404/403 answers are not what this is.
+    expect(logged.some((args) => args[0] === "[uncaught]")).toBe(true);
+    expect(await row(entry.id)).toMatchObject({ userId: ALICE, sourceMeetingId: "m1", followsMeeting: true });
+    expect(await blocks()).toEqual([]);
+  });
+
+  it("writes the block on the DELETE's own transaction: a delete the database refuses at commit leaves no block behind", async () => {
+    const entry = await makeMeetingEntry("m1", { automatic: "untouched" });
+    // A constraint trigger deferred to COMMIT refuses the delete only after the block's insert has gone through. A block
+    // written on any other connection than the delete's own would already be committed by then; on its transaction it is
+    // taken back with the delete. (Nothing else tells the transaction's `tx` from the shared `db`.)
+    await db.$executeRawUnsafe(`CREATE FUNCTION t24_refuse_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'refused at commit by the test'; END $$`);
+    await db.$executeRawUnsafe(
+      `CREATE CONSTRAINT TRIGGER t24_refuse_commit AFTER DELETE ON time_entry DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION t24_refuse_commit()`,
+    );
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    let res: Awaited<ReturnType<typeof remove>>;
+    try {
+      res = await remove(entry.id);
+    } finally {
+      error.mockRestore();
+      await db.$executeRawUnsafe(`DROP TRIGGER t24_refuse_commit ON time_entry`);
+      await db.$executeRawUnsafe(`DROP FUNCTION t24_refuse_commit()`);
+    }
+
+    expect(res.status).toBe(500);
+    expect(await row(entry.id)).toMatchObject({ userId: ALICE, sourceMeetingId: "m1", followsMeeting: true });
+    expect(await blocks()).toEqual([]);
   });
 });
