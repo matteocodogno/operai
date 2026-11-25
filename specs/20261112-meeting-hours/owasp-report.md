@@ -336,3 +336,99 @@ None at critical, high, medium or low. Three info notes need no action for PASS.
 ### Summary
 
 0 critical · 0 high · 0 medium · 0 low · 3 info. Accepted by the owner and not re-raised: I1, I3 and I6 (D74-D76).
+
+## Delta review 2026-11-25 — review cleanup (T25)
+
+**Verdict: PASS.** 0 critical · 0 high · 0 medium · 0 low · 3 info (C1–C3, none blocking).
+
+- **Scope.** `git diff e7037591..60e6373a` (code commits `0773d58a` T19, `aba5691a` T20, `0cc70ab0` T21 in meetings-api; `ff1cf2a1` T23, `50e6fa05` T24 in hours-api; `ee0c8c09` T22 in hours-ui), scoped by plan.md § "Amendment 2026-11-25 — review cleanup" → § Security. Tasks T19 to T24 of tasks.md, decisions.md sections T19–T24.
+- **Method.** Read-only and static. I read the full files at HEAD (`lock.ts`, `record.ts`, `participants.ts`, `delivery.ts` `bodyFor`, `blocks.ts`, the DELETE handler, `apply.ts` `readState`, every call site of `readHoursFacts`), ran the done-when greps and `git diff --stat` invariants of T19–T24, and read the new tests' assertions. I did not run any test suite and edited no code. One probe: `BEGIN; SELECT 1/0; COMMIT;` on the local compose Postgres (no table touched), for C1.
+- **Stack.** Bun + Hono + Prisma and React, so JPA and jOOQ checks do not apply. Working tree clean at `60e6373a`.
+- **No new surface.** The diff has no new route, credential, scope, outbound call, environment variable, dependency, migration or log line. `git diff --stat` over `package.json`, lockfiles, `scripts/`, `tools/`, `.railway/`, `infra/`, `auth/`, `.changeset/` and both `prisma/` directories is empty.
+
+### Accepted risk, not re-raised
+
+I1, I3 and I6 (D74–D76) and the I8 / N3 posture on the mark are unchanged and not re-raised. See Q5 below for why this diff leaves them where they were.
+
+### The T25 questions
+
+**Q1. `lockMeetingRow` and `readHoursFacts`: is the SQL, the order and the lock span the same on every write path? Yes.**
+- **The lock statement.** It is byte-identical: ``SELECT "id" FROM "meeting" WHERE "id" = ${id} FOR UPDATE``, a tagged template with a bound parameter (`lock.ts:13`, formerly `record.ts:63` with `${meetingId}`). `grep -c 'SELECT "id" FROM "meeting"' meetings-api/src/meetings/lock.ts` prints 1, and the same grep on `record.ts` prints nothing. No string interpolation reaches SQL (A03 clean). `transcript.routes.ts:242` has a pre-existing local copy of the statement; it is outside the diff and unchanged.
+- **The statements `readHoursFacts` sends, in order.**
+
+  | # | Before (`3bf7c402`) | After (`60e6373a`) |
+  |---|---|---|
+  | 1 | `SELECT … FOR UPDATE` (inline) | the same, through `lockMeetingRow` (`record.ts:71`) |
+  | 2 | `meeting.findUnique` (`startsAt`, `durationMs`) | the same (`record.ts:72`) |
+  | 3 | `meetingParticipant.findMany`, no `ORDER BY`, then a JavaScript sort | the same query plus `ORDER BY "userId" ASC`, through `operaiParticipantIds` (`record.ts:74`), no JavaScript sort |
+
+  The lock is still statement 1 and both reads still come after it, so owasp Q5 holds word for word: under READ COMMITTED each later statement takes a fresh snapshot after the lock is granted, so a writer that committed first is seen. The one SQL-text difference on any write path is the added `ORDER BY` on statement 3, a read that takes no lock (C2).
+- **Span.** The helper takes the caller's `tx` and nothing else, so the lock lives exactly as long as the transaction that called it. Every one of the six call sites is unchanged and still passes its own `tx` (`recording.routes.ts:385`, `upload.routes.ts:184`, `prepareAudio.ts:194` and `:268`, `core.routes.ts:194`, `participants.routes.ts:94`), and `recordHoursNotice` still re-reads through `readHoursFacts(tx, …)` at `record.ts:115`. `core.routes.ts:190` and `participants.routes.ts:92` still call `lockMeeting` first, so the repeats are a no-op on a row the transaction already holds.
+- **No cycle.** `record.ts` now imports `meetings/lock`, which imports `./visibility` (`lib/db`, `lib/problem`, `lib/identities`, `hosts/client`, `hosts/registry`). None of those imports `src/hours/`.
+- **The new test pins the span.** "readHoursFacts holds the meeting's row lock until its transaction ends" (`record.test.ts`) asks a second pooled connection for the same row with `FOR UPDATE SKIP LOCKED` while the transaction is open (expects no row) and after the commit (expects one). That is the property Q5 relied on and nothing pinned before. I read its logic; I did not run it.
+
+**Q2. `null`, never 404, for a missing meeting where `prepareAudio` relies on it? Yes.**
+- `readHoursFacts` returns `null` for a missing row at `record.ts:71` (`if (!(await lockMeetingRow(...))) return null`), as before, and never imports or calls `meetingNotFound`.
+- `prepareAudio.ts:268-269` reads `hoursBefore?.durationMs ?? null`; a vanished meeting gives `updateMany` count 0, and `:287-291` deletes the audio object. `refuseUpload` at `:194` and `:199` relies on `null` the same way. A 404 thrown there would have been an exception inside `ctx.commit`, handled by the runner as a failure rather than as "the meeting is gone, clean up".
+- The new test "readHoursFacts of a meeting that is not there is null, not a 404" pins it (`resolves.toBeNull()`).
+
+**Q3. `lockMeeting`'s 404 unchanged? Yes.** `lock.ts:18-20` throws `meetingNotFound()` (still imported from `./visibility`) exactly when `lockMeetingRow` is `false`, so the identical 404 and the identical row-existence signal. Its twelve callers (`core`, `participants`, `delete`, `consent`, `agenda`, `attachments` ×2, `retry`, `transcript` ×3) are not in the diff. The 404 stays indistinguishable from "no such meeting", so no existence oracle appears.
+
+**Q4. The DELETE and `blocks.ts`: `tx` never `db`, same statements, no lock or read added, nothing swallowed? Yes on all four.**
+- **`tx`, never `db`.** `entries.routes.ts:405` is `await blockDeletedEntry(tx, { userId, sourceMeetingId: gone.sourceMeetingId })` inside `db.$transaction(async (tx) => …)` (`:394`). `grep -rn 'blockDeletedEntry(db' hours-api/src` prints nothing, and `grep -rn 'meetingHoursBlock' hours-api/src/entries` (non-test) prints nothing: the only writer of the block is `blocks.ts:25`, on the `tx` it is given. `Prisma.TransactionClient` is structurally satisfied by `PrismaClient`, so the compiler cannot enforce this (C3); the grep and the new test do.
+- **Same statements.** Before: `tx.timeEntry.delete({ where: { id, userId }, select: { sourceMeetingId: true } })`, then only when `sourceMeetingId !== null`, `tx.meetingHoursBlock.createMany({ data: [{ meetingId, userId, reason: "deleted" }], skipDuplicates: true })`. After: the same delete (`:395`), then `blockDeletedEntry` with `if (deleted.sourceMeetingId === null) return;` and the same `createMany` arguments (`blocks.ts:23-28`). `skipDuplicates` still compiles to `ON CONFLICT DO NOTHING`, so a block already there keeps its reason (`had_entry` survives a later delete).
+- **No lock or read added** (decisions T5). `blocks.ts` imports only a type from the generated client, takes no lock and reads nothing. A lock there would invert `apply()`'s order (`meeting_hours_meeting` row first, then entries and blocks in the single `readState` statement, `apply.ts:84-104`). The route's comment keeps the read-order sentence, and `apply.ts` changed only by importing `dayDate`.
+- **Nothing swallowed.** Neither `blocks.ts` nor the handler has a `try/catch` around the insert; the only `.catch` is on the delete, and it maps P2025 only (`isRecordNotFound`) and rethrows anything else (`:395-399`). A failed insert therefore rejects the transaction callback, Prisma rolls back, and the global handler answers 500.
+- **Provenance of the key.** `userId` is `c.get("userId")` (the verified `sub`) and `sourceMeetingId` comes from the deleted row, never from the client. The two-field object parameter means two string ids cannot be swapped silently.
+- **Tests.** The two new `automatic.test.ts` cases are sound by my reading: the first (a `BEFORE INSERT` trigger on `meeting_hours_block` that raises) expects 500, the entry still there, no block; the second (a `DEFERRABLE INITIALLY DEFERRED` constraint trigger on `time_entry` that raises at COMMIT) can tell `tx` from `db`, because a block written on another connection would already be committed when the delete is refused. Both triggers are dropped in `finally` on `hours_test`: hours-api's preload forces a `*_test` database (`src/test-support/env.ts:26-32`). Not run.
+
+**Q5. Does the diff keep the earlier verdicts intact (Q5 of T18, N3, I8)?** Yes. `view.ts`, `schemas.ts`, the OpenAPI registry and `notices.routes.ts` are untouched, so N3 (`origin` on the wire) is exactly as it was. `showsFromMeetingMark` is still the only reader of the mark and is still called by `EntryRow.tsx:101` and `EntriesTable.tsx:72`; `FromMeetingBadge` draws unconditionally and reads no field of the entry, so I8's disclosure (provenance bit only, no meeting id or title) cannot widen through it.
+
+**Q6. From the diff only, do T20–T23 change a wire field, a log line, or copy, or add a query unscoped to the caller? No.**
+- **Wire.** `meetingHoursWire.ts` is untouched (`git diff --stat` empty) and the two copies are byte-identical (`cmp`). `TimeEntryView`, the OpenAPI document and the routes' schemas are untouched. `participants.ts` reads the same `where` / `select` / `orderBy` that `bodyFor` read, so the body meetings-api sends is the same query's answer, in the same (database) order. The only array whose order changed is `HoursFacts.participantIds`, which is never logged, stored or sent.
+- **Log lines.** `git diff -U0 -- '*.ts' '*.tsx'` (non-test) matches no `console.` line. The AC-4.10 change is comment-only: T20's own commit passes its check (`git diff aba5691a^ aba5691a`, non-comment lines: none), and both occurrences now read `specs/20261104-meetings AC-4.10`. The logs keep their rule (meeting id and closed code, no user id).
+- **Copy.** `hours-ui/src/strings/**` is untouched. `FromMeetingBadge` renders `Badge tone="accent"`, `data-testid="hours-entry-{id}-from-meeting"` and `strings.entries.fromMeeting`, the markup the two callers had inline. React renders the text, there is no HTML sink, and the test id is an attribute value React escapes. No `origin` or other entry data reaches it but the id.
+- **Queries.** There are none new. `operaiParticipantIds` is the participant read that both `readHoursFacts` and `bodyFor` already made, now in one place; it is an internal helper reached only from a write path that already holds the meeting's lock, or from the outbox delivery for its own row's meeting id, and nothing returns its result to a client. `dayDate` is the identical expression `` new Date(`${day}T00:00:00Z`) `` that five sites had (`rules.ts:47`; call sites `entries.routes.ts:331` and `:366`, `filters.ts:146`, `list.routes.ts:91-93`, `apply.ts:130` and `:145`); every input is a validated calendar day. `isRecordNotFound` is the identical `(error as { code?: unknown } | null)?.code === "P2025"` expression, module-local, and PATCH and DELETE still map it to 404 and "nothing deleted" and rethrow anything else. The `where: { id, userId }` scoping of PATCH and DELETE is untouched. `rules.ts` imports only `../lib/problem`, so moving `dayDate` there creates no import edge into `apply.ts` that did not exist (it already imported `entries/today` and, through `desired.ts`, `entries/rules`).
+- **Tests only grow.** `git diff --numstat` over the test files shows 0 deleted lines (six files, 234 added).
+
+### Findings
+
+None at critical, high, medium or low. Three info notes need no action for PASS.
+
+**C1 — INFO, A04 / A08, documentation accuracy: the plan's failure mode for a swallowed block is imprecise (the implementer's note is right).**
+- **Where.** plan.md § Amendment 2026-11-25 S5 as committed ("which would commit the delete with no block and let the next notice record the entry again"), and the comment at the top of the first new `automatic.test.ts` case. `blocks.ts` itself states it correctly. While I reviewed, the working tree also gained an uncommitted edit of plan.md (not mine) that rewrites S5 and § Security along the lines below; it agrees with this account, so what stays stale after it is the test comment.
+- **The correct failure mode.** Take the route as it is, with the insert wrapped in a swallowing `try/catch` (or "best effort") and the block still written on `tx`.
+  1. The failed `INSERT` aborts the Postgres transaction. Prisma's interactive transaction uses no savepoint per statement, so every later statement on it would fail with `25P02` until the end of the block.
+  2. The callback returns normally, and Prisma sends `COMMIT`. For an aborted transaction Postgres executes that as a `ROLLBACK` and returns the command tag `ROLLBACK` with no error (probe on the local Postgres: `BEGIN; SELECT 1/0; COMMIT;` printed `ERROR: division by zero` then `ROLLBACK`). A driver sees a successful commit.
+  3. Both the delete and the block are undone, and the route answers **204 while the entry is still there**, still following its meeting and still counted in the person's hours.
+- **What that does and does not break.** The committed state is still "the entry or the block, never neither", so the `apply()`-records-it-again scenario the plan names does not arise from this mutation. What breaks is the delete's contract: a false success on a person's own removal of a record about them. The plan's sentence is accurate only for a block written off the route's transaction (the `db` variant) with its failure swallowed: the delete then commits and the block does not exist.
+- **Impact.** None in the code: the shipped route does not catch, and the first new test asserts 500, entry present, no block, which is the right observable for either mutation.
+- **Fix.** Commit that plan correction and reword the comment of the first new `automatic.test.ts` case, for example: "a block that were swallowed would not be written, and the aborted transaction would roll the delete back too: the route would answer 204 with the entry still there; a block written on `db` instead of `tx` and swallowed would commit the delete with no block."
+- **Residual with `db`.** Beyond the ordering above, a block written through `db` from inside the open transaction also holds a second pooled connection while the first is held, which under load can starve the pool. That is one more reason the `tx` grep stays in T26's close.
+
+**C2 — INFO, A04, the one SQL-text delta on the write paths: `ORDER BY "userId" ASC` joins `readHoursFacts`'s participant read.**
+- The statement count, the lock statement and their order are unchanged (Q1). The added `ORDER BY` is on a read that takes no lock, on a unique `(meetingId, userId)` index, over at most about 31 rows.
+- **Does `sameFacts` answer the same?** Yes. The snapshot before the write and the one after are read in one transaction through one `ORDER BY` on one column collation, and Postgres breaks collation ties bytewise, so one set of ids always comes back in one order. A positional compare of two lists sorted by the same total order is a set compare, which is what the former JavaScript sort also gave. `@@unique([meetingId, userId])` (`schema.prisma:266`) means no duplicate ids reach the compare.
+- **Why it is intended.** The notice's wire order was already the database's order (decisions T8), and through hours-api's `desiredEntries` it is the order automatic entries are created in. One reader now guarantees `readHoursFacts` and `bodyFor` cannot disagree. `participants.test.ts` pins the `ORDER BY` with index scans disabled by `SET LOCAL`, which a dropped `orderBy` could not otherwise be caught by (the unique index would hand the rows back in order).
+- **Operational note, not a finding.** The new `participants.test.ts` truncates `meeting_job`, `meeting` and `hours_notice`, the same pattern as the existing `record.test.ts`. As the plan already says, run the meetings-api suite with an explicit `DATABASE_URL=…/meetings_test`: the test preload only defaults it with `??=`, so a shell where direnv has loaded the service's own direnv file would truncate the dev database.
+
+**C3 — INFO, A04, the `tx`-not-`db` rule is not enforceable by types.**
+- `blockDeletedEntry` and `lockMeetingRow` take `Prisma.TransactionClient`, which the shared `PrismaClient` structurally satisfies, so `blockDeletedEntry(db, …)` would compile. The controls are the grep in T24's done-when (`grep -rn 'blockDeletedEntry(db' hours-api/src` prints nothing; confirmed at HEAD) and the second new test, which is red only under that mutation, so the rule is covered by a check that runs and one that is reviewed.
+- **Fix (optional).** Re-run the grep at T26's close. A later hardening could take a branded transaction type, but that is a larger change than a behaviour-preserving cleanup warrants.
+
+### Checked and clean
+
+- **A03.** Every raw statement touched is a tagged `$queryRaw` template with a bound parameter. `$executeRawUnsafe` appears only in tests, with constant text or a constant list of Postgres settings.
+- **A01 / A02 / A09.** No route, guard, mount order, scope or `sub` allowlist changed. No personal value in a log, error body or test fixture added by the diff.
+- **A05.** `/openapi.json` and `/docs` are unchanged: the DELETE and PATCH descriptions are not in the diff.
+- **A06 / A08 / A10.** No dependency, lockfile, deserialization or outbound call change. No shared-copy group file touched (`scripts/check-shared-copies.ts` untouched).
+- **hours-ui.** No new route, export, string or sink. `exposes` and `vite.config.ts` are untouched.
+
+### Not verified
+
+- I did not run any suite, so the red-under-mutation evidence for the new tests (recorded in decisions.md T19–T24) and the green gates are QE's (T26).
+- C1's Postgres half is probed; the Prisma half (that its commit after an aborted statement surfaces no error) is inferred from the driver not treating a `ROLLBACK` command tag as an error, and from the implementer's note. The shipped route does not depend on it.
+
+### Summary
+
+0 critical · 0 high · 0 medium · 0 low · 3 info. No finding at medium or above is open, so T25's done-when is met.
