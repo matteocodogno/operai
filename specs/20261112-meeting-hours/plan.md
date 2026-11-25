@@ -783,6 +783,8 @@ for the security-review additions; each names what it rejects.
 
 ## Amendment 2026-11-25 — review cleanup (approved by the owner 2026-11-25)
 
+Corrected 2026-11-25 after implementation: S2's order mutation, S5's failure mode, S6's check (no scope change).
+
 > Drafted by the architect on 2026-11-25 for the owner's gate. It is a behaviour-preserving cleanup of the seven review items the
 > owner picked for PR #12 (branch `feat/meeting-hours`, checked at HEAD `3bf7c402`, base `origin/main` `a17c260f`). No
 > acceptance criterion, contract, migration, log line or copy changes. No earlier section of this plan changes: item 7 had
@@ -1067,17 +1069,21 @@ Each step lists `touch:` (every file it creates or modifies), `done when:` (runn
     - (a) and (b) pass.
     - `cd meetings-api && bun run typecheck && DATABASE_URL=postgresql://postgres:postgres@localhost:5435/meetings_test bun test` is green.
 - **S2 [BE] meetings-api: one participant reader.** Refs: AC-1.1, AC-1.2, AC-3.3, AC-4.1. Deps: S1, S6.
-  - touch: `meetings-api/src/hours/participants.ts` (new), `meetings-api/src/hours/record.ts`, `meetings-api/src/hours/delivery.ts`, `meetings-api/src/jobs/handlers/deliverHoursNotice.test.ts`.
-  - new test in `deliverHoursNotice.test.ts`, under "the body is built at send time": "lists the Operai participants in the database's order of user id, never re-sorted (decisions T8)".
-    - Participants `zed-1`, `Bob-2`, `amy-3`.
-    - The delivered `participantIds` must equal `SELECT "userId" FROM meeting_participant WHERE "meetingId" = … AND "userId" IS NOT NULL ORDER BY "userId"`, run by the test.
-    - The test also asserts that this order differs from `[...ids].sort()`, so it would fail on a database whose collation agrees with JavaScript instead of passing for nothing.
-    - Mutations: add `.sort()` to the reader, or drop its `orderBy`.
+  - touch: `meetings-api/src/hours/participants.ts` (new), `meetings-api/src/hours/participants.test.ts` (new), `meetings-api/src/hours/record.ts`, `meetings-api/src/hours/delivery.ts`, `meetings-api/src/jobs/handlers/deliverHoursNotice.test.ts`.
+  - new tests:
+    - in `deliverHoursNotice.test.ts`, under "the body is built at send time": "lists the Operai participants in the database's order of user id, never re-sorted (decisions T8)".
+      - Participants `zed-1`, `Bob-2`, `amy-3`.
+      - The delivered `participantIds` must equal `SELECT "userId" FROM meeting_participant WHERE "meetingId" = … AND "userId" IS NOT NULL ORDER BY "userId"`, run by the test.
+      - The test also asserts that this order differs from `[...ids].sort()`, so it would fail on a database whose collation agrees with JavaScript instead of passing for nothing.
+      - Mutation: add `.sort()` to the reader. This test cannot see a dropped `orderBy`. Postgres serves the reader's `findMany` (`where: { meetingId, userId: { not: null } }`) with an index scan on the unique index `meeting_participant_meetingId_userId_key`, so the rows come back in the database's collation order with or without an `ORDER BY`.
+    - `meetings-api/src/hours/participants.test.ts`, a direct test of `operaiParticipantIds`. It imports the new export, so unlike the delivery test it cannot run on `3bf7c402`. It has two cases:
+      - "lists the Operai participants' user ids in the database's order, never an external participant, never re-sorted". The same three participants plus an external one, with the same self-guard against a collation that agrees with JavaScript.
+      - "gets that order from the database's ORDER BY, not from the plan: with every index scan off the order is still the database's". `SET LOCAL` turns off `enable_indexscan`, `enable_indexonlyscan` and `enable_bitmapscan`, so Postgres reads the heap in insertion order (`zed-1` first). The test asserts that a `findMany` without `orderBy` comes back in another order than the database's, then that the reader's does not. Mutation: drop the reader's `orderBy`.
   - done when:
     - `grep -rn 'userId: { not: null }' meetings-api/src/hours --include='*.ts' | grep -v '\.test\.ts'` prints `participants.ts` only.
     - `grep -n '\.sort()' meetings-api/src/hours/record.ts meetings-api/src/hours/participants.ts` prints nothing.
     - `meetingHoursWire.ts` is untouched in both copies (`git diff 3bf7c402 --stat -- '*/src/lib/meetingHoursWire.ts'` is empty).
-    - The new test passes, and `record.test.ts:84-139` (the compare rules, "the same people in another order … is no change" included), `triggers.test.ts` and `deliverHoursNotice.test.ts` pass unchanged.
+    - The new tests pass, and `record.test.ts:84-139` (the compare rules, "the same people in another order … is no change" included), `triggers.test.ts` and `deliverHoursNotice.test.ts` pass unchanged.
     - The meetings-api command of S1 is green.
 - **S3 [FE] hours-ui: `FromMeetingBadge`.** Refs: AC-2.3, AC-4.3. Deps: none. Parallel with everything else.
   - touch: `hours-ui/src/components/FromMeetingBadge.tsx` (new), `hours-ui/src/components/FromMeetingBadge.test.tsx` (new), `hours-ui/src/components/EntryRow.tsx`, `hours-ui/src/components/EntriesTable.tsx`.
@@ -1097,19 +1103,24 @@ Each step lists `touch:` (every file it creates or modifies), `done when:` (runn
     - `cd hours-api && bun run typecheck && bun test` is green.
 - **S5 [BE] hours-api: the DELETE's block rule in `meetingHours/blocks.ts`.** Refs: AC-2.5. Deps: S4.
   - touch: `hours-api/src/meetingHours/blocks.ts` (new), `hours-api/src/entries/entries.routes.ts`, `hours-api/src/entries/automatic.test.ts`.
-  - new test in `automatic.test.ts`, under the DELETE describe (`:159`): "a block the database refuses takes the delete back with it: 500, the entry still there, no block".
-    - A temporary `BEFORE INSERT` trigger on `meeting_hours_block` that raises, created and dropped in `finally`, as `apply.test.ts:691-703` does.
-    - Mutation: a `try/catch` that swallows the insert ("best effort"), which would commit the delete with no block and let the next notice record the entry again.
+  - new tests in `automatic.test.ts`, under the DELETE describe (`:159`):
+    - (a) "a block the database refuses takes the delete back with it: 500, the entry still there, no block".
+      - A temporary `BEFORE INSERT` trigger on `meeting_hours_block` that raises, created and dropped in `finally`, as `apply.test.ts:691-703` does.
+      - Mutation: a `try/catch` that swallows the insert ("best effort"). It does not commit the delete. Prisma's interactive transaction opens no savepoint, so the failed insert aborts the Postgres transaction and its COMMIT becomes a rollback. The mutated route answers 204 while the entry is silently still there, with no block: the person is told it is deleted, and it is not. The test is red on the 204.
+    - (b) "writes the block on the DELETE's own transaction: a delete the database refuses at commit leaves no block behind".
+      - A temporary constraint trigger on `time_entry` (`AFTER DELETE … DEFERRABLE INITIALLY DEFERRED`) that raises at COMMIT, after the block's insert has gone through. It is dropped in `finally`.
+      - Mutation: the block written on the shared `db` instead of `tx` (after the refactor, `blockDeletedEntry(db, …)`). A block on the shared client commits on its own connection, so it is left behind beside an entry that is still there. This is the test that tells `tx` from `db`.
   - done when:
     - `grep -rn 'meetingHoursBlock' hours-api/src/entries --include='*.ts' | grep -v '\.test\.ts'` prints nothing.
-    - The DELETE calls `blockDeletedEntry(tx, …)` with its own transaction's `tx`: `grep -n 'blockDeletedEntry(db' -r hours-api/src` prints nothing. No test can tell `tx` from `db` here, so this check is the proof.
-    - The new test passes, and `automatic.test.ts:159-270` and `apply.test.ts:618` (the race) pass unchanged.
+    - The DELETE calls `blockDeletedEntry(tx, …)` with its own transaction's `tx`: `grep -n 'blockDeletedEntry(db' -r hours-api/src` prints nothing. Test (b) is the behavioural proof, and this grep is the second.
+    - The two new tests pass, and `automatic.test.ts:159-270` and `apply.test.ts:618` (the race) pass unchanged.
     - The hours-api command of S4 is green.
 - **S6 [BE] meetings-api: qualified `AC-4.10`.** Refs: AC-4.1, specs/20261104-meetings AC-4.10. Deps: none. Parallel with S1, S3, S4, S5.
   - touch: `meetings-api/src/hours/delivery.ts`, `meetings-api/src/hours/client.ts` (comments only).
   - done when:
     - `grep -n 'AC-4.10' meetings-api/src/hours/delivery.ts meetings-api/src/hours/client.ts` shows each occurrence preceded by `specs/20261104-meetings`.
-    - `git diff -U0 -- meetings-api/src/hours/delivery.ts meetings-api/src/hours/client.ts | grep -E '^[-+][^-+]' | grep -vE '^[-+]\s*(\*|//)'` prints nothing (comment lines only).
+    - The step's own commit is comment-only (as tasks.md T20): `c=$(git log -1 --format=%H --grep='(T20, specs/20261112-meeting-hours)'); git diff "$c^" "$c" -U0 -- meetings-api/src/hours/delivery.ts meetings-api/src/hours/client.ts | grep -E '^[-+][^-+]' | grep -vE '^[-+]\s*(\*|//)'` prints nothing.
+    - The check reads T20's commit against its parent. S2 (T21) changes code in `delivery.ts` by design, so a diff from `3bf7c402` cannot be empty at HEAD, and a working-tree diff is empty for any change that is already committed.
     - `cd meetings-api && bun run typecheck` is green.
 - **S7 [QE] gates.** Deps: S1–S6.
   - touch: none.
@@ -1120,13 +1131,13 @@ Each step lists `touch:` (every file it creates or modifies), `done when:` (runn
 
 | Invariant | Existing tests (unchanged) | Added by this amendment |
 |---|---|---|
-| I1 wire and wire order | `deliverHoursNotice.test.ts:93-148` (`toEqual` on the whole body), `triggers.test.ts` (each path's delivered facts), `client.test.ts`; hours-api `meetingHoursWire.test.ts`, `notices.routes.test.ts`, `openapi.contract.test.ts`; `mise run shared:check` | S2 order test |
+| I1 wire and wire order | `deliverHoursNotice.test.ts:93-148` (`toEqual` on the whole body), `triggers.test.ts` (each path's delivered facts), `client.test.ts`; hours-api `meetingHoursWire.test.ts`, `notices.routes.test.ts`, `openapi.contract.test.ts`; `mise run shared:check` | S2 order tests: the delivery test (red under an added `.sort()`; it cannot see a dropped `orderBy`, because the unique index already returns that order) and `hours/participants.test.ts` (red under a dropped `orderBy`, with index scans off through `SET LOCAL`) |
 | I6 / I7 the lock and the snapshot | `prepareAudio.measured.test.ts:232` (held duration read in the commit), `record.test.ts:59-204` (the compare, deletion, rollback), `triggers.test.ts` (seven paths, one notice each) | S1 (a) lock held, S1 (b) `null` not 404 |
 | I7 `lockMeeting`'s 404 | the route suites that lock (core, participants, delete, consent, agenda, attachments, retry), all in the meetings-api run | — |
 | I5 badge DOM and copy | `EntryRow.test.tsx`, `EntryRow.it.test.tsx`, `EntriesTable.test.tsx`, `EntriesTable.it.test.tsx`, `TableView.fromMeeting.test.tsx`, `noHardcodedStrings.test.ts`, `strings.test.ts` | S3 tone test |
 | I7 day conversion | `write.test.ts:122`, `list.test.ts`, `apply.test.ts` (entry days), `automatic.test.ts` | S4 vector |
 | I7 P2025 | `write.test.ts:587` (PATCH race to 404), `automatic.test.ts:224`, `write.test.ts:404` | — |
-| I6 the DELETE's block | `automatic.test.ts:159-270` (one transaction at `:233`, existing block kept at `:213`), `apply.test.ts:618` | S5 rollback test |
+| I6 the DELETE's block | `automatic.test.ts:159-270` (one transaction at `:233`, existing block kept at `:213`), `apply.test.ts:618` | S5 (a) rollback test (red when the insert is swallowed: 204, the entry still there); S5 (b) `tx` not `db` (a constraint trigger deferred to COMMIT) |
 | I4 logs | `meetings-api/src/logPrivacy.test.ts`, `client.test.ts:190`, `apply.test.ts` (log line) | — (diff check in S7) |
 
 Suites and commands:
@@ -1155,7 +1166,10 @@ A patch changeset would add a CHANGELOG line describing no change, and the relea
 - `readHoursFacts`' row lock: owasp-report.md Q5, "the row-lock read keeps the decision safe".
 - The DELETE's same-transaction block: AC-2.5, and plan § Applying a notice, "The person's writes".
 
-Both fail silently when moved wrongly. A stale snapshot announces nothing for a change that happened. A block written outside the transaction, or swallowed, leaves an entry deleted with no block, and the next notice records it again.
+Both fail silently when moved wrongly:
+- A stale snapshot announces nothing for a change that happened.
+- A block written outside the DELETE's transaction no longer commits with the delete. On the shared client it commits first and stays even when the delete then fails. Written after the commit, a failed insert leaves an entry deleted with no block, and the next notice records it again.
+- A swallowed insert failure is no better. Prisma's interactive transaction has no savepoint, so Postgres has aborted the transaction and its COMMIT becomes a rollback: the person gets a 204 for an entry that is still there.
 
 Orchestrator: schedule an owasp-reviewer delta pass in parallel with QE, over:
 - `meetings-api/src/meetings/lock.ts` and `meetings-api/src/hours/record.ts` (`readHoursFacts`);
@@ -1172,7 +1186,7 @@ For S2, S3, S4 and S6 it only confirms from the diff that no wire field, log lin
 ### Risks of this amendment
 
 - **RA1 A step changes what reaches Postgres or the wire while every existing test stays green.** The cases are the two orders, the lock, and a block that leaves the transaction.
-  - Mitigation: the four characterisation tests (S1 a/b, S2, S5), each shown red under its mutation before the refactor, plus the S7 diff checks.
+  - Mitigation: the characterisation tests (S1 a/b, S2's delivery test and `participants.test.ts`, S5 a/b), each shown red under its mutation before the refactor, plus the S7 diff checks. The exception is `participants.test.ts`: it tests the new export, so it is shown red once the reader exists.
   - Early check: S1 and S2 are the first meetings-api steps.
 - **RA2 A meetings-api test run hits the dev database.** Mitigation: the explicit `DATABASE_URL` in every command.
   - tasks.md's "Test commands" sentence ("each preload rewrites `DATABASE_URL`") is true of hours-api only. `/wellforge:tasks` must copy the meetings-api command from here.
