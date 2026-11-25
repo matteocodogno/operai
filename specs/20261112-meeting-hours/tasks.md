@@ -111,6 +111,6 @@ env contract `mise run env:doctor`; e2e `cd shell && pnpm e2e meeting-hours.spec
   - touch: `specs/20261112-meeting-hours/owasp-report.md`
   - done when: owasp-report.md gains a dated delta section with a verdict PASS over `prepare_audio`'s correction and the hours-ui predicate (the two items plan § Security names), with I1, I3 and I6 recorded as accepted by the owner (D74–D76), and no finding at medium or above open
 
-- [ ] T14: Close: all gates green (typecheck and tests in auth, hours-api, meetings-api; lint, build and tests in hours-ui and meetings-ui; `shared:check`, `env:doctor`, `changeset:check`; e2e), owasp PASS (T13, T18), QE PASS, eval, spec status → done via `/wellforge:done` — refs: all — deps: T11, T12, T13, T15, T16, T17, T18
+- [x] T14: Close: all gates green (typecheck and tests in auth, hours-api, meetings-api; lint, build and tests in hours-ui and meetings-ui; `shared:check`, `env:doctor`, `changeset:check`; e2e), owasp PASS (T13, T18), QE PASS, eval, spec status → done via `/wellforge:done` — refs: all — deps: T11, T12, T13, T15, T16, T17, T18
   - touch: `specs/20261112-meeting-hours/qe-report.md`, `specs/20261112-meeting-hours/eval-report.md`, `specs/20261112-meeting-hours/spec.md`
   - done when: `/wellforge:done 20261112-meeting-hours` accepts the transition
