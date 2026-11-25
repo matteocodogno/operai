@@ -1,7 +1,7 @@
 ---
 id: 20261112
 slug: meeting-hours
-status: in-progress
+status: done
 rigor: production
 created: 2026-11-12
 reopened: 2026-11-24
