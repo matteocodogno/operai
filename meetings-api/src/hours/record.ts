@@ -40,12 +40,18 @@ import type { Prisma } from "../lib/generated/prisma/client";
 import { lockMeetingRow } from "../meetings/lock";
 import { hoursChannel } from "./client";
 import { HOURS_NOTICE_MAX_ATTEMPTS } from "./delivery";
+import { operaiParticipantIds } from "./participants";
 import { zurichDay, zurichInstant } from "./recordDay";
 
 /** The minute of a Zurich day at which an entry may exist (A37): 00:01. */
 const FIRST_MINUTE = 1;
 
-/** The facts hours-api builds entries from. Ids of Operai participants only, sorted and distinct. */
+/**
+ * The facts hours-api builds entries from, as `readHoursFacts` snapshots them for the lock-time compare. Ids of Operai
+ * participants only, distinct, in the database's order of user id (`operaiParticipantIds`). The wire form of the same facts is
+ * `MeetingHoursFacts` (`src/lib/meetingHoursWire.ts`): its `startsAt` is an ISO string and it also carries `creatorId`, which
+ * is never compared here (the creator never changes).
+ */
 export interface HoursFacts {
   readonly startsAt: Date;
   readonly durationMs: number | null;
@@ -65,9 +71,7 @@ export async function readHoursFacts(tx: Prisma.TransactionClient, meetingId: st
   if (!(await lockMeetingRow(tx, meetingId))) return null;
   const meeting = await tx.meeting.findUnique({ where: { id: meetingId }, select: { startsAt: true, durationMs: true } });
   if (!meeting) return null;
-  const people = await tx.meetingParticipant.findMany({ where: { meetingId, userId: { not: null } }, select: { userId: true } });
-  const participantIds = [...new Set(people.flatMap((p) => (p.userId !== null ? [p.userId] : [])))].sort();
-  return { startsAt: meeting.startsAt, durationMs: meeting.durationMs, participantIds };
+  return { startsAt: meeting.startsAt, durationMs: meeting.durationMs, participantIds: await operaiParticipantIds(tx, meetingId) };
 }
 
 const sameFacts = (a: HoursFacts, b: HoursFacts): boolean =>

@@ -36,6 +36,7 @@ import { Prisma } from "../lib/generated/prisma/client";
 import type { HoursNotice } from "../lib/generated/prisma/client";
 import { meetingHoursNoticeWire } from "../lib/meetingHoursWire";
 import { hoursChannel, sendHoursNotice, type HoursNoticeFailureCode } from "./client";
+import { operaiParticipantIds } from "./participants";
 
 /** "Until delivered": the runner's attempt cap must never be what stops a hours notice. */
 export const HOURS_NOTICE_MAX_ATTEMPTS = 1_000_000;
@@ -77,12 +78,7 @@ async function bodyFor(row: HoursNotice) {
         select: { hoursSeq: true, startsAt: true, durationMs: true, creatorUserId: true },
       });
       if (!meeting) return null;
-      const people = await tx.meetingParticipant.findMany({
-        where: { meetingId: row.meetingId, userId: { not: null } },
-        select: { userId: true },
-        orderBy: { userId: "asc" },
-      });
-      return { meeting, participantIds: [...new Set(people.flatMap((p) => (p.userId !== null ? [p.userId] : [])))] };
+      return { meeting, participantIds: await operaiParticipantIds(tx, row.meetingId) };
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );

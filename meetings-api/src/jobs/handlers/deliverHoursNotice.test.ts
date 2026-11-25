@@ -123,6 +123,24 @@ describe("the body is built at send time (AC-1.1, plan § Delivering a notice st
     expect(fake.accepted[0]!.meeting.facts!.participantIds).toEqual(["creator-1", "user-b"]);
   });
 
+  it("lists the Operai participants in the database's order of user id, never re-sorted (decisions T8)", async () => {
+    // Mixed case on purpose: the database's collation (`en_US.utf8`) puts `amy-3` < `Bob-2` < `zed-1`, a JavaScript code-unit
+    // sort puts `Bob-2` < `amy-3` < `zed-1`. The wire's order is the database's, and through hours-api's `desiredEntries` it is
+    // the order in which the automatic entries are created.
+    const m = await seedMeeting({}, ["zed-1", "Bob-2", "amy-3"]);
+    const inDatabaseOrder = (
+      await db.$queryRaw<{ userId: string }[]>`SELECT "userId" FROM "meeting_participant" WHERE "meetingId" = ${m.id} AND "userId" IS NOT NULL ORDER BY "userId"`
+    ).map((r) => r.userId);
+    // Guards the test itself: on a database whose collation agrees with JavaScript's, this case proves nothing, so it must fail.
+    expect(inDatabaseOrder).not.toEqual([...inDatabaseOrder].sort());
+
+    const { jobId } = await announce(m.id, 1);
+    await runner.tick();
+    await until(settled(jobId));
+
+    expect(fake.accepted[0]!.meeting.facts!.participantIds).toEqual(inDatabaseOrder);
+  });
+
   it("carries a duration that is no longer known as null (the too-long refusal of an upload) and a meeting with nobody else as an empty list", async () => {
     const m = await seedMeeting({ durationMs: null });
     const { jobId } = await announce(m.id, 1);
