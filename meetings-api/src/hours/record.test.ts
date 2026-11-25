@@ -56,6 +56,29 @@ const notices = (meetingId: string) => db.hoursNotice.findMany({ where: { meetin
 const jobs = () => db.meetingJob.findMany({ orderBy: { createdAt: "asc" } });
 const seqOf = async (id: string) => (await db.meeting.findUniqueOrThrow({ where: { id } })).hoursSeq;
 
+// `readHoursFacts` (plan amendment 2026-11-25, S1): the snapshot a write compares against is read under the meeting's row lock,
+// and a meeting that is not there is `null`, never the 404 `lockMeeting` throws for one (`prepareAudio` relies on `null` for a
+// meeting deleted while ffmpeg ran; owasp-report.md Q5 relies on the lock).
+describe("the snapshot of a write (plan amendment 2026-11-25, S1)", () => {
+  it("readHoursFacts holds the meeting's row lock until its transaction ends", async () => {
+    const m = await seed({ durationMs: 1_800_000 });
+    // Another connection (the pool's, not `tx`) asks for the same row without waiting: SKIP LOCKED hides a row somebody holds.
+    const otherConnectionSees = () => db.$queryRaw<{ id: string }[]>`SELECT "id" FROM "meeting" WHERE "id" = ${m.id} FOR UPDATE SKIP LOCKED`;
+
+    const whileHeld = await db.$transaction(async (tx) => {
+      await readHoursFacts(tx, m.id);
+      return otherConnectionSees();
+    });
+
+    expect(whileHeld).toHaveLength(0);
+    expect(await otherConnectionSees()).toHaveLength(1);
+  });
+
+  it("readHoursFacts of a meeting that is not there is null, not a 404", async () => {
+    await expect(db.$transaction((tx) => readHoursFacts(tx, "no-such-meeting"))).resolves.toBeNull();
+  });
+});
+
 describe("a hours fact changed and a duration exists (AC-1.1, AC-3.1, AC-3.2, AC-3.3)", () => {
   it("leaves one `state` notice at the next version and one until-delivered job that carries the notice's id and no meeting id", async () => {
     const m = await seed({ durationMs: null });

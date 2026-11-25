@@ -37,6 +37,7 @@
 
 import { enqueueJob } from "../jobs/runner";
 import type { Prisma } from "../lib/generated/prisma/client";
+import { lockMeetingRow } from "../meetings/lock";
 import { hoursChannel } from "./client";
 import { HOURS_NOTICE_MAX_ATTEMPTS } from "./delivery";
 import { zurichDay, zurichInstant } from "./recordDay";
@@ -55,13 +56,13 @@ export interface HoursFacts {
 export type HoursChange = { readonly deleted: true } | { readonly before: HoursFacts | null };
 
 /**
- * The hours facts of a meeting as `tx` sees them, or `null` when there is no such meeting. It TAKES THE MEETING'S ROW LOCK
- * (`FOR UPDATE`): the snapshot a write compares against must not be stale by the time the write lands, or a concurrent change
- * could slip between the two unannounced. Every write path takes that lock for its own change anyway, in the same order.
+ * The hours facts of a meeting as `tx` sees them, or `null` when there is no such meeting (never the 404 `lockMeeting` throws:
+ * `prepare_audio` relies on `null` for a meeting deleted while ffmpeg ran). It TAKES THE MEETING'S ROW LOCK (`lockMeetingRow`,
+ * held until `tx` ends): the snapshot a write compares against must not be stale by the time the write lands, or a concurrent
+ * change could slip between the two unannounced. Every write path takes that lock for its own change anyway, in the same order.
  */
 export async function readHoursFacts(tx: Prisma.TransactionClient, meetingId: string): Promise<HoursFacts | null> {
-  const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "meeting" WHERE "id" = ${meetingId} FOR UPDATE`;
-  if (locked.length === 0) return null;
+  if (!(await lockMeetingRow(tx, meetingId))) return null;
   const meeting = await tx.meeting.findUnique({ where: { id: meetingId }, select: { startsAt: true, durationMs: true } });
   if (!meeting) return null;
   const people = await tx.meetingParticipant.findMany({ where: { meetingId, userId: { not: null } }, select: { userId: true } });
