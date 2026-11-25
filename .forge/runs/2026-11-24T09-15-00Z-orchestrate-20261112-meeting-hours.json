@@ -7,9 +7,9 @@
  "rigor": "production",
  "rigor_recorded": null,
  "started": "2026-11-24T09:15:00Z",
- "finished": "2026-11-24T14:52:16Z",
+ "finished": "2026-11-25T08:26:34Z",
  "reconstructed": true,
- "reconstruction_note": "Written by the orchestrator at the end of the run from git history (831bf3fb..HEAD on feat/meeting-hours), decisions.md and agent hand-back reports; the session was compacted once, so 'started' is approximate and per-agent timestamps are not recorded.",
+ "reconstruction_note": "Written by the orchestrator at the end of the run from git history (831bf3fb..HEAD on feat/meeting-hours), decisions.md and agent hand-back reports; the session was compacted once, so 'started' is approximate and per-agent timestamps are not recorded. Extended 2026-11-25 with the wording-correction round and the per-task commit lists.",
  "agents": [
   {
    "agent": "backend-dev",
@@ -26,7 +26,15 @@
    ],
    "outcome": "completed",
    "commits": [
-    "fe4ad008"
+    "e4e09d84",
+    "fe4ad008",
+    "de7bcbc4",
+    "1f866176",
+    "ae181e29",
+    "9e39edde",
+    "686c0a39",
+    "f2d23b6c",
+    "3ab404ea"
    ],
    "note": "original scope, dispatched in dependency batches; decisions in decisions.md T1-T9"
   },
@@ -35,14 +43,20 @@
    "tasks": [
     "T10"
    ],
-   "outcome": "completed"
+   "outcome": "completed",
+   "commits": [
+    "d5c46eb1"
+   ]
   },
   {
    "agent": "devops",
    "tasks": [
     "T12"
    ],
-   "outcome": "completed"
+   "outcome": "completed",
+   "commits": [
+    "b1e383f6"
+   ]
   },
   {
    "agent": "quality-engineer",
@@ -159,7 +173,31 @@
    "agent": "evaluator",
    "outcome": "PASS",
    "score": 80.0,
-   "note": "rubric default-v2; zero margin; trajectory scored at floor 2 because this trace did not exist yet"
+   "note": "first pass, rubric default-v2, 80.0 with zero margin; trajectory at floor because this trace did not exist yet; superseded by the 2026-11-25 pass"
+  },
+  {
+   "agent": "product-owner",
+   "outcome": "completed",
+   "note": "2026-11-25: A39 reworded to the build (any saved edit counts, values not compared), 48ec8690"
+  },
+  {
+   "agent": "architect",
+   "outcome": "completed",
+   "note": "2026-11-25: plan § Security states origin is on the wire for every reader (OWASP N3), 48ec8690"
+  },
+  {
+   "agent": "cavecrew-builder",
+   "outcome": "completed",
+   "commits": [
+    "48ec8690"
+   ],
+   "note": "2026-11-25: two stale comments (hours-ui strings, hours-api automatic.test.ts), comment-only; checked by the orchestrator: hours-ui lint + strings tests 43/43, hours-api typecheck + automatic.test.ts 18/18 on hours_test"
+  },
+  {
+   "agent": "evaluator",
+   "outcome": "PASS",
+   "score": 86.1,
+   "note": "2026-11-25 re-eval after the corrections; AC satisfaction on its floor (4/4); open: AGENTS.md:757 old A39 wording (orchestrator), screen-reader and Italian real-browser pass (QE), R9 pre-merge (owner)"
   }
  ],
  "drift_events": [
