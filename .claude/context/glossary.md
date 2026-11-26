@@ -236,7 +236,10 @@
   processed (the sum of the pieces the browser reported, or what an uploaded file says of itself) / the length
   of its audio as Operai measures it when processing it. The measured one replaces the held one when they differ
   materially (D63, A42). _Avoid:_ real length, actual duration, claimed duration.
-- **Consumption**: the hours recorded on a project set against what its terms sold — the hour
+- **Hours on a project**: the hours recorded on the project itself plus the hours recorded on the
+  meetings linked to it now; every figure about a project's hours means these, as a deal's hours
+  include its linked meetings' (specs/20261112-project-hours D78).
+- **Consumption**: the **Hours on a project** set against what its terms sold — the hour
   package, the max effort and estimated man-days, or the positions' planned man-days
   (specs/20261112-project-hours). _Avoid:_ burn, usage.
 - **Man-day**: 8 hours, in every comparison with what was sold — not the **Contractual day**.

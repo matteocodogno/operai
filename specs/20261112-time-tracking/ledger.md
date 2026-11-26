@@ -27,6 +27,8 @@ Decision map (parents first; re-drawn after D1, all branches closed):
 - B8 Visibility — D9; B8a manager — D21; B8b project and deal pages — D22
 - B9 Global view and export — D25
 - B25 Amending specs/20261103-projects — D15 (nothing to amend)
+- B10 Hours of a meeting linked to a project (specs/20261112-project-hours, re-opened 2026-11-26) — D78; B8b-i per-person
+  figure of a project awaiting its project manager — D79
 
 Decided (the user chose):
 - D1 Purpose: record the time employees spend on company work — development on projects, pre-sales, meetings and more; "consumo di ore" did not mean consumption against what was sold (that is B3) — user, 2026-11-12
@@ -135,6 +137,48 @@ by D74–D76 (the spec then has 28):
 
 Decided by the owner after the code review of PR #12 (specs/20261112-meeting-hours, 2026-11-25; a drift correction of one non-goal, no scope or behaviour change):
 - D77 The non-goal "A history of where a moved entry came from" is REWORDED to say what the build does, and the build is not changed: no log of what an entry was recorded on before is kept or shown, and no "From meeting" mark shows once it is recorded on a project, a deal or other work (AC-2.3); but `origin` stays `meeting` (never rewritten), is sent for every viewer, a `time-entry:read-all` holder included, and on such an entry drives only the delete confirmation's sentence (AC-2.7, D70) — owner, 2026-11-25. The review of PR #12 found the old wording ("nothing on the entry shows it was ever automatic") contradicted the build; the security review had already accepted the residual (owasp-report I8, N3). Offered and declined: send the real `origin` only to the entry's person. No acceptance criterion changes
+
+Decided when specs/20261112-project-hours was re-opened (2026-11-26, before any plan; batched interview). Numbered after D77,
+the last decision of specs/20261112-meeting-hours (PR #12, D54–D77, not yet on main when this was written):
+- D78 The hours recorded on a meeting linked to a project (specs/20261104-meetings A18, 2026-11-23) — by its person or
+  automatically (specs/20261112-meeting-hours) — count for that project EVERYWHERE, as a linked meeting's hours count for a
+  deal (specs/20261112-time-tracking AC-2.6): on the project page and in its consumption, in the hours views' project filter
+  and by-project totals, and in the export (the project carried like the deal of D40); without the team check; they follow a
+  relink; a project filter or a project page's hours are refused as unavailable while Meetings cannot say which meetings are
+  linked (D45's rule, never a figure lower than the truth); the project a meeting is linked to follows the viewer's access
+  as the deal does (AC-4.10). specs/20261112-meeting-hours had left the question to this spec (its non-goals). User chose
+  the recommended option over "the project page only" (two different figures for one project) and over "only the hours
+  recorded on the project" (no new read, but consumption blind to meetings and a rule different from deals), after the
+  comparison with Harvest, Toggl and Clockify, which put calendar meeting time on the project
+- D79 While a project awaits its project manager, its per-person figure is shown only to holders of see everyone's hours;
+  the purchase order's ops-manager does not see it — user chose the recommended option (D22 read literally) over "the
+  ops-manager while the project awaits one" (the A27 rule of specs/20261112-project-alerts)
+
+Decided during /wellforge:design of specs/20261112-project-hours (2026-11-26, after seeing the canvas of the first design):
+- D80 The project page and the deal page each get **one "Hours" card**, not two: on a project it shows the consumption
+  (when the terms sold something comparable) and the total recorded, always visible, and the breakdown by work type and by
+  person behind a **"Show breakdown"** disclosure, closed by default; on a deal it shows the total and the same closed
+  disclosure — the owner: "le card aggiuntive nella pagina di deals e progetto rischiano di provocare un carico cognitivo non
+  indifferente (che già sono tante)". The owner first chose tabs Overview | Hours, then dropped them on seeing that the page
+  would carry two menus (the tool's section tabs and the page's tabs: "così però nella stessa pagina ci sarebbe un doppio
+  menu"), had all the layouts drawn (two open cards; one card with a closed breakdown; tabs under the section menu; tabs with
+  the section menu removed from record pages; an Hours button opening a side panel; one line in Details plus a separate hours
+  page) and chose **"one card, breakdown closed"** (option 2), the recommended one together with the side panel. Consumption
+  stays visible at a glance. No acceptance criterion changes: the breakdown is on the page, one click away
+
+Found while re-opening specs/20261112-project-hours (read from the repo, not asked):
+- F14 A meeting has at most one host, a CRM deal or (since 2026-11-23) a project; a meeting started from a project task is
+  linked to the task's project — specs/20261104-meetings A18; meetings-api `GET /system/meetings/hosts` answers `ids=` or
+  `dealId=` today
+- F15 A won public tender becomes a project with terms and no purchase order — ADR 20261124-a-won-public-tender-…;
+  a fixed-price project always has a deadline and a max effort, its estimated man-days may be absent —
+  projects-api `project_terms` CHECKs
+
+Assumed while re-opening specs/20261112-project-hours (2026-11-26, not grilled — strike any that is wrong):
+- A48 (030) An hour recorded both on a linked meeting and on its project counts twice for the project (A1); not detected
+- A49 (030) The project manager's per-person figure includes people outside the team who took part in a linked meeting
+- A50 (030) A deal's hours do not count for the project made from it, nor the reverse
+- A51 (030) Before an hour package's start date no period is current; hours recorded before it count in no period
 
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
