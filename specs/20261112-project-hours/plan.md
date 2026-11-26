@@ -13,8 +13,13 @@ an Hours card, the breakdown behind a closed disclosure inside the widget (compo
 or ADR change). Amended again 2026-11-26 while deriving the tasks (ledger D81–D84, the design's G1–G5): "Over by" instead of a
 negative figure, `currentPeriod.ended` and an "Expired" badge, the SLA-only case in AC-1.7, and D-P6 (figures re-read after a
 Record hours save, through a content-free browser event — an amendment of ADR 20261116-record-hours-widget-…). Written against
-`main` at `225f0275`; specs/20261112-meeting-hours (PR #12) is **not** on main yet and
-touches the same hours-api and hours-ui files (Risk R1).
+`main` at `225f0275`. Amended a third time 2026-11-26 (owner's decision, after the tasks): specs/20261112-meeting-hours
+(PR #12, branch `feat/meeting-hours`, head `75c712da`) is **not** on main yet and touches the same hours-api and hours-ui
+files, and the local auth's `SERVICE_CLIENTS` already carries its scope `meeting-hours-notices.send`, which an auth without
+#12 refuses at start, so the suite cannot start on a main-based branch. This branch is therefore **stacked on #12**: rebased
+onto #12's branch now (task T5) instead of onto `main` after #12 merges, its pull request stacked on #12's and moved to `main`
+once #12 merges (Risk R1, § Deploy order). No route, API, decision, test or ADR change; file:line references into files #12
+also changes (hours-api `src/entries/filters.ts`, both Prisma schemas) are to `225f0275` and have moved.
 
 ## Architecture
 
@@ -138,6 +143,11 @@ the shell (`getHoursApiBaseUrl`, `VITE_HOURS_API_URL` is the shell's), which `ap
   meeting entry stays on the meeting's row (AC-4.11); a test pins it for a project-linked meeting.
 
 ### Deploy order
+
+**Before step 1: specs/20261112-meeting-hours (PR #12) has shipped, by its own § Deploy order** (amendment 2026-11-26). This
+branch is stacked on #12 (Risk R1) and reaches `main` only after #12 has merged, so #12's preconditions hold first — above all
+its step 0, `HOURS_API_URL` on meetings-api, without which any meetings-api carrying #12's code, this branch's included, exits
+at start. Nothing below waits for #12's notice channel to be switched on (its scope in production `SERVICE_CLIENTS`).
 
 Every change is additive and each step tolerates the one before it not having shipped:
 
@@ -337,11 +347,28 @@ invalid prop set; `openapi.contract.test.ts` for the new route.
 
 ## Risks
 
-- **R1 PR #12 (meeting-hours) is not merged and touches the same files** — hours-api `src/entries/filters.ts`, `view.ts`,
-  `list.routes.ts`, `src/test-support/world.ts` / `hosts.ts`, `src/openapi/registry.ts`, hours-ui `hoursApi.types.ts`,
-  `EntryRow.tsx`, `EntriesTable.tsx`, `strings/entries.ts`, and the shared ledger. Mitigation: rebase this branch on main
-  as soon as #12 merges, before the hours-api and hours-ui tasks start; `/wellforge:tasks` orders those tasks after a
-  rebase checkpoint. Early check: `git merge-tree` of this branch against #12 when tasks are derived.
+- **R1 This work is stacked on PR #12 (meeting-hours), which is not merged and touches the same files** — hours-api
+  `src/entries/filters.ts`, `view.ts`, `list.routes.ts`, `src/test-support/world.ts` / `hosts.ts`, `src/openapi/registry.ts`,
+  hours-ui `hoursApi.types.ts`, `EntryRow.tsx`, `EntriesTable.tsx`, `strings/entries.ts`, `scripts/check-shared-copies.ts`
+  and the shared ledger. Since the owner's decision of 2026-11-26 the branch sits on #12's branch instead of waiting for its
+  merge, so it depends on #12 landing: a change to #12 in review must be restacked, and this pull request is merged only
+  after #12 and only into `main`. Mitigation: T5 rebases onto `feat/meeting-hours` at `75c712da`, and every hours-api and
+  hours-ui task follows it. After any new #12 commit, or a rebase of #12 onto a newer `main` (it is 12
+  commits behind `main` on 2026-11-26): `git rebase --onto <#12's new head> <the #12 head the branch sat on>` — never a plain
+  rebase, which replays #12's old commits once #12 is rewritten — then T5's checks again (`bunx prisma generate` and
+  `bun run typecheck` in hours-api and meetings-api, `pnpm build` in hours-ui, `mise run shared:check`), plus `pnpm build`
+  in any other app the new base changed (projects-ui: `main`'s task board and drawer since `225f0275`). Once the branch is
+  pushed, every restack is a force push, the owner's call each time. When #12 merges by a merge commit nothing is rebased;
+  squashed or rebased (both allowed on `matteocodogno/operai`), first `git fetch origin` and
+  `git rebase --onto origin/main <#12's last head>`, so #12's commits are not carried twice. A pull request's base is a
+  branch of the repository it is opened in, and #12 is a cross-repository PR whose branch exists only in the fork
+  (`edoparo:feat/meeting-hours`; `matteocodogno/operai` has none, checked 2026-11-26): unless a maintainer pushes it there,
+  the stacked PR is either opened in the fork against `feat/meeting-hours` and re-opened on `matteocodogno/operai` against
+  `main` once #12 merges (GitHub does not move a PR between repositories), or opened there against `main` as a draft that
+  lists #12's commits until then — the owner's choice at the first push. `changeset-check` and `react-skew` run only for a
+  pull request into `main`, so on a stacked base they first run at that move. Early check: before each hours-api or hours-ui
+  task, `git merge-base --is-ancestor <#12's current head> HEAD` (`gh pr view 12 --repo
+  matteocodogno/operai` gives the head and whether it merged).
 - **R2 Deploy order** (§ Deploy order): hours-api before meetings-api makes every project filter a 503. Mitigation: the
   order is in the changeset notes and infra/README; early check: hours-api's integration test with a meetings fake that
   answers 422 to `projectId` asserts a 503, so the failure is a known, closed one.

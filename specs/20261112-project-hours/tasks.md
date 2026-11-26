@@ -15,8 +15,12 @@ page; § Gap resolutions overrides G1–G6). ADRs: 20261126 record hours summary
 owns the comparison, and the 2026-11-26 amendments of 20261112 time bookability and 20261116 record hours widget.
 
 **PR #12 (specs/20261112-meeting-hours) is not merged** and touches hours-api, hours-ui, `scripts/check-shared-copies.ts`
-and the shared ledger (plan R1): every task on those paths depends on T5, the rebase checkpoint. T1–T4, T14, T15 and T17 can
-start now.
+and the shared ledger (plan R1). **Re-synced 2026-11-26 (owner's decision): this branch is stacked on PR #12** — T5 rebases
+it onto `feat/meeting-hours` now instead of waiting for the merge; how its pull request is stacked (a fork PR against
+`feat/meeting-hours`, or a draft against `main` on `matteocodogno/operai`) is the owner's choice when the branch is first
+pushed (plan R1: #12's branch exists only on the fork). Every task on those paths still depends on T5, and each re-checks
+`git merge-base --is-ancestor <#12's current head> HEAD` first (plan R1). T1–T4, T14, T15 and T17 can start
+now.
 
 Test commands: hours-ui, projects-ui, crm-ui, shell `pnpm lint && pnpm build && pnpm test` (shell with
 `NODE_OPTIONS=--no-webstorage`); Bun services `bun run typecheck && bun test <files>` — hours-api's preload points at
@@ -40,9 +44,9 @@ stack up (`mise run dev`).
   - touch: `crm-api/src/activity-host/resolve.routes.ts`, `crm-api/src/activity-host/resolve.test.ts`
   - done when: `cd crm-api && bun run typecheck && bun test src/activity-host/resolve.test.ts` passes: a deal's open item carries `ownerUserId`; `involved`, `reader:false` and the strict body unchanged
 
-- [ ] T5: [OPS] Rebase checkpoint after PR #12 merges — refs: plan R1 — deps: none
-  - touch: unknown — a whole-branch rebase onto main; scheduled alone
-  - done when: PR #12 is merged; this branch is rebased on `origin/main` that contains it (`git merge-base --is-ancestor <#12 merge> HEAD`); the ledger conflict is resolved keeping D54–D77 and D78–D84 in order; `cd hours-api && bun run typecheck`, `cd hours-ui && pnpm build` and `mise run shared:check` are green; the force push is confirmed with the owner first
+- [ ] T5: [OPS] Stack on PR #12: rebase onto `feat/meeting-hours` — refs: plan R1 — deps: none
+  - touch: unknown — a whole-branch rebase onto PR #12's branch; scheduled alone
+  - done when: `git merge-base --is-ancestor 75c712da HEAD` (PR #12's head; a later #12 head if it moved) holds and `feat/project-hours` has no merge commit; the conflicts in `specs/20261112-time-tracking/ledger.md`, `AGENTS.md` and `.claude/context/glossary.md` are resolved keeping both sides (ledger: D54–D77 then D78–D84, F and A entries in order); `bunx prisma generate` re-run in hours-api and meetings-api; `cd hours-api && bun run typecheck`, `cd meetings-api && bun run typecheck`, `cd hours-ui && pnpm build` and `mise run shared:check` are green; nothing is pushed (the branch has never been pushed, so no force push is needed; a push is the owner's call)
 
 - [ ] T6: [BE] hours-api clients and owner fakes: a project's linked meetings, `projectManagerId`, `ownerUserId` — refs: AC-4.1, AC-2.3, AC-2.4 — deps: T5
   - touch: `hours-api/src/clients/meetings.ts`, `hours-api/src/clients/meetings.system.test.ts`, `hours-api/src/clients/projects.ts`, `hours-api/src/clients/projects.test.ts`, `hours-api/src/clients/crm.ts`, `hours-api/src/clients/crm.test.ts`, `hours-api/src/test-support/*`
