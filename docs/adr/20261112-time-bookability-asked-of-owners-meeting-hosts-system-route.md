@@ -1,7 +1,7 @@
 # 20261112 — Whether a person may record hours on a project, deal or meeting is asked of the service that owns it, as the caller, at write time; a meeting's current deal link is read live from meetings-api's first `/system/*` route
 
 **Date:** 2026-11-12  
-**Status:** Accepted (specs/20261112-time-tracking, plan.md § ADR candidates; decided by the owner at the planning gate, 2026-11-12); amended 2026-11-12 (see § Amendment 2026-11-12)  
+**Status:** Accepted (specs/20261112-time-tracking, plan.md § ADR candidates; decided by the owner at the planning gate, 2026-11-12); amended 2026-11-12 and 2026-11-26 (see § Amendment 2026-11-12, § Amendment 2026-11-26)  
 **Deciders:** wellD (owner of specs/20261112-time-tracking)  
 **Project:** Operai
 
@@ -268,6 +268,33 @@ does not cover `groupBy=deal` without a filter (still degrades), the other filte
 **Risks:**
 - A person reads a refused deal view as "no hours". Mitigation: the refusal is a `503 host_unavailable`
   with a retryable message, never a `200` with empty groups.
+
+## Amendment 2026-11-26 — a meeting linked to a project counts for the project
+
+**Date:** 2026-11-26  
+**Amends:** § Decision 5 (the system route gains a `projectId` filter) and § Decision 6 (a project joins the groups); A1 and A2 apply to a project unchanged.  
+**Source:** specs/20261112-project-hours, decided at its plan gate (ledger D78, plan D-P5, spec US-4, AC-4.1–4.7). Since specs/20261104-meetings A18 (2026-11-23) a meeting is linked to a deal or to a project, never both, so the host of a meeting says which one it is.
+
+We will count a meeting's hours for its linked project exactly as for its linked deal: in the project's figures, the hours views' `projectId` filter and by-project totals, and the export's "Counts for project" column. The team check does not apply (AC-4.1). Nothing is stored; the link is read live on every read, so a relink or an unlink applies from the next read (AC-4.2).
+
+The link comes from the same content-free route, `GET /system/meetings/hosts`, which gains `projectId=<id>`:
+
+- exactly one of `ids`, `dealId`, `projectId` (else `422`, the existing rule);
+- the answer is `{ items: [{ id, host: { app: "projects", entityType: "project", entityId } }] }` for the meetings linked to that project now, unpaged, as `dealId`;
+- scope `meetings.hosts.read`, `sub` allowlist `system:hours-api`, `aud=SERVICE_AUDIENCE`, one identical `401`, and no field beyond `{ id, host }`: unchanged.
+
+The earlier rules apply to the project without change:
+
+- **Viewer (A1, Decision 6, D44).** The project reaches a viewer with its id, label and href only when the viewer may read it (asked of projects-api as the viewer). Otherwise the entry shows the project as `hidden` or `unavailable`, with no id, label or href. The entry's author keeps the id of their own entries (D44).
+- **Groups.** Totals merge what cannot be named into `hidden` and `unavailable`. A new group `project-unknown` (by-project totals only) holds the meeting entries whose link meetings-api could not say, so a project's total is never shown low without its gap named.
+- **Refusal (A2, D45).** A read filtered by `projectId`, and a project's summary, is refused `503 host_unavailable` while meetings-api cannot answer; nothing partial is returned. Without the filter, reads degrade (`unavailable`, `meeting-projects`).
+- **Cursor.** A list filtered by `projectId` carries a digest of the linked meeting ids; a set that changed between pages is `409 project_meetings_changed`, as for a deal.
+
+*Rejected:* storing the project on the entry (option C: a relink would not follow); a per-meeting `ids=` scan over every meeting entry (hours-api keeps no index from a project to its meetings); reading the link from activities-api's meeting mirror (option B: there is no project meeting mirror, and a mirror is a copy of the link).
+
+This is the copy and borrowed-authority shape of § Failure shape again, now for a project's total: the figure is the owner's live link, shown under the viewer's right to name the project.
+
+**Constrains:** every read, export or view that totals hours by project, and any new consumer of `GET /system/meetings/hosts`, takes the same groups and the same 503 refusal. Adding a field to the route's answer is still a change to this ADR. The unpaged `projectId` answer carries the same revisit trigger as the `dealId` one.
 
 ---
 
