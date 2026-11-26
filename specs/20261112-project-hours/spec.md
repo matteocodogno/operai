@@ -1,7 +1,7 @@
 ---
 id: 20261112
 slug: project-hours
-status: approved
+status: in-progress
 rigor: production
 created: 2026-11-12
 reopened: 2026-11-26
@@ -12,7 +12,8 @@ depends-on: 20261103-projects, 20261103-projects-handoff, 20261104-meetings, 202
 # Project hours — time worked against what was sold
 
 Decision ledger: `../20261112-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-meeting-hours and
-specs/20261112-project-alerts; this spec's decisions are D10, D13, D22, D27 and D28, and D78–D79 added when it was re-opened)
+specs/20261112-project-alerts; this spec's decisions are D10, D13, D22, D27 and D28, D78–D79 added when it was re-opened, D80 at design and D81–D84
+while deriving the tasks)
 
 > **Origin.** Split out of specs/20261112-time-tracking on 2026-11-12 (ledger D11, D26). specs/20261112-time-tracking records time
 > entries; this spec puts a project's hours next to what its terms sold — the hour package, the
@@ -31,6 +32,11 @@ specs/20261112-project-alerts; this spec's decisions are D10, D13, D22, D27 and 
 > acceptance criterion is unchanged. A project made from a won public tender has terms and no purchase order (ADR
 > 20261124-a-won-public-tender-becomes-a-project-without-a-purchase-order-…) and is compared like any other project with
 > terms.
+>
+> **Amended 2026-11-26 while deriving the tasks** (the owner's answers to the design's gaps G1–G5): an exceeded package
+> shows the hours it is exceeded by, as a positive figure (AC-1.1, D81); terms that sold nothing comparable show the total
+> only (AC-1.7, D82); an expired capacity package says so (AC-1.9, D83); and the hours figures of a project or deal page
+> follow a save made with Record hours on that page (AC-2.8, D84).
 
 ## Problem
 
@@ -62,8 +68,9 @@ As a project manager, I want to see how much of what was sold has been used, so 
 it runs out.
 
 - AC-1.1 Given a project whose terms have an hour package, then its page shows, for the current
-  package period, the package's hours, the hours recorded in that period and the hours left
-  (negative when exceeded) (D10).
+  package period, the package's hours, the hours recorded in that period and the hours left — or,
+  once the package is exceeded, the hours it is exceeded by, as a positive figure (D10, D81).
+  *(Amended 2026-11-26: "negative when exceeded" became "exceeded by", D81.)*
 - AC-1.2 Given a yearly package, then each 12-month period is compared on its own: hours not used
   in one period are not added to the next (D28).
 - AC-1.3 Given a capacity package, then the hours recorded from its start date up to its expiry
@@ -74,10 +81,13 @@ it runs out.
   the total of its positions' planned man-days; positions are not compared one by one (D13).
 - AC-1.6 Given hours converted to man-days, then one man-day is 8 hours and the figure is shown
   with one decimal (D27, A34).
-- AC-1.7 Given a project with no terms (`internal`, or made by hand without them), then its page
-  shows only the total hours recorded.
+- AC-1.7 Given a project with no terms (`internal`, or made by hand without them), or whose terms
+  sold nothing to compare with (an SLA and no hour package), then its page shows only the total
+  hours recorded (D82). *(Amended 2026-11-26: the SLA-only case added, D82.)*
 - AC-1.8 Given every holder of the project module's access, then they see these figures; none of
   them shows an amount, a price or a rate (specs/20261103-projects AC-2.9, A32).
+- AC-1.9 Given a capacity package whose expiry date has passed, then its page says that the package
+  has expired, beside the figures of its period (D83). *(Added 2026-11-26.)*
 
 ### US-2 Hours on the project and deal pages
 As a project manager or a deal owner, I want to see who spent the hours on my project or deal, so
@@ -99,6 +109,9 @@ that I know where the effort went.
 - AC-2.7 Given a project that awaits its project manager (specs/20261103-projects-handoff), then only holders of see
   everyone's hours see its per-person figure; its purchase order's ops-manager does not, unless they hold that
   permission (D79). *(Added 2026-11-26.)*
+- AC-2.8 Given a person who records hours from a project's or a deal's page (specs/20261116-record-hours-in-place),
+  when the save succeeds, then that page's hours figures include the new hours without the page being reloaded (D84).
+  *(Added 2026-11-26.)*
 
 ### US-3 Access and copy
 As an admin, I want consumption to follow the project module's rules, so that nothing new is

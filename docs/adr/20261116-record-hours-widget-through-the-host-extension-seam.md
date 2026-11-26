@@ -1,7 +1,7 @@
 # 20261116 — Recording hours from another tool's page is hours-ui's own widget, embedded through the shell's host-extension seam: plain strings in, nothing back, and the host decides only whether to show it
 
 **Date:** 2026-11-16
-**Status:** Accepted (specs/20261116-record-hours-in-place plan approved 2026-11-16)
+**Status:** Accepted (specs/20261116-record-hours-in-place plan approved 2026-11-16), amended 2026-11-26 (specs/20261112-project-hours, D84)
 **Deciders:** wellD
 **Project:** Operai
 **Relates to:** [ADR 20261104-host-extension-federated-panel-through-the-shell](20261104-host-extension-federated-panel-through-the-shell.md) (this applies that seam to a second domain widget and to a list row), [ADR 20261110-shell-floating-slot-for-remote-widgets](20261110-shell-floating-slot-for-remote-widgets.md) (same loader, same failure rule), [ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route](20261112-time-bookability-asked-of-owners-meeting-hosts-system-route.md) (who may record is asked of the owner), [ADR 20261112-hours-api-time-entries-own-service-hours-catalog](20261112-hours-api-time-entries-own-service-hours-catalog.md), [ADR 20261112-hours-ui-ungated-remote](20261112-hours-ui-ungated-remote.md), [ADR 20261031-shared-ui-library-consumed-as-source](20261031-shared-ui-library-consumed-as-source.md) (why the dialog is not in `@operai/ui`), [ADR 20260709-suite-frontend-module-federation](20260709-suite-frontend-module-federation.md), [ADR 20260803-suite-version-generated-file-federated-export](20260803-suite-version-generated-file-federated-export.md)
@@ -147,6 +147,22 @@ hours; visibility is a pure function per host.
 - A host must react to the save itself (for example, a read-only hours card of specs/20261112-project-hours that refreshes after the widget records). That is the first reason to add a callback or an event, and it needs its own decision.
 - A third widget per row appears. Each row then mounts several seam instances, and the way rows embed widgets needs its own look.
 - The strings-only props stop being enough (an object, a list of targets, a choice the host must make).
+
+## Amendment 2026-11-26 — a save made with Record hours is announced as a content-free event, and a panel re-reads its own figures
+
+**Date:** 2026-11-26  
+**Amends:** § Decision 1 (the widget also announces its save) and the first § Revisit when trigger, which this event meets for a figure; the seam, § Decision 2, is unchanged.  
+**Source:** specs/20261112-project-hours, decided at its plan gate (ledger D84, plan D-P6, spec AC-2.8).
+
+After a successful `POST /time-entries`, `./RecordHours` dispatches once on `window` a `CustomEvent('operai:time-entry-recorded', { detail: { on: 'project' | 'deal' | 'none', targetId } })`. The detail names the target the widget wrote to and nothing else: no minutes, day, person or entry id. A refused or failed save dispatches nothing. The event's name and detail type live in one module, byte-identical in hours-ui and projects-ui, checked by `scripts/check-shared-copies.ts`.
+
+A panel that shows a target's figures (hours-ui's `HostHours`, projects-ui's `ConsumptionBlock`) listens while mounted, ignores a malformed detail or another target, coalesces a burst into one re-read, and re-reads its summary from its owner exactly as on mount. The announcement is never the source of a figure: the listener asks hours-api again, as the viewer.
+
+Nothing changes across the seam. The widget still returns nothing to its host, takes no callback, and decides no permission. A host that does not listen is unchanged. A widget that predates this does not broadcast, and the figures stay as they were until a reload.
+
+*Rejected:* a callback prop on `hours.recordHours` (the seam's props are plain strings, and the host would hold the widget's result); a publish/subscribe API in `shell/session` (a shell change and a shell-first deploy for one event); polling the summary (load for nothing, and late anyway); a host-side reload after the widget closes (the host cannot know a save happened).
+
+**The generalised rule:** a widget may announce a content-free fact about what it wrote; a listener re-reads from the owner, never from the announcement. This answers the stale-copy case of § Failure shape for any embedded write that leaves a figure on the page: the widget says that something changed, and the host asks the owner what it now is. It does not license a widget to announce more than its target, nor a listener to compute a figure from the event.
 
 ---
 

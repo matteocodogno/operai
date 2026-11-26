@@ -595,6 +595,30 @@ the API, R3 (a project page still makes two summary calls, a deal page one), the
 (Not gaps, recorded: the export has **ten** columns, the new **Counts for project** being the seventh, after Counts for deal, not the tenth; `meeting-deals` and `meeting-projects`
 always come together because they share one hosts read, which the plan states in § The hours views and this design relies on for the single unknown line and the single source phrase.)
 
+## Gap resolutions (the owner, 2026-11-26, while deriving the tasks — ledger D81–D84)
+
+These override the text above where they differ; S1's sketch, its "Exceeded" line and the copy rows named here are superseded.
+
+- **G1 → "Over by", no minus (D81, AC-1.1 amended).** Once a package is exceeded, the last fact's term changes from "Hours
+  left" to **"Over by"** and its value is the absolute duration through `formatDuration` (no library change, no hand-built
+  minus): `Hours used in this period 124 h 30 · Over by 4 h 30`. Copy: `consumption.overBy` "Over by" / "Sforato di" replaces
+  `consumption.overSpoken`; `consumption.leftSpoken` is dropped (the term itself says left or over, so the value needs no
+  spoken twin). No colour and no badge, as before.
+- **G2 → AC-1.7 reworded (D82).** Terms that sold nothing to compare with (an SLA and no hour package) show no consumption
+  block: the Hours card is the widget alone, as already designed.
+- **G3 → "Expired" badge (D83, AC-1.9).** When `currentPeriod.ended` is `true` (a capacity package past its expiry), the
+  consumption block shows `StatusBadge status="voided"` labelled **"Expired" / "Scaduto"** right after the period's dates;
+  the facts stay as they are (the final figure of the package). The word follows the suite: `expired` (admin-ui
+  invitations, `voided`) is something no longer valid after a date, `overdue` (tasks, `attention`) is work late to do.
+  Copy: `consumption.expired` "Expired" / "Scaduto" in projects-ui `strings/project.ts`.
+- **G4 → plan § Deploy order (no owner decision needed).** A missing `on.project` reads as `{ state: "none" }`.
+- **G5 → the figures follow a Record hours save (D84, AC-2.8; plan D-P6).** After a save with Record hours on the same page,
+  `HostHours` and `ConsumptionBlock` re-read (they listen for `operai:time-entry-recorded` naming their target). The re-read
+  keeps what is on screen until the answer arrives (no skeleton, no layout jump), then replaces the figures; a failed
+  re-read shows the part's usual warning banner with Retry. Nothing is announced beyond what each part already announces;
+  the breakdown keeps its open or closed state.
+- **G6 → done** (the plan's components table and test rows were amended for D80).
+
 ---
 
 ## Self-critique

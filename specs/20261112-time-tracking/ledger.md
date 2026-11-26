@@ -166,6 +166,23 @@ Decided during /wellforge:design of specs/20261112-project-hours (2026-11-26, af
   page) and chose **"one card, breakdown closed"** (option 2), the recommended one together with the side panel. Consumption
   stays visible at a glance. No acceptance criterion changes: the breakdown is on the page, one click away
 
+Decided during /wellforge:tasks of specs/20261112-project-hours (2026-11-26, the design's gaps G1–G5; batched questions):
+- D81 (G1) An exceeded hour package shows **"Over by" the absolute figure** ("Sforato di 4 h 30") instead of a negative "Hours
+  left": AC-1.1 amended. The library's `formatDuration` clamps a negative to zero and is not changed — user chose this over
+  the recommended `signed` option in `@operai/ui` (a library task and a shell-first deploy), the least invasive one
+- D82 (G2) AC-1.7 also covers terms that sold nothing to compare with (an SLA and no hour package): the card shows the total
+  only — user chose the recommended rewording
+- D83 (G3) An expired capacity package says so: projects-api's `currentPeriod` gains `ended`, derived by the same
+  `packagePeriod`, and the card shows a badge **"Expired" / "Scaduto"** (`StatusBadge` meaning `voided`) beside the period —
+  new AC-1.9. The user accepted the badge and asked to align the word with existing features: `expired` is the suite's word
+  for something no longer valid after a date (admin-ui invitations, "Expired"/"Scaduto", `voided`) and the terms already say
+  "Package expiry date" / "scade il"; `overdue` ("Overdue"/"In ritardo", `attention`) is a task not done by its due date,
+  which would read as work still to do. Rejected: no badge (the two dates the only signal)
+- D84 (G5) After a save with Record hours on a project or deal page, that page's hours figures show the new hours without
+  a reload — new AC-2.8. User chose this over the recommended "accept and note it in the release". Mechanism in the plan
+  (D-P6): a content-free browser event broadcast by the Record hours widget, amending ADR
+  20261116-record-hours-widget-through-the-host-extension-seam ("nothing comes back")
+
 Found while re-opening specs/20261112-project-hours (read from the repo, not asked):
 - F14 A meeting has at most one host, a CRM deal or (since 2026-11-23) a project; a meeting started from a project task is
   linked to the task's project — specs/20261104-meetings A18; meetings-api `GET /system/meetings/hosts` answers `ids=` or
