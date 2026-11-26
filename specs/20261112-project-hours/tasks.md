@@ -44,7 +44,7 @@ stack up (`mise run dev`).
   - touch: `crm-api/src/activity-host/resolve.routes.ts`, `crm-api/src/activity-host/resolve.test.ts`
   - done when: `cd crm-api && bun run typecheck && bun test src/activity-host/resolve.test.ts` passes: a deal's open item carries `ownerUserId`; `involved`, `reader:false` and the strict body unchanged
 
-- [ ] T5: [OPS] Stack on PR #12: rebase onto `feat/meeting-hours` — refs: plan R1 — deps: none
+- [x] T5: [OPS] Stack on PR #12: rebase onto `feat/meeting-hours` — refs: plan R1 — deps: none
   - touch: unknown — a whole-branch rebase onto PR #12's branch; scheduled alone
   - done when: `git merge-base --is-ancestor 75c712da HEAD` (PR #12's head; a later #12 head if it moved) holds and `feat/project-hours` has no merge commit; the conflicts in `specs/20261112-time-tracking/ledger.md`, `AGENTS.md` and `.claude/context/glossary.md` are resolved keeping both sides (ledger: D54–D77 then D78–D84, F and A entries in order); `bunx prisma generate` re-run in hours-api and meetings-api; `cd hours-api && bun run typecheck`, `cd meetings-api && bun run typecheck`, `cd hours-ui && pnpm build` and `mise run shared:check` are green; nothing is pushed (the branch has never been pushed, so no force push is needed; a push is the owner's call)
 
