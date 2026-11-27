@@ -1,5 +1,201 @@
 # QE report — project-hours (specs/20261112-project-hours), rigor production, full mode
 
+## QE pass 4 (US-5 re-opening: signals on the consumption block; a full sweep by a fresh agent)
+
+Everything that this pass needed could execute here: the dev stack (`mise run dev`, left running and untouched; notify-api and accounting-api down, as briefed), a Playwright
+browser (Chromium 1.61 driven from the shell's install), every gate command, scratch `_test` databases. **Nothing is BLOCKED.** What could not be done is listed under
+"What was not done" and none of it is a required check: no production `preview` of the shell was served (port 5173 is the running dev stack and auth trusts only that origin and 3000; see the R13 row for
+what was done instead), and a real outage and a real Zurich midnight cannot be made, so those states were driven by request interception and by a browser clock and time zone.
+Scope of "everything listed before anything is fixed": every row below was run to its end before this report was written; nothing was fixed (product code was only ever mutated for a check and restored with `git checkout`, tree clean afterwards).
+
+## QE verdict: PASS   (full mode, rigor production; pass 4; gates measured at fb06d4aa, projects-ui re-measured at 8aa155c6 after my one commit; this report is committed after it, docs only)
+
+**No defect is open.** All 29 criteria of US-5 and the 19 states of design.md S1.1 were executed and rendered; the findings that are not defects are observations (O9 to O11) and
+three reds that are **not this feature's** are listed apart and not counted (the caller may overrule that triage). Product code is byte-identical to the implementer's: `git diff --stat fb06d4aa 8aa155c6 -- . ':!specs'` is exactly my one test file, and every mutated file was restored with `git checkout` (tree clean).
+
+| Check | Threshold | Actual | Result |
+|---|---|---|---|
+| Executability (first lines) | every check can run | all ran; nothing BLOCKED | ✓ |
+| AC coverage, US-5 | 29/29 with an executed check | 29/29 (table below) | ✓ |
+| AC coverage, US-1 to US-4 | 30/30 stand | product code of hours-api, hours-ui, meetings-api, crm-api, crm-ui is unchanged since pass 3 (`git diff --name-only 2166b8e7 fb06d4aa -- . ':!specs'` touches only projects-api (6), projects-ui (15), shell e2e (2), docs); their suites re-ran green (below); the three criteria US-5 amended (AC-1.7, AC-1.9, AC-3.2) were re-checked live (rows 1.7, 1.9, 3.2 below) | ✓ |
+| Design states S1.1 (19 of 19) | all present and rendered | 19/19 rendered or driven; the table maps each to its capture | ✓ |
+| Rendered widths and themes | 1280, 360, 320 px; light and dark; en and it | 272 captures measured (172 en, 100 it); card 1003 / 243 / 203 px, bar 576 / 205 / 165 px; no document overflow (0 px in all 272), nothing outside the card (0 of 272), no two labels overlap (0 of 272) | ✓ |
+| G13, label overhang at 320 px (design.md) | measured | "Today" over the track by 3.3 px at worst, "Estimate" by 10.3 px at worst (O10); all inside the card's 19 px padding, 8.7 px from the card's edge at worst, nothing clipped or colliding | ✓ (O10) |
+| "125%" label rule (container query) | not drawn below 230 px | hidden at 360 and 320, drawn at 1280, in all 272 captures; the built rule is `@container not (width>=230px){display:none}` | ✓ |
+| Contrast of the rendered tones | text >= 4.5:1, fills and marks >= 3:1 | measured on rendered pixels and computed colours: fills against the track light 4.73 / **3.23** / 4.37 / 5.60 (design 4.73 / 3.23 / 4.37 / 5.60), dark 3.86 / 9.55 / 5.99 / 5.67; against the card light 4.42 / **3.02** / 4.09 / 5.24; state words light 5.60 / 5.39 / 5.88, dark 6.94 / 9.09 / 5.70; date boxes' words light 5.12 / 4.85, dark 5.10 / 7.69; marks core against ring 18.27 (light) and 14.45 (dark); labels 5.24 / 5.40. Lowest: 3.02 (design predicted it), above 3.0; the design's fallback (`bg-org-text`) is not needed | ✓ |
+| axe on the loaded states (design.md) | 0 violations | 96 runs scoped to the Hours card: 93 in the capture matrices (42 at 1280 light en, 17 at 1280 dark en, 17 + 6 + 2 at 1280 it, 9 more en/it extremes and extras) and 3 on the unavailable cases (block fails en and it, both fail): 0 violations, 0 incomplete. Control: the same harness, given a card with a planted `<img>` without alt, an unnamed `<button>` and low-contrast text, reports `image-alt`, `button-name` and `color-contrast` (axe-core 4.14.0, projects-ui's) | ✓ |
+| Keyboard (design.md) | no tab stop added; focus after Retry on the group | tab stops inside the block: 0 in all 272 (only Retry when unavailable; only "Show breakdown" in the card); Retry by Enter and Space, focus lands on the "Consumption" group after a failing and after a successful read | ✓ |
+| Reading order, bar skipped (design.md) | bar and its labels not read; percentage once | `ariaSnapshot` of two cards: facts, state words, pace line, dates in order, `<time>` values; no bar, no repeated percentage | ✓ |
+| Closed label set of the bar (AC-5.11) | labels only "80%", "100%", "125%", "Today" (with a today mark), "Estimate" (with an estimate mark) | 217 bars: 0 violations; every "Today" has the time elapsed in the pace line, every "Estimate" the estimated man-days in the facts | ✓ |
+| Colour alone (R12, AC-5.10, AC-5.15) | words + icon; beyond part by shape | three states `check` / `alert` / `x-circle`, two date kinds `alert` / `x-circle`, stripes against a solid fill; greyscale captures of five states read the same; forced-colours captures keep every line | ✓ |
+| Motion (design.md) | none | no transition or animation on any element of the block (the only one in the card is the library button's) | ✓ |
+| e2e `project-hours.spec.ts project-hours-visibility.spec.ts` (T25: E, F) | green | **10 passed** (29.5 s), run twice (before and after my mutation check of F); env below | ✓ |
+| e2e F detects R13 (my mutation) | red when a utility is missing | with `bg-linear-90` removed from the over stripes F fails at `background-image` (`Expected "linear-gradient", Received "none"`); restored, 10/10 | ✓ |
+| R13, the bar's utilities in a **production** sheet | all 17 present and working | **what I did: (1) read the shell's built CSS** (`pnpm build` of this tree, `shell/dist/assets/*.css`): 17 of 17 utilities present with the declarations the bar needs, the narrow rule is `@container not (width>=230px)`. **(2) rendered the card's real DOM in a blank page holding only that built CSS** and compared it with the dev render: 25 comparisons (5 cases x 5 widths and themes) identical in track height (10 px), fill, beyond part (gradient, `6px 100%`), marks, estimate diamond (8 px, ring) and which labels show. Negative control: the same page with four utilities cut from the sheet (`h-2.5`, `bg-linear-90`, `size-2`, the container rule) differs in track height (0), diamond size (0) and label visibility (`prodcontrol-stripped-fixed-demo-320-light.png`). **Not done: a `preview` of the shell** (see above) | ✓ |
+| projects-ui `pnpm lint && build && test` | green | fb06d4aa: lint ✓, build ✓, **57 files, 1546 passed + 2 expected-fail** (`MyTasksPage.projectsDown.qe.test.tsx`, pre-existing); 8aa155c6 (with my test): lint ✓, build ✓, **58 files, 1553 passed + 2 expected-fail**, `tsc -b` ✓ | ✓ |
+| hours-ui `pnpm lint && build && test` | green | lint ✓, build ✓, 104 files, **3116 passed** | ✓ |
+| crm-ui `pnpm lint && build && test` | green | lint ✓, build ✓; `pnpm test` as the brief gave it: 1879 passed, **1 failed** (`useOfferDraft.test.tsx:637`, `Object.keys(window.localStorage)`), an **environment fault** (below); with `NODE_OPTIONS=--no-webstorage`, as the shell's gate runs: **100 files, 1880 passed** | ✓ (env fault) |
+| shell `pnpm lint && build && test` (`--no-webstorage`) | green | lint ✓, build ✓, 46 files, **766 passed** | ✓ |
+| projects-api `typecheck` + `bun test` (`projects_test`) | green | ✓, **1277 pass / 0 fail**, 32 files | ✓ |
+| hours-api `typecheck` + `bun test` (`hours_test`) | green | ✓, **2457 pass / 0 fail**, 58 files | ✓ |
+| meetings-api `typecheck` + `bun test` (`meetings_test`) | green | ✓, **2169 pass / 0 fail**, 93 files | ✓ |
+| crm-api `typecheck` + `bun test` (`crm_test`, migrated to head first: it was 6 behind) | green | ✓, 2399 pass / 4 skip / **1 fail** = `offerDrafts.preview.test.ts:739`, the known red of passes 1 and 3 (listed apart) | pre-existing |
+| `mise run shared:check`, `changeset:check`, `env:doctor` | OK | 36 groups in sync; OK (`project-hours-card-and-consumption.md` matched); all checks passed | ✓ |
+| Line coverage of the changed code | >= 80 % | projects-ui US-5 files (`consumption.ts`, `ConsumptionBar.tsx`, `ConsumptionBlock.tsx`, `HoursSection.tsx`): **100 % lines**, 99.52 % statements, 99.19 % branches (`ConsumptionBlock.tsx` 98.85 / 98.09, two uncovered branch lines, 400 and 429); projects-api `terms.ts` **100 % lines**, 96.69 % branches (91, 93, 211-212), `packagePeriod.ts` 100 % | ✓ |
+| Secret scan (pre-commit betterleaks) | pass | passed on my commit `8aa155c6` | ✓ |
+| Dependency audit `pnpm audit --prod --audit-level high` | exit 0 | projects-ui 0, hours-ui 0, crm-ui 0; **shell exit 1** (5 high; `better-auth>vitest>vite>postcss>nanoid` and `vite`); no critical anywhere | pre-existing (listed apart) |
+| `bun audit` on the four backends | no critical | **0 critical**, 3 high + 2 moderate each, all through `prisma > …` (`deepmerge-ts`, `effect`, `mysql2`, `valibot`); pass 1 found them clean, the advisory data has moved; no `bun.lock` changed on this branch (`git diff main...HEAD --stat -- '*/bun.lock'` empty; the four manifests differ from main by `version` only) | pre-existing (listed apart) |
+
+### AC sweep, US-5 (each: what ran; "live" = a fixture built through the real owners' APIs and read in the browser, see "Fixtures")
+
+| AC | Evidence | Result |
+|---|---|---|
+| 5.1 | live: capacity 84 h 30 of 120 h = 70 % from `windowMinutes`; oracle 30 000 packages; unit 84 h 30 vector; e2e E (the yearly period's minutes, not all time) | ✓ |
+| 5.2 | live: 108 h of 12.0 man-days (96 h) = 112 %; 96 h with no estimate = 100 %; unit 72 h = 75 %; oracle 30 000 fixed prices (estimate present and absent) | ✓ |
+| 5.3 | live: 60 h against 10.0 + 14.0 man-days = 31 %; 120 h against 10.0 = 150 %; oracle | ✓ |
+| 5.4 | live: nothing drawn but dates for SLA-only, package not started, hours unavailable (block and both), and, by rewriting projects-api's answer, a reference of 0 hours or 0 planned man-days (facts and date line only, no percentage, bar, state, pace) | ✓ |
+| 5.5 | live: 95 h 30 of 120 h reads 79 (not 80), 119 h 30 reads 99, 120 h reads 100, 120 h 30 reads 100, 216 h reads 180, 140 h 30 reads 117, 0 reads 0, 1 h package with 216 h reads "21,600%" (it: "21.600%"); oracle (BigInt) over 60 000 | ✓ |
+| 5.6 | oracle: state, excess and bar from the exact minutes over 60 000 cases incl. the 80/99/100/101/125 edges, and "percentage never contradicts the state"; live: 9 h of 1.1 man-days is "Over the limit" 102 % although it shows 9.0 of 1.1; unit pins 19 h of 3.0 man-days (79 %, on track, 2.4 shown) | ✓ |
+| 5.7 | live: 0 h and 95 h 30 of 120 h "On track" (accent, check) | ✓ |
+| 5.8 | live: exactly 96 h (80 %) and 119 h 30 (99 %, "Hours left 30 min") "Close to the limit" (warning, alert) | ✓ |
+| 5.9 | live: exactly 120 h "Limit reached" ("Hours left 0 min", no "Over by", no beyond part); 120 h 30 "Over the limit", reads 100 %, "Over by 30 min", beyond sliver; a fixed price at exactly 96 h "Limit reached" with no "Over by" fact, 540 min of 528 "Over the limit" + "Less than 0.1 man-day"; it: "Limite raggiunto" / "Oltre il limite"; same `x-circle`, same red tone (measured fill #d93636 / #f55a5a) in both wordings | ✓ |
+| 5.10 | icons and words per state and per date kind on 272 captures; greyscale captures (five states) and forced-colours captures keep every reading | ✓ |
+| 5.11 | 217 bars: `aria-hidden`, closed label set, labels only with their mark and with their text twin in the lines; `ariaSnapshot` has no bar | ✓ |
+| 5.12 | live: package "Over by 30 min / 8 h 30"; fixed price 1.5 man-days; time and material 5.0 man-days; none at or below the reference; oracle (half up, once) 30 000 | ✓ |
+| 5.13 | live: "Less than 0.1 man-day" (it: "Meno di 0,1 giornate"), never "0.0"; oracle | ✓ |
+| 5.14 | ticks at 64 / 80 / 100 % of the track in all 217 bars; fill = 80 % of the track at exactly 100 % | ✓ |
+| 5.15 | beyond part is its own element, absent at exactly 100 %, present at 100.42 % (0.33 % of the track), striped in the tone (or neutral); visible by pattern in greyscale; e2e F reads the computed gradient | ✓ |
+| 5.16 | 125 % (150 h of 120 h): 80 + 20, nothing cut; 180 %, 1,250 %, 21,600 %: filled to the end, percentage in full, no overflow at 320 | ✓ |
+| 5.17 | estimate mark at 66.7 (10.0 of 12.0), 4.0 (0.6), 14.0 (2.1), 86.0 (12.9), 93.3 (14.0), 0 (0.0), 100 (15.0); none at 15.1, none without an estimate, none for packages and time and material; label start-aligned, centred or end-aligned as designed | ✓ |
+| 5.18 | today mark at 0.8 x elapsed: yearly 27 % and 10 %, capacity with expiry 62 % and 99 %, expired 100 %, fixed price 32 % / 95 % / 100 %; the pace line states both | ✓ |
+| 5.19 | no today mark and a pace line of the percentage alone: capacity without expiry, time and material, deadline before the start date | ✓ |
+| 5.20 | oracle (Date.UTC) over 60 000 seeded spans 1900 to 2400 and 5 000 more: 100 only from the day after the last; 0 on the first day; reversed span null; century leap rule | ✓ |
+| 5.21 | live: "Deadline passed 27 days ago" (31.10.2026), "End date passed 12 days ago", "End date passed 1 day ago"; graver, `x-circle`, red text and tint | ✓ |
+| 5.22 | live: "End date is today", "in 1 day", "in 30 days" shown, 31 days nothing, "Deadline is today"; milder, `alert`; oracle 20 000 pairs | ✓ |
+| 5.23 | live: deadline = end date (both 07.12.2026) are two lines, deadline first; deadline in 4 days then end date passed 12 days ago; no end date, no line | ✓ |
+| 5.24 | live: date lines alone (SLA-only), under a not-started package, under "Consumption is unavailable" (block fails; both fail) and at once while loading | ✓ |
+| 5.25 | live: expired capacity package that went over (117 %), under (50 %), expired yesterday (108 %): no state words, "Expired" badge, percentage, "Over by", neutral bar and neutral stripes; expiring today (not ended) says "Close to the limit" | ✓ |
+| 5.26 | live: closed (120 %) and cancelled (112 %) projects: no state, no date line, percentage, bar and time elapsed kept; a closed SLA-only project with a passed end date has no block; planned and on-hold projects say their state | ✓ |
+| 5.27 | live: six projects read as the PM (and holder of see-everyone's-hours) and as a plain `projects:access` reader: identical texts; e2e E (PM and reader); no function takes a person or a role (unit) | ✓ |
+| 5.28 | live: three real saves as the PM and the page told as `RecordHours` tells it: 99 % close to the limit, then "Limit reached" 100 %, "Over the limit" 100 % with "Over by 30 min", 107 %; bar, state, excess and percentage moved in place, **no skeleton shown** (a MutationObserver saw none), time elapsed (27 %) and today mark (x 390) unmoved; deleted, restored to the start; e2e E and C | ✓ |
+| 5.29 | live: the same six projects read in a browser in `Pacific/Kiritimati` whose local day was the day AFTER Zurich's, and with a clock two days later in `America/Los_Angeles`: identical to the baseline (control: the clock and zone were in effect: local day 2026-11-28 against Zurich 2026-11-27); projects-api `asOf` tests (1277 pass); an absent, empty or malformed `asOf` gives no time elapsed and no date line (rewritten answer) | ✓ |
+| 1.7 (amended) | live: SLA-only with end date today, in 1, 3 and 30 days, passed, 1 day ago: a block of date lines alone and the divider; 31 days ahead, none, and closed: the widget alone | ✓ |
+| 1.9 (amended) | live: "Expired" beside the dates, no state | ✓ |
+| 3.2 (amended) | percentages and days through the library: "1,250%" / "1250%" / "21.600%", "1 day" / "27 days", "lo 0%", "l’80%", "il 100%"; Italian pass at 1280, 360 and 320 px | ✓ |
+
+### S1.1, the 19 states, and where each was rendered
+
+| # | State | Rendered | Evidence (`qe-evidence/signals-…`) |
+|---|---|---|---|
+| 1 | Yearly below 80 %, and 0 % | ✓ | `y-zero-1280-light`, `y-ontrack-1280-light` |
+| 2 | Yearly 80 to 99 % | ✓ | `y-80-…`, `y-99-1280-{light,dark}`, `y-99-{360,320}-{light,dark}` |
+| 3 | Yearly exactly 100 % ("Limit reached", no beyond part) | ✓ | `y-100-1280-{light,dark}`, `-light-it` |
+| 4 | Yearly above the reference, reads 100 % ("Over the limit") | ✓ | `y-100over-1280-{light,dark}`, `-320-light`, `-light-grey`, `-light-it` |
+| 5 | Beyond 125 % | ✓ | `y-125-…`, `y-180-1280-light`, `y-180-320-light`, `y-21600-320-light{,-it}` |
+| 6 | Capacity with an expiry, not ended (also expiring today) | ✓ | `cap-open-…`, `cap-expirytoday-…` |
+| 7 | Capacity without an expiry | ✓ | `cap-noexp-1280-light` |
+| 8 | Capacity expired (over: neutral stripes; under; yesterday) | ✓ | `cap-ended-over-1280-{light,dark}`, `-{360,320}-{light,dark}`, `-light-grey`, `-light-it`, `cap-ended-under-…` |
+| 9 | Package not started | ✓ | `cap-notstarted-1280-{light,dark}`, `-320-light` |
+| 10 | Fixed price (estimate marks, deadline before start, same-day dates) | ✓ | `fixed-demo-…` (1280/360/320, both themes, en/it, grey, forced colours), `fixed-exact-…`, `fixed-less-…`, `fixed-est{0,125,126,low,high}-…`, `fixed-est21-320-light`, `fixed-est129-320-light`, `fixed-beforestart-…`, `fixed-sameday-…` |
+| 11 | Time and material | ✓ | `tm-1280-light`, `tm-over-1280-light` |
+| 12 | SLA-only (date lines alone, and no block) | ✓ | `sla-near-…`, `sla-passed-…`, `sla-30-…`, `sla-31-…` (no block), `sla-yesterday-…` |
+| 13 | Internal / no terms | ✓ | `internal-1280-light` |
+| 14 | Closed or cancelled | ✓ | `closed-over-…`, `cancelled-fixed-…`, `sla-closed-passed-…` |
+| 15 | Hours loading (date lines at once) | ✓ | `loading-dateline-{1280-light,320-dark}` |
+| 16 | Hours unavailable (date lines stay) | ✓ | `unavailable-block-only-…`, `unavailable-both-datelines-{1280,320}-light` |
+| 17 | Re-read after a Record hours save | ✓ live (3 real saves) and e2e E, C | numbers in the AC-5.28 row |
+| 18 | Older projects-api (no `asOf`) | ✓ by rewriting the answer: no today mark, no date line, an SLA-only project has no block | `skew-noasof-fixed-demo-1280-light`, `skew-noasof-sla-near-1280-light` |
+| 19 | Reference not above zero | ✓ by rewriting the answer | `skew-zeroref-y-ontrack-1280-light` |
+
+## Defects (pass 4)
+
+**None open.** No product defect and no design or spec defect was found in the US-5 work.
+
+## Observations (pass 4; not defects, no AC or design clause says otherwise)
+
+- **O9. A spoken zero reads "0 seconds"** (O2 of pass 1, same library formatter), now on a state this feature gave its own words: at exactly 100 % ("Limit reached") the fact "Hours left 0 min" is read "0 seconds" (live: `HOURS LEFT | 0 min | 0 seconds`), as are "Hours used 0 min" on a package with nothing recorded and "Hours" of a 0-hour reference. design.md asks for the spoken text to be the reader's twin of the short one ("84 hours, 30 minutes"); a zero should say minutes. `formatDuration(0, { style: 'spoken' })` in `@operai/ui`; projects-ui's `Duration` and hours-ui's have the same shape. Placements: Hours left at exactly 100 % (projects-ui), Hours used 0 min (projects-ui), the same in hours-ui's entry lists. Owner if wanted: the library owner (dev), not this feature.
+- **O10. G13 measured (design.md gap, "no action").** Label overhang beyond the track, inside the card's 19 px padding, nothing clipped, nothing colliding: "Estimate" centred at the two thresholds (pos 14 and 86, an estimate of 2.1 and of 12.9 man-days against 12.0) hangs 10.3 px over the track at 320 px (right, at 86; at 14 it hangs 10.3 px left) and 4.7 px at 360 px, against the design's computed ≈ 8 and ≈ 3 px; the label is 66.8 px wide, not the 63 px computed. "Today" centred at 8 % (a yearly package 10 % elapsed) hangs 3.3 px at 320 px (design ≈ 3). Worst distance to the card's edge: 8.7 px. In Italian ("Stima", 47 px wide) the worst is 0.4 px. The longest state wordings wrap as the design predicted: "Close to the limit" (en, 99 %) and "Limite raggiunto" (it, 100 %) take two lines beside the percentage at 320 px, the percentage keeping its place at the right.
+- **O11. "80%" and "100%" are 3.3 px apart at 320 px** (design: ≈ 4 px), 9.7 px at 360 px; they do not touch in any of the 272 captures and are legible in `signals-y-99-320-light.png`. The design's own warning about text zoom stands.
+- **O12. Not an issue of the feature, a note for the next runner:** `decisions.md` § T25 says "see decisions.md § T25 for the env variables" but lists none. The e2e runs against the `mise run dev` stack only when the shell's own port numbering is mapped onto the dev one: `E2E_ESTIMAI_REMOTE_PORT=5174 E2E_REFUND_REMOTE_PORT=5175 E2E_NOTIFY_REMOTE_PORT=5176 E2E_ADMIN_REMOTE_PORT=5177 E2E_INVENTORY_REMOTE_PORT=5178 E2E_CRM_REMOTE_PORT=5179 E2E_MEETINGS_REMOTE_PORT=5180 E2E_PROJECTS_REMOTE_PORT=5181 E2E_LETTERHEADS_REMOTE_PORT=5182 E2E_ACCOUNTING_REMOTE_PORT=5183 E2E_HOURS_REMOTE_PORT=5184`, plus `E2E_SKIP_ACCOUNTING_SEED=1 E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 E2E_SKIP_LEGAL_ENTITIES_SETUP=1` (accounting-api is down). Without the mapping Playwright's `reuseExistingServer` would take the dev stack's refund-ui for the estimai remote and so on.
+
+## Pre-existing red outside scope (triaged, not counted in the verdict; the caller may overrule)
+
+- **crm-api `offerDrafts.preview.test.ts:739`** ("refuses to start with the switch on and no URL or no service client"): the known red of passes 1 and 3, a child process that boots crm-api and exits 0 where the test expects 1; `git diff main...HEAD -- crm-api/src/offer-drafts crm-api/src/lib/env.ts` is empty.
+- **Shell `pnpm audit --prod --audit-level high`**: 5 high (10 in all), as in pass 1; `shell/pnpm-lock.yaml` is not among the lockfiles this branch changes, so it fails identically on `main`.
+- **`bun audit` on projects-api, hours-api, meetings-api, crm-api**: 0 critical, 3 high and 2 moderate each, all `prisma > …` transitive packages; the four `bun.lock` files are identical to `main`'s, so it is advisory data that moved since pass 1, not a change of this branch. At the production tier an owner decision (bump prisma, or accept), not a fix round of this feature.
+- **projects-ui `MyTasksPage.projectsDown.qe.test.tsx`**: the two expected failures, as before.
+
+## Environment faults
+
+- **crm-ui `pnpm test` fails one test without `NODE_OPTIONS=--no-webstorage`** (`useOfferDraft.test.tsx:637`, `Object.keys(window.localStorage)` throws): Node here is v26.10.0, whose experimental global `localStorage` has no backing file; with the flag, which the shell's gate already uses, 1880 of 1880 pass. The file and `useOfferDraft.ts` are untouched by this branch. What I checked: the failure is in the test's own storage probe, not in the code under test, and it is gone with the flag. For the caller: the brief names the flag for the shell only; crm-ui needs it on this Node.
+- `crm_test` was six migrations behind (14 of 20 applied); I deployed the migrations to that scratch database (`DATABASE_URL=…/crm_test bun run db:deploy`), never to a dev database.
+
+## Mutation check of the new tests, and of the e2e (each product mutation restored with `git checkout`; `git status` clean afterwards)
+
+| Mutation of `projects-ui/src/lib/consumption.ts` | New oracle test | Existing `consumption.test.ts` |
+|---|---|---|
+| near window 30 to 29 days | killed | killed |
+| percentage rounded half up | killed | killed |
+| exactly 100 % still close to the limit | killed | killed |
+| leap rule: every 4th year | killed (after I added the century cases) | **survived** |
+| elapsed counts today | killed | killed |
+| estimate at exactly 125 % gets no mark | killed | killed |
+| excess floored instead of half up | killed | killed |
+| a date that is today has passed | killed | killed |
+| a closed project still says date signals | killed | killed |
+| a beyond part drawn at exactly 100 % | survived: an **equivalent mutant** (the part measures 0 either way) | survived (same) |
+| state said for an ended package | killed | killed |
+| reversed span still has a span | killed (after I added it) | killed |
+| leap rule: century years not leap | killed | not run |
+
+The first run of my test let the leap-rule and reversed-span mutants live; I strengthened it (valid and invalid dates, 1900 / 2100 / 2200 / 2300 against 2000 / 2400, 2 000 reversed spans) and re-ran those. The existing suite lets the leap-rule mutant live, which matters only for a 29 February in a century year that is not one; that is the one thing my test adds beyond a second reading. My oracle itself was checked the same way: with three deliberate errors put in it (rounded percentage, a window of 29 days, "limit reached" from 100 % up) the live comparison flagged each, and the axe run, the production-sheet comparison and the browser clock were each given a negative control (above).
+
+## Fixtures (a QE persona prefix `qe4-`, built through the real APIs; demo data untouched)
+
+Personas `qe4-admin-121793` (admin, the project manager of every fixture, who recorded the hours) and `qe4-viewer-121793` (`sales`, a plain reader) were **removed** at the end (the viewer was re-created for a moment by my own last control attempt, whose sign-in mints a missing user, and removed again; `select count(*) from "user" where email like 'qe4-%'` is 0). **435 time entries were deleted** (`minutes left on fixtures after cleanup: 0`) and the company `QE4 Company 121793` (`cmwz2h76j000g6hvdnrjativg`) was **archived** (no delete route). **Projects cannot be deleted; 52 remain, 50 cancelled and 2 closed**, named `QE4 <case> 121793`:
+
+```
+cmwz2h77f001m6gvdx841pges y-zero      cmwz2h785001o6gvd5j10iewv y-ontrack   cmwz2h7ax001q6gvd9nfuxgg4 y-80        cmwz2h7cu001s6gvdp0hlhhma y-99
+cmwz2h7gx001u6gvd4n67g3nm y-100       cmwz2h7kj001w6gvdzndqssc6 y-100over   cmwz2h7nk001y6gvdshajl8tp y-125       cmwz2h7qd00206gvdl62qyu34 y-180
+cmwz2h7t500226gvdejhau1t8 y-onhold    cmwz2h7v200246gvd0xllo2ih y-planned   cmwz2h7wu00266gvdipgktg7f y-unavail   cmwz2h7y600286gvdbsps4695 cap-noexp
+cmwz2h7zy002a6gvdiae1rydy cap-open    cmwz2h81s002c6gvdkv4v3jh3 cap-expirytoday  cmwz2h83j002e6gvdxsu4fmo2 cap-ended-over  cmwz2h861002g6gvd8xtn66bd cap-ended-under
+cmwz2h87f002i6gvdvis0dna1 cap-ended-dayago  cmwz2h89k002k6gvdcmkv4sjr cap-notstarted  cmwz2h89s002m6gvd2ldtrrny closed-over (closed)  cmwz2h8cb002o6gvdloz8dswy cancelled-fixed
+cmwz2h8dy002q6gvdiwehrwj0 fixed-demo  cmwz2h8fa002s6gvdtvdzjr2z fixed-exact cmwz2h8gg002u6gvdbamdmxik fixed-less  cmwz2h8gx002w6gvdg8tk847i fixed-estlow
+cmwz2h8hf002y6gvdgxh71j5o fixed-esthigh  cmwz2h8i000306gvdtrkjkaha fixed-est0  cmwz2h8ih00326gvd90zc3oje fixed-est125  cmwz2h8ix00346gvd8bj1nbm4 fixed-est126
+cmwz2h8jc00366gvdiiheu6zp fixed-beforestart  cmwz2h8js00386gvddi4dupoo fixed-sameday  cmwz2h8ki003a6gvdokncepgl fixed-unavail  cmwz2h8la003c6gvdhuh5rx24 tm
+cmwz2h8m3003g6gvdvwgxshwr tm-over     cmwz2h8nf003j6gvd1gnoup6w sla-near    cmwz2h8nm003l6gvdrlz89c3w sla-passed  cmwz2h8nt003n6gvd454q4x47 sla-today
+cmwz2h8nz003p6gvdau7z8rzb sla-30      cmwz2h8o6003r6gvd6wh0nmva sla-31      cmwz2h8oc003t6gvd4qu4hbkm sla-yesterday  cmwz2h8oj003v6gvdjbh22e8w sla-noend
+cmwz2h8os003x6gvdxrc866bd sla-closed-passed (closed)  cmwz2h8p4003z6gvdve6vygf5 internal  cmwz2u78i00406gvdlzsnmk0m fixed-est21  cmwz2u79v00426gvd28pvxghj fixed-est129
+cmwz2u7ar00446gvd1c2jxe51 y-elapsed10  cmwz2u7ci00466gvdj17vbwkw fixed-dl-today  cmwz2u7da00486gvd71xgrgd7 fixed-dl-1  cmwz2u7e6004a6gvdrt63ykiv sla-1
+cmwz2u7ei004c6gvdswtumvmj fixed-estmid  cmwz3broa004v6gvdvrgj2hmt y-1250  cmwz3brs4004x6gvd9ehvz5j0 y-21600  cmwz3brwc004z6gvd4vrl6ql5 live-y99
+```
+
+Each of the three e2e runs (two of both specs, one of journey F alone) left its own fixed-price project of journey F cancelled by the spec's `afterAll`, as T25 recorded; the e2e's personas were removed by its own cleanup.
+
+## Tests added (committed in `8aa155c6`)
+
+- `projects-ui/src/lib/consumption.oracle.qe.test.ts` (7 tests, 0.5 s): `consumption.ts` against an oracle that shares no arithmetic with it (Date.UTC days, BigInt cross multiplication, the AC text): the time elapsed over 60 000 + 5 000 seeded spans (1900 to 2400, calendar-awkward starts, the days around each end, 100 only after the last day), reversed spans and non-dates (the century leap rule), the share of a package over 30 000 cases (percentage, state, excess, "over by", bar, no contradiction of the state) and of fixed price and time and material over 30 000 (reference in whole tenths, excess half up once, estimate mark within the scale), no state for an ended package or a closed or cancelled project over 3 000, the date lines over 20 000 seeded pairs and every project state. Mutations: see the table above.
+- Evidence: `specs/20261112-project-hours/qe-evidence/` (95 PNGs `signals-*` / `prod-*` / `prodcontrol-*` and `signals-measurements.json`, 272 captures summarised: widths, label gaps and overhang, overlaps, contrast, axe, tab stops).
+
+## What was not done
+
+- **No production `preview` of the shell** (the brief offered it as one of two ways): 5173 is the running dev stack, which I may not stop, and auth's `ALLOWED_ORIGINS` trusts only that origin and 3000, so a shell served elsewhere cannot sign in. I read the built sheet and rendered the real DOM against only that sheet instead (R13 row). The plan's step-3 `curl` of the **live** shell's CSS is a deploy-time check and not applicable before the release.
+- **A real outage and a real Zurich midnight**: driven by intercepting the browser's requests to hours-api and by a browser clock and time zone; the case (e) of A52 itself (a page open across midnight) is the accepted limitation, not tested as a defect.
+- **No assistive-technology run** (a screen reader): the accessibility tree and axe stand in for it.
+- **AC-5.6's own example (19 h of 3.0 man-days, 79 %, shows 2.4)** was not built live; it is pinned by `consumption.test.ts` and my oracle covers the same class (state from exact minutes) over 30 000 cases, and a live case with the same property (9 h of 1.1 man-days) was rendered.
+- **Fonts**: the production-sheet comparison renders in a blank page whose font files are not served; the bar's geometry and which labels show were compared, not text widths.
+- The two sibling remotes `hours-ui` and `crm-ui` were not browsed again: US-5 changes neither, and their suites, the e2e of the deal page (visibility B) and the pass 1 captures stand.
+
+## Security
+
+No auth, input handling, upload or dependency change in US-5: it adds one derived, output-only date to projects-api's terms view (`asOf`; the request schemas stay strict and a body carrying it is a 400, T22's test, and the live terms edit through the UI sent no `asOf`: `PATCH /projects/{id}/terms` 200). An `owasp-reviewer` pass on US-5 is not needed beyond the production tier's standing one; the three items to put in front of it if it runs are `asOf` (output only), the unchanged strict request schemas, and that no signal carries an amount or a per-person figure (AC-5.27, checked live).
+
+## Self-critique (pass 4)
+
+One pass: every number above was read from a command or a result file of this session. What I would not defend as strongly as the rest: (1) my oracle and the product were both written from the same spec text, so a shared misreading (A56's rounding down of the time elapsed, D92's floored percentage) would pass both; the spec's own examples and the owner's recorded answers are what guard that, not I; (2) 14 comparisons of my oracle flagged the pace text of four- and five-digit percentages, which were my oracle's missing thousands separators (the product matches the design's vectors: "1,234%" and "1234%"), and I report them in `signals-measurements.json` rather than hide them; (3) the production-sheet check is a DOM replay in a blank page, strong on the bar's geometry and the 17 utilities, weak on fonts and on anything that depends on the shell's chrome; (4) the contrast row mixes rendered pixels (fills, stripes) and computed colours (text, rings): both are named per figure in the measurements file; (5) I reduced the evidence to 95 of 272 captures to keep the repository light; the rest are summarised in `signals-measurements.json`, not kept.
+
+---
+
 ## QE pass 3 (after fix round 2)
 
 A fresh agent re-checking the one open defect of pass 2 (D3) against the designer's amendment `043ab194` (design.md only), scoped as briefed to that defect and to its class.
