@@ -802,7 +802,7 @@ describe("while meetings-api cannot say which meetings are linked, the deal filt
     expect(idsOf(await list(`${NOVEMBER}&dealId=d1`))).toEqual([meeting.id]);
   });
 
-  it("is only the deal filter: without it the same outage lists every entry, a meeting's deal unknown and `meeting-deals` named (AC-4.7)", async () => {
+  it("is only the deal filter: without it the same outage lists every entry, a meeting's deal and project unknown and `meeting-deals` and `meeting-projects` named (AC-4.7, specs/20261112-project-hours AC-4.10)", async () => {
     hosts.meetings.add({ id: "m1", creator: ALICE, title: "Kick-off" });
     hosts.meetings.relink("m1", "d1");
     const meeting = await makeMeetingEntry("m1", { day: "2026-11-04" });
@@ -812,8 +812,11 @@ describe("while meetings-api cannot say which meetings are linked, the deal filt
     for (const query of [NOVEMBER, `${NOVEMBER}&meetingId=m1`, `${NOVEMBER}&target=meeting`]) {
       const res = await list(query);
       expect(res.status).toBe(200);
-      expect(res.json.unavailable).toEqual(["meeting-deals"]);
-      expect(res.json.items.find((item: Item) => item.id === meeting.id)).toMatchObject({ on: { type: "meeting", id: "m1", deal: { state: "unknown" } } });
+      // One read says a meeting's deal and its project, so the two are unknown, and named, together.
+      expect(res.json.unavailable).toEqual(["meeting-deals", "meeting-projects"]);
+      expect(res.json.items.find((item: Item) => item.id === meeting.id)).toMatchObject({
+        on: { type: "meeting", id: "m1", deal: { state: "unknown" }, project: { state: "unknown" } },
+      });
     }
     expect(idsOf(await list(NOVEMBER))).toEqual([training.id, meeting.id]);
   });

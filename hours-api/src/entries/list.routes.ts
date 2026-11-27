@@ -109,8 +109,12 @@ const ListQuerySchema = z
 
 /** The sources a read asked and that did not answer (plan § Views, `Unavailable`). Shared with the totals (T18). */
 export const UnavailableSchema = z
-  .array(z.enum(["projects", "crm", "activities", "meetings", "meeting-deals", "identities"]))
-  .openapi({ description: "The sources that were asked and did not answer: what each covers is shown as unavailable, and the entries are still listed and counted" });
+  .array(z.enum(["projects", "crm", "activities", "meetings", "meeting-deals", "meeting-projects", "identities"]))
+  .openapi({
+    description:
+      "The sources that were asked and did not answer: what each covers is shown as unavailable, and the entries are still listed and counted. " +
+      "`meeting-deals` and `meeting-projects` are the deal and the project a meeting's hours count for, read together from meetings-api.",
+  });
 
 const problemDoc = (description: string) => ({ description, content: { "application/json": { schema: ProblemSchema } } });
 

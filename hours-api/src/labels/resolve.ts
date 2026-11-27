@@ -13,16 +13,20 @@
  *   activities      activities-api  the activity an entry points at  (as the viewer)
  *   meetings        meetings-api  meeting titles                     (as the viewer: only their own)
  *   meeting-deals   meetings-api system route  a meeting's current deal  (hours-api's OWN credential)
+ *   meeting-projects  the same system route    a meeting's current project, from the SAME read as its deal
+ *                   (a meeting has one host: specs/20261112-project-hours D78)
  *
  * Every source FAILS SOFT and independently: one that does not answer degrades the part it covers
  * (`visibility: "unavailable"`, `{ state: "unknown" }`, a person of status `unknown`) and is named in
  * `Labels.unavailable`; the entries stay listed and counted (AC-4.7). A source is asked only when
- * something needs it, so `unavailable` names exactly the sources a read needed.
+ * something needs it, so `unavailable` names exactly the sources a read needed (a read that groups by deal
+ * asks `meetingDealIds` and never projects-api; one that groups by project asks `meetingProjectIds` and never crm-api;
+ * an entry view asks both, and makes ONE call to the system route for them).
  */
 
 import { listActivitiesByIds } from "../clients/activities";
 import { resolveDeals } from "../clients/crm";
-import { listMeetingsByIds, readMeetingHosts, type MeetingHosts } from "../clients/meetings";
+import { listMeetingsByIds, readMeetingHosts, type MeetingHost, type MeetingHosts } from "../clients/meetings";
 import { resolveProjects } from "../clients/projects";
 import type { ResolveOutcome } from "../clients/owner";
 import { resolveIdentities, type Identity } from "../lib/identities";
@@ -32,6 +36,7 @@ import {
   type ActivityLabel,
   type EntityLabel,
   type MeetingDeal,
+  type MeetingProject,
   type Person,
   type SourceName,
   type UnavailableSources,
@@ -52,6 +57,12 @@ export interface LabelNeeds {
    * credential, and the deals they name join the same crm-api batch as `dealIds`.
    */
   readonly meetingDealIds?: Iterable<string>;
+  /**
+   * Meetings whose CURRENT PROJECT is wanted (specs/20261112-project-hours AC-4.7, AC-4.10): read from the SAME system route as `meetingDealIds`,
+   * in the same single call when a read wants both, and the projects they name join the same projects-api batch as `projectIds`. Asked
+   * apart from `meetingDealIds` so that a read which groups by deal never asks projects-api, and one which groups by project never asks crm-api.
+   */
+  readonly meetingProjectIds?: Iterable<string>;
   /** Activities entries point at (AC-2.7): read as the viewer, so only an activity they may read answers. */
   readonly activityIds?: Iterable<string>;
 }
@@ -65,6 +76,8 @@ export interface Labels {
   deal(dealId: string): EntityLabel;
   meeting(meetingId: string): EntityLabel;
   meetingDeal(meetingId: string): MeetingDeal;
+  /** The project a listed meeting counts for: the deal's twin, one host read for both. */
+  meetingProject(meetingId: string): MeetingProject;
   /**
    * The activity an entry points at, given the label of the project or deal the entry is on (`project()` /
    * `deal()`): what the viewer may be told of it depends on what they may be told of its target.
@@ -102,22 +115,52 @@ function entityLabel(outcome: ResolveOutcome<ResolvedEntity>, id: string): Entit
 /** A meeting's page in the suite (`./MyMeetings`, ungated, ADR 20261104-meetings-tool-shape-visibility-by-participation). The id is one path segment whatever it holds. */
 const meetingHref = (meetingId: string): string => `/my-meetings/m/${encodeURIComponent(meetingId)}`;
 
+type OkHosts = Extract<MeetingHosts, { readonly state: "ok" }>;
+
 /**
- * Meetings' current deals, then every deal in ONE crm-api resolve (batches of its cap of 25 only beyond
- * that): the deals a page's deal entries are on and the deals its meetings are linked to go out together,
- * each once, as the viewer. The second call waits for the first, because it needs its deal ids.
- *
- * A deal id read from the system route is stored text this service never saw pass the id rule (plan § Views):
- * outside it the id is NOT sent, because crm-api would refuse the whole batch and every deal of the page
- * would read `unavailable`; that meeting's deal is `{ linked, hidden }` (`meetingDeal` below).
+ * The ids `pick` reads from the hosts of the `listed` meetings, that a resolve may be asked. An id read from the system route is stored text
+ * this service never saw pass the id rule (plan § Views): outside it the id is NOT sent, because the owner would refuse the whole batch and
+ * every record of the page would read `unavailable`; that meeting's link is `{ linked, hidden }` (`meetingLinkOf` below).
  */
-async function resolveDealsAndLinks(authorization: string, directDealIds: readonly string[], meetingDealIds: readonly string[]) {
-  const hosts = meetingDealIds.length > 0 ? await readMeetingHosts(meetingDealIds) : undefined;
-  const viaMeetings =
-    hosts?.state === "ok" ? [...hosts.items.values()].flatMap((host) => (host.dealId !== null && satisfiesIdRule(host.dealId) ? [host.dealId] : [])) : [];
+const sendableIds = (hosts: OkHosts, listed: ReadonlySet<string>, pick: (host: MeetingHost) => string | null): string[] =>
+  [...hosts.items].flatMap(([meetingId, host]) => {
+    const id = pick(host);
+    return listed.has(meetingId) && id !== null && satisfiesIdRule(id) ? [id] : [];
+  });
+
+/**
+ * Every deal in ONE crm-api resolve (batches of its cap of 25 only beyond that): the deals a page's deal entries are on and the deals its
+ * meetings are linked to go out together, each once, as the viewer. The resolve waits for the meetings' hosts, because it needs their deal
+ * ids, but only when a meeting's deal was asked for.
+ */
+async function resolveDealsAndLinks(
+  authorization: string,
+  directDealIds: readonly string[],
+  hostsRead: Promise<MeetingHosts | undefined>,
+  meetingDealSet: ReadonlySet<string>,
+) {
+  const hosts = meetingDealSet.size > 0 ? await hostsRead : undefined;
+  const viaMeetings = hosts?.state === "ok" ? sendableIds(hosts, meetingDealSet, (host) => host.dealId) : [];
   const asked = distinct([...directDealIds, ...viaMeetings]);
   const deals = asked.length > 0 ? await resolveDeals(authorization, asked) : undefined;
-  return { hosts, deals, asked: new Set(asked) };
+  return { deals, asked: new Set(asked) };
+}
+
+/**
+ * The deals' twin for projects (specs/20261112-project-hours D78): the projects a page's entries are on and the ones its meetings are linked
+ * to go to projects-api in ONE resolve, each once, as the viewer.
+ */
+async function resolveProjectsAndLinks(
+  authorization: string,
+  directProjectIds: readonly string[],
+  hostsRead: Promise<MeetingHosts | undefined>,
+  meetingProjectSet: ReadonlySet<string>,
+) {
+  const hosts = meetingProjectSet.size > 0 ? await hostsRead : undefined;
+  const viaMeetings = hosts?.state === "ok" ? sendableIds(hosts, meetingProjectSet, (host) => host.projectId) : [];
+  const asked = distinct([...directProjectIds, ...viaMeetings]);
+  const projects = asked.length > 0 ? await resolveProjects(authorization, asked) : undefined;
+  return { projects, asked: new Set(asked) };
 }
 
 /**
@@ -129,29 +172,41 @@ export async function resolveLabels(authorization: string, needs: LabelNeeds): P
   const projectIds = distinct(needs.projectIds);
   const meetingIds = distinct(needs.meetingIds);
   const meetingDealIds = distinct(needs.meetingDealIds);
+  const meetingProjectIds = distinct(needs.meetingProjectIds);
   const activityIds = distinct(needs.activityIds);
+  const meetingDealSet = new Set(meetingDealIds);
+  const meetingProjectSet = new Set(meetingProjectIds);
 
-  // At once: no source waits for another, except crm-api for the system route (it needs the deal ids that
+  // A meeting has one host, so ONE read of the system route answers both its deal and its project; the deals' and the projects' chains below
+  // wait for it only when they asked about a meeting. The read never throws (`callOwner`), and when no meeting was asked it is never made.
+  const hostIds = distinct([...meetingDealIds, ...meetingProjectIds]);
+  const hostsRead: Promise<MeetingHosts | undefined> = hostIds.length > 0 ? readMeetingHosts(hostIds) : Promise.resolve(undefined);
+
+  // At once: no source waits for another, except crm-api and projects-api for the system route (they need the ids that
   // route answers). Each client fails soft and never throws, so one source cannot take the others down.
-  const [identities, projects, meetings, activities, { hosts, deals, asked: askedDeals }] = await Promise.all([
+  const [identities, meetings, activities, { deals, asked: askedDeals }, { projects, asked: askedProjectsAndLinks }] = await Promise.all([
     userIds.length > 0 ? resolveIdentities(authorization, userIds) : new Map<string, Identity>(),
-    projectIds.length > 0 ? resolveProjects(authorization, projectIds) : undefined,
     meetingIds.length > 0 ? listMeetingsByIds(authorization, meetingIds) : undefined,
     activityIds.length > 0 ? listActivitiesByIds(authorization, activityIds) : undefined,
-    resolveDealsAndLinks(authorization, distinct(needs.dealIds), meetingDealIds),
+    resolveDealsAndLinks(authorization, distinct(needs.dealIds), hostsRead, meetingDealSet),
+    resolveProjectsAndLinks(authorization, projectIds, hostsRead, meetingProjectSet),
   ]);
+  const hosts = await hostsRead;
   // What was asked, so that a label for an id nobody listed is a loud error, not a quiet "hidden" or "gone".
   const askedProjects = new Set(projectIds);
   const askedMeetings = new Set(meetingIds);
   const askedActivities = new Set(activityIds);
-  const meetingDealSet = new Set(meetingDealIds);
 
   const failed = new Set<SourceName>();
   if (projects?.state === "unavailable") failed.add("projects");
   if (activities?.state === "unavailable") failed.add("activities");
   if (deals?.state === "unavailable") failed.add("crm");
   if (meetings?.state === "unavailable") failed.add("meetings");
-  if (hosts?.state === "unavailable") failed.add("meeting-deals");
+  // One read, two questions: it is a source of the deal and of the project only for a read that asked about them.
+  if (hosts?.state === "unavailable") {
+    if (meetingDealSet.size > 0) failed.add("meeting-deals");
+    if (meetingProjectSet.size > 0) failed.add("meeting-projects");
+  }
   // `auth` answers a person it cannot name `unknown`, as an outage does (`lib/identities.ts`): either way
   // the name is not known, and the read says so.
   if ([...identities.values()].some((identity) => identity.status === "unknown")) failed.add("identities");
@@ -159,6 +214,11 @@ export async function resolveLabels(authorization: string, needs: LabelNeeds): P
   const deal = (dealId: string): EntityLabel => {
     if (deals === undefined || !askedDeals.has(dealId)) return notAsked("deal", dealId);
     return entityLabel(deals, dealId);
+  };
+  /** A project asked directly, or one a listed meeting is linked to: what `meetingProject` reads. `project()` below answers only the former. */
+  const projectOrLinked = (projectId: string): EntityLabel => {
+    if (projects === undefined || !askedProjectsAndLinks.has(projectId)) return notAsked("project", projectId);
+    return entityLabel(projects, projectId);
   };
 
   return {
@@ -168,8 +228,8 @@ export async function resolveLabels(authorization: string, needs: LabelNeeds): P
       return { id: identity.id, name: identity.name, status: identity.status };
     },
     project(projectId) {
-      if (projects === undefined || !askedProjects.has(projectId)) return notAsked("project", projectId);
-      return entityLabel(projects, projectId);
+      if (!askedProjects.has(projectId)) return notAsked("project", projectId);
+      return projectOrLinked(projectId);
     },
     deal,
     meeting(meetingId) {
@@ -182,7 +242,10 @@ export async function resolveLabels(authorization: string, needs: LabelNeeds): P
       return { visibility: "visible", label: meeting.title, href: meetingHref(meetingId) };
     },
     meetingDeal(meetingId) {
-      return meetingDealOf(hosts, meetingDealSet, meetingId, deal);
+      return meetingLinkOf("deal", hosts, meetingDealSet, meetingId, (host) => host.dealId, deal);
+    },
+    meetingProject(meetingId) {
+      return meetingLinkOf("project", hosts, meetingProjectSet, meetingId, (host) => host.projectId, projectOrLinked);
     },
     activity(activityId, target) {
       if (activities === undefined || !askedActivities.has(activityId)) return notAsked("activity", activityId);
@@ -202,26 +265,30 @@ export async function resolveLabels(authorization: string, needs: LabelNeeds): P
 }
 
 /**
- * The deal a meeting's hours count for. The deal's visibility is the viewer's access to the DEAL, whatever
- * their access to the meeting (AC-4.10): the id is returned only with `visible`, because the link was read
- * with hours-api's own credential and a viewer who cannot read the deal must not learn which deal it is.
+ * The deal or the project a meeting's hours count for (`MeetingDeal` and `MeetingProject` are one shape). Its visibility is the viewer's access
+ * to the DEAL or PROJECT, whatever their access to the meeting (AC-4.10, AC-4.7): the id is returned only with `visible`, because the link was
+ * read with hours-api's own credential and a viewer who cannot read the record must not learn which record it is. `pick` says which of the
+ * host's two links is wanted; the meeting has one host, so the other is `none`.
  */
-function meetingDealOf(
+function meetingLinkOf(
+  kind: "deal" | "project",
   hosts: MeetingHosts | undefined,
   listed: ReadonlySet<string>,
   meetingId: string,
-  deal: (dealId: string) => EntityLabel,
-): MeetingDeal {
-  if (hosts === undefined || !listed.has(meetingId)) return notAsked("meeting deal", meetingId);
+  pick: (host: MeetingHost) => string | null,
+  label: (id: string) => EntityLabel,
+): MeetingDeal & MeetingProject {
+  if (hosts === undefined || !listed.has(meetingId)) return notAsked(`meeting ${kind}`, meetingId);
   if (hosts.state === "unavailable") return { state: "unknown" };
-  // An id meetings-api does not know: the meeting no longer exists, so it is linked to no deal.
+  // An id meetings-api does not know: the meeting no longer exists, so it is linked to nothing.
   const host = hosts.items.get(meetingId);
-  if (host === undefined || host.dealId === null) return { state: "none" };
-  // Stored text outside the id rule is still "linked to a deal"; crm-api was never asked, and holds no such deal.
-  if (!satisfiesIdRule(host.dealId)) return { state: "linked", visibility: "hidden" };
-  const label = deal(host.dealId);
-  if (label.visibility === "visible") {
-    return { state: "linked", visibility: "visible", id: host.dealId, label: label.label, href: label.href };
+  const id = host === undefined ? null : pick(host);
+  if (id === null) return { state: "none" };
+  // Stored text outside the id rule is still "linked to a deal" or "to a project"; the owner was never asked, and holds no such record.
+  if (!satisfiesIdRule(id)) return { state: "linked", visibility: "hidden" };
+  const entity = label(id);
+  if (entity.visibility === "visible") {
+    return { state: "linked", visibility: "visible", id, label: entity.label, href: entity.href };
   }
-  return { state: "linked", visibility: label.visibility };
+  return { state: "linked", visibility: entity.visibility };
 }

@@ -7,10 +7,10 @@
  * id read back from meetings-api therefore cannot drift apart.
  *
  * Every id an entry carries passed the rule when it was written (a 400 otherwise), so a read does not
- * re-check them. The ONE id a read did not see pass is the deal a meeting is linked to, which
+ * re-check them. The ONE id a read did not see pass is the deal or the project a meeting is linked to, which
  * meetings-api answers as stored (plan § Views): the labels layer asks this before such an id joins a
- * crm-api batch, because crm-api refuses a whole batch with a 422 when one id is outside its bound, and
- * hours-api reads that 422 as `unavailable` — one stored value would make every deal of a page so.
+ * crm-api or projects-api batch, because the owner refuses a whole batch with a 4xx when one id is outside its bound, and
+ * hours-api reads that as `unavailable` — one stored value would make every deal or project of a page so.
  *
  * Characters are counted as UTF-16 code units (`id.length`), the unit of every owner's bound; a note and a
  * list name count code points instead.

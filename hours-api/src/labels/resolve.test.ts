@@ -161,6 +161,347 @@ describe("the deal a meeting counts for", () => {
   });
 });
 
+// The project twin of "the deal a meeting counts for" (specs/20261112-project-hours T7, AC-4.7, AC-4.10, D44, D78): a meeting is linked to ONE
+// host, read live from the same system route, and the project it names is shown to a viewer only with the right to read it.
+describe("the project a meeting counts for", () => {
+  it("is the project's id, name and link when the viewer may read the project", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m1"] });
+
+    expect(labels.meetingProject("m1")).toEqual({ state: "linked", visibility: "visible", id: "p1", label: "Atlas", href: "/projects/p1" });
+    expect(labels.unavailable).toEqual([]);
+  });
+
+  it("carries neither id nor name when the viewer may not read the project: only that the meeting is linked", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "secret-project-id" });
+    hosts.projects.setProject("secret-project-id", { label: "Secret project name" });
+    hosts.projects.setReader(ALICE, false);
+
+    const labels = await labelsFor({ meetingProjectIds: ["m1"] });
+
+    const project = labels.meetingProject("m1");
+    expect(project).toEqual({ state: "linked", visibility: "hidden" });
+    expect("id" in project).toBe(false);
+    expect(JSON.stringify(project)).not.toContain("secret-project-id");
+    expect(JSON.stringify(project)).not.toContain("Secret project name");
+    expect(labels.unavailable).toEqual([]);
+  });
+
+  it("is hidden alike for a project projects-api does not hold", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "no-such-project" });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m1"] });
+
+    expect(labels.meetingProject("m1")).toEqual({ state: "linked", visibility: "hidden" });
+  });
+
+  it("is none when meetings-api answered: a deal's meeting, an unlinked one, a gone one, and projects-api is not asked", async () => {
+    hosts.meetings.add({ id: "m-deal", creator: ALICE, dealId: "d1" });
+    hosts.meetings.add({ id: "m-free", creator: ALICE });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m-deal", "m-free", "m-deleted"] });
+
+    for (const id of ["m-deal", "m-free", "m-deleted"]) expect(labels.meetingProject(id)).toEqual({ state: "none" });
+    expect(labels.unavailable).toEqual([]);
+    expect(hosts.callsTo("projects.resolve")).toHaveLength(0);
+  });
+
+  it("follows a relink on the next read: to another project, to a deal, to none (AC-4.2)", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p-old" });
+    hosts.projects.setProject("p-old", { label: "Old project" });
+    hosts.projects.setProject("p-new", { label: "New project" });
+    expect((await labelsFor({ meetingProjectIds: ["m1"] })).meetingProject("m1")).toMatchObject({ id: "p-old", label: "Old project" });
+
+    hosts.meetings.relinkProject("m1", "p-new");
+    expect((await labelsFor({ meetingProjectIds: ["m1"] })).meetingProject("m1")).toMatchObject({ id: "p-new", label: "New project" });
+
+    hosts.meetings.relink("m1", "d1");
+    expect((await labelsFor({ meetingProjectIds: ["m1"] })).meetingProject("m1")).toEqual({ state: "none" });
+
+    hosts.meetings.relinkProject("m1", null);
+    expect((await labelsFor({ meetingProjectIds: ["m1"] })).meetingProject("m1")).toEqual({ state: "none" });
+  });
+
+  it("is unknown when the system route does not answer, in any way, and `meeting-projects` is named (AC-4.10)", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+
+    const failures = [
+      { status: 500 },
+      { status: 404 }, // a meetings-api that has not deployed the route yet
+      { status: 401 },
+      { malformed: true },
+      { rawBody: "<html>not json</html>" },
+      { body: { items: [{ id: "m1", host: "projects:p1" }] } }, // not the route's shape
+      { redirect: true },
+    ];
+    for (const mode of failures) {
+      hosts.heal("meetings.system-hosts");
+      hosts.fail("meetings.system-hosts", mode);
+
+      const labels = await labelsFor({ meetingProjectIds: ["m1"] });
+
+      expect(labels.meetingProject("m1")).toEqual({ state: "unknown" });
+      expect(labels.unavailable).toEqual(["meeting-projects"]);
+    }
+  });
+
+  it("is unknown when the system route ignored its filter: a foreign item and the asked meeting missing", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+    hosts.fail("meetings.system-hosts", { body: { items: [{ id: "someone-elses", host: null }] } });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m1"] });
+
+    expect(labels.meetingProject("m1")).toEqual({ state: "unknown" });
+    expect(labels.unavailable).toEqual(["meeting-projects"]);
+  });
+
+  it("still asks projects-api for the direct projects when the system route does not answer, and each source is named for itself", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Meeting project" });
+    hosts.projects.setProject("p-direct", { label: "Direct project" });
+    hosts.fail("meetings.system-hosts", { status: 500 });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m1"], projectIds: ["p-direct"] });
+
+    expect(labels.project("p-direct")).toEqual({ visibility: "visible", label: "Direct project", href: "/projects/p-direct" });
+    expect(labels.meetingProject("m1")).toEqual({ state: "unknown" });
+    expect(hosts.callsTo("projects.resolve").flatMap((call) => (call.body as { ids: string[] }).ids)).toEqual(["p-direct"]);
+    expect(labels.unavailable).toEqual(["meeting-projects"]);
+  });
+
+  it("is linked and unavailable when projects-api does not answer, and `projects` is named", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+    hosts.fail("projects.resolve", { status: 503 });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m1"] });
+
+    expect(labels.meetingProject("m1")).toEqual({ state: "linked", visibility: "unavailable" });
+    expect(labels.unavailable).toEqual(["projects"]);
+  });
+
+  it("reads the link with hours-api's own service credential, never the viewer's, and the project as the viewer", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+
+    await labelsFor({ meetingProjectIds: ["m1"] });
+
+    const system = hosts.callsTo("meetings.system-hosts");
+    expect(system).toHaveLength(1);
+    expect(system[0]?.authorization).not.toBe(await bearerOf("alice"));
+    expect(claimsOf(system[0]?.authorization ?? null)).toMatchObject({ sub: "system:hours-api", scope: "meetings.hosts.read" });
+    expect(system[0]?.query.get("ids")).toBe("m1");
+    expect(hosts.callsTo("projects.resolve")[0]?.authorization).toBe(await bearerOf("alice"));
+  });
+});
+
+describe("a meeting's deal and project come from ONE read of its host", () => {
+  it("makes one system call for both, and a meeting has at most one of the two: a deal's meeting has no project, a project's no deal", async () => {
+    hosts.meetings.add({ id: "m-deal", creator: ALICE, dealId: "d1" });
+    hosts.meetings.add({ id: "m-project", creator: ALICE, projectId: "p1" });
+    hosts.meetings.add({ id: "m-free", creator: ALICE });
+    hosts.crm.setDeal("d1", { label: "Acme renewal" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+
+    const meetingIds = ["m-deal", "m-project", "m-free"];
+    const labels = await labelsFor({ meetingDealIds: meetingIds, meetingProjectIds: meetingIds });
+
+    expect(hosts.callsTo("meetings.system-hosts")).toHaveLength(1);
+    expect(labels.meetingDeal("m-deal")).toMatchObject({ state: "linked", visibility: "visible", id: "d1" });
+    expect(labels.meetingProject("m-deal")).toEqual({ state: "none" });
+    expect(labels.meetingDeal("m-project")).toEqual({ state: "none" });
+    expect(labels.meetingProject("m-project")).toMatchObject({ state: "linked", visibility: "visible", id: "p1" });
+    expect(labels.meetingDeal("m-free")).toEqual({ state: "none" });
+    expect(labels.meetingProject("m-free")).toEqual({ state: "none" });
+    // Each owner is asked only for its own: crm-api for the deal, projects-api for the project.
+    expect(crmIdsSent()).toEqual(["d1"]);
+    expect(hosts.callsTo("projects.resolve").flatMap((call) => (call.body as { ids: string[] }).ids)).toEqual(["p1"]);
+    expect(labels.unavailable).toEqual([]);
+  });
+
+  it("names both sources when the one read fails, in the plan's order: the deal and the project are unknown together (AC-4.10)", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p1" });
+    hosts.fail("meetings.system-hosts", { status: 500 });
+
+    const labels = await labelsFor({ meetingDealIds: ["m1"], meetingProjectIds: ["m1"] });
+
+    expect(labels.meetingDeal("m1")).toEqual({ state: "unknown" });
+    expect(labels.meetingProject("m1")).toEqual({ state: "unknown" });
+    expect(labels.unavailable).toEqual(["meeting-deals", "meeting-projects"]);
+    expect(hosts.callsTo("meetings.system-hosts").length).toBeGreaterThan(0);
+  });
+
+  it("asks only for what the read needs: a deal grouping never asks projects-api about a project's meeting, nor names `projects`", async () => {
+    hosts.meetings.add({ id: "m-project", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+    hosts.fail("projects.resolve", { status: 500 });
+
+    const labels = await labelsFor({ meetingDealIds: ["m-project"] });
+
+    expect(labels.meetingDeal("m-project")).toEqual({ state: "none" });
+    expect(hosts.callsTo("projects.resolve")).toHaveLength(0);
+    expect(labels.unavailable).toEqual([]);
+    // And it refuses the project it did not ask for, as for any label nobody listed.
+    expect(() => labels.meetingProject("m-project")).toThrow(/not listed in the needs/);
+  });
+
+  it("asks only for what the read needs: a project grouping never asks crm-api about a deal's meeting, nor names `meeting-deals` when the route fails", async () => {
+    hosts.meetings.add({ id: "m-deal", creator: ALICE, dealId: "d1" });
+    hosts.crm.setDeal("d1", { label: "Acme renewal" });
+    hosts.fail("crm.resolve", { status: 500 });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m-deal"] });
+
+    expect(labels.meetingProject("m-deal")).toEqual({ state: "none" });
+    expect(hosts.callsTo("crm.resolve")).toHaveLength(0);
+    expect(labels.unavailable).toEqual([]);
+    expect(() => labels.meetingDeal("m-deal")).toThrow(/not listed in the needs/);
+
+    hosts.fail("meetings.system-hosts", { status: 500 });
+    expect((await labelsFor({ meetingProjectIds: ["m-deal"] })).unavailable).toEqual(["meeting-projects"]);
+  });
+
+  it("sends an id to its owner only for the meetings the read asked that owner's question about: the two lists need not be the same meetings", async () => {
+    hosts.meetings.add({ id: "m-deal-asked-as-deal", creator: ALICE, dealId: "d-a" });
+    hosts.meetings.add({ id: "m-project-asked-as-project", creator: ALICE, projectId: "p-b" });
+    hosts.meetings.add({ id: "m-deal-asked-as-project", creator: ALICE, dealId: "d-c" });
+    hosts.meetings.add({ id: "m-project-asked-as-deal", creator: ALICE, projectId: "p-d" });
+    for (const id of ["d-a", "d-c"]) hosts.crm.setDeal(id, { label: `Deal ${id}` });
+    for (const id of ["p-b", "p-d"]) hosts.projects.setProject(id, { label: `Project ${id}` });
+
+    const labels = await labelsFor({
+      meetingDealIds: ["m-deal-asked-as-deal", "m-project-asked-as-deal"],
+      meetingProjectIds: ["m-project-asked-as-project", "m-deal-asked-as-project"],
+    });
+
+    expect(hosts.callsTo("meetings.system-hosts")).toHaveLength(1);
+    expect(crmIdsSent()).toEqual(["d-a"]);
+    expect(hosts.callsTo("projects.resolve").flatMap((call) => (call.body as { ids: string[] }).ids)).toEqual(["p-b"]);
+    expect(labels.meetingDeal("m-deal-asked-as-deal")).toMatchObject({ visibility: "visible", id: "d-a" });
+    expect(labels.meetingDeal("m-project-asked-as-deal")).toEqual({ state: "none" });
+    expect(labels.meetingProject("m-project-asked-as-project")).toMatchObject({ visibility: "visible", id: "p-b" });
+    expect(labels.meetingProject("m-deal-asked-as-project")).toEqual({ state: "none" });
+    expect(() => labels.meetingProject("m-deal-asked-as-deal")).toThrow(/not listed in the needs/);
+    expect(() => labels.meetingDeal("m-project-asked-as-project")).toThrow(/not listed in the needs/);
+  });
+
+  it("sends the direct projects and the meetings' projects together, each once, in ONE resolve call as the viewer", async () => {
+    hosts.projects.setProject("p-direct", { label: "Direct" });
+    hosts.projects.setProject("p-shared", { label: "Shared" });
+    hosts.projects.setProject("p-via-meeting", { label: "Via meeting" });
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p-via-meeting" });
+    hosts.meetings.add({ id: "m2", creator: ALICE, projectId: "p-shared" });
+    hosts.meetings.add({ id: "m3", creator: ALICE, projectId: "p-shared" });
+
+    const labels = await labelsFor({ projectIds: ["p-direct", "p-shared"], meetingProjectIds: ["m1", "m2", "m3"] });
+
+    const calls = hosts.callsTo("projects.resolve");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.authorization).toBe(await bearerOf("alice"));
+    expect([...calls.flatMap((call) => (call.body as { ids: string[] }).ids)].sort()).toEqual(["p-direct", "p-shared", "p-via-meeting"]);
+    expect(labels.project("p-direct")).toMatchObject({ label: "Direct" });
+    expect(labels.meetingProject("m1")).toMatchObject({ id: "p-via-meeting", label: "Via meeting" });
+    expect(labels.meetingProject("m2")).toMatchObject({ id: "p-shared", label: "Shared" });
+    expect(labels.meetingProject("m3")).toMatchObject({ id: "p-shared", label: "Shared" });
+  });
+
+  it("refuses a direct project nobody listed even when a meeting is linked to it: `project()` answers what was asked, `meetingProject()` the link", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p-via-meeting" });
+    hosts.projects.setProject("p-via-meeting", { label: "Via meeting" });
+    hosts.projects.setProject("p-direct", { label: "Direct" });
+
+    const labels = await labelsFor({ projectIds: ["p-direct"], meetingProjectIds: ["m1"] });
+
+    expect(() => labels.project("p-via-meeting")).toThrow(/not listed in the needs/);
+    expect(labels.meetingProject("m1")).toMatchObject({ id: "p-via-meeting" });
+  });
+
+  it("splits a page of more projects than projects-api takes at once into batches of 25", async () => {
+    const direct = Array.from({ length: 30 }, (_, i) => `p-${i}`);
+    const meetingIds = Array.from({ length: 30 }, (_, i) => `m-${i}`);
+    for (const id of direct) hosts.projects.setProject(id, { label: `Project ${id}` });
+    meetingIds.forEach((id, i) => {
+      hosts.projects.setProject(`pm-${i}`, { label: `Meeting project ${i}` });
+      hosts.meetings.add({ id, creator: ALICE, projectId: `pm-${i}` });
+    });
+
+    const labels = await labelsFor({ projectIds: direct, meetingProjectIds: meetingIds });
+
+    expect(hosts.callsTo("projects.resolve")).toHaveLength(3);
+    expect(new Set(hosts.callsTo("projects.resolve").flatMap((call) => (call.body as { ids: string[] }).ids)).size).toBe(60);
+    expect(labels.meetingProject("m-29")).toMatchObject({ visibility: "visible", id: "pm-29" });
+    expect(labels.unavailable).toEqual([]);
+  });
+});
+
+describe("a stored host that is not a project, and a project id outside the id rule", () => {
+  it("is no project: `none`, its entityId never sent to projects-api, `meeting-projects` not named, the batch's other meetings keep their projects", async () => {
+    hosts.meetings.add({ id: "m-widget", creator: ALICE, host: { app: "testhost", entityType: "widget", entityId: "widget-77" } });
+    hosts.meetings.add({ id: "m-project", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m-widget", "m-project"] });
+
+    expect(labels.meetingProject("m-widget")).toEqual({ state: "none" });
+    expect(labels.meetingProject("m-project")).toMatchObject({ state: "linked", visibility: "visible", id: "p1" });
+    expect(labels.unavailable).toEqual([]);
+    expect(hosts.callsTo("projects.resolve").flatMap((call) => (call.body as { ids: string[] }).ids)).toEqual(["p1"]);
+  });
+
+  it("does not read another app's project, a Projects host of another type or a differently cased one as a project", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, host: { app: "testhost", entityType: "project", entityId: "p1" } });
+    hosts.meetings.add({ id: "m2", creator: ALICE, host: { app: "projects", entityType: "task", entityId: "p1" } });
+    hosts.meetings.add({ id: "m3", creator: ALICE, host: { app: "Projects", entityType: "Project", entityId: "p1" } });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m1", "m2", "m3"] });
+
+    for (const id of ["m1", "m2", "m3"]) expect(labels.meetingProject(id)).toEqual({ state: "none" });
+    expect(hosts.callsTo("projects.resolve")).toHaveLength(0);
+  });
+
+  const OUTSIDE_THE_RULE = [
+    ["65 characters", "x".repeat(65)],
+    ["a NUL", "p\u0000x"],
+    ["a comma", "a,b"],
+    ["a leading space", " p1"],
+    ["a trailing space", "p1 "],
+    ["only spaces", "   "],
+  ] as const;
+
+  for (const [name, entityId] of OUTSIDE_THE_RULE) {
+    it(`with ${name}: linked and hidden, never sent to projects-api, the page's other projects keep their labels, \`projects\` is not named`, async () => {
+      hosts.meetings.add({ id: "m-odd", creator: ALICE, host: { app: "projects", entityType: "project", entityId } });
+      hosts.meetings.add({ id: "m-fine", creator: ALICE, projectId: "p-fine" });
+      hosts.projects.setProject("p-fine", { label: "Fine project" });
+      hosts.projects.setProject("p-direct", { label: "Direct project" });
+
+      const labels = await labelsFor({ meetingProjectIds: ["m-odd", "m-fine"], projectIds: ["p-direct"] });
+
+      expect(labels.meetingProject("m-odd")).toEqual({ state: "linked", visibility: "hidden" });
+      expect(labels.meetingProject("m-fine")).toMatchObject({ state: "linked", visibility: "visible", id: "p-fine", label: "Fine project" });
+      expect(labels.project("p-direct")).toMatchObject({ visibility: "visible", label: "Direct project" });
+      expect(labels.unavailable).toEqual([]);
+      const sent = hosts.callsTo("projects.resolve").flatMap((call) => (call.body as { ids: string[] }).ids);
+      expect(sent).not.toContain(entityId);
+      expect([...sent].sort()).toEqual(["p-direct", "p-fine"]);
+    });
+  }
+
+  it("an empty entityId names nothing: no project", async () => {
+    hosts.meetings.add({ id: "m-empty", creator: ALICE, host: { app: "projects", entityType: "project", entityId: "" } });
+
+    const labels = await labelsFor({ meetingProjectIds: ["m-empty"] });
+
+    expect(labels.meetingProject("m-empty")).toEqual({ state: "none" });
+    expect(labels.unavailable).toEqual([]);
+    expect(hosts.callsTo("projects.resolve")).toHaveLength(0);
+  });
+});
+
 describe("a page's deals go to crm-api in one batch (plan § Sequences, List / totals step 4)", () => {
   it("sends the direct deals and the meetings' deals together, each once, in ONE resolve call as the viewer", async () => {
     hosts.crm.setDeal("d-direct", { label: "Direct" });
@@ -351,6 +692,7 @@ describe("only what a read needs is asked (plan § Totals, \"Sources asked\")", 
     // A kind that was not asked for at all.
     expect(() => labels.deal("d1")).toThrow(/not listed in the needs/);
     expect(() => labels.meetingDeal("m1")).toThrow(/not listed in the needs/);
+    expect(() => labels.meetingProject("m1")).toThrow(/not listed in the needs/);
     expect(() => labels.person(ALICE)).toThrow(/not listed in the needs/);
   });
 });
@@ -392,24 +734,33 @@ describe("the sources are read in parallel (plan § Sequences, List / totals ste
     hosts.crm.setDeal("d1", { label: "Direct deal" });
     hosts.meetings.add({ id: "m1", title: "Kick-off", creator: ALICE, dealId: "d1" });
     hosts.activities.add({ id: "a1", subject: "Task", project: "p1" });
-    const needs = { userIds: [ALICE], projectIds: ["p1"], dealIds: ["d1"], meetingIds: ["m1"], meetingDealIds: ["m1"], activityIds: ["a1"] };
+    const needs = {
+      userIds: [ALICE],
+      projectIds: ["p1"],
+      dealIds: ["d1"],
+      meetingIds: ["m1"],
+      meetingDealIds: ["m1"],
+      meetingProjectIds: ["m1"],
+      activityIds: ["a1"],
+    };
 
-    // One source at a time down: only that one is named, and everything else is read.
+    // One source at a time down: only that one is named, and everything else is read. The one read of a meeting's host serves
+    // both its deal and its project, so its failure names both (specs/20261112-project-hours AC-4.10).
     const cases = [
-      ["projects.resolve", "projects"],
-      ["crm.resolve", "crm"],
-      ["activities.list", "activities"],
-      ["meetings.list", "meetings"],
-      ["meetings.system-hosts", "meeting-deals"],
-      ["auth.identities", "identities"],
+      ["projects.resolve", ["projects"]],
+      ["crm.resolve", ["crm"]],
+      ["activities.list", ["activities"]],
+      ["meetings.list", ["meetings"]],
+      ["meetings.system-hosts", ["meeting-deals", "meeting-projects"]],
+      ["auth.identities", ["identities"]],
     ] as const;
-    for (const [route, source] of cases) {
+    for (const [route, sources] of cases) {
       hosts.heal(route);
       hosts.fail(route, { status: 500 });
       // A person named by an earlier read is held for 60 s (T46); every case starts with nobody known, so `auth` is asked.
       __resetIdentityCacheForTests();
       const labels = await labelsFor(needs);
-      expect(labels.unavailable).toEqual([source]);
+      expect(labels.unavailable).toEqual([...sources]);
       hosts.heal(route);
     }
 
@@ -417,11 +768,12 @@ describe("the sources are read in parallel (plan § Sequences, List / totals ste
     for (const [route] of cases) hosts.fail(route, { status: 500 });
     __resetIdentityCacheForTests();
     const everything = await labelsFor(needs);
-    expect(everything.unavailable).toEqual(["projects", "crm", "activities", "meetings", "meeting-deals", "identities"]);
+    expect(everything.unavailable).toEqual(["projects", "crm", "activities", "meetings", "meeting-deals", "meeting-projects", "identities"]);
     expect(everything.project("p1").visibility).toBe("unavailable");
     expect(everything.deal("d1").visibility).toBe("unavailable");
     expect(everything.meeting("m1").visibility).toBe("unavailable");
     expect(everything.meetingDeal("m1")).toEqual({ state: "unknown" });
+    expect(everything.meetingProject("m1")).toEqual({ state: "unknown" });
     expect(everything.activity("a1", everything.project("p1"))).toEqual({ id: "a1", subject: null, visibility: "unavailable" });
     expect(everything.person(ALICE)).toEqual({ id: ALICE, name: null, status: "unknown" });
   });

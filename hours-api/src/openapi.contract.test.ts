@@ -161,7 +161,8 @@ describe("TimeEntryView records a day and a duration only (AC-1.8)", () => {
     expect([...names].filter((name) => TIME_OF_DAY.includes(name))).toEqual([]);
     // Any other new member is a decision to look at, not a free addition: it must not be a time of day either.
     expect([...names].sort()).toEqual(
-      ["activity", "category", "createdAt", "day", "deal", "href", "id", "label", "minutes", "name", "note", "on", "origin", "person", "retired", "state", "status", "subject", "type", "updatedAt", "visibility", "workType"].sort(),
+      // `project` is a meeting's project (`on.project`, specs/20261112-project-hours AC-4.7): the deal's twin, no time of day.
+      ["activity", "category", "createdAt", "day", "deal", "href", "id", "label", "minutes", "name", "note", "on", "origin", "person", "project", "retired", "state", "status", "subject", "type", "updatedAt", "visibility", "workType"].sort(),
     );
   });
 
