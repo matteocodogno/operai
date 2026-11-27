@@ -1,0 +1,26 @@
+---
+"@operai/meetings-api": minor
+"@operai/projects-api": minor
+"@operai/crm-api": minor
+"@operai/hours-api": minor
+"@operai/hours-ui": minor
+"@operai/shell": minor
+"@operai/projects-ui": minor
+"@operai/crm-ui": minor
+---
+
+A project's hours, set against what was sold, and a project's and a deal's hours on their own pages (specs/20261112-project-hours, ADR 20261126-a-record-hours-summary-is-authorised-by-the-records-owner-as-the-reader-and-its-per-person-part-by-a-role-the-owner-states, ADR 20261126-a-figure-set-against-another-owners-figure-is-composed-by-the-screen-of-the-owner-of-the-comparison-and-a-panel-about-one-tools-data-is-that-tools-widget, and the 2026-11-26 amendments of ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route and ADR 20261116-record-hours-widget-through-the-host-extension-seam).
+
+The project page and the deal page each get one **Hours** card ("Ore"): the total hours recorded on the record, every person's, and a **Show breakdown** disclosure, closed on every load, with the hours per work type and, only for the project's manager, the deal's owner and holders of "see everyone's hours", per person. On a project the card opens with its consumption, what the terms sold set against the hours used: an hour package (yearly: each 12-month period from its start date on its own, unused hours never carried; capacity: from its start date to its expiry, or to today without one) shows the package, the hours used and left, or **Over by** once exceeded and **Expired** for a capacity package past its expiry; a fixed price shows man-days (8 hours, one decimal) against its estimated man-days, when known, and its max effort; a time-and-material project, against the total of its positions' planned man-days. A project with no terms, or an SLA and no hour package, shows only the total. No amount, price or rate appears anywhere. Recording hours with Record hours on the page updates the card without a reload.
+
+The hours recorded on the meetings linked to a project now count for the project, as a linked meeting's hours already count for a deal, whoever recorded them: in the card, in My hours and Everyone's hours filtered by the project, in the totals grouped by project and in a new export column, **Counts for project**. A viewer who cannot read the project a meeting is linked to sees the entry but no name. When Meetings cannot say which meetings are linked, a project filter or a project's figures are shown as unavailable, never too low. English and Italian.
+
+- **hours-api:** the new route `GET /time-entries/summary?projectId=|dealId=` (`windowFrom` and `windowTo` for a project): the hours on one record for whoever the record's owner says may read it (asked of projects-api or crm-api as the caller on every request; a missing and an unreadable record are one 404; the owner or Meetings not answering is 503 `host_unavailable`), as `totalMinutes`, `windowMinutes`, `byWorkType` and `byPerson` (only for the project's manager, the deal's owner or a `time-entry:read-all` holder, else `null`), with no entry, note, meeting id or title, never cached. The `projectId` filter of the list and the totals counts the meetings linked to the project (read live from meetings-api, never stored on the entry; 409 `project_meetings_changed` when the set changes between pages), `groupBy=project` places them under their project (the new `project-unknown` group when Meetings cannot be asked) and a meeting entry carries `on.project`.
+- **meetings-api:** `GET /system/meetings/hosts` takes `projectId=`, exactly one of `ids`, `dealId` and `projectId`; same scope, `sub` and `{ id, host }` answer.
+- **projects-api:** the resolve answer carries `projectManagerId` (`null` while a project awaits its manager); the terms view's `hourPackage` carries `currentPeriod { from, to, ended }`, derived on read at the Europe/Zurich day.
+- **crm-api:** the resolve answer for a deal carries `ownerUserId`.
+- **hours-ui:** the new federated entry `./HostHours` (the total and the closed breakdown); `./RecordHours` broadcasts the content-free event `operai:time-entry-recorded`, naming only the project or deal it recorded on; the project filter, the by-project totals, a "Counts for project" line on a meeting's entry and the export column.
+- **shell:** the host extension `hours.hostHours`, `{ on: 'project' | 'deal', targetId }`.
+- **projects-ui, crm-ui:** the Hours card; projects-ui's consumption block re-reads on the event.
+- **Known limitation:** a capacity hour package without an expiry date is compared up to the Zurich day the project page was loaded on, so a page left open across Zurich midnight keeps the new day's hours out of its consumption figures until it is reloaded (the card's total includes them).
+- **Operators:** no migration, no variable, no scope, `auth` unchanged. Stacked on the meeting hours release (specs/20261112-meeting-hours), which ships first. Order: `meetings-api`, `projects-api` and `crm-api`, then `hours-ui`, then the `shell`, then `hours-api`, then `projects-ui` and `crm-ui`. `hours-api` before `meetings-api` makes every project filter and project summary a 503 until `meetings-api` is live, a refusal and never a wrong figure (infra/README.md § Project hours release).

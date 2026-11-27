@@ -3884,6 +3884,92 @@ every 30 min), and `hours-api` applies only the newest version of a meeting.
 | `meetings-api` not yet on the release | nothing is sent; entries start when its backfill and live notices do (R3) |
 | `hours-ui` not yet on the release | entries are there and counted, unmarked |
 
+## Project hours release (specs/20261112-project-hours, ADR 20261126-a-record-hours-summary-is-authorised-by-the-records-owner-as-the-reader-and-its-per-person-part-by-a-role-the-owner-states, ADR 20261126-a-figure-set-against-another-owners-figure-is-composed-by-the-screen-of-the-owner-of-the-comparison-and-a-panel-about-one-tools-data-is-that-tools-widget; plan § Deploy order, R1, R2, R4)
+
+A project's page and a deal's page get one **Hours** card (the record's total hours and a closed breakdown; on a project, also the hours set against what its
+terms sold), and the hours recorded on the meetings linked to a project now count for the project everywhere a linked meeting already counts for a deal. This
+release adds no service, no database, **no migration**, no secret, no variable, no scope and no `env:doctor` entry: `auth`, `notify-api`, `activities-api` and
+`tools/env-doctor` do not change, and `infra/check.sh` has nothing new to pin (the Hours card calls hours-api from the shell's document, whose CSP `connect-src`
+and trusted origins already include it for hours-ui).
+
+| Piece | Where | What this release changes |
+|---|---|---|
+| `meetings-api` | Railway | `GET /system/meetings/hosts` takes `projectId=` (exactly one of `ids`, `dealId`, `projectId`); same scope `meetings.hosts.read`, same `sub` `system:hours-api`, same `{ id, host }` answer (code only) |
+| `projects-api` | Railway | the resolve answer carries `projectManagerId` (`null` while a project awaits its manager) and the terms view's `hourPackage` carries `currentPeriod { from, to, ended } \| null` (code only) |
+| `crm-api` | Railway | the resolve answer for a deal carries `ownerUserId` (code only) |
+| `hours-ui` | Vercel | exposes `./HostHours`; `./RecordHours` broadcasts `operai:time-entry-recorded` after a save; the Project filter, the by-project totals and the export's **Counts for project** column know a project's linked meetings; a missing `on.project` reads as none (code only) |
+| `shell` | Vercel | the host extension `hours.hostHours`: its loader imports `hours/HostHours` |
+| `hours-api` | Railway | the route `GET /time-entries/summary`; the `projectId` filter and `groupBy=project` count a project's linked meetings (409 `project_meetings_changed`, the `project-unknown` group, `meeting-projects` in `unavailable`); a meeting entry's `on.project` (code only) |
+| `projects-ui`, `crm-ui` | Vercel | the Hours card: on the project page the consumption block and hours-ui's panel, on the deal page the panel (code only) |
+
+**Before step 1: the meeting hours release has shipped, by its own order (§ Meeting hours release).** This work is stacked on specs/20261112-meeting-hours
+(PR #12) and reaches `main` only after it has merged, so that release's preconditions hold first, above all its step 0, `HOURS_API_URL` on `meetings-api`: a
+`meetings-api` built from this branch carries #12's code and exits 1 at start without it. Nothing below waits for #12's notice channel to be switched on (its
+scope in production `SERVICE_CLIENTS`).
+
+**Order (plan § Deploy order): `meetings-api`, `projects-api` and `crm-api` (any order among them), then `hours-ui`, then the `shell`, then `hours-api`, then
+`projects-ui` and `crm-ui` (either first).**
+
+1. **`meetings-api`, `projects-api`, `crm-api`**: the new filter and the two new facts. Additive: their only consumer, `hours-api`, parses an owner's answer with
+   `z.object`, which drops a member it does not know, so an `hours-api` that is not yet on the release is not disturbed.
+2. **`hours-ui`**: accepts `project-unknown`, `meeting-projects` and `on.project`, and exposes `./HostHours`, which shows its own unavailable state until step 4.
+3. **`shell`**: registers `hours.hostHours`. An unknown name, or a failed import, renders the host's fallback either way.
+4. **`hours-api`**: the summary, and the project filter and by-project placement. **Never before step 1**: a `meetings-api` that predates the filter answers 422
+   to `projectId`, which `hours-api` reads as "cannot say" (never as "no meeting is linked").
+5. **`projects-ui`, `crm-ui`**: embed the panel and show the consumption block.
+
+A push to `main` redeploys every connected Railway service and builds every Vercel project at once, in no fixed order, so this is the order to **confirm live**,
+and to promote in if a build has to be redone: `railway deployment list --service <svc>` shows the newest row `SUCCESS` with the release's commit, and a Vercel
+project's newest production deployment is `Ready`. No step has a manual action or a gate of its own, since nothing is configured. Every other order is degraded
+and never wrong: a figure is withheld or marked unavailable, never shown low (AC-4.9), and each row below clears by itself once the piece it needs is live.
+
+### What a wrong order does (plan R2, R4)
+
+| Live before the piece it needs | What the person sees |
+|---|---|
+| `hours-api` (4) before `meetings-api` (1) | **the one that matters**: the Project filter of My hours and Everyone's hours, and a project's summary (the Hours card's total and the consumption block), are **503 `host_unavailable`**: a refusal, not a wrong figure (an unfiltered by-project totals read and an entry's `on.project` read the hosts by id and are not affected, nor are a deal's figures). It ends when `meetings-api` is live; nothing is lost or written |
+| `hours-api` (4) before `projects-api` or `crm-api` (1) | the owner's answer has no `projectManagerId` / `ownerUserId`, which is read as an older owner (nobody's, never a grant): the project's manager and the deal's owner do not see the per-person hours yet; the total and the work-type breakdown show as usual |
+| `hours-api` (4) before `hours-ui` (2) | the one case where an old `hours-ui` meets something it does not know: the `project-unknown` group of a by-project totals read whose hosts read failed (R4); this is why `hours-ui` is step 2 |
+| `projects-ui` or `crm-ui` (5) before `hours-api` (4) | the summary route does not exist yet: the panel and the consumption block each show their own unavailable state with **Retry** (it works once `hours-api` is live), and the page and the rest of the card load (AC-2.6) |
+| `projects-ui` (5) before `projects-api` (1) | `currentPeriod` is absent, which reads as nothing to compare, never as "not started": an hour package's consumption is not shown and the panel is alone in the card; a fixed-price or time-and-material project's block shows (it needs only `hours-api`) |
+| `projects-ui` or `crm-ui` (5) before the `shell` (3) | the live shell does not know `hours.hostHours`, and an unknown name renders the host's fallback, "Hours are unavailable. Reload the page to try again." (the consumption block is `projects-ui`'s own and shows) |
+| the `shell` (3) before `hours-ui` (2) | the shell's loader imports `hours/HostHours`, which the live `hours-ui` does not expose yet: the import is rejected and the host shows the same fallback |
+
+A page that was already open when the last piece went live shows the new card or the new figures after a reload. A capacity hour package without an expiry date is
+compared up to the Zurich day the page was loaded on, so a page left open across Zurich midnight keeps the new day's hours out of the **consumption block** (the
+panel's total includes them) until it is reloaded: a known limitation, not a fault (specs/20261112-project-hours A52, D85, R8).
+
+### Verify
+
+Once the pieces are live. The OpenAPI documents are public, like `/health`:
+
+```bash
+curl -s https://hours-api.operai.welld.io/openapi.json | jq -e '.paths | has("/time-entries/summary")'                                                        # true: hours-api is on the release
+curl -s https://meetings-api.operai.welld.io/openapi.json | jq -e '[.paths["/system/meetings/hosts"].get.parameters[].name] | index("projectId") != null'   # true: meetings-api is on the release
+./infra/check.sh                                                                                                                                             # health, remoteEntry.js + CORS and the CSP pins, unchanged
+```
+
+Then by hand, as a person who reads a project with an hour package and some hours: the project page has one **Hours** card right after Details, showing the
+package's hours, the hours used in its period and the hours left, then the total and **Show breakdown** (closed); a deal's page has the same card after Meetings, with
+the total and the breakdown. Opening the breakdown makes no request. As the project's manager the breakdown also shows **By person**; as another reader it does not.
+Recording 30 minutes with **Record hours** on the page grows the card's figures without a reload. In My hours, filtering by a project that has a linked meeting with
+hours lists that meeting's entries, each with "Counts for project <name>".
+
+### Rollback by step
+
+Nothing in this release has a migration, so no database step undoes it; each piece is redeployed on its own, and the order is the reverse of the release (5, 4, 3, 2,
+1) when more than one goes.
+
+- **`projects-ui`, `crm-ui` (step 5):** redeploy the previous production deployment in Vercel. The Hours card goes; Record hours and the Meetings panel stay.
+- **`hours-api` (step 4):** redeploy the previous Railway deployment. The summary route goes (the panel and the block show their unavailable state), the project
+  filter stops counting a project's linked meetings, and by-project totals place those entries under `none`; entries are untouched. The meeting hours migration of #12
+  is a different release and is not undone this way (§ Meeting hours release, § Rollback by step).
+- **`shell`, `hours-ui` (steps 3 and 2):** redeploy the previous Vercel deployment. Every host's Hours panel becomes the host's fallback; the Project filter and the
+  export lose the linked meetings' line and column.
+- **`meetings-api`, `projects-api`, `crm-api` (step 1):** redeploy the previous Railway deployment. Rolling `meetings-api` back while `hours-api` is on the release makes
+  every project filter and project summary 503 (the first row above): roll `hours-api` back first, or accept the refusal. Rolling `projects-api` back hides an hour
+  package's consumption block; rolling `crm-api` back hides a deal owner's per-person hours.
+
 ## Rollback & operations
 
 - **Rollback:** each Railway service and each Vercel project keeps its own

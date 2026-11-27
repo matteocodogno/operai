@@ -72,10 +72,15 @@ database first (`bun run db:deploy`). DB-backed tests: `src/schema.test.ts`, `sr
 real hours-api with a developer's credentials); a test that wants it sets one (`setHoursChannelForTests`, a fake hours-api in
 `src/test-support/fakeHours.ts`).
 
-## System routes (specs/20261112-time-tracking, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route)
+## System routes (specs/20261112-time-tracking, specs/20261112-project-hours, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route)
 
 `GET /system/meetings/hosts` is the one route a **service**, not a person, calls: `?ids=a,b,c` (at most 100) answers
-each meeting's current host, `?dealId=<id>` the meetings currently linked to that CRM deal; exactly one of the two. The
+each meeting's current host, `?dealId=<id>` the meetings currently linked to that CRM deal and `?projectId=<id>` the
+meetings currently linked to that Projects project (1-64 characters, as `dealId`; specs/20261112-project-hours D78, so the hours
+recorded on a project's linked meetings count for the project); exactly one of the three, else 422. `dealId` matches a stored
+host of exactly `{ app: "crm", entityType: "deal", entityId }` and `projectId` one of exactly `{ app: "projects", entityType:
+"project", entityId }` (app, type and id all compared, never the host registry), so another app's entity of the same type or id
+is no match; a meeting has one host, so it is linked to a deal or a project, never both, and neither filter is paged. The
 answer is `{ items: [{ id, host: { app, entityType, entityId } | null }] }` and nothing else: no title, participant,
 duration or content (ADR 20261104-meetings-tool-shape-visibility-by-participation). Its only credential is a scoped service JWT from `auth` (`aud` = `SERVICE_AUDIENCE`,
 scope `meetings.hosts.read`, `sub` `system:hours-api`); a user JWT, another scope, `sub` or audience, a missing token
