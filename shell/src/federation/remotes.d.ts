@@ -209,6 +209,20 @@ declare module 'hours/RecordHours' {
   export default RecordHours
 }
 
+// specs/20261112-project-hours (plan D-P4): the `hours` remote's third entry, `./HostHours` — the read panel of a record's
+// hours (a total and a closed breakdown) that projects-ui's project page and crm-ui's deal page embed through
+// `shell/extensions` (`hours.hostHours`). Its props are `ExtensionProps['hours.hostHours']` in lib/extensions.tsx: two
+// plain strings.
+declare module 'hours/HostHours' {
+  import type { ComponentType } from 'react'
+
+  const HostHours: ComponentType<{
+    on: 'project' | 'deal'
+    targetId: string
+  }>
+  export default HostHours
+}
+
 declare module 'hours/version' {
   export const REMOTE_VERSION: string
 }

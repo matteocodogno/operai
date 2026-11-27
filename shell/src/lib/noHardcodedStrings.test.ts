@@ -144,6 +144,8 @@ const TECHNICAL = new Set([
   'meetings.hostMeetings',
   // specs/20261116-record-hours-in-place: hours-ui's Record hours button, embedded by the project and deal pages and the task rows.
   'hours.recordHours',
+  // specs/20261112-project-hours: hours-ui's read panel of a record's hours, embedded by the project and deal pages.
+  'hours.hostHours',
   // The floating slot (lib/floating.ts, FloatingHost): a widget id, a perimeter edge, a typeof check.
   'meetings.recorderDock',
   '/meetings/m/',

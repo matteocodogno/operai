@@ -25,6 +25,11 @@
  * 20261116-record-hours-widget-through-the-host-extension-seam) is a second use
  * of the same seam: the project page, the deal page and the task rows embed it,
  * and the host's `fallback` is a link to My hours.
+ *
+ * `hours.hostHours` (specs/20261112-project-hours, plan D-P4) is a third: the read
+ * panel of a record's hours that projects-ui's project page and crm-ui's deal page
+ * embed in their one "Hours" card, and the host's `fallback` is "Hours are
+ * unavailable. Reload the page to try again."
  */
 import { Component, useEffect, useState } from 'react'
 import type { ComponentType, JSX, ReactNode } from 'react'
@@ -55,6 +60,17 @@ export interface ExtensionProps {
     /** The page header's button, or a task row's smaller one. */
     placement: 'page' | 'row'
   }
+  /**
+   * hours-ui's read panel of a record's hours (specs/20261112-project-hours, plan D-P4): the total recorded, and behind a
+   * closed disclosure the breakdown per work type and, when the server allows it, per person. projects-ui's project
+   * page and crm-ui's deal page embed it in their one "Hours" card. Two plain strings; nothing comes back. crm-ui and
+   * projects-ui keep a hand-written copy in their `remotes.d.ts`.
+   */
+  'hours.hostHours': {
+    on: 'project' | 'deal'
+    /** The project or deal id. */
+    targetId: string
+  }
 }
 
 type ExtensionName = keyof ExtensionProps
@@ -66,6 +82,7 @@ const LOADERS: { [K in ExtensionName]: ExtensionLoader<K> } = {
   'meetings.hostMeetings': () => import('meetings/HostMeetings'),
   'meetings.recorderDock': () => import('meetings/RecorderDock'),
   'hours.recordHours': () => import('hours/RecordHours'),
+  'hours.hostHours': () => import('hours/HostHours'),
 }
 
 export interface HostExtensionProps<K extends ExtensionName> {
