@@ -183,6 +183,18 @@ Decided during /wellforge:tasks of specs/20261112-project-hours (2026-11-26, the
   (D-P6): a content-free browser event broadcast by the Record hours widget, amending ADR
   20261116-record-hours-widget-through-the-host-extension-seam ("nothing comes back")
 
+Decided by the owner while implementing specs/20261112-project-hours (2026-11-27; a known limitation accepted, not a scope
+change: no acceptance criterion changes and the spec's status and approval stand):
+- D85 A capacity hour package without an expiry date is compared from its start date up to the Europe/Zurich day projects-api
+  works out when the project page loads (AC-1.3; the period's end is that day, `projects-api/src/terms/packagePeriod.ts`).
+  A page left open across Zurich midnight therefore leaves the hours dated the new day out of its consumption figures, even
+  after a save made with Record hours (AC-2.8, D84), until the page is reloaded; the project's total hours (AC-2.1) are not
+  read through that window and include them; nothing is lost or wrong after a reload. ACCEPTED as a known limitation (A52 of
+  the spec) — owner, choice "A" of four, 2026-11-27, for specs/20261112-project-hours. The implementer had recorded the case
+  as drift (specs/20261112-project-hours/decisions.md, T16). Rejected: computing the day in the browser (the Zurich day is the
+  server's to decide); letting the summary take an open-ended window (a contract and hours-api change for a rare case);
+  re-reading the project on every save (rejected for now, as more than the case is worth)
+
 Found while re-opening specs/20261112-project-hours (read from the repo, not asked):
 - F14 A meeting has at most one host, a CRM deal or (since 2026-11-23) a project; a meeting started from a project task is
   linked to the task's project — specs/20261104-meetings A18; meetings-api `GET /system/meetings/hosts` answers `ids=` or

@@ -26,6 +26,12 @@ wired in `toProjectView`, while § API contracts puts it on every response carry
 (`termsView` / `toTermsView`, `projects-api/src/terms/terms.ts`), which `toProjectView` and the terms routes both call;
 the projects-api row (b) and the AC-1.1 test row now say so, with file:line references to T3's `be99186a`. No route,
 API, decision or ADR change: the contract is unchanged and the tests the row names exist since T3.
+Amended a fifth time 2026-11-27 (the owner's decision of 2026-11-27, ledger D85, spec A52, on a limitation T16 reported,
+`decisions.md` § T16): Risk R8 added — a project page left open across Europe/Zurich midnight leaves the hours recorded
+on the new day out of the consumption block of a capacity package without an expiry until it is reloaded; accepted and
+documented, with re-reading the project on a Record hours save named as the way out. The "asks the summary once" bullet
+(under § Refreshing after Record hours) and the AC-2.8 test row point at it. No route, API, test or ADR change, and no
+D-P decision changes: the window stays the server's `currentPeriod` (D-P3).
 
 ## Architecture
 
@@ -123,7 +129,8 @@ the shell (`getHoursApiBaseUrl`, `VITE_HOURS_API_URL` is the shell's), which `ap
   projects-api. Hours are shown with `formatDuration` (minutes → "2 h 30"), dates with `formatDate` (AC-3.2).
 - The consumption block asks the summary **once**: with `windowFrom`/`windowTo` when the package has a current period,
   without otherwise. A failed summary shows the block's "Consumption is unavailable" state while the widget below it and the
-  rest of the page stay (AC-2.6, AC-4.9).
+  rest of the page stay (AC-2.6, AC-4.9). The window is `currentPeriod` as read with the page, and a re-read asks the same
+  one: for a capacity package without an expiry it ends on the day of that read (Risk R8).
 - This is arithmetic over two complete answers (a sold figure and a server total), not a sum over pages: ADR
   20261116-week-view-sums-a-complete-read-in-the-browser is not engaged.
 
@@ -332,7 +339,7 @@ e2e in `shell/e2e/project-hours.spec.ts` (new) through the shell.
 | AC-2.5 | integration | reader neither manager nor owner → `byPerson: null`; holder of `time-entry:read-all` → present; auth down → `null` + `"authz"` |
 | AC-2.6 | component | projects-ui and crm-ui: `HostExtension` failure → the slot's "Hours unavailable" fallback inside the Hours card, page renders; `HostHours` 503 → its error state; `ConsumptionBlock` 503 → its error state; the two failures independent (block fails / widget loads, widget fails / block loads, both fail: two banners, each with its Retry) |
 | AC-2.7 | integration | projects-api resolve: `projectManagerId: null` while awaiting; hours-api: caller = PO ops-manager → `byPerson: null`, holder → present |
-| AC-2.8 | unit + component + e2e | `timeEntryRecordedEvent` guard; `RecordHours` dispatches exactly once after a successful save and never after a refused one; `HostHours` and `ConsumptionBlock` re-read on an event naming their target and ignore another target or a malformed `detail`; a burst gives one re-read; e2e: record 1 h from the project page, the card's figures grow by 1 h without a reload |
+| AC-2.8 | unit + component + e2e | `timeEntryRecordedEvent` guard; `RecordHours` dispatches exactly once after a successful save and never after a refused one; `HostHours` and `ConsumptionBlock` re-read on an event naming their target and ignore another target or a malformed `detail`; a burst gives one re-read; e2e: record 1 h from the project page, the card's figures grow by 1 h without a reload; not met by the block of a capacity package without an expiry on a page open across Zurich midnight (Risk R8, accepted) |
 | AC-3.1 | integration | `matrix.test.ts` inventory: the only new hours-api route is a `GET`; no write route added in any service |
 | AC-3.2 | unit | `catalogGaps` parity + no-hardcoded-copy scans in hours-ui, projects-ui, crm-ui; formatters only (`formatDuration`, `formatNumber`, `formatDate`) |
 | AC-4.1 | integration | entry on a project-linked meeting by a participant not on the team counts in the project's summary |
@@ -390,6 +397,20 @@ invalid prop set; `openapi.contract.test.ts` for the new route.
   `packagePeriod` lives in projects-api now; the man-day rule is one line, recorded here for that spec.
 - **R7 Per-person hours of people outside the team** (A49) reach the project manager. Accepted by the owner (A49); part of
   the labour-law sign-off O3 of specs/20261112-time-tracking (hours visible to someone other than the person).
+- **R8 A page open across Zurich midnight under-counts the hours used of a capacity package without an expiry** —
+  projects-api derives `currentPeriod` when the project is read, so that package's `to` is the Zurich day of the read
+  (`packagePeriod`, § Consumption), and projects-ui's `summaryRequestOf` (`projects-ui/src/lib/consumption.ts:107-118`,
+  T15) sends it as `windowTo`, which the summary takes only together with `windowFrom` (§ API contracts). Every later
+  read on that page — after a Record hours save (AC-2.8) or a Retry — asks the same window, so hours recorded on the new
+  day stay out of the consumption block until the page is reloaded: used too low, so left too high or "Over by" too
+  low, while the `hours.hostHours` panel's total in the same card, read without a window, includes them. AC-1.3's "up
+  to today" is the day of the read, and AC-2.8 holds for the panel, not for the block, in this case. Accepted and
+  documented by the owner's decision of 2026-11-27 (D85, A52). Rejected: computing the Zurich day in the browser for
+  that window (the day is the server's to decide, D-P3); letting `GET /time-entries/summary` take `windowFrom` alone (a
+  contract and hours-api change for a rare case); re-reading the project on every `operai:time-entry-recorded` naming
+  it, so `currentPeriod` refreshes (one more projects-api read per save, more than the case is worth for now) — **the
+  way out if the limitation ever matters**, a projects-ui change with no API change. Signal: a report of the block and
+  the panel's total disagreeing on a page not reloaded since before midnight; a reload corrects it.
 
 ## Security
 

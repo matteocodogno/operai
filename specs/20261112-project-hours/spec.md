@@ -12,8 +12,8 @@ depends-on: 20261103-projects, 20261103-projects-handoff, 20261104-meetings, 202
 # Project hours — time worked against what was sold
 
 Decision ledger: `../20261112-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-meeting-hours and
-specs/20261112-project-alerts; this spec's decisions are D10, D13, D22, D27 and D28, D78–D79 added when it was re-opened, D80 at design and D81–D84
-while deriving the tasks)
+specs/20261112-project-alerts; this spec's decisions are D10, D13, D22, D27 and D28, D78–D79 added when it was re-opened, D80 at design, D81–D84
+while deriving the tasks and D85 accepted by the owner on 2026-11-27)
 
 > **Origin.** Split out of specs/20261112-time-tracking on 2026-11-12 (ledger D11, D26). specs/20261112-time-tracking records time
 > entries; this spec puts a project's hours next to what its terms sold — the hour package, the
@@ -37,6 +37,11 @@ while deriving the tasks)
 > shows the hours it is exceeded by, as a positive figure (AC-1.1, D81); terms that sold nothing comparable show the total
 > only (AC-1.7, D82); an expired capacity package says so (AC-1.9, D83); and the hours figures of a project or deal page
 > follow a save made with Record hours on that page (AC-2.8, D84).
+>
+> **Amended 2026-11-27 while implementing** (the owner, D85): a known limitation is accepted, not a change of scope. A capacity
+> hour package without an expiry date is compared up to the Zurich day the page was loaded on, so a project page left open across
+> Zurich midnight leaves the hours recorded on the new day out of its consumption figures until it is reloaded (A52, AC-1.3,
+> AC-2.8). No acceptance criterion changes.
 
 ## Problem
 
@@ -182,6 +187,11 @@ includes the meetings with the client and the team. *(Added 2026-11-26, D78.)*
 - A50 The hours recorded on a deal do not count for the project made from it, nor the reverse.
 - A51 Before an hour package's start date no package period is current: the page shows the package with no consumption,
   and hours recorded before the start date count in no period.
+- A52 A capacity package without an expiry date is compared from its start date up to today (AC-1.3), and today is the
+  Europe/Zurich day Projects works out when the project page loads. If that page stays open across Zurich midnight and the
+  person then records hours from it with Record hours (AC-2.8), the hours on the new day are not in the page's consumption
+  figures until the page is reloaded, while the project's total hours (AC-2.1) include them. Nothing is lost and nothing is
+  wrong after a reload. Accepted by the owner on 2026-11-27 as a known limitation, not fixed by this spec (D85).
 
 ## Open questions
 
