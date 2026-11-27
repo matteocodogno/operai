@@ -478,7 +478,8 @@ function TeamDetailView({ id }: { id: string }) {
               {deactivatedCount > 0 && t.members.deactivatedCount(deactivatedCount)}
             </p>
 
-            <div className="flex flex-wrap items-end gap-3 mb-3">
+            {/* Top-aligned: the field has a hint under its input, so bottom alignment would put Add level with the hint. */}
+            <div className="flex flex-wrap items-start gap-3 mb-3">
               <div ref={pickerRef} className="min-w-64 flex-1">
                 <SearchPicker<UserSummary>
                   label={t.members.add.label}
@@ -505,17 +506,23 @@ function TeamDetailView({ id }: { id: string }) {
                   testId="team-member-picker"
                 />
               </div>
-              <Button
-                variant="secondary"
-                busy={add.busy}
-                disabled={!full && picked === null}
-                aria-disabled={full ? true : undefined}
-                aria-describedby={full ? fullId : undefined}
-                onClick={() => void handleAdd()}
-                data-testid="team-member-add"
-              >
-                {add.busy ? t.members.add.busy : t.members.add.button}
-              </Button>
+              <div className="field">
+                {/* The field's own label, invisible, so Add starts where the input starts in either language. */}
+                <span aria-hidden="true" className="field-label invisible">
+                  {t.members.add.label}
+                </span>
+                <Button
+                  variant="secondary"
+                  busy={add.busy}
+                  disabled={!full && picked === null}
+                  aria-disabled={full ? true : undefined}
+                  aria-describedby={full ? fullId : undefined}
+                  onClick={() => void handleAdd()}
+                  data-testid="team-member-add"
+                >
+                  {add.busy ? t.members.add.busy : t.members.add.button}
+                </Button>
+              </div>
             </div>
 
             {full && (
