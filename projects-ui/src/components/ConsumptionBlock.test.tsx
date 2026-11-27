@@ -187,7 +187,7 @@ describe('a package with a current period (AC-1.1, AC-1.2)', () => {
     expect(fact('Hours left')).toBe('120 h')
   })
 
-  it('at exactly the package it is used up: nothing left, and not over', async () => {
+  it('at exactly the package it is used up: nothing left and no excess (the state line says "Limit reached", AC-5.9)', async () => {
     answers(summary({ windowMinutes: 7200 }))
     mount(yearly(120))
 
@@ -210,7 +210,7 @@ describe('a package with a current period (AC-1.1, AC-1.2)', () => {
     expect(facts().textContent).not.toMatch(/[-−–]\s?4/)
   })
 
-  it('carries no colour and no badge for an exceeded package (the sign of the figure is the signal, D80)', async () => {
+  it('carries no badge for an exceeded package: "Expired" is a capacity package past its expiry only, and the signals are lines, not badges (D83, D86)', async () => {
     answers(summary({ windowMinutes: 9000 }))
     mount(yearly(120))
 

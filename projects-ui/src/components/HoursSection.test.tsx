@@ -468,6 +468,143 @@ describe('accessibility (design § Accessibility)', () => {
   })
 })
 
+describe('accessibility of the signals (design § Accessibility, S1.1; AC-5.10, AC-5.11)', () => {
+  // jsdom has no layout: contrast (the design's table, measured by QE on the rendered pixels) and the page-level region rule
+  // are the browser's to check; everything structural is here.
+  const axeViolations = async (container: Element): Promise<string[]> => {
+    const results = await axe.run(container, {
+      rules: { 'color-contrast': { enabled: false }, region: { enabled: false } },
+    })
+    return results.violations.map((v) => `${v.id}: ${v.nodes[0]?.target.join(' ')} (${v.help})`)
+  }
+
+  const day = (terms: Terms, asOf: string): Terms => ({ ...terms, asOf })
+  const yearlyOn = (asOf: string, endDate: string | null = null): Terms =>
+    day(
+      termsOf(
+        'maintenance',
+        {
+          sla: null,
+          hourPackage: {
+            hours: 120,
+            kind: 'yearly',
+            startDate: '2026-03-01',
+            expiryDate: null,
+            currentPeriod: { from: '2026-03-01', to: '2027-02-28', ended: false },
+          },
+        },
+        { endDate },
+      ),
+      asOf,
+    )
+  const capacityExpired = day(
+    termsOf('maintenance', {
+      sla: null,
+      hourPackage: {
+        hours: 120,
+        kind: 'capacity',
+        startDate: '2026-03-01',
+        expiryDate: '2026-09-30',
+        currentPeriod: { from: '2026-03-01', to: '2026-09-30', ended: true },
+      },
+    }),
+    '2026-11-27',
+  )
+  const fixedOver = day(
+    termsOf(
+      'fixed_price',
+      { deadline: '2026-10-31', estimatedManDays: 10, maxEffortManDays: 12 },
+      { endDate: '2026-12-20' },
+    ),
+    '2026-11-27',
+  )
+
+  it.each<[string, Terms, ProjectState, number | null, number]>([
+    ['on track, with the pace line and a bar with today', yearlyOn('2026-09-01'), 'active', 5070, 0],
+    ['close to the limit', yearlyOn('2026-09-01'), 'active', 5760, 0],
+    ['at exactly the limit: "Limit reached"', yearlyOn('2026-09-01'), 'active', 7200, 0],
+    [
+      'over beyond 125 %, with the striped part and a near end date',
+      yearlyOn('2026-09-01', '2026-09-20'),
+      'active',
+      12960,
+      0,
+    ],
+    [
+      'a fixed price over, with the estimate mark, a passed deadline and a near end date',
+      fixedOver,
+      'active',
+      null,
+      6480,
+    ],
+    ['an expired capacity package: no state, a neutral bar', capacityExpired, 'active', 8430, 0],
+    ['a closed project: no state, no date line', fixedOver, 'closed', null, 6480],
+  ])('has no axe violation: %s', async (_name, terms, state, windowMinutes, totalMinutes) => {
+    serve(() => ({ status: 200, body: summary({ windowMinutes, totalMinutes: totalMinutes || 6000 }) }))
+    const HoursSection = await load(() => ({ HostExtension: hostExtension }))
+    const { container } = render(<HoursSection projectId="p1" terms={terms} state={state} />)
+    await screen.findByTestId('host-hours-panel')
+    await screen.findByTestId('project-hours-consumption-facts')
+
+    expect(screen.getByTestId('project-hours-consumption-bar').getAttribute('aria-hidden')).toBe('true')
+    expect(await axeViolations(container)).toEqual([])
+  })
+
+  it('has no axe violation for the date lines alone (terms of an SLA), and with the block unavailable and the lines under the warning', async () => {
+    const HoursSection = await load(() => ({ HostExtension: hostExtension }))
+    const sla = day(
+      termsOf('maintenance', { sla: { highDays: 1, normalDays: 3 }, hourPackage: null }, { endDate: '2026-11-30' }),
+      '2026-11-27',
+    )
+    const first = render(<HoursSection projectId="p1" terms={sla} state="active" />)
+    await screen.findByTestId('project-hours-consumption-date-end-date')
+    expect(await axeViolations(first.container)).toEqual([])
+    first.unmount()
+
+    serve(() => problem(503, 'host_unavailable'))
+    const second = render(<HoursSection projectId="p1" terms={fixedOver} state="active" />)
+    await screen.findByTestId('project-hours-consumption-unavailable')
+    expect(screen.getByTestId('project-hours-consumption-date-deadline')).not.toBeNull()
+    expect(await axeViolations(second.container)).toEqual([])
+  })
+
+  it('has no axe violation while the hours load, with the date lines under the skeleton', async () => {
+    apiFetch.mockImplementation(() => new Promise(() => undefined))
+    const HoursSection = await load(() => ({ HostExtension: hostExtension }))
+    const { container } = render(<HoursSection projectId="p1" terms={fixedOver} state="active" />)
+
+    expect(screen.getByText('Loading consumption…')).not.toBeNull()
+    expect(screen.getByTestId('project-hours-consumption-date-deadline')).not.toBeNull()
+    expect(await axeViolations(container)).toEqual([])
+  })
+
+  it('reads the card in an order a screen reader follows: the facts, the state, the pace line, the date lines, then the panel; the bar is skipped', async () => {
+    serve(() => ({ status: 200, body: summary({ windowMinutes: 5760 }) }))
+    const HoursSection = await load(() => ({ HostExtension: hostExtension }))
+    render(<HoursSection projectId="p1" terms={yearlyOn('2026-09-01', '2026-09-20')} state="active" />)
+    await screen.findByTestId('host-hours-panel')
+    await screen.findByTestId('project-hours-consumption-facts')
+
+    const order = [
+      screen.getByTestId('project-hours-consumption-facts'),
+      screen.getByTestId('project-hours-consumption-state'),
+      screen.getByTestId('project-hours-consumption-bar'),
+      screen.getByTestId('project-hours-consumption-pace'),
+      screen.getByTestId('project-hours-consumption-date-end-date'),
+      screen.getByTestId('project-hours-divider'),
+      screen.getByTestId('host-hours-panel'),
+    ]
+    for (let index = 0; index < order.length - 1; index += 1) {
+      expect(
+        order[index]!.compareDocumentPosition(order[index + 1]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+        `${index}`,
+      ).toBeTruthy()
+    }
+    // Nothing the signals add is in the tab order: the only stops are the card's own controls.
+    expect(card().querySelectorAll('[tabindex]:not([tabindex="-1"]), button, a[href]')).toHaveLength(0)
+  })
+})
+
 describe('the divider and the project state (AC-1.7 amended, AC-5.24, AC-5.26; plan D-P9): one rule says whether there is a block', () => {
   /** SLA-only terms with an end date and the Europe/Zurich day projects-api derived them for. */
   const ending = (endDate: string | null): Terms => ({
@@ -481,15 +618,27 @@ describe('the divider and the project state (AC-1.7 amended, AC-5.24, AC-5.26; p
   }
 
   it.each([
-    ['an end date that has passed', '2026-11-26'],
-    ['an end date that is today', '2026-11-27'],
-    ['an end date 30 days ahead', '2026-12-27'],
+    ['an end date that has passed', '2026-11-26', 'End date passed 1 day ago'],
+    ['an end date that is today', '2026-11-27', 'End date is today'],
+    ['an end date 30 days ahead', '2026-12-27', 'End date in 30 days'],
   ])(
-    'terms of an SLA and no hour package with %s: the divider is drawn, and nothing is read from hours-api',
-    async (_label, endDate) => {
+    'terms of an SLA and no hour package with %s: the block is its date line alone, then the divider and the panel, and nothing is read from hours-api',
+    async (_label, endDate, words) => {
       await draws(ending(endDate), 'active')
 
-      expect(screen.getByTestId('project-hours-divider')).not.toBeNull()
+      const block = screen.getByTestId('project-hours-consumption')
+      const line = within(block).getByTestId('project-hours-consumption-date-end-date')
+      expect(line.textContent).toContain(words)
+      // The date line alone: no figure, no state, no bar, no pace line.
+      expect(screen.queryByTestId('project-hours-consumption-facts')).toBeNull()
+      expect(screen.queryByTestId('project-hours-consumption-state')).toBeNull()
+      expect(screen.queryByTestId('project-hours-consumption-bar')).toBeNull()
+      expect(screen.queryByTestId('project-hours-consumption-pace')).toBeNull()
+      const divider = screen.getByTestId('project-hours-divider')
+      expect(block.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(
+        divider.compareDocumentPosition(screen.getByTestId('host-hours-panel')) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
       expect(reads()).toBe(0)
     },
   )
@@ -510,6 +659,7 @@ describe('the divider and the project state (AC-1.7 amended, AC-5.24, AC-5.26; p
       await draws(ending('2026-11-26'), state)
 
       expect(screen.queryByTestId('project-hours-divider')).toBeNull()
+      expect(screen.queryByTestId('project-hours-consumption')).toBeNull()
     },
   )
 
@@ -530,6 +680,7 @@ describe('no money anywhere (AC-1.8)', () => {
     for (const file of [
       './HoursSection.tsx',
       './ConsumptionBlock.tsx',
+      './ConsumptionBar.tsx',
       '../lib/consumption.ts',
       '../lib/hoursApi.ts',
     ]) {

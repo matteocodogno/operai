@@ -1,3 +1,28 @@
+/**
+ * A whole figure as a sentence takes it (specs/20261112-project-hours US-5, design § Copy): `n` is the integer — the plural
+ * of "day", the Italian article — and `text` the same figure already formatted by `formatNumber` ("82%", "27"), so a sentence
+ * never formats and never reads the figure from its own text.
+ */
+export type Count = { n: number; text: string }
+
+/**
+ * The Italian article an integer takes when it is said: `lo` before "zero", `l’` before the numbers that start on a vowel
+ * ("uno", "otto", "undici", "ottanta…", "ottocento…"), `il` before every other ("il sessantacinque", "il cento", "il
+ * mille"). From a thousand the word is the one of the thousands: "ottomila" takes `l’`, "duemila" `il`, and "mille" `il`.
+ * It reads the integer, never the formatted text around it, which a locale may group or space.
+ */
+const spokenArticle = (n: number): 'lo' | 'l’' | 'il' => {
+  if (n >= 1000) return n < 2000 ? 'il' : spokenArticle(Math.floor(n / 1000))
+  if (n === 0) return 'lo'
+  return n === 1 || n === 8 || n === 11 || (n >= 80 && n <= 89) || (n >= 800 && n <= 899) ? 'l’' : 'il'
+}
+
+/** The article and the figure: "lo 0%", "l’1%", "il 65%". */
+const il = (count: Count): string => {
+  const article = spokenArticle(count.n)
+  return `${article}${article === 'l’' ? '' : ' '}${count.text}`
+}
+
 /** The project page: details, state actions, project manager and team (T13); the awaiting state and the pick of its project manager (T30, T32). */
 const en = {
   back: 'Back to projects',
@@ -134,6 +159,45 @@ const en = {
     manDaysUsed: 'Man-days used',
     fixedPriceNote: 'Counts all the hours recorded on the project. One man-day is 8 hours.',
     timeAndMaterialNote: 'Compared with the total of all positions. One man-day is 8 hours.',
+    /**
+     * The signals (US-5, design S1.1): the state of the consumption, in words. Three states, four wordings: an `over` share
+     * says `limitReached` when it has no excess (the hours used equal the reference exactly) and `over` when it has one (D95).
+     */
+    state: {
+      onTrack: 'On track',
+      closeToLimit: 'Close to the limit',
+      over: 'Over the limit',
+      limitReached: 'Limit reached',
+    },
+    /** `value` is `formatNumber(0.1, one decimal)`: the excess of a man-day figure that would round to 0.0 (AC-5.13). */
+    excess: {
+      lessThanOneTenth: (value: string) => `Less than ${value} man-day`,
+    },
+    /** The pace line: what was used and, when the terms have a span with an end, how much of it has gone (AC-5.18, AC-5.19). It judges nothing. */
+    pace: {
+      hours: (used: Count) => `Used ${used.text} of the hours`,
+      hoursElapsed: (used: Count, elapsed: Count) =>
+        `Used ${used.text} of the hours with ${elapsed.text} of the period elapsed`,
+      maxEffort: (used: Count) => `Used ${used.text} of the max effort`,
+      maxEffortElapsed: (used: Count, elapsed: Count) =>
+        `Used ${used.text} of the max effort with ${elapsed.text} of the time to the deadline elapsed`,
+      plannedManDays: (used: Count) => `Used ${used.text} of the planned man-days`,
+    },
+    /** The two marks the bar labels: its scale's own labels are formatted numbers. */
+    bar: { today: 'Today', estimate: 'Estimate' },
+    /** The date lines (AC-5.21–5.23): which date, and that it has passed or is near; the date itself sits beside them. */
+    dates: {
+      deadline: {
+        passed: (days: Count) => `Deadline passed ${days.text} ${days.n === 1 ? 'day' : 'days'} ago`,
+        today: 'Deadline is today',
+        near: (days: Count) => `Deadline in ${days.text} ${days.n === 1 ? 'day' : 'days'}`,
+      },
+      endDate: {
+        passed: (days: Count) => `End date passed ${days.text} ${days.n === 1 ? 'day' : 'days'} ago`,
+        today: 'End date is today',
+        near: (days: Count) => `End date in ${days.text} ${days.n === 1 ? 'day' : 'days'}`,
+      },
+    },
   },
   team: {
     title: 'Team',
@@ -356,6 +420,37 @@ const it: typeof en = {
     manDaysUsed: 'Giornate usate',
     fixedPriceNote: 'Conta tutte le ore registrate sul progetto. Una giornata equivale a 8 ore.',
     timeAndMaterialNote: 'Confrontato con il totale di tutte le posizioni. Una giornata equivale a 8 ore.',
+    state: {
+      onTrack: 'In linea',
+      closeToLimit: 'Vicino al limite',
+      over: 'Oltre il limite',
+      limitReached: 'Limite raggiunto',
+    },
+    excess: {
+      lessThanOneTenth: (value: string) => `Meno di ${value} giornate`,
+    },
+    pace: {
+      hours: (used: Count) => `Usato ${il(used)} delle ore`,
+      hoursElapsed: (used: Count, elapsed: Count) =>
+        `Usato ${il(used)} delle ore con ${il(elapsed)} del periodo trascorso`,
+      maxEffort: (used: Count) => `Usato ${il(used)} dell’impegno massimo`,
+      maxEffortElapsed: (used: Count, elapsed: Count) =>
+        `Usato ${il(used)} dell’impegno massimo con ${il(elapsed)} del tempo fino alla scadenza trascorso`,
+      plannedManDays: (used: Count) => `Usato ${il(used)} delle giornate previste`,
+    },
+    bar: { today: 'Oggi', estimate: 'Stima' },
+    dates: {
+      deadline: {
+        passed: (days: Count) => `Scadenza superata da ${days.text} ${days.n === 1 ? 'giorno' : 'giorni'}`,
+        today: 'La scadenza è oggi',
+        near: (days: Count) => `Scadenza tra ${days.text} ${days.n === 1 ? 'giorno' : 'giorni'}`,
+      },
+      endDate: {
+        passed: (days: Count) => `Data di fine superata da ${days.text} ${days.n === 1 ? 'giorno' : 'giorni'}`,
+        today: 'La data di fine è oggi',
+        near: (days: Count) => `Data di fine tra ${days.text} ${days.n === 1 ? 'giorno' : 'giorni'}`,
+      },
+    },
   },
   team: {
     title: 'Team',

@@ -214,6 +214,43 @@ describe("the card is given the project's own state (AC-5.26, plan § API contra
     expect(screen.getByTestId('project-hours-divider')).not.toBeNull()
   })
 
+  it("says the day count from the day the page read with the terms (asOf), and nothing of this machine's clock (AC-5.29)", async () => {
+    await renderProject(projectDetail({ id: 'p1', state: 'active', type: 'maintenance', terms: endedYesterday }))
+
+    const line = await screen.findByTestId('project-hours-consumption-date-end-date')
+
+    expect(line.textContent).toContain('End date passed 1 day ago')
+    expect(line.textContent).toContain('26.11.2026')
+  })
+
+  /** A fixed price 9 h over its 1.0 man-day max effort, on a day with a near deadline. */
+  const overBudget: Terms = {
+    ...termsOf('fixed_price', { deadline: '2026-12-01', estimatedManDays: 0.9, maxEffortManDays: 1 }),
+    asOf: '2026-11-27',
+  }
+  const nineHours = {
+    [`GET ${SUMMARY}`]: () => ({ status: 200, body: summary({ totalMinutes: 540, windowMinutes: null }) }),
+  }
+
+  it('an active project says its state, its percentage and its dates', async () => {
+    await renderProject(projectDetail({ id: 'p1', state: 'active', type: 'fixed_price', terms: overBudget }), nineHours)
+
+    expect((await screen.findByTestId('project-hours-consumption-state')).textContent).toBe('Over the limit')
+    expect(screen.getByTestId('project-hours-consumption-percent').textContent).toBe('112%')
+    expect(screen.getByTestId('project-hours-consumption-date-deadline').textContent).toContain('Deadline in 4 days')
+  })
+
+  it.each<Project['state']>(['closed', 'cancelled'])(
+    'the same project once it is %s says no state and no date, and keeps its percentage',
+    async (state) => {
+      await renderProject(projectDetail({ id: 'p1', state, type: 'fixed_price', terms: overBudget }), nineHours)
+
+      expect((await screen.findByTestId('project-hours-consumption-percent')).textContent).toBe('112%')
+      expect(screen.queryByTestId('project-hours-consumption-state')).toBeNull()
+      expect(screen.queryByTestId('project-hours-consumption-date-deadline')).toBeNull()
+    },
+  )
+
   it.each<Project['state']>(['closed', 'cancelled'])(
     'the same project once it is %s has no block: the card holds the panel alone',
     async (state) => {
