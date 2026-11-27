@@ -234,12 +234,19 @@ describe("a filter outside its rule is a 400 naming it, and nobody is asked (AC-
   });
 
   it("takes an id of exactly 64 characters, and one holding what only needs escaping", async () => {
-    // A well-formed `dealId` is asked of meetings-api; the fake answers it, with no meeting linked, as the real one does.
+    // A well-formed `dealId` or `projectId` is asked of meetings-api (specs/20261112-project-hours AC-4.4); the fake answers it, with no meeting linked, as the real one does.
     for (const filter of FILTERS) {
       expect((await totals(`groupBy=day&${NOVEMBER}&${filter}=${"x".repeat(64)}`)).status).toBe(200);
       expect((await totals(`groupBy=day&${NOVEMBER}&${filter}=${encodeURIComponent("a&b#c+d%e f")}`)).status).toBe(200);
     }
-    expect(hosts.callsTo("meetings.system-hosts").map((recorded) => recorded.query.get("dealId"))).toEqual(["x".repeat(64), "a&b#c+d%e f"]);
+    for (const member of ["dealId", "projectId"]) {
+      expect(
+        hosts
+          .callsTo("meetings.system-hosts")
+          .filter((recorded) => recorded.query.has(member))
+          .map((recorded) => recorded.query.get(member)),
+      ).toEqual(["x".repeat(64), "a&b#c+d%e f"]);
+    }
   });
 
   it("refuses a target that is not one of the four, and a whose that is not mine or all", async () => {

@@ -8,13 +8,13 @@
  * (src/lib/errors.ts). `readFilters` then holds what depends on two members together (the span, `userId` and
  * `whose`). Both are decided from the request alone, before any `auth`, owner or database call.
  *
- * `entryWhere` turns the filters into the database's question. The `dealId` filter is the one that asks another
- * service first: the meetings linked to the deal NOW (AC-2.6), which no entry stores.
+ * `entryWhere` turns the filters into the database's question. The `dealId` and `projectId` filters are the ones that ask another
+ * service first: the meetings linked to the deal or the project NOW (AC-2.6; specs/20261112-project-hours AC-4.4), which no entry stores.
  */
 
 import { createHash } from "node:crypto";
 import { z } from "@hono/zod-openapi";
-import { readMeetingsLinkedToDeal } from "../clients/meetings";
+import { readMeetingsLinkedToDeal, readMeetingsLinkedToProject, type LinkedMeetings } from "../clients/meetings";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { ProblemError } from "../lib/problem";
 import { IdSchema, isWellFormedId } from "../lists/idRule";
@@ -45,7 +45,10 @@ export const filterShape = {
   }),
   userId: IdSchema.optional().openapi({ description: "One person's entries. Only with `whose=all`" }),
   target: z.enum(TARGETS).optional().openapi({ description: "What the entry is on: its own kind (a meeting entry is `meeting`, whatever deal the meeting is linked to)" }),
-  projectId: IdSchema.optional().openapi({ description: "Entries on this project" }),
+  projectId: IdSchema.optional().openapi({
+    description:
+      "Entries on this project, and entries on the meetings currently linked to it. Refused 503 `host_unavailable` while meetings-api cannot say which meetings those are",
+  }),
   dealId: IdSchema.optional().openapi({
     description: "Entries on this deal, and entries on the meetings currently linked to it. Refused 503 `host_unavailable` while meetings-api cannot say which meetings those are",
   }),
@@ -92,24 +95,49 @@ export function readFilters(query: FilterQuery): EntryFilters {
 
 // ─── The database's question ─────────────────────────────────────────────────
 
+/** What a filter that counts linked meetings hands back: the database's question, and the meetings it was built from. */
+interface LinkedCondition {
+  readonly condition: Prisma.TimeEntryWhereInput;
+  readonly meetingIds: readonly string[];
+}
+
 /**
- * What "on this deal" means: the entries on the deal itself, plus the entries on the meetings linked to it NOW
- * (AC-2.6). The link is not stored on an entry, so a relinked meeting's hours move with it, and only meetings-api
- * can say which meetings those are (its system route, hours-api's own credential, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
- *
- * When it cannot, the whole read is refused (AC-4.11, D45): a deal's figures are never shown low. The deal
- * filter is the one place this API prefers an error to a partial answer.
+ * "On this record" for a deal or a project: the entries on the record itself (`own`), plus the entries on the meetings linked to it NOW, which
+ * only meetings-api can say. When it cannot, the whole read is refused (AC-4.11, D45; specs/20261112-project-hours AC-4.8, AC-4.9): a record's
+ * figures are never shown low. These filters are the one place this API prefers an error to a partial answer.
  */
-async function dealCondition(dealId: string): Promise<{ condition: Prisma.TimeEntryWhereInput; meetingIds: readonly string[] }> {
-  const linked = await readMeetingsLinkedToDeal(dealId);
+function linkedCondition(own: Prisma.TimeEntryWhereInput, linked: LinkedMeetings, what: "deal" | "project"): LinkedCondition {
   if (linked.state === "unavailable") {
-    throw hostUnavailable("Meetings could not say which meetings are linked to this deal, so the deal's hours are not shown");
+    throw hostUnavailable(`Meetings could not say which meetings are linked to this ${what}, so the ${what}'s hours are not shown`);
   }
   // An entry's meeting id passed the id rule when it was written, so an id outside it names no entry of ours:
   // dropping it loses nothing, and a NUL in it would otherwise reach Postgres `text` (a 500).
   const meetingIds = linked.meetingIds.filter(isWellFormedId);
-  return { condition: { OR: [{ dealId }, ...(meetingIds.length > 0 ? [{ meetingId: { in: meetingIds } }] : [])] }, meetingIds };
+  return { condition: { OR: [own, ...(meetingIds.length > 0 ? [{ meetingId: { in: meetingIds } }] : [])] }, meetingIds };
 }
+
+/**
+ * What "on this deal" means: the entries on the deal itself, plus the entries on the meetings linked to it NOW (AC-2.6). The link is not stored
+ * on an entry, so a relinked meeting's hours move with it, and only meetings-api can say which meetings those are (its system route, hours-api's
+ * own credential, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
+ */
+export async function dealCondition(dealId: string): Promise<LinkedCondition> {
+  return linkedCondition({ dealId }, await readMeetingsLinkedToDeal(dealId), "deal");
+}
+
+/**
+ * What "on this project" means (specs/20261112-project-hours AC-4.1, AC-4.2, AC-4.4, D78): the deal's twin. The entries on the project
+ * itself, plus the entries on the meetings linked to it NOW, whoever recorded them and whether or not that person is on the team. A meeting has
+ * one host, so a meeting's hours count for a deal or for a project, never both.
+ */
+export async function projectCondition(projectId: string): Promise<LinkedCondition> {
+  return linkedCondition({ projectId }, await readMeetingsLinkedToProject(projectId), "project");
+}
+
+const meetingsKeyOf = (prefix: string, meetingIds: readonly string[]): string => {
+  const joined = [...new Set(meetingIds)].sort().join(",");
+  return createHash("sha256").update(`${prefix}${joined}`, "utf8").digest("base64url").slice(0, 11);
+};
 
 /**
  * A short, stable name for the set of meetings linked to a deal: the first 66 bits of the SHA-256 of the sorted,
@@ -118,15 +146,25 @@ async function dealCondition(dealId: string): Promise<{ condition: Prisma.TimeEn
  * instead of being filtered against another set than the pages before it.
  */
 export function dealMeetingsKey(meetingIds: readonly string[]): string {
-  const joined = [...new Set(meetingIds)].sort().join(",");
-  return createHash("sha256").update(joined, "utf8").digest("base64url").slice(0, 11);
+  return meetingsKeyOf("", meetingIds);
 }
 
-/** What `entryQuery` hands back: the database's question, and (under a `dealId` filter) the key of the deal's meetings. */
+/**
+ * The same for a project (specs/20261112-project-hours D78), with the hash taken over `project:` in front of the ids: the key of a project's
+ * meetings is never the key of a deal's, even when both name the same set (or none), so a cursor minted under one filter is refused, not
+ * taken, under the other.
+ */
+export function projectMeetingsKey(meetingIds: readonly string[]): string {
+  return meetingsKeyOf("project:", meetingIds);
+}
+
+/** What `entryQuery` hands back: the database's question, and (under a `dealId` / `projectId` filter) the key of the meetings it counted. */
 export interface EntryQuery {
   readonly where: Prisma.TimeEntryWhereInput;
   /** `dealMeetingsKey` of the meetings linked to the deal NOW; `null` without a `dealId` filter. */
   readonly dealMeetings: string | null;
+  /** `projectMeetingsKey` of the meetings linked to the project NOW; `null` without a `projectId` filter. */
+  readonly projectMeetings: string | null;
 }
 
 /**
@@ -137,18 +175,25 @@ export async function entryWhere(filters: EntryFilters, scope: EntryScope): Prom
   return (await entryQuery(filters, scope)).where;
 }
 
-/** `entryWhere`, plus the key of the deal's meetings the question was built from (the list's cursor carries it). */
+/** `entryWhere`, plus the keys of the meetings the question was built from (the list's cursor carries them). */
 export async function entryQuery(filters: EntryFilters, scope: EntryScope): Promise<EntryQuery> {
-  const forDeal = filters.dealId === undefined ? undefined : await dealCondition(filters.dealId);
+  const [forDeal, forProject] = await Promise.all([
+    filters.dealId === undefined ? undefined : dealCondition(filters.dealId),
+    filters.projectId === undefined ? undefined : projectCondition(filters.projectId),
+  ]);
+  const linked = [forDeal, forProject].flatMap((found) => (found === undefined ? [] : [found.condition]));
   const where: Prisma.TimeEntryWhereInput = {
     ...(scope.kind === "person" ? { userId: scope.userId } : {}),
-    ...(forDeal !== undefined ? { AND: [forDeal.condition] } : {}),
+    ...(linked.length > 0 ? { AND: linked } : {}),
     day: { gte: dayDate(filters.from), lte: dayDate(filters.to) },
     ...(filters.target !== undefined ? { target: filters.target } : {}),
-    ...(filters.projectId !== undefined ? { projectId: filters.projectId } : {}),
     ...(filters.meetingId !== undefined ? { meetingId: filters.meetingId } : {}),
     ...(filters.categoryId !== undefined ? { categoryId: filters.categoryId } : {}),
     ...(filters.workTypeId !== undefined ? { workTypeId: filters.workTypeId } : {}),
   };
-  return { where, dealMeetings: forDeal === undefined ? null : dealMeetingsKey(forDeal.meetingIds) };
+  return {
+    where,
+    dealMeetings: forDeal === undefined ? null : dealMeetingsKey(forDeal.meetingIds),
+    projectMeetings: forProject === undefined ? null : projectMeetingsKey(forProject.meetingIds),
+  };
 }

@@ -35,34 +35,38 @@ const isLimit = (text: string): boolean => /^[1-9]\d{0,2}$/.test(text) && Number
 
 /**
  * Where a page ended: the last item's day, createdAt (epoch milliseconds) and id — and, under a `dealId` filter, the
- * key of the meetings linked to the deal when that page was read (`dealMeetingsKey`, src/entries/filters.ts).
+ * key of the meetings linked to the deal when that page was read (`dealMeetingsKey`, src/entries/filters.ts), and under a
+ * `projectId` filter the key of the meetings linked to the project (`projectMeetingsKey`).
  */
 interface Position {
   readonly day: string;
   readonly createdAtMs: number;
   readonly id: string;
   readonly dealMeetings: string | null;
+  readonly projectMeetings: string | null;
 }
 
 const CURSOR_MAX_LENGTH = 200;
 const CURSOR_ALPHABET = /^[A-Za-z0-9_-]+$/;
 /** createdAt is `TIMESTAMP(3)`: whole milliseconds, written as exactly 13 digits (1970 to 2286, so every instant the column can hold). */
 const EPOCH_MS = /^\d{13}$/;
-/** `dealMeetingsKey`'s shape: 11 base64url characters. */
-const DEAL_MEETINGS_KEY = /^[A-Za-z0-9_-]{11}$/;
+/** `dealMeetingsKey`'s and `projectMeetingsKey`'s shape: 11 base64url characters. */
+const MEETINGS_KEY = /^[A-Za-z0-9_-]{11}$/;
 
 /**
  * `base64url("<day>|<13-digit epoch ms>|<id>")` of an entry: the position `GET /time-entries` continues after. Under a
- * `dealId` filter a fourth part, `|<dealMeetingsKey>`, names the deal's meetings the page was filtered against.
+ * `dealId` filter a further part, `|<dealMeetingsKey>`, names the deal's meetings the page was filtered against; under a
+ * `projectId` filter another, `|<projectMeetingsKey>`, follows it (after the deal's when a query names both).
  */
 export function mintCursor(
   row: { readonly day: Date; readonly createdAt: Date; readonly id: string },
   dealMeetings: string | null = null,
+  projectMeetings: string | null = null,
 ): string {
   const day = row.day.toISOString().slice(0, 10);
   const createdAt = String(row.createdAt.getTime()).padStart(13, "0");
-  const text = `${day}|${createdAt}|${row.id}${dealMeetings === null ? "" : `|${dealMeetings}`}`;
-  return Buffer.from(text, "utf8").toString("base64url");
+  const keys = [dealMeetings, projectMeetings].flatMap((key) => (key === null ? [] : [`|${key}`])).join("");
+  return Buffer.from(`${day}|${createdAt}|${row.id}${keys}`, "utf8").toString("base64url");
 }
 
 /**
@@ -72,18 +76,21 @@ export function mintCursor(
  * day inside `from..to`, 13 digits, and an id inside the id rule. Checked in full before anything reaches the
  * database: a NUL would be a 500 in `text`, an impossible day a 500 in `date`.
  */
-function readCursor(cursor: string, from: string, to: string, withDeal: boolean): Position | null {
+function readCursor(cursor: string, from: string, to: string, withDeal: boolean, withProject: boolean): Position | null {
   if (cursor.length > CURSOR_MAX_LENGTH || !CURSOR_ALPHABET.test(cursor)) return null;
   const text = Buffer.from(cursor, "base64url").toString("utf8");
   if (Buffer.from(text, "utf8").toString("base64url") !== cursor) return null;
   const parts = text.split("|");
-  // A cursor minted under a `dealId` filter has four parts, any other three: one is never taken for the other.
-  if (parts.length !== (withDeal ? 4 : 3)) return null;
-  const [day, createdAt, id, dealMeetings] = parts as [string, string, string, string | undefined];
+  // A cursor minted under a `dealId` filter has one part more than a plain one, under a `projectId` filter another (the deal's first):
+  // one is never taken for another.
+  if (parts.length !== 3 + (withDeal ? 1 : 0) + (withProject ? 1 : 0)) return null;
+  const [day, createdAt, id, ...keys] = parts as [string, string, string, ...string[]];
   if (!isCalendarDay(day) || day < from || day > to) return null;
   if (!EPOCH_MS.test(createdAt) || !isWellFormedId(id)) return null;
-  if (dealMeetings !== undefined && !DEAL_MEETINGS_KEY.test(dealMeetings)) return null;
-  return { day, createdAtMs: Number(createdAt), id, dealMeetings: dealMeetings ?? null };
+  if (!keys.every((key) => MEETINGS_KEY.test(key))) return null;
+  const dealMeetings = withDeal ? (keys.shift() ?? null) : null;
+  const projectMeetings = withProject ? (keys.shift() ?? null) : null;
+  return { day, createdAtMs: Number(createdAt), id, dealMeetings, projectMeetings };
 }
 
 /** The rows strictly after `position` in the list's order (`day desc, createdAt desc, id desc`). */
@@ -145,12 +152,13 @@ const listEntriesRoute = createRoute({
     403: problemDoc("`read_all_required`: `whose=all` or a `userId` without `time-entry:read-all`"),
     409: problemDoc(
       "`deal_meetings_changed`: with a `dealId` filter and a `cursor`, the meetings linked to the deal are no longer those of the first page. " +
-        "Read the list again without a cursor: a walk never mixes two sets of the deal's meetings",
+        "`project_meetings_changed`: the same for a `projectId` filter and the meetings linked to the project. " +
+        "Read the list again without a cursor: a walk never mixes two sets of a record's meetings",
     ),
     503: problemDoc(
       "`authz_unavailable`: `whose=all` or a `userId`, and `auth` could not say whether the caller holds `time-entry:read-all` (never allowed, AC-5.4). " +
-        "`host_unavailable`: with a `dealId` filter, meetings-api could not say which meetings are linked to the deal. " +
-        "Nothing partial is returned: a deal's hours are never shown low",
+        "`host_unavailable`: with a `dealId` or a `projectId` filter, meetings-api could not say which meetings are linked to the deal or the project. " +
+        "Nothing partial is returned: a deal's or a project's hours are never shown low",
     ),
   },
 });
@@ -163,22 +171,25 @@ entryListRouter.openapi(listEntriesRoute, async (c) => {
   // After the period: a cursor's day is judged against `from..to`, which must hold first.
   let position: Position | null = null;
   if (query.cursor !== undefined) {
-    position = readCursor(query.cursor, filters.from, filters.to, filters.dealId !== undefined);
+    position = readCursor(query.cursor, filters.from, filters.to, filters.dealId !== undefined, filters.projectId !== undefined);
     if (position === null) throw invalidRequest("cursor", "is not a cursor this API returned");
   }
   const limit = query.limit === undefined ? DEFAULT_LIMIT : Number(query.limit);
   const authorization = c.req.header("Authorization") ?? "";
 
   // Everything the request alone decides is decided by now, so nothing malformed ever costs a call to `auth`.
-  // Whose entries are read is decided next (the oversight check for `whose=all`), then the `dealId` filter asks
+  // Whose entries are read is decided next (the oversight check for `whose=all`), then the `dealId` and `projectId` filters ask
   // meetings-api: a caller who may not read everyone's hours never makes hours-api ask it anything.
   const userId = c.get("userId");
   const scope = await readScope(filters, { sub: userId, permEpoch: c.get("permEpoch"), authorization });
-  const { where, dealMeetings } = await entryQuery(filters, scope);
-  // The deal's meetings are asked again on every page; when they are no longer the ones the walk began with, its
+  const { where, dealMeetings, projectMeetings } = await entryQuery(filters, scope);
+  // The deal's and the project's meetings are asked again on every page; when they are no longer the ones the walk began with, its
   // pages would be filtered against two different sets, so the page is refused and the walk starts over.
   if (position !== null && position.dealMeetings !== dealMeetings) {
     throw conflict("deal_meetings_changed", "The meetings linked to this deal changed since the first page: read the list again from the start");
+  }
+  if (position !== null && position.projectMeetings !== projectMeetings) {
+    throw conflict("project_meetings_changed", "The meetings linked to this project changed since the first page: read the list again from the start");
   }
   const rows = await db.timeEntry.findMany({
     where: position === null ? where : { AND: [where, after(position)] },
@@ -190,5 +201,5 @@ entryListRouter.openapi(listEntriesRoute, async (c) => {
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];
   const { items, unavailable } = await viewEntries(authorization, page, userId);
-  return c.json({ items, nextCursor: rows.length > limit && last !== undefined ? mintCursor(last, dealMeetings) : null, unavailable }, 200);
+  return c.json({ items, nextCursor: rows.length > limit && last !== undefined ? mintCursor(last, dealMeetings, projectMeetings) : null, unavailable }, 200);
 });
