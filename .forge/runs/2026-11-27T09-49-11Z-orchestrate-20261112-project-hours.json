@@ -1,0 +1,275 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.61.0",
+  "run_id": "2026-11-27T09-49-11Z-orchestrate-20261112-project-hours",
+  "command": "orchestrate",
+  "feature": "20261112-project-hours",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "pipeline": "feature (US-5: signals on the consumption block), gate 1 re-opened by the owner: 30 → 59 ACs",
+  "started": "2026-11-27T09:49:11Z",
+  "finished": "2026-11-27T15:14:42Z",
+  "agents": [
+    {
+      "agent": "orchestrator (main loop)",
+      "artifact": "design options A/B/C (canvas, artifact) for the owner; owner chose C and to put it in this spec",
+      "outcome": "completed"
+    },
+    {
+      "agent": "product-owner",
+      "artifact": "spec.md re-opened for US-5 (AC-5.1–5.29), ledger D86–D91",
+      "outcome": "completed"
+    },
+    {
+      "agent": "product-owner",
+      "artifact": "spec.md: owner answers O5, O6, A55 folded (D92–D94)",
+      "outcome": "completed",
+      "gate": "gate 1 approved by the owner 2026-11-27",
+      "commits": [
+        "66a6d077"
+      ]
+    },
+    {
+      "agent": "architect",
+      "artifact": "plan.md seventh amendment (asOf, ConsumptionBar, R9–R12)",
+      "outcome": "completed"
+    },
+    {
+      "agent": "designer",
+      "artifact": "design.md US-5 amendment (option C, S1.1, G7–G12)",
+      "outcome": "completed"
+    },
+    {
+      "agent": "architect",
+      "artifact": "plan.md: designer gaps G7, G8 folded (AC-5.11 row, shell rebuilt from the release commit, R13)",
+      "outcome": "completed"
+    },
+    {
+      "agent": "product-owner",
+      "artifact": "spec.md AC-5.9 for D95",
+      "outcome": "completed",
+      "commits": [
+        "938b36ae"
+      ]
+    },
+    {
+      "agent": "designer",
+      "artifact": "design.md: G9 copy (Limit reached), G8 widened, G7–G11 resolved",
+      "outcome": "completed",
+      "commits": [
+        "938b36ae"
+      ]
+    },
+    {
+      "agent": "architect",
+      "artifact": "plan.md AC-5.9 test row for D95",
+      "outcome": "completed",
+      "gate": "gate 2 approved by the owner 2026-11-27",
+      "commits": [
+        "938b36ae"
+      ]
+    },
+    {
+      "agent": "adr-writer",
+      "artifact": "§ Amendment 2026-11-27 of ADR 20261126 figure composed by the screen (asOf) + AGENTS.md line",
+      "outcome": "completed",
+      "commits": [
+        "4417041b"
+      ]
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T22"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "f5c527df"
+      ],
+      "worktree": "worktree-agent-ae7f7ef11b5687e60"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T23"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "e0ef9ddb"
+      ],
+      "worktree": "worktree-agent-a6b935f385f0f09a3"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T24"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "d30ba888"
+      ]
+    },
+    {
+      "agent": "designer",
+      "artifact": "design.md: measured card widths, the narrow-bar label rule, 17 utilities, G13",
+      "outcome": "completed",
+      "commits": [
+        "15a85d09"
+      ]
+    },
+    {
+      "agent": "architect",
+      "artifact": "plan.md eighth amendment: 17 utilities",
+      "outcome": "completed",
+      "commits": [
+        "15a85d09"
+      ]
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T25"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "663e2192"
+      ]
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T26"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "f7bc365d"
+      ],
+      "worktree": "worktree-agent-a8ef2667b339e8887"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "PASS",
+      "notes": "US-5 diff 66a6d077..HEAD: 0 findings ≥ low, 2 info"
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "qe-report.md pass 4 (full sweep of US-5)",
+      "outcome": "PASS",
+      "commits": [
+        "8aa155c6",
+        "2c9c41f6"
+      ]
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "eval-report.md",
+      "outcome": "PASS",
+      "score": 83.5,
+      "commits": [
+        "15f02268"
+      ]
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "designer",
+      "artifact": "plan.md",
+      "summary": "G7: the AC-5.11 row said the bar holds no text, the design labels it; G8: the bar's utilities are new to the suite's sheet, so the shell must be rebuilt from the release commit (R13)",
+      "resolved": true
+    },
+    {
+      "agent": "designer",
+      "artifact": "spec.md",
+      "summary": "G9: 'Over the limit' at exactly 100 %; owner chose 'Limit reached' (D95), AC-5.9 amended",
+      "resolved": true
+    },
+    {
+      "agent": "product-owner",
+      "artifact": "spec.md",
+      "summary": "the neutral bar with no state (D96) is in no AC; kept in the ledger and plan rows AC-5.25/5.26, spec not amended",
+      "resolved": true
+    },
+    {
+      "agent": "frontend-dev",
+      "artifact": "tasks.md",
+      "summary": "T23's touch list missed four test files whose call shape the required state prop changes; corrected at integration",
+      "resolved": true
+    },
+    {
+      "agent": "frontend-dev",
+      "artifact": "design.md, plan.md",
+      "summary": "T24 rendered: the card is 205/165 px wide at 360/320 px (design assumed 274/234), '100%' and '125%' collided; '125%' hidden below a 230 px bar by a container query, a 17th new utility; documents amended after the code commit",
+      "resolved": true
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "tasks.md",
+      "summary": "T25: task text said '0.1 man-day', the product writes '0.1 man-days' (singular only for 'Less than 0.1 man-day'); the test asserts the product's wording",
+      "resolved": true
+    }
+  ],
+  "collision_events": [],
+  "env_faults": [
+    {
+      "agent": "backend-dev",
+      "class": "database",
+      "detail": "projects_test one migration behind",
+      "resolved_by": "db:deploy against the scratch database only"
+    },
+    {
+      "agent": "frontend-dev",
+      "class": "carry-in",
+      "detail": "node_modules absent in fresh worktrees (projects-ui)",
+      "resolved_by": "pnpm install --frozen-lockfile in the worktree"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "external service",
+      "detail": "accounting-api and notify-api not running on the dev stack",
+      "resolved_by": "E2E_SKIP_ACCOUNTING_SEED=1 E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 E2E_SKIP_LEGAL_ENTITIES_SETUP=1 and the dev ports mapped (specs never touch them)"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "database",
+      "detail": "crm_test 6 migrations behind",
+      "resolved_by": "migrations deployed to the scratch database only"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "runtime",
+      "detail": "crm-ui useOfferDraft.test.tsx fails on Node 26 without NODE_OPTIONS=--no-webstorage (file untouched by the branch)",
+      "resolved_by": "ran with the flag: 1880/1880"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "ports",
+      "detail": "a production shell could not be served by preview: 5173 is the running dev stack and auth trusts only that origin",
+      "resolved_by": "built shell CSS read (17/17 utilities) and the card's DOM replayed against it, 25/25 identical, with a negative control"
+    }
+  ],
+  "process_notes": [
+    "T22 and T23 briefs named 'tdd' and 'self-critique' without the wellforge: prefix; the owner asked; a clarification was sent; T23 had loaded the unprefixed 'tdd' skill first, then wellforge:tdd and wellforge:self-critique (same loop). Later briefs name WellForge skills explicitly.",
+    "Run 1's trace was written retroactively in this run (eeab24b7)."
+  ],
+  "verdicts": {
+    "qe": "PASS",
+    "security": "PASS",
+    "eval": "PASS"
+  },
+  "security": {
+    "matched_rules": [
+      "always_at_tier:production",
+      "path_contains:session (shell/e2e/helpers/* touch glob)"
+    ],
+    "dispatched": true,
+    "notes": [
+      "info: Terms.asOf declared as plain z.string() (always Zurich-formatted; projects-ui re-validates)",
+      "info: the documented kept-day limitation (A52, D85, R8)"
+    ]
+  },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
