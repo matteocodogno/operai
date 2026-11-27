@@ -66,6 +66,12 @@ bullet); the shell is rebuilt from the same commit, with its skew and checks (§
 AC-5.15 row, e2e F, R13, § Notes for the task re-sync, § ADR candidates); and the bar is neutral when no state is said,
 pinned pending the owner's one-line confirmation (the Levels bullet, the AC-5.25 and AC-5.26 rows). Status back to
 `draft` until the owner approves the plan again (gate 2).
+Amended an eighth time 2026-11-27, after approval (count reported by T24, commit `d30ba888`, `decisions.md` § T24): the
+implementation drops the bar's "125%" label from a bar narrower than 230 px with a container query,
+`@max-[230px]:hidden` (in the shell the card is 205 px wide at a 360 px viewport and 165 px at 320, and "100%" and "125%"
+collided), so the bar's utilities new to the suite are seventeen, not sixteen: § Components (the shell row), § Deploy
+order and R13 now say so, and R13 says why its two checks stay as they are. No route, API, AC→test row, decision or ADR
+change.
 
 ## Architecture
 
@@ -94,7 +100,7 @@ answers, the project's state and the day projects-api states it derived the term
 | **projects-api** | (a) `POST /activity-host/v1/resolve` open items gain `projectManagerId: string \| null` (`null` while the project awaits one), `src/activity-host/activity-host.routes.ts`. (b) the terms view's `hourPackage` gains `currentPeriod: { from, to, ended } \| null` (`ended` only `true` for a capacity package past its expiry, D83), derived on read by a pure `packagePeriod(hourPackage, today)` (`src/terms/packagePeriod.ts`, new) with `today` the Europe/Zurich date (`src/lib/businessDay.ts`, new, same rule as hours-api `src/entries/today.ts`), wired in the terms view itself, `termsView` and `toTermsView` (`src/terms/terms.ts:175,216`, through `hourPackageView` at `:166-169`), so every response carrying `TermsViewSchema` has it: the project view, whose `toProjectView` calls `toTermsView` (`src/projects/projects.routes.ts:120`), and the `POST`/`PATCH /projects/{id}/terms` answers (`src/terms/terms.routes.ts:162,210`), neither route file changed; schema `HourPackageView` (`src/projects/projects.schemas.ts:56-62`). (c) *US-5:* every answer carrying `TermsSchema` also carries `asOf`, the Europe/Zurich business day `toTermsView` derived `currentPeriod` for — the one `today` argument it already passes to `termsView` (`src/terms/terms.ts:216-225`), now also returned; schema `TermsSchema` (`src/projects/projects.schemas.ts:73-80`); no route file changes (D-P7) | AC-1.1–1.3, 1.9, 2.3, 2.7, 5.18–5.25, 5.29 |
 | **crm-api** | `POST /activity-host/v1/resolve` deal items gain `ownerUserId: string`, `src/activity-host/resolve.routes.ts:86-97` | AC-2.4 |
 | **hours-api** | (a) new `GET /time-entries/summary` (`src/summary/`, new: route, query, `summaryOf`); (b) `projectCondition` beside `dealCondition` in `src/entries/filters.ts` — the `projectId` filter of the list and totals = entries on the project OR on meetings linked to it now, cursor key + 409 like the deal's; (c) `byProject` in `src/totals/totals.ts` places a meeting entry under its linked project (new tail bucket `project-unknown`); (d) `src/labels/resolve.ts` resolves a meeting's project from the same `readMeetingHosts` read and the viewer's projects resolve, `TimeEntryView` meeting `on` gains `project: MeetingProject` (`src/entries/view.ts`); (e) clients: `readMeetingsLinkedToProject` in `src/clients/meetings.ts`, `projectManagerId` / `ownerUserId` parsed in `src/clients/projects.ts` / `crm.ts`; (f) OpenAPI + `src/matrix.test.ts` inventory | AC-1.x (window), 2.1–2.7, 4.1–4.10 |
-| **shell** | `hours.hostHours` in `ExtensionProps` and `LOADERS` (`() => import('hours/HostHours')`), `shell/src/lib/extensions.tsx:36-69`; props `{ on: 'project' \| 'deal', targetId: string }`. *US-5:* no source change, but a build from the commit that carries projects-ui's US-5 source: the suite's one Tailwind sheet is the shell's (`src/index.css:15-28` `@source`s every remote) and generates the bar's utilities, sixteen of which no source in the suite uses yet (§ Deploy order, R13) | AC-2.x, 2.6, 5.14–5.17 |
+| **shell** | `hours.hostHours` in `ExtensionProps` and `LOADERS` (`() => import('hours/HostHours')`), `shell/src/lib/extensions.tsx:36-69`; props `{ on: 'project' \| 'deal', targetId: string }`. *US-5:* no source change, but a build from the commit that carries projects-ui's US-5 source: the suite's one Tailwind sheet is the shell's (`src/index.css:15-28` `@source`s every remote) and generates the bar's utilities, seventeen of which no other source in the suite uses (§ Deploy order, R13) | AC-2.x, 2.6, 5.14–5.17 |
 | **hours-ui** | (a) exposes `./HostHours` (`src/HostHours.tsx` + `src/HostHoursModel.ts`, new): the total recorded and the "includes linked meetings" line, always visible; a **"Show breakdown"** disclosure, closed on every mount, whose state is the widget's own (not in the URL), opening a region that stays in the DOM with `hidden` while closed: per work type, per person when the answer carries it (D80); one summary call on mount, none on open; its own loading/error states; imports `hoursApi`, strings and `@operai/ui` only — never `exceljs`, the pages or the router (the `./RecordHours` rule). (b) types: meeting `on.project`, `TotalsGroup` kind `project-unknown`, `UnavailableSource` `meeting-projects`, `SummaryAnswer` (`src/lib/hoursApi.types.ts`). (c) `getSummary` in `src/lib/hoursApi.ts`. (d) export: a **Counts for project** column right after Counts for deal, the 7th of the sheet's 10 (`src/lib/hoursWorkbook.ts`), screen line `countsForProjectLine` (`src/lib/names.ts`). (e) project-filter refusal: `DealFilterUnavailable` generalised to the deal or the project filter (`src/components/DealFilterUnavailable.tsx`, `pages/MyHoursPage.tsx`, `pages/EveryoneHoursPage.tsx`), 409 `project_meetings_changed` handled like the deal's. (f) `TotalsCardRows.ts` word for `project-unknown`. (g) en/it strings. (h) `./RecordHours` broadcasts the content-free `operai:time-entry-recorded` event after a successful save, and `HostHours` re-reads its summary when the event names its own target (D-P6). (i) a missing `on.project` (an hours-api older than step 4) reads as `{ state: "none" }` in the types, `countsForProjectLine`, the export cell and `hasHiddenName` (design G4) | AC-2.1–2.8, 4.4–4.11, 3.2 |
 | **projects-ui** | (a) `HoursSection` (new) owns **one "Hours" card** right after Details on `ProjectDetailPage.tsx` (D80): the consumption block first, then the widget's slot (`useExtensionSeam`, `HostExtension name="hours.hostHours"`, the slot's own "Hours unavailable" fallback, `ExtensionContain` keyed by project id); the card frame and title always show, only the slot is swapped on a failure. (b) `ConsumptionBlock` (new, a block inside that card, not a card) shown when the terms sold something comparable: calls the summary itself (with the package window when there is one) and renders `consumptionOf(terms, summary)` from `src/lib/consumption.ts` (new, pure). (c) `getHoursApiBaseUrl` declared in `src/federation/remotes.d.ts`, `src/lib/hoursApi.ts` (new, one function). (d) `Terms` type gains `currentPeriod` with `ended`; the block shows "Over by" the absolute figure once the package is exceeded (D81) and an "Expired" `StatusBadge` (`voided`) when `ended` (D83). (e) `ConsumptionBlock` re-reads on `operai:time-entry-recorded` naming its project (D-P6). (f) en/it strings. *US-5:* (g) `src/lib/types.ts` `Terms` gains `asOf?: string` (absent from a projects-api that predates it). (h) `src/lib/consumption.ts` gains the signals (§ Signals on the consumption block, § API contracts): a `share` on the `package`, `fixed_price` and `t_and_m` variants, `dateSignalsOf`, `hasConsumptionBlock`, `elapsedPercentOf`; `consumptionOf` takes the project's state; still pure, `import type` only, integers (D-P9). (i) `ConsumptionBar` (new, `src/components/ConsumptionBar.tsx`): the bar, its 80 % and 100 % marks, the today and estimate marks, `aria-hidden`, positions from `share.bar` through inline `style` only (D-P8). (j) `ConsumptionBlock` draws under its facts the bar, the pace line, the state and the excess when there is a `share`, and its date lines whenever `dateSignalsOf` has any, in every state of its read (AC-5.24); `HoursSection` and `ConsumptionBlock` take `state` (`pages/ProjectDetailPage.tsx:265` passes `project.state`) and decide whether there is a block, and so a divider, by `hasConsumptionBlock` (AC-1.7 amended). (k) en/it strings for the state words, the pace line, the excess and the date lines (design.md) | AC-1.1–1.9, 2.6, 2.8, 3.2, 5.1–5.29 |
 | **crm-ui** | `HoursSection`: one "Hours" card after Meetings on `DealDetailPage.tsx` holding the widget's slot only (D80); en/it strings | AC-2.2, 2.4–2.6, 3.2 |
@@ -283,12 +289,17 @@ crm-ui (D-P8: the bar is projects-ui's own), and **no shell source change, but t
 same commit as projects-ui**: step 3, before step 5, and independent of projects-api's step 1 (neither reads the other).
 The suite has one Tailwind sheet, which the shell generates from every remote's source (`shell/src/index.css:15-28`; ADR
 20260709-suite-frontend-module-federation, addendum 2026-07-10), and Tailwind emits only the classes a scanned source
-holds. Sixteen of the bar's utilities are in no scanned source today (checked 2026-11-27 over `shell/` and every
-`@source`): `h-2.5`, `size-2`, `rotate-45`, `-top-1.5`, `bottom-1`, `-translate-x-full`, a bare `ring-1` (only
-`focus-visible:ring-1` exists), `ring-ink`, `ring-dim`, and the stripes' `bg-linear-90`, `from-red`, `from-soft`,
-`from-50%`, `to-transparent`, `to-50%`, `bg-size-[6px_100%]`. The shell's own Tailwind (4.3.2; design.md compiled them
-with projects-ui's 4.3.3) generates each of them once a source holds it (compiled against `tokens.css` the same day). In
-this release the shell is rebuilt from a commit that holds the bar anyway: this branch changes `shell/` (`hours.hostHours`)
+holds. Seventeen of the bar's utilities are in no scanned source but the bar's own (checked 2026-11-27 over `shell/` and
+every `@source`, and again after T24 against the implementation's class strings): `h-2.5`, `size-2`, `rotate-45`,
+`-top-1.5`, `bottom-1`, `-translate-x-full`, a bare `ring-1` (only `focus-visible:ring-1` exists), `ring-ink`,
+`ring-dim`, the stripes' `bg-linear-90`, `from-red`, `from-soft`, `from-50%`, `to-transparent`, `to-50%`,
+`bg-size-[6px_100%]`, and, added by T24 (`decisions.md` § T24), `@max-[230px]:hidden`, a container query on the bar's
+own width (`@container` is in the sheet already: crm-ui's offer wizard uses it) that drops the "125%" label from a bar
+narrower than 230 px; missing on its own, it lets that label show and touch "100%" in a narrow bar (the card is 205 px
+wide at a 360 px viewport, 165 at 320), every line still correct, never a wrong figure. The shell's own Tailwind (4.3.2;
+design.md compiled the first sixteen with projects-ui's 4.3.3) generates each of them once a source holds it (compiled
+against `tokens.css` the same day; the seventeenth compiled after T24, to `@container (width < 230px) { display: none }`).
+In this release the shell is rebuilt from a commit that holds the bar anyway: this branch changes `shell/` (`hours.hostHours`)
 and the release commit rewrites `shell/src/lib/suiteVersion.generated.json`, whether or not Vercel skips a project whose
 directory did not change (infra/README.md says "every changed" frontend in its legal-entities section and "every Vercel
 project" in § Project hours release). So the condition is what step 3 *confirms* (R13's check (2)), and what to redo by
@@ -296,7 +307,8 @@ hand if the shell is rolled back or a later push changes projects-ui alone. Skew
 build that finishes first, a rolled-back shell, or a tab loaded before the shell's deploy that then mounts the new
 projects-ui) draws every line of the block complete and right, their utilities being in the sheet already, and the bar
 without its track, fill, beyond part or estimate diamond (zero height or size, no stripes, no outlines): its ticks, today
-line and labels only, the "125%" label past the bar's end (read from the class list, not seen in a browser). A missing
+line and labels only, the "125%" label past the bar's end at every width (with `-translate-x-full` missing too, it starts
+where it would otherwise end, clear of "100%"; read from the class list, not seen in a browser). A missing
 drawing, never a wrong figure: the bar is `aria-hidden` and the lines say everything it shows (AC-5.11); AC-5.14–5.17's
 drawing holds once the shell is live and the page reloaded (R13).
 
@@ -771,7 +783,7 @@ fills and marks measured (R12).
   kind, the beyond part told apart by shape, text only in `*-text` tokens or library components. Early check: QE measures
   the fills and marks in both themes, as it measured the card's text (lowest 4.87), and takes one greyscale capture.
 - **R13 The bar's utilities reach a page only through a shell built from a commit that holds them** (design.md G8). The
-  suite's one Tailwind sheet is the shell's (§ Deploy order), so sixteen of `ConsumptionBar`'s utilities, used nowhere
+  suite's one Tailwind sheet is the shell's (§ Deploy order), so seventeen of `ConsumptionBar`'s utilities, used nowhere
   else in the suite, exist on a page only once the shell is built from a commit that carries projects-ui's US-5 source;
   before that the block's lines are complete and right and the bar is drawn without its track, fill, beyond part or
   estimate diamond. It happens when the two Vercel builds of one push finish in no fixed order (minutes); a shell is
@@ -785,8 +797,14 @@ fills and marks measured (R12).
   shell's Tailwind does not generate (a typo, an unsupported class, a dropped `@source`) fails the run, which a component
   test cannot see (jsdom applies no stylesheet); (2) at step 3, the live shell's sheet holds the bar:
   `for css in $(curl -s https://operai.welld.io/ | grep -oE '/assets/[^"]+\.css'); do curl -s "https://operai.welld.io$css"; done | grep -c 'bg-linear-90'`
-  prints 1 or more (0: the live shell predates the bar), beside RELEASING.md's `version.json` check. Signal: a block whose
-  state and pace lines read and whose bar shows ticks and labels over no track.
+  prints 1 or more (0: the live shell predates the bar), beside RELEASING.md's `version.json` check. Neither check changes
+  for the seventeenth utility, `@max-[230px]:hidden` (T24): it hides a label and draws no part of the bar, so (1) has
+  nothing of it to read (F runs at the suite's Desktop Chrome viewport, 1280 px wide, where the bar is wider than 230 px
+  and the label shows either way), and it came in with `bg-linear-90` in one file and one commit (`d30ba888`), so a live
+  sheet in which (2) finds `bg-linear-90` holds it too. Its absence alone would only let "125%" touch "100%" in a narrow
+  bar; what guards it is the component test (the class on the label, `ConsumptionBar.test.tsx`), the shell's 4.3.2
+  compile (§ Deploy order) and QE's visual pass at 320 px (§ Test strategy), where the label is gone. Signal: a block
+  whose state and pace lines read and whose bar shows ticks and labels over no track.
 
 ## Security
 

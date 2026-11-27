@@ -168,3 +168,28 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - default: `levelOfState` and `NEAR_DAYS` exported and tested now although only T24 consumes them — why: the plan lists both in the contract — where: `lib/consumption.ts`
 - default: exact-shape `toEqual` assertions on full variants carry `share: expect.objectContaining({ consumedPercent })` with the AC-1.x figures still exact — why: the plan adds `share` to those variants; shares pinned in new tests — where: `lib/consumption.test.ts`
 - default: the AC-5.29 time-zone test sets `process.env.TZ` at runtime with fake timers and restores both — why: proves no dependence on the browser's day or zone without a second Vitest project — where: `lib/consumption.test.ts`
+
+## T24 · frontend-dev · 2026-11-27
+- deviation: the "125%" scale label is hidden in a bar narrower than 230 px by a container query (`@container` on the root, `@max-[230px]:hidden` on the label) — why: rendered at 360 and 320 px, "100%" and "125%" touched or overlapped because the shell's 64 px rail leaves the card 205 and 165 px wide, not the 274 and 234 px design.md assumed; 230 px keeps about 7 px between the two labels; it adds a 17th utility new to the suite's sheet (design.md and plan.md corrected by their owners) — where: `ConsumptionBar.tsx`
+- default: the tone map is split by what each file draws (bar: fill and stripes by state; block: icon and words by state) — why: `ConsumptionBar({ share })` signature; no class string duplicated — where: `ConsumptionBar.tsx`, `ConsumptionBlock.tsx`
+- default: on-track and close-to-limit have no stripe class; the beyond part takes the over stripes, or the neutral ones with no state said — why: `beyond > 0` exactly when used is above the reference — where: `ConsumptionBar.tsx`
+- default: extra test ids `-bar-fill`, `-bar-tick` (×3), `-bar-today` beyond the design's list — why: the structure tests find them — where: `ConsumptionBar.tsx`
+- default: `spokenArticle` handles thousands ("ottomila" takes `l’`, "mille"/"duemila" take `il`) beyond the design's vectors — why: the percentage is uncapped — where: `strings/project.ts`
+- default: the signals region is `mt-4` unless nothing precedes it; date lines `mt-3` only after a share; the share's three lines in a `flex flex-col gap-2` wrapper — why: design S1.1's spacing paragraph made concrete — where: `ConsumptionBlock.tsx`
+- default: the estimate label is a `flex items-center gap-1.5` row, key diamond then word — why: design names the key, not the gap — where: `ConsumptionBar.tsx`
+- reinterpretation: `ConsumptionBlock` returns null when `!hasConsumptionBlock(terms, state)` — why: plan D-P9, one rule for the divider and the render — where: `ConsumptionBlock.tsx`
+- reinterpretation: two existing `ConsumptionBlock.test.tsx` tests rewritten — the D80 "no colour and no badge for an exceeded package" keeps only the no-badge half; "used up: nothing left, and not over" now says "no excess" — why: D86 and AC-5.9 reversed the D80 wording — where: `ConsumptionBlock.test.tsx`
+- scope: Italian-article and plural vectors in `strings.test.ts`, outside the literal touch list — why: `strings.test.ts` globs `src/strings/*.ts`, so no test file can live in `strings/` — where: `strings.test.ts`
+- scope: date-line, state and re-read tests in a new `ConsumptionBlock.signals.test.tsx`; `ConsumptionBar.tsx` added to the "no money anywhere" import pin — where: `ConsumptionBlock.signals.test.tsx`, `HoursSection.test.tsx`
+- assumption: the state line's percentage is always an `ml-auto` span, keeping its place with or without state words — why: design S1.1 — where: `ConsumptionBlock.tsx`
+
+## T26 · devops · 2026-11-27
+- scope: `asOf` added to AGENTS.md's projects-api resource-backends bullet and one clause each to the projects-api and projects-ui tree entries, beyond the Consumption paragraph and the `consumption` row — why: those places describe `currentPeriod` and the card and would contradict T22/T24 otherwise — where: AGENTS.md
+- scope: the changeset's and AGENTS.md's "no comparable terms: widget alone" now says "unless an end date has passed or is near" — why: US-5 amends AC-1.7 — where: the changeset, AGENTS.md
+- scope: US-5 notes in infra/README's intro, Verify and Rollback by step (a shell rolled back alone gives the bar-without-track skew; a projects-api rollback loses `asOf`) — why: R13 "roll back together" and R10 are operator facts — where: infra/README.md § Project hours release
+- default: the "17 utilities" count appears only in infra/README (shell row, step 3) — why: a count in prose goes stale; operators need it — where: infra/README.md
+- default: the limitation is one sentence per place with (a)–(e) inline, ending "a reload corrects each" — why: the task asks for one sentence — where: changeset, AGENTS.md, infra/README.md
+- reinterpretation: step 3's check is a `bash` block under step 3 with plan R13 (2)'s command verbatim; `grep -c` counts lines, so the doc says "1 or more" — where: infra/README.md
+- assumption: the wrong-order rows for the bar skew come from R13 and the class list, not a live run — why: docs task, no stack allowance — where: infra/README.md
+- assumption: no root `pnpm install` — why: `mise run changeset:check` is a plain node script — where: n/a
+- note: the step-3 pipeline was run once, read-only, against the deployed shell: `0` (positive control `bg-ink` matched), as expected before the release — where: n/a
