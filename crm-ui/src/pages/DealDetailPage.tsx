@@ -18,6 +18,7 @@ import { DealStageBadge, EntityBadge, TenderBadge } from '../components/Badges'
 import DealFormDialog from '../components/DealFormDialog'
 import DeliveryCard from '../components/DeliveryCard'
 import EstimateCard from '../components/EstimateCard'
+import HoursSection from '../components/HoursSection'
 import { LoadFailure, Loading, Saved, StaleWriteBanner } from '../components/LoadState'
 import MeetingsSection from '../components/MeetingsSection'
 import MoveStageDialog from '../components/MoveStageDialog'
@@ -261,6 +262,7 @@ export default function DealDetailPage() {
         <DeliveryCard delivery={current.delivery ?? null} deliveryKnown={current.deliveryKnown ?? true} />
         <AttachmentsCard dealId={current.id} />
         <MeetingsSection dealId={current.id} />
+        <HoursSection dealId={current.id} />
         <ActivityTimeline
           key={timelineRevision}
           target={{ dealId: current.id }}

@@ -27,9 +27,17 @@ vi.mock('shell/session', () => ({
 // The Meetings panel is Meetings' own, loaded through `shell/extensions` (ADR 20261104-host-extension-federated-panel-through-the-shell).
 // The page's other extension, Record hours (specs/20261116-record-hours-in-place), is answered by name: this file's
 // session user owns the deal, so it is offered here too, and is covered in DealDetailPage.recordHours.test.tsx.
-const { hostExtensionProps } = vi.hoisted(() => ({ hostExtensionProps: [] as unknown[] }))
+// The Hours card (specs/20261112-project-hours) holds hours-ui's `hours.hostHours` panel, answered by name too.
+const { hostExtensionProps, hoursPanelProps } = vi.hoisted(() => ({
+  hostExtensionProps: [] as unknown[],
+  hoursPanelProps: [] as unknown[],
+}))
 vi.mock('shell/extensions', () => ({
   HostExtension: ({ name, props }: { name: string; props: unknown }) => {
+    if (name === 'hours.hostHours') {
+      hoursPanelProps.push(props)
+      return <section data-testid="host-hours-panel" />
+    }
     if (name !== 'meetings.hostMeetings') return null
     hostExtensionProps.push(props)
     return <section data-testid="host-meetings-panel" />
@@ -135,6 +143,27 @@ describe('DealDetailPage', () => {
   it('shows the Meetings section to a read-only caller too: the panel decides what it offers', async () => {
     await renderDeal(['welld_it'])
     expect(await screen.findByTestId('host-meetings-panel')).not.toBeNull()
+  })
+
+  it('has one Hours card after Meetings and before Activity, holding the hours panel given this deal (AC-2.2, AC-2.4)', async () => {
+    hoursPanelProps.length = 0
+    await renderDeal(['welld_ch'])
+    const hours = await screen.findByTestId('crm-deal-hours')
+    expect(within(hours).getByRole('heading', { level: 3, name: 'Hours' })).not.toBeNull()
+    expect(within(hours).getByTestId('host-hours-panel')).not.toBeNull()
+    expect(hoursPanelProps).toContainEqual({ on: 'deal', targetId: 'd1' })
+    expect(screen.getAllByRole('heading', { name: 'Hours' })).toHaveLength(1)
+
+    // The Meetings panel is mocked and draws its own card, so its position is the panel's.
+    const meetings = await screen.findByTestId('host-meetings-panel')
+    const activity = screen.getByRole('heading', { level: 3, name: 'Activity' })
+    expect(meetings.compareDocumentPosition(hours) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(hours.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('shows the Hours card to a read-only caller too: the server decides what the panel holds', async () => {
+    await renderDeal(['welld_it'])
+    expect(await screen.findByTestId('host-hours-panel')).not.toBeNull()
   })
 
   it('a tender shows its badge beside the stage and its submission deadline in the facts (2026-11-24)', async () => {
