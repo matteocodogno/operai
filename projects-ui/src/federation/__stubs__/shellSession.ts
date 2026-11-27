@@ -8,6 +8,7 @@ export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit) => 
 export const getProjectsApiBaseUrl = () => ''
 export const getAuthBaseUrl = () => ''
 export const getActivitiesApiBaseUrl = () => ''
+export const getHoursApiBaseUrl = () => ''
 
 // No capability by default: a test of something capability-gated says what it grants.
 export const usePermissions = () => ({

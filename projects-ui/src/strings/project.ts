@@ -96,6 +96,45 @@ const en = {
     loading: 'Loading meetings…',
     unavailable: 'Meetings cannot be shown right now. Reload the page to try again.',
   },
+  /**
+   * The ONE "Hours" card (specs/20261112-project-hours D80, design S1): the consumption block first, then hours-ui's panel
+   * through the shell seam. `loading` and `unavailable` are the panel's slot while the seam loads and when it fails;
+   * the panel's own words (total, breakdown, its own error) are hours-ui's.
+   */
+  hours: {
+    heading: 'Hours',
+    loading: 'Loading hours…',
+    unavailable: 'Hours are unavailable. Reload the page to try again.',
+  },
+  /**
+   * What the terms sold set against the hours used (US-1). Durations and dates come through the library formatters
+   * (AC-3.2); the package kind, man-days, "Estimated man-days", "Max effort" and "Planned man-days" are `terms.details`'.
+   * "Over by" takes the place of "Hours left" once a package is exceeded (D81); "Expired" is D83.
+   */
+  consumption: {
+    /** The group's accessible name; never drawn (the card's title is the heading). */
+    label: 'Consumption',
+    loading: 'Loading consumption…',
+    unavailable: {
+      title: 'Consumption is unavailable',
+      body: 'Operai could not load the hours recorded on this project, so no comparison is shown rather than one that could be too low. Try again in a moment.',
+    },
+    currentPeriod: 'Current period',
+    packagePeriod: 'Package period',
+    range: (from: string, to: string) => `${from} – ${to}`,
+    since: (from: string) => `From ${from}, no expiry`,
+    startsOn: 'Starts on',
+    hoursUsedInPeriod: 'Hours used in this period',
+    hoursUsed: 'Hours used',
+    hoursLeft: 'Hours left',
+    overBy: 'Over by',
+    expired: 'Expired',
+    yearlyNote: 'Hours left in a period do not carry over to the next one.',
+    notStartedNote: 'Hours recorded before the start date do not count against the package.',
+    manDaysUsed: 'Man-days used',
+    fixedPriceNote: 'Counts all the hours recorded on the project. One man-day is 8 hours.',
+    timeAndMaterialNote: 'Compared with the total of all positions. One man-day is 8 hours.',
+  },
   team: {
     title: 'Team',
     edit: 'Edit people',
@@ -289,6 +328,34 @@ const it: typeof en = {
     heading: 'Meeting',
     loading: 'Caricamento dei meeting…',
     unavailable: 'Al momento non è possibile mostrare i meeting. Ricarica la pagina per riprovare.',
+  },
+  hours: {
+    heading: 'Ore',
+    loading: 'Caricamento delle ore…',
+    unavailable: 'Le ore non sono disponibili. Ricarica la pagina per riprovare.',
+  },
+  consumption: {
+    label: 'Consumo',
+    loading: 'Caricamento del consumo…',
+    unavailable: {
+      title: 'Il consumo non è disponibile',
+      body: 'Operai non è riuscito a caricare le ore registrate su questo progetto, quindi non mostra nessun confronto invece di uno che potrebbe essere troppo basso. Riprova tra un momento.',
+    },
+    currentPeriod: 'Periodo in corso',
+    packagePeriod: 'Periodo del pacchetto',
+    range: (from: string, to: string) => `${from} – ${to}`,
+    since: (from: string) => `Dal ${from}, senza scadenza`,
+    startsOn: 'Inizia il',
+    hoursUsedInPeriod: 'Ore usate nel periodo',
+    hoursUsed: 'Ore usate',
+    hoursLeft: 'Ore rimaste',
+    overBy: 'Sforato di',
+    expired: 'Scaduto',
+    yearlyNote: 'Le ore non usate in un periodo non passano a quello successivo.',
+    notStartedNote: 'Le ore registrate prima della data di inizio non contano per il pacchetto.',
+    manDaysUsed: 'Giornate usate',
+    fixedPriceNote: 'Conta tutte le ore registrate sul progetto. Una giornata equivale a 8 ore.',
+    timeAndMaterialNote: 'Confrontato con il totale di tutte le posizioni. Una giornata equivale a 8 ore.',
   },
   team: {
     title: 'Team',

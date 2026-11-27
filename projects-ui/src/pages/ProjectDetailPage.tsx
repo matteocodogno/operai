@@ -4,6 +4,7 @@ import { Banner, Button, Card, FactList, Icon, PageHeader, StatePanel, formatDat
 import { EntityBadge, ProjectStateBadge, ProjectTypeBadge } from '../components/Badges'
 import PickProjectManagerDialog from '../components/PickProjectManagerDialog'
 import ProjectEditDialog from '../components/ProjectEditDialog'
+import HoursSection from '../components/HoursSection'
 import { LoadFailure, Loading, Saved, StaleWriteBanner } from '../components/LoadState'
 import MeetingsSection from '../components/MeetingsSection'
 import PurchaseOrderCard from '../components/PurchaseOrderCard'
@@ -274,6 +275,8 @@ export default function ProjectDetailPage() {
             ]}
           />
         </Card>
+        {/* The ONE Hours card (specs/20261112-project-hours, D80): what the terms sold against the hours used, then hours-ui's panel. */}
+        <HoursSection projectId={project.id} terms={project.terms} />
         <TeamCard
           project={project}
           currentUserId={currentUserId}
