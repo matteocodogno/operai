@@ -14,6 +14,8 @@
  *              AC-5.2). `null` when an attached team's members cannot be read: "could not find out", never the listed
  *              people alone (AC-5.4, D3, ADR 20261126-a-host-says-unknown-...). Only that one field is unknown: the
  *              batch and the rest of the item are answered. A project without a team never waits on auth.
+ *   projectManagerId  the project manager alone, or null while a project from a deal awaits one: the fact hours-api uses to
+ *              decide who sees a project's per-person hours (specs/20261112-project-hours AC-2.3, AC-2.7)
  *
  * Unlike every other route, a caller WITHOUT `projects:access` is not refused: the answer is
  * `reader:false` with every id `missing` (AC-7.4, AC-8.3 — a project one cannot read is
@@ -63,6 +65,10 @@ const ItemSchema = z.union([
     may: z.object({ write: z.boolean(), manage: z.boolean() }),
     /** `null`: an attached team's members could not be read (D3). Never absent. */
     assignees: z.array(z.string()).nullable(),
+    // The project's manager, stated as a fact, never as a rule: hours-api decides who may see a project's per-person hours
+    // (specs/20261112-project-hours D-P2, AC-2.3). `null` while a project from a deal awaits one (D79, AC-2.7): the purchase
+    // order's ops-manager is deliberately not named here.
+    projectManagerId: z.string().nullable(),
   }),
 ]);
 
@@ -140,6 +146,7 @@ activityHostRouter.openapi(resolveRoute, async (c) => {
       // A project from a deal has no project manager until its ops-manager picks one (specs/20261103-projects-handoff D42):
       // then only the team can be given a task. `null` when a team's members are unknown (D3), never the listed set alone.
       assignees: assigneesOf(row),
+      projectManagerId: row.projectManagerId,
     };
   });
   return c.json({ reader, items }, 200);
