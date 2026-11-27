@@ -100,11 +100,11 @@ stack up (`mise run dev`).
   - touch: `shell/e2e/project-hours.spec.ts`, `shell/e2e/helpers/*`
   - done when: `cd shell && pnpm e2e project-hours.spec.ts` passes with the stack up: a project with a yearly package and entries shows used / left without opening the breakdown; its PM opens the breakdown and sees By person, another `projects:access` reader does not; recording 1 h with Record hours on the page grows the card's figures by 1 h without a reload; My hours filtered by the project lists an entry on a meeting linked to it
 
-- [ ] T19: [DOCS] AGENTS.md, infra/README (deploy order), changesets — refs: plan § Deploy order — deps: T1, T2, T3, T4, T9, T10, T11, T12, T13, T14, T15, T16, T17
+- [x] T19: [DOCS] AGENTS.md, infra/README (deploy order), changesets — refs: plan § Deploy order — deps: T1, T2, T3, T4, T9, T10, T11, T12, T13, T14, T15, T16, T17
   - touch: `AGENTS.md`, `infra/README.md`, `meetings-api/README.md`, `hours-api/README.md`, `.changeset/*`
   - done when: AGENTS.md describes the summary route, meetings-api's `projectId` (and `meetings-api/README.md`'s route paragraph names it; `hours-api/README.md`'s route list names the summary, `project_meetings_changed` and `project-unknown`), `./HostHours` and `hours.hostHours`, the `operai:time-entry-recorded` event and the one Hours card; infra/README states the five-step deploy order of the plan; one changeset selects meetings-api, projects-api, crm-api, hours-api, hours-ui, shell, projects-ui and crm-ui (minor); `mise run changeset:check` passes
 
-- [ ] T21: [FE] hours-ui export refused under a project filter switches the page to the refusal, as for a deal — refs: AC-4.8 — deps: T12
+- [x] T21: [FE] hours-ui export refused under a project filter switches the page to the refusal, as for a deal — refs: AC-4.8 — deps: T12
   - touch: `hours-ui/src/components/HoursExport*.tsx`, `hours-ui/src/pages/MyHoursPage*.tsx`, `hours-ui/src/pages/EveryoneHoursPage*.tsx`
   - done when: with a project filter set and Meetings unable to say which meetings are linked when Export is clicked (503 `host_unavailable`), My hours and Everyone's hours switch to the project-filter refusal exactly as they do for a deal filter, nothing is downloaded and the button shows no failure alert of its own; a deal filter behaves as before; tests in `HoursExport.test.tsx` and both pages' project-filter tests; hours-ui `pnpm lint && pnpm build && pnpm test` green
 
