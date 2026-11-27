@@ -28,6 +28,7 @@
  */
 
 import { z } from "zod";
+import { NO_NUL, hasNoNul, text } from "@/lib/nulInput";
 
 // ─── originApp — known Operai suite tool ids ─────────────────────────────────
 //
@@ -82,11 +83,12 @@ export const LinkSchema = z.object({
     .string()
     .min(1, "link.href is required when link is provided")
     .max(2000)
+    .refine(hasNoNul, NO_NUL)
     .refine(isRelativeSuitePath, {
       message:
         "link.href must be a relative in-suite path (e.g. \"/estimai/estimates/abc\") — absolute URLs, protocol-relative URLs, and non-http(s) schemes are rejected",
     }),
-  label: z.string().max(200).optional(),
+  label: text(200).optional(),
 });
 
 export type Link = z.infer<typeof LinkSchema>;
@@ -98,8 +100,8 @@ export type Link = z.infer<typeof LinkSchema>;
 // or blank variant would render empty for a reader on `<html lang="it">`).
 // The reader chooses between `title`/`body` and `it`; the sender never does.
 export const ItVariantSchema = z.object({
-  title: z.string().min(1, "it.title is required").max(200, "it.title must be at most 200 characters"),
-  body: z.string().min(1, "it.body is required").max(2000, "it.body must be at most 2000 characters"),
+  title: z.string().min(1, "it.title is required").max(200, "it.title must be at most 200 characters").refine(hasNoNul, NO_NUL),
+  body: z.string().min(1, "it.body is required").max(2000, "it.body must be at most 2000 characters").refine(hasNoNul, NO_NUL),
 });
 
 export type ItVariant = z.infer<typeof ItVariantSchema>;
@@ -108,8 +110,8 @@ export type ItVariant = z.infer<typeof ItVariantSchema>;
 //
 // NOTE: no `recipient`/`recipientId` field is declared — see file header SECURITY note.
 export const RaiseNotificationSchema = z.object({
-  title: z.string().min(1, "title is required").max(200, "title must be at most 200 characters"),
-  body: z.string().min(1, "body is required").max(2000, "body must be at most 2000 characters"),
+  title: z.string().min(1, "title is required").max(200, "title must be at most 200 characters").refine(hasNoNul, NO_NUL),
+  body: z.string().min(1, "body is required").max(2000, "body must be at most 2000 characters").refine(hasNoNul, NO_NUL),
   severity: SeveritySchema.default("info"),
   originApp: OriginAppSchema,
   link: LinkSchema.optional(),
@@ -141,7 +143,7 @@ export type NotificationDto = z.infer<typeof NotificationSchema>;
 
 export const ListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(200).default(50),
-  cursor: z.string().optional(),
+  cursor: z.string().refine(hasNoNul, NO_NUL).optional(),
 });
 
 export const ListResponseSchema = z.object({

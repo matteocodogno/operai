@@ -8,7 +8,8 @@
  */
 import { beforeEach, describe, expect, it } from "bun:test";
 import { setupTestAuth } from "../test-support/testAuth";
-import { PERSONAS, app, call, makeCompany, makeDeal, resetWorld, type PersonaName } from "../test-support/world";
+import { HOST_AUTHZ_WAIT_MS, HOST_PATH_REST_MS } from "../lib/hostBudget";
+import { PERSONAS, app, authzFake, call, installAuthzFake, makeCompany, makeDeal, resetWorld, type PersonaName } from "../test-support/world";
 
 beforeEach(resetWorld);
 
@@ -152,5 +153,31 @@ describe("failure modes", () => {
     const res = await resolve("outsider", []);
     expect(res.status).toBe(422);
     expect(res.json.items).toBeUndefined();
+  });
+});
+
+describe("a slow permission check (R13 a)", () => {
+  it("answers 503 within the permission wait plus the rest while auth holds /authz/resolve, then answers normally once it has", async () => {
+    installAuthzFake(); // the harness's resolve is process-wide and other files swap it
+    const deal = await makeDeal((await makeCompany()).id, { title: "Platform rebuild" });
+    authzFake.calls = 0; // making the deal went through the cache as the admin; this is about the consultant's
+    let release!: () => void;
+    authzFake.hold = new Promise<void>((done) => {
+      release = done;
+    });
+    try {
+      const started = Date.now();
+      const res = await resolve("consultant", [deal.id]);
+      expect(res.status).toBe(503);
+      expect(Date.now() - started).toBeLessThan(HOST_AUTHZ_WAIT_MS + HOST_PATH_REST_MS);
+      expect(authzFake.calls).toBe(1);
+    } finally {
+      release();
+    }
+    await new Promise<void>((done) => setTimeout(done, 30)); // the flight, not aborted, fills the cache
+    const retry = await resolve("consultant", [deal.id]);
+    expect(retry.status).toBe(200);
+    expect(retry.json.items[0].state).toBe("open");
+    expect(authzFake.calls).toBe(1);
   });
 });

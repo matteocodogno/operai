@@ -33,6 +33,8 @@ import {
   RequestIdParamSchema,
 } from "./requests.schemas";
 import { mapLine } from "./requests.service";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -70,6 +72,8 @@ const LINES_BODY_SIZE_LIMIT = 16 * 1024; // 16 KiB — see file header
 
 export const linesRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -162,7 +166,7 @@ linesRouter.openapi(createLineRoute, async (c) => {
   const denial = requireCreateCapabilityOr404(authz, c.req.path, id);
   if (denial) return c.json(denial, 404);
 
-  const exit = await Effect.runPromiseExit(createLine(id, sub, body));
+  const exit = await runExit(createLine(id, sub, body));
   if (exit._tag === "Success") {
     // ensureOwnedDraftRequest guarantees the request is `draft` — a travel_km
     // line here is always LIVE (Decision 1), never frozen.
@@ -224,7 +228,7 @@ linesRouter.openapi(updateLineRoute, async (c) => {
   const denial = requireCreateCapabilityOr404(authz, c.req.path, id);
   if (denial) return c.json(denial, 404);
 
-  const exit = await Effect.runPromiseExit(updateLine(id, lineId, sub, body));
+  const exit = await runExit(updateLine(id, lineId, sub, body));
   if (exit._tag === "Success") {
     return c.json(mapLine(exit.value, "draft"), 200);
   }
@@ -271,7 +275,7 @@ linesRouter.openapi(deleteLineRoute, async (c) => {
   const denial = requireCreateCapabilityOr404(authz, c.req.path, id);
   if (denial) return c.json(denial, 404);
 
-  const exit = await Effect.runPromiseExit(deleteLine(id, lineId, sub));
+  const exit = await runExit(deleteLine(id, lineId, sub));
   if (exit._tag === "Success") {
     return new Response(null, { status: 204 });
   }

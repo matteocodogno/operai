@@ -18,9 +18,10 @@
  */
 
 import { z } from "@hono/zod-openapi";
+import { idParam } from "../lib/inputText";
 
 export const ExportBatchParamSchema = z.object({
-  id: z.string().min(1, "id is required"),
+  id: idParam("id"),
 });
 
 /** Why Accounting has no rate in effect (G7): not published yet, its source failed, or the entity has no source. */

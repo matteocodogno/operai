@@ -193,7 +193,7 @@ describe("an activity whose owner does not answer, or answers what is no answer 
     expect(await entryRows()).toHaveLength(0);
   });
 
-  it("is 503 when activities-api is unreachable, or slower than its 2 s", async () => {
+  it("is 503 when activities-api is unreachable, or slower than its 6 s (a relayed owner, R13 b)", async () => {
     hosts.projects.setProject("p1", { label: "Apollo", assignees: [ALICE] });
     hosts.activities.add({ id: "t1", subject: "Build the importer", project: "p1" });
     hosts.sever("activities");
@@ -201,10 +201,10 @@ describe("an activity whose owner does not answer, or answers what is no answer 
 
     hosts.reset();
     hosts.projects.setProject("p1", { label: "Apollo", assignees: [ALICE] });
-    hosts.fail("activities.list", { delayMs: 2_600 });
+    hosts.fail("activities.list", { delayMs: 6_300 });
     expectHostUnavailable(await post(body(project("p1"), { activityId: "t1" })));
     expect(await entryRows()).toHaveLength(0);
-  }, 10_000);
+  }, 15_000);
 
   it("is 503, never 422, when activities-api answers another activity and not the asked one: an owner that ignored `ids` proves nothing (plan amendment 3)", async () => {
     hosts.projects.setProject("p1", { label: "Apollo", assignees: [ALICE] });

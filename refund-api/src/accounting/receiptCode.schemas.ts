@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { noNul } from "../lib/inputText";
 
 export const ReceiptCodeRowSchema = z.object({
   userId: z.string(),
@@ -30,9 +31,9 @@ export const ReceiptCodesResponseSchema = z.object({ employees: z.array(ReceiptC
  * A strict object: any other key is a 422 `receipt_code_invalid`, like a value that is not text or null. `""` and `null` clear the
  * code; the shape of a code is decided by `normaliseReceiptCode`, not here.
  */
-export const PutReceiptCodeBodySchema = z.strictObject({ code: z.string().nullable() });
+export const PutReceiptCodeBodySchema = z.strictObject({ code: noNul(z.string()).nullable() });
 
-export const UserIdParamSchema = z.object({ userId: z.string().min(1).max(128) });
+export const UserIdParamSchema = z.object({ userId: noNul(z.string().min(1).max(128)) });
 
 export const ReceiptCodeHistoryResponseSchema = z.object({
   entries: z.array(

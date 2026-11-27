@@ -25,14 +25,14 @@ import type { AuthzVariables } from "../auth/authz.middleware";
 import { companyContacts, orCrmUnavailable, wonDeals } from "../lib/crm";
 import { db } from "../lib/db";
 import { opsManagerCandidates } from "../lib/holders";
-import { EntitySchema, IdSchema, commonErrors } from "../lib/http";
+import { EntitySchema, IdSchema, commonErrors, searchText } from "../lib/http";
 import { validationHook } from "../lib/problem";
 import { CompanyRefSchema } from "../projects/projects.schemas";
 import { loadDealForCaller, loadTakeableDeal } from "./deal";
 
 const QueueQuery = z.object({
   /** Case-insensitive substring of the deal's title or its company's name. */
-  q: z.string().max(200).optional(),
+  q: searchText(200).optional(),
   entity: EntitySchema.optional(),
 });
 

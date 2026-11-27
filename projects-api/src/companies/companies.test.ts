@@ -77,4 +77,13 @@ describe("GET /companies", () => {
     expect(res.status).toBe(400);
     expect(res.json).toMatchObject({ code: "validation_failed" });
   });
+
+  it("refuses a NUL in q with 400 `validation_failed`, no echo and no call to the CRM (QE F2)", async () => {
+    const res = await call("GET", "/companies?q=zz%00qq", { as: "pmCh" });
+    expect(res.status).toBe(400);
+    expect(res.json).toMatchObject({ status: 400, code: "validation_failed" });
+    const { instance: _instance, ...rest } = res.json as Record<string, unknown>;
+    expect(JSON.stringify(rest)).not.toContain("zz");
+    expect(crm.calls).toBe(0);
+  });
 });

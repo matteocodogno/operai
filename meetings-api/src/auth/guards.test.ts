@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Hono } from "hono";
 import { setupTestAuth } from "../test-support/testAuth";
 import type { ResolveResponse } from "../authz/resolveClient";
@@ -6,7 +6,7 @@ import type { ResolveResponse } from "../authz/resolveClient";
 const harness = setupTestAuth();
 await harness.init();
 
-const { selfScoped, capability, eraser, holds, MEETINGS_ACCESS, TEMPLATE_MANAGE, MEETING_ERASE } = await import("./guards");
+const { selfScoped, jwtOnly, capability, eraser, holds, MEETINGS_ACCESS, TEMPLATE_MANAGE, MEETING_ERASE } = await import("./guards");
 const { __resetAuthzCacheForTests } = await import("./authz.middleware");
 
 const resolved = (...grants: [string, string][]): ResolveResponse => ({
@@ -28,6 +28,8 @@ app.get("/self", (c) =>
     manage: holds(c as never, TEMPLATE_MANAGE),
   }),
 );
+app.use("/jwt-only", ...jwtOnly);
+app.get("/jwt-only", (c) => c.json({ userId: c.get("userId" as never), capabilities: c.get("capabilities" as never) ?? null }));
 app.use("/needs-access", ...capability(MEETINGS_ACCESS));
 app.get("/needs-access", (c) => c.json({ ok: true }));
 app.use("/needs-manage-or-erase", ...capability(TEMPLATE_MANAGE, MEETING_ERASE));
@@ -39,9 +41,12 @@ let token: string;
 const get = (path: string, withToken = true) =>
   app.request(path, { headers: withToken ? { Authorization: `Bearer ${token}` } : {} });
 
+// Restored after the file: a spy left on the global console would carry this file's logs into every later file (QE F3).
+let errorLog: ReturnType<typeof spyOn>;
 beforeAll(async () => {
-  spyOn(console, "error").mockImplementation(() => {});
+  errorLog = spyOn(console, "error").mockImplementation(() => {});
 });
+afterAll(() => errorLog.mockRestore());
 beforeEach(async () => {
   __resetAuthzCacheForTests();
   token = await harness.signToken({ sub: "user-1", email: "u1@x.com", permEpoch: 1 });
@@ -49,7 +54,7 @@ beforeEach(async () => {
 });
 
 describe("every stack needs a valid token", () => {
-  for (const path of ["/self", "/needs-access", "/erase"]) {
+  for (const path of ["/self", "/jwt-only", "/needs-access", "/erase"]) {
     it(`${path}: 401 without one`, async () => {
       expect((await get(path, false)).status).toBe(401);
     });
@@ -84,6 +89,34 @@ describe("selfScoped (AC-10.6)", () => {
     const other = await harness.signToken({ sub: "user-2", email: "u2@x.com", permEpoch: 9 });
     const res = await app.request("/self", { headers: { Authorization: `Bearer ${other}` } });
     expect(await res.json()).toMatchObject({ capabilities: "unavailable", access: false });
+  });
+});
+
+describe("jwtOnly (specs/20261126-teams R13 b)", () => {
+  it("passes a valid token and makes NO permission call, whatever auth would have said", async () => {
+    const before = harness.resolveCallCount();
+    const res = await get("/jwt-only");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ userId: "user-1", capabilities: null });
+    expect(harness.resolveCallCount() - before).toBe(0);
+  });
+
+  it("is not held up by an auth that never answers, and an outage changes nothing", async () => {
+    harness.setResolve(() => new Promise<never>(() => {}));
+    expect((await get("/jwt-only")).status).toBe(200);
+    harness.setResolve(async () => {
+      throw new Error("auth GET /authz/resolve responded with HTTP 503");
+    });
+    expect((await get("/jwt-only")).status).toBe(200);
+  });
+
+  it("holds nothing: a route reading permissions on it sees none, never a stale grant", async () => {
+    const withHolds = new Hono();
+    withHolds.use("/probe", ...jwtOnly);
+    withHolds.get("/probe", (c) => c.json({ access: holds(c as never, MEETINGS_ACCESS) }));
+    // `holds` needs `capabilities === "resolved"`, which only the resolving guards set
+    const res = await withHolds.request("/probe", { headers: { Authorization: `Bearer ${token}` } });
+    expect(await res.json()).toEqual({ access: false });
   });
 });
 

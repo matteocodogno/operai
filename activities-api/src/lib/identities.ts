@@ -29,7 +29,8 @@ const MAX_IDS_PER_REQUEST = 100;
 const MAX_ID_LENGTH = 64;
 const SYSTEM_PREFIX = "system:";
 const CACHE_TTL_MS = 60_000;
-const REQUEST_TIMEOUT_MS = 5_000;
+/** One batch of `POST /authz/users/identities`, aborted past it. A bounded wait (`ResolveOptions.waitMs`) is shorter and does not abort it. */
+export const REQUEST_TIMEOUT_MS = 5_000;
 
 interface CacheEntry {
   readonly identity: Identity;
@@ -72,6 +73,12 @@ function toIdentity(raw: unknown): Identity | null {
 export interface ResolveOptions {
   /** Per-request timeout; the default suits a read, a caller that awaits the lookup passes less. */
   readonly timeoutMs?: number;
+  /**
+   * For a path inside another service's deadline (specs/20261126-teams R13 b): wait at most this long, in all, for the lookup. An id
+   * `auth` has not answered by then is `unknown` in the answer, which is a snapshot that never changes afterwards. The lookup is NOT
+   * aborted: it keeps its own `REQUEST_TIMEOUT_MS` per batch and fills the cache, so the next call has the names. Absent: wait for all.
+   */
+  readonly waitMs?: number;
 }
 
 /**
@@ -100,53 +107,79 @@ export async function resolveIdentities(
     }
   }
 
+  // With a bounded wait the lookup writes into its own map, so an answer that arrives after the wait cannot change the one
+  // already handed back; without one it writes into the result itself (the behaviour of every other caller).
+  const into = options.waitMs === undefined ? result : new Map<string, Identity>();
+
   // Sequential, not Promise.all: `auth` rate-limits this route per caller, and a
   // burst of parallel chunks would spend the budget (and be throttled) at once.
-  for (const batch of chunk(toFetch, MAX_IDS_PER_REQUEST)) {
-    try {
-      const res = await fetch(`${env.AUTH_BASE_URL}/authz/users/identities`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: authorizationHeader,
-        },
-        body: JSON.stringify({ ids: batch }),
-        signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
-        // The caller's Bearer is forwarded: a redirect would replay it to another host (OWASP L1).
-        redirect: "error",
-      });
-      if (!res.ok) {
-        throw new Error(`auth POST /authz/users/identities responded with HTTP ${res.status}`);
-      }
-      const body = (await res.json()) as { users?: unknown } | null;
-      const users = Array.isArray(body?.users) ? body.users : [];
+  // Never rejects: a failed batch is `unknown`.
+  const lookup = async (): Promise<void> => {
+    for (const batch of chunk(toFetch, MAX_IDS_PER_REQUEST)) {
+      try {
+        const res = await fetch(`${env.AUTH_BASE_URL}/authz/users/identities`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authorizationHeader,
+          },
+          body: JSON.stringify({ ids: batch }),
+          signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
+          // The caller's Bearer is forwarded: a redirect would replay it to another host (OWASP L1).
+          redirect: "error",
+        });
+        if (!res.ok) {
+          throw new Error(`auth POST /authz/users/identities responded with HTTP ${res.status}`);
+        }
+        const body = (await res.json()) as { users?: unknown } | null;
+        const users = Array.isArray(body?.users) ? body.users : [];
 
-      if (cache.size >= CACHE_SWEEP_THRESHOLD) {
-        for (const [key, entry] of cache) if (entry.expiresAt <= now) cache.delete(key);
-      }
+        if (cache.size >= CACHE_SWEEP_THRESHOLD) {
+          for (const [key, entry] of cache) if (entry.expiresAt <= now) cache.delete(key);
+        }
 
-      const asked = new Set(batch);
-      for (const raw of users) {
-        const identity = toIdentity(raw);
-        // Ignore anything we did not ask about: `auth` must not be able to
-        // inject an entry for another id, and "system" is not its to assign.
-        if (!identity || !asked.has(identity.id)) continue;
-        result.set(identity.id, identity);
-        cache.set(identity.id, { identity, expiresAt: now + CACHE_TTL_MS });
+        const asked = new Set(batch);
+        for (const raw of users) {
+          const identity = toIdentity(raw);
+          // Ignore anything we did not ask about: `auth` must not be able to
+          // inject an entry for another id, and "system" is not its to assign.
+          if (!identity || !asked.has(identity.id)) continue;
+          into.set(identity.id, identity);
+          cache.set(identity.id, { identity, expiresAt: now + CACHE_TTL_MS });
+        }
+        // Asked but not answered (or answered unreadably): unknown, and NOT cached
+        // — the omission may be transient.
+        for (const id of batch) if (!into.has(id)) into.set(id, unknown(id));
+      } catch (error) {
+        console.error(
+          "[identities] could not resolve a batch from auth — degrading it to 'unknown':",
+          error instanceof Error ? error.message : error,
+        );
+        for (const id of batch) into.set(id, unknown(id));
       }
-      // Asked but not answered (or answered unreadably): unknown, and NOT cached
-      // — the omission may be transient.
-      for (const id of batch) if (!result.has(id)) result.set(id, unknown(id));
-    } catch (error) {
-      console.error(
-        "[identities] could not resolve a batch from auth — degrading it to 'unknown':",
-        error instanceof Error ? error.message : error,
-      );
-      for (const id of batch) result.set(id, unknown(id));
     }
+  };
+
+  if (options.waitMs === undefined) {
+    await lookup();
+    return result;
   }
 
-  return result;
+  // Bounded wait: the lookup runs on in the background past the timer (and fills the cache); what it had answered by then is the answer.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      lookup(),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, options.waitMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+  const snapshot = new Map(result);
+  for (const id of toFetch) snapshot.set(id, into.get(id) ?? unknown(id));
+  return snapshot;
 }
 
 /**

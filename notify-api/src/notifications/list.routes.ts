@@ -20,6 +20,7 @@
  * tasks.md or plan.md.
  */
 
+import { unexpectedDbFailure } from "@/lib/dbFailure";
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { Effect } from "effect";
 import { jwtMiddleware, type JwtVariables } from "@/auth/jwt.middleware";
@@ -80,7 +81,7 @@ listRouter.openapi(listRoute, async (c) => {
   const exit = await Effect.runPromiseExit(effect);
 
   if (exit._tag === "Failure") {
-    throw new Error("Unexpected database failure listing notifications");
+    throw unexpectedDbFailure("Unexpected database failure listing notifications", exit.cause);
   }
 
   return c.json(exit.value, 200);
@@ -115,7 +116,7 @@ listRouter.openapi(unreadCountRoute, async (c) => {
   const exit = await Effect.runPromiseExit(effect);
 
   if (exit._tag === "Failure") {
-    throw new Error("Unexpected database failure counting unread notifications");
+    throw unexpectedDbFailure("Unexpected database failure counting unread notifications", exit.cause);
   }
 
   return c.json({ count: exit.value }, 200);

@@ -92,6 +92,8 @@ import {
   CompileBodySchema,
 } from "./batches.schemas";
 import { GLOBAL_ENTITY_SCOPE } from "../authz/conditions";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -165,6 +167,8 @@ const COMPILE_BODY_SIZE_LIMIT = 4 * 1024; // 4 KiB
 
 export const batchesRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -258,7 +262,7 @@ batchesRouter.openapi(candidatesRoute, async (c) => {
     return c.json(mapCandidatePreview(cutoff, []), 200);
   }
 
-  const exit = await Effect.runPromiseExit(fetchCandidateRows(cutoff));
+  const exit = await runExit(fetchCandidateRows(cutoff));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure listing batch candidates");
   }
@@ -344,7 +348,7 @@ batchesRouter.openapi(compileRoute, async (c) => {
   // specs/20260722-refund-settings (D6, AC-2.1) — compile is fully decoupled
   // from the accounting-distribution-email setting; no recipient is passed
   // or read here at all.
-  const exit = await Effect.runPromiseExit(compileBatch(cutoff, scope, sub, email));
+  const exit = await runExit(compileBatch(cutoff, scope, sub, email));
 
   if (exit._tag === "Failure") {
     const cause = exit.cause;
@@ -480,7 +484,7 @@ batchesRouter.openapi(resendEmailRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(fetchBatchWithRequests(id));
+  const exit = await runExit(fetchBatchWithRequests(id));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure fetching refund batch");
   }
@@ -540,7 +544,7 @@ batchesRouter.openapi(batchListRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(listBatchSummaries());
+  const exit = await runExit(listBatchSummaries());
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure listing refund batches");
   }
@@ -593,7 +597,7 @@ batchesRouter.openapi(getBatchRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(fetchBatchWithRequests(id));
+  const exit = await runExit(fetchBatchWithRequests(id));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure fetching refund batch");
   }
@@ -658,7 +662,7 @@ batchesRouter.openapi(pdfUrlRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(fetchBatchWithRequests(id));
+  const exit = await runExit(fetchBatchWithRequests(id));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure fetching refund batch");
   }

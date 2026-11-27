@@ -70,6 +70,8 @@ import {
   SuggestionsQuerySchema,
   SuggestionsResponseSchema,
 } from "./suggestions.schemas";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 /** The path, as one constant, so the registration test cannot drift from the route. */
 export const LINE_SUGGESTIONS_PATH = "/line-suggestions";
@@ -84,6 +86,8 @@ const forbiddenProblem = (path: string, detail: string) => ({
 
 export const suggestionsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -163,7 +167,7 @@ suggestionsRouter.openapi(lineSuggestionsRoute, async (c) => {
   // `authz.permissions`, `authz.entity`, and nothing at all off the query.
   const ownerUserId = c.get("userId");
 
-  const exit = await Effect.runPromiseExit(fetchTravelKmTriples(ownerUserId));
+  const exit = await runExit(fetchTravelKmTriples(ownerUserId));
   if (exit._tag === "Failure") {
     // Bubble to the global RFC 7807 handler (src/index.ts app.onError). The
     // message deliberately names no user and no motivo.

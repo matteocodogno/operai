@@ -46,6 +46,7 @@ import {
   ReceiptEmbedError,
   type ExportReceipt,
 } from "./exportPdf";
+import { runExit } from "../lib/runExit";
 
 const problem = (status: 404 | 409 | 413 | 502, title: string, path: string, detail: string) => ({
   type: `https://httpstatuses.com/${status}`,
@@ -197,7 +198,7 @@ requestExportRouter.openapi(exportRoute, async (c) => {
   const authz = c.get("authz");
   const { id } = c.req.valid("param");
 
-  const exit = await Effect.runPromiseExit(findRequestWithLines(id));
+  const exit = await runExit(findRequestWithLines(id));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure fetching refund request");
   }
@@ -237,7 +238,7 @@ requestExportRouter.openapi(exportRoute, async (c) => {
   // An archivable request is never a draft, so this is a pass-through — but
   // routing through the same helper as GET /requests/:id keeps the exported
   // figures identical to the on-screen ones by construction.
-  const hydrationExit = await Effect.runPromiseExit(
+  const hydrationExit = await runExit(
     hydrateDraftMileageLines(request.lines, request.status),
   );
   if (hydrationExit._tag === "Failure") {

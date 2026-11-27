@@ -11,6 +11,7 @@
  * not just the tab that issued the mark-all-read call.
  */
 
+import { unexpectedDbFailure } from "@/lib/dbFailure";
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { Effect } from "effect";
 import { jwtMiddleware, type JwtVariables } from "@/auth/jwt.middleware";
@@ -59,7 +60,7 @@ markReadRouter.openapi(markAllReadRoute, async (c) => {
   const exit = await Effect.runPromiseExit(effect);
 
   if (exit._tag === "Failure") {
-    throw new Error("Unexpected database failure marking notifications as read");
+    throw unexpectedDbFailure("Unexpected database failure marking notifications as read", exit.cause);
   }
 
   const updated = exit.value;

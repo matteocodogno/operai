@@ -21,6 +21,11 @@ on:
       - "crm-ui/src/lib/offerPaper/**"
       - "accounting-api/src/system/accountingWire.ts"
       - "refund-api/src/accounting/accountingWire.ts"
+      - "projects-api/src/auth/authz.middleware.ts"
+      - "crm-api/src/auth/authz.middleware.ts"
+      - "projects-api/src/lib/teams.budgets.cross-package.test.ts"
+      - "crm-api/src/lib/hostBudget.cross-package.test.ts"
+      - "hours-api/src/clients/owners.budgets.cross-package.test.ts"
       - ".github/workflows/shared-copies.yml"
   workflow_dispatch: {}
 

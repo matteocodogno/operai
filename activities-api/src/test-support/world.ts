@@ -81,6 +81,9 @@ export function makeProject(label = "Smart meter rollout", extra: Partial<Script
 export const authStub = {
   down: false,
   identityCalls: 0,
+  /** R13 b: keeps every `POST /authz/users/identities` unanswered until it settles (and, after it, `identityDelayMs` more). */
+  identityHold: null as Promise<void> | null,
+  identityDelayMs: 0,
   accessChecks: [] as { appId: string; userId: string }[],
   onAccessCheck: null as (() => Promise<void>) | null,
   /** The `redirect` mode of every call to auth, in order: a forwarded Bearer must never follow one. */
@@ -110,6 +113,8 @@ spyOn(globalThis, "fetch").mockImplementation((async (url: unknown, init?: Reque
     }
     if (href.endsWith("/authz/users/identities")) {
       authStub.identityCalls++;
+      if (authStub.identityHold) await authStub.identityHold;
+      if (authStub.identityDelayMs > 0) await new Promise<void>((done) => setTimeout(done, authStub.identityDelayMs));
       return Response.json({
         users: (body.ids ?? []).map((id) =>
           id === "user-gone"
@@ -216,6 +221,8 @@ export async function resetWorld(): Promise<void> {
   authStub.onAccessCheck = null;
   authStub.redirects.length = 0;
   authStub.identityCalls = 0;
+  authStub.identityHold = null;
+  authStub.identityDelayMs = 0;
   authStub.accessChecks.length = 0;
   resetAppAccess();
   __resetIdentityCacheForTests();

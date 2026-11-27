@@ -17,7 +17,8 @@
  * an owner's 4xx is always a version gap, never the caller's malformed input. The clients rely on it
  * and do not re-check.
  *
- * - 2 s timeout (plan R2), `redirect: "error"`: the caller's token must never follow a redirect to
+ * - 2 s timeout for a host (plan R2), 6 s for a relayed owner, one that asks a host before it answers (R13 b,
+ *   `RELAYED_OWNER_TIMEOUT_MS`); `redirect: "error"`: the caller's token must never follow a redirect to
  *   another host.
  * - Query values are built with `URLSearchParams`, so an id holding `&`, `#`, `+`, `%` or a space
  *   reaches the owner exactly as given.
@@ -28,7 +29,16 @@
 
 import { z } from "zod";
 
+/** A host (projects-api, crm-api) and meetings-api's system route: they answer from their own data and caches. */
 export const OWNER_TIMEOUT_MS = 2_000;
+/**
+ * An owner that itself asks a host before it answers: activities-api (`GET /activities?ids=` and `?dealId=`: two sequential rounds
+ * of a host's 2 s, then the names, which it waits for at most `NAMES_WAIT_MS`) and the meetings list (`GET /meetings?ids=`: one
+ * host round beside the creators' names). Its inner rounds plus a margin must fit: pinned by
+ * `owners.budgets.cross-package.test.ts` (specs/20261126-teams R13 b, ADR 20261119-on-demand-outbound-work-...). It is only reached when
+ * the middle service itself stalls: when a host is slow the middle answers by its own budgets, well inside it.
+ */
+export const RELAYED_OWNER_TIMEOUT_MS = 6_000;
 /** A page asks up to 500 ids: more than this at once would only queue on the owner. */
 const MAX_PARALLEL_BATCHES = 4;
 

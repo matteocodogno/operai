@@ -55,7 +55,9 @@ export const TEAMS_TIMEOUT_MS = 5_000;
 export const TEAMS_HOST_WAIT_MS = 800;
 /**
  * What a host resolve keeps under its callers' deadline (activities-api, meetings-api and hours-api: 2 s) for everything
- * but the team read: JWT, permission check, project query, building the answer, two hops, event-loop delay (D16).
+ * but the team read: JWT, permission check (cached 30 s, or at most `HOST_AUTHZ_WAIT_MS` when not), project query,
+ * building the answer, two hops, event-loop delay (D16). Itemized since R13 a: `HOST_AUTHZ_WAIT_MS + HOST_PATH_REST_MS`
+ * (`hostBudget.ts`) fit in it.
  * `TEAMS_HOST_WAIT_MS + TEAMS_HOST_MARGIN_MS` must stay under each of those deadlines: `teams.budgets.cross-package.test.ts`.
  */
 export const TEAMS_HOST_MARGIN_MS = 1_000;

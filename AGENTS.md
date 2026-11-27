@@ -953,14 +953,16 @@ admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`, project
 the `dev` tasks' `docker compose up`), and its own `.envrc` and `.env.example`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`, `activities-api`, `accounting-api`, `admin-ui`; hours-api reads its `.env`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`, `activities-api`, `accounting-api`, `hours-api`, `admin-ui`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
 explicitly — direnv's shell hook does not fire for a non-interactive mise task. Meetings runs against
 fake transcription/LLM providers locally (`MEETINGS_AI_PROVIDER=fake`, refused in production) until
-the Google Cloud project is provisioned (ADR 20261105-meetings-ai-providers-google-cloud-eu). `hours-api` has no direnv file: a
-person copies `hours-api/.env.example` to its gitignored `hours-api/.env` and fills it (bun and `prisma.config.ts` load
-it). **Secret values never go in a `.envrc`** — those are committed and hold only `op read` references — but in the
-uncommitted per-service `.env`. Until hours-api's `.env` exists hours-api exits at start naming each missing variable
+the Google Cloud project is provisioned (ADR 20261105-meetings-ai-providers-google-cloud-eu). `hours-api` has a committed `.envrc` like the
+others (it loads the 1Password service-account token, `source_up`, the gitignored `.env`, and derives `DATABASE_URL`
+from the shared local Postgres credentials), so `DATABASE_URL` is no longer in its example file: a
+person runs `direnv allow hours-api`, copies `hours-api/.env.example` to its gitignored `hours-api/.env` and fills it (bun,
+`prisma.config.ts` and direnv load it). **Secret values never go in a `.envrc`** — those are committed and hold only `op read` references
+or non-secret derivations — but in the uncommitted per-service `.env`. Until hours-api's `.env` exists hours-api exits at start naming each missing variable
 and the rest of the stack keeps running. It also needs an `hours-api` entry (scope `meetings.hosts.read`) in `auth`'s
 `SERVICE_CLIENTS`, its secret kept where auth keeps the others (never a committed file), and `SERVICE_AUDIENCE` in
 meetings-api's environment — without them a meeting's deal reads as unavailable and nothing else is affected.
@@ -1027,8 +1029,13 @@ The suite's global setup (`shell/e2e/global-setup.ts`) then does three things be
 3. Runs `direnv exec . bun run accounting:release` (propose, then the real run, below) in `refund-api/` (specs/20261118-refund-accounting-export, T12). refund-api answers every approval with 409
    `accounting_release_pending` until that script has run once against the database it uses, so without it every journey that approves a request fails. The script reads
    Accounting first (step 2 must have run, and accounting-api be reachable; otherwise it exits 2 and writes nothing), is idempotent, seeds Refund's type defaults, and prints
-   one summary line, which the setup logs. The release needs the register export and a confirmed pairing file, so the setup (specs/20261124-receipt-numbers-from-the-register, plan § e2e and local) does three steps in a temp directory (mode 0700, removed whatever the outcome): (1) `--dry-run --register refund-api/scripts/fixtures/synthetic-register-header-only.xlsx --propose <tmp>/pairing.csv` (output "already completed" = stop); (2) rewrites every `proposed` record to `confirmed` itself (an `unresolved` one fails the setup and names the command to inspect it); (3) the real run with `--pairing`. It needs refund-api's migrations applied (`cd refund-api && bun run db:deploy`).
+   one summary line, which the setup logs. The release needs the register export and a confirmed pairing file, so the setup (specs/20261124-receipt-numbers-from-the-register, plan § e2e and local) does three steps in a temp directory (mode 0700, removed whatever the outcome): (1) `--dry-run --register refund-api/scripts/fixtures/synthetic-register-header-only.xlsx --propose <tmp>/pairing.csv` (output "already completed" = stop); (2) rewrites every `proposed` record to `confirmed` itself (an `unresolved` one fails the setup and names the command to inspect it); then gives every `@operai.test` employee that shares a receipt-number prefix and has no receipt code an unused one (through refund-api's route, as a seeded admin; a real person is never touched), because the release refuses such an employee (exit 9) and a dev database that ran journeys with the release skipped holds many "E2E …" accounts with the same initials; (3) the real run with `--pairing`. It needs refund-api's migrations applied (`cd refund-api && bun run db:deploy`).
    `E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1` skips it, for a run of specs that never approve a refund request; a run that skips it proves nothing about approvals.
+
+Like `mise run dev`, the setup defaults **`ACCOUNTING_INTERNAL_URL`** for the refund script to `E2E_ACCOUNTING_API_URL` (default `http://localhost:8089`) when it is not already exported
+(refund-api's direnv file does not set it). A fourth step, the legal-entity registry, runs the CRM import (`auth/scripts/import-crm-legal-details.ts --apply`) under `direnv exec` in `auth/`,
+with crm-api's `DATABASE_URL` (read the same way) as the CRM source, so `POSTGRES_USER` / `POSTGRES_PASSWORD` need not be exported (the `mise run legal-entities:import` task still uses
+them, defaulting to `postgres:postgres`); like that task it refuses a database that is not on this machine unless `E2E_ALLOW_REMOTE_DB=1`, and prints no URL.
 
 Both scripts run under `direnv exec`, so each writes to the database its service's `.envrc` names (the shared dev one). To aim them at another database set
 **`E2E_ACCOUNTING_DATABASE_URL`** (accounting-api's database, for `seed:welld-ch`) and **`E2E_REFUND_DATABASE_URL`** (refund-api's, for `accounting:release`) to postgres URLs:

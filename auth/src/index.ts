@@ -45,6 +45,8 @@ import { createSystemTeamsRouter } from "./teams/system.routes";
 import { setNotifyTokenProvider } from "./lib/notify";
 import { startNoticeDispatcher } from "./legalEntities/notices/dispatcher";
 import { setupOpenAPI } from "./openapi/registry";
+import { isNulDatabaseError, nulProblem, rejectNul, logNulRefusal } from "./lib/nul";
+import { requestBodyLimit } from "./lib/bodyLimit";
 
 // Exported so `legalEntities/routerTable.test.ts` can read the real route table (AC-2.7).
 export const app = new OpenAPIHono();
@@ -68,6 +70,14 @@ app.use(
 // write the live `GET /invite?id&token=<raw>` invitation token into every log
 // line for that request — see src/lib/logger.ts.
 app.use("*", requestLogger());
+
+// A ceiling on the body BEFORE anything reads it: the NUL scan below decodes a whole JSON body on every request, signed in or not
+// (security review A04/A05). 413 `request_too_large`; the figure and why are in lib/bodyLimit.ts.
+app.use("*", requestBodyLimit);
+
+// A NUL in the path, the query or a JSON body is a 400 before any route runs: Postgres text cannot hold it, and every string
+// the admin, invitation, legal-entity and authz routes take would otherwise need its own refusal (QE D2).
+app.use("*", rejectNul);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
@@ -155,6 +165,12 @@ setupOpenAPI(app);
 // ─── Global error handler (RFC 7807 Problem JSON) ───────────────────────────
 
 app.onError((err: Error, c: Context) => {
+  // Safety net for a NUL that got past the guard to the database (a 22021 / 22P05): the request was wrong, not the server.
+  if (isNulDatabaseError(err)) {
+    logNulRefusal(err); // the code only (A09): a server-built bad value must not be blamed on the client with no trace
+    return nulProblem(c.req.path);
+  }
+
   // Name and code only (D9-3): a message or the object can carry a database call's arguments, an address among them.
   const code = (err as { code?: unknown } | null)?.code;
   console.error(

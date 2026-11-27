@@ -75,6 +75,12 @@ describe("listActivitiesByIds", () => {
     expect(call!.path).toBe("/activities");
   });
 
+  it("waits for an owner that answers after 2.5 s: activities-api asks a host first, so its default is 6 s, not 2 s (R13 b)", async () => {
+    hosts.activities.add({ id: "a1", subject: "Write the migration", project: "p1" });
+    hosts.fail("activities.list", { delayMs: 2_500 });
+    expect([...(await byIds(["a1"])).keys()]).toEqual(["a1"]);
+  }, 8_000);
+
   it("asks nothing for no ids", async () => {
     expect(await listActivitiesByIds(ALICE, [])).toEqual({ state: "ok", items: new Map() });
     expect(hosts.calls).toEqual([]);
@@ -164,6 +170,12 @@ describe("listDealActivities", () => {
     const [call] = hosts.callsTo("activities.list");
     expect(Object.fromEntries(call!.query)).toEqual({ dealId: "d1", page: "1", pageSize: "100" });
   });
+
+  it("waits for an owner that answers after 2.5 s: a deal's activities take two host rounds in activities-api (R13 b)", async () => {
+    hosts.activities.add({ id: "a1", subject: "Call", type: "call", deal: "d1" });
+    hosts.fail("activities.list", { delayMs: 2_500 });
+    expect((await ofDeal("d1")).items.map((item) => item.id)).toEqual(["a1"]);
+  }, 8_000);
 
   it("answers an empty list for a deal without activities, in one call", async () => {
     expect(await ofDeal("d1")).toEqual({ state: "ok", items: [], truncated: false });

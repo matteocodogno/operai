@@ -17,7 +17,8 @@
 
 import { env } from "../lib/env";
 
-const RESOLVE_TIMEOUT_MS = 5_000;
+/** The whole `GET /authz/resolve`, aborted past it. Exported so a host's shorter wait can be related to it by a test. */
+export const RESOLVE_TIMEOUT_MS = 5_000;
 
 export interface ResolveConditionAttribute {
   readonly key: string;

@@ -14,6 +14,7 @@
  */
 
 import { z } from "zod";
+import { IdSchema, text } from "@/lib/nulInput";
 import { IdentitySchema } from "./estimates.schemas";
 
 // ─── Collaborator access level — viewer/editor ONLY (never "owner") ─────────
@@ -28,7 +29,7 @@ export type CollaboratorAccessLevel = z.infer<typeof CollaboratorAccessLevelSche
 // ─── POST /estimates/{id}/collaborators — request body ──────────────────────
 
 export const AddCollaboratorRequestSchema = z.object({
-  email: z.string().max(320),
+  email: text(320),
   accessLevel: CollaboratorAccessLevelSchema,
 });
 
@@ -69,12 +70,12 @@ export type CollaboratorsListResponse = z.infer<typeof CollaboratorsListResponse
 // ─── Route param schemas ─────────────────────────────────────────────────────
 
 export const CollaboratorsParamSchema = z.object({
-  id: z.string().min(1, "id is required"),
+  id: IdSchema,
 });
 
 export const CollaboratorParamSchema = z.object({
-  id: z.string().min(1, "id is required"),
-  collaboratorId: z.string().min(1, "collaboratorId is required"),
+  id: IdSchema,
+  collaboratorId: IdSchema,
 });
 
 // ─── Problem JSON schemas (OpenAPI doc-only, T11) ────────────────────────────

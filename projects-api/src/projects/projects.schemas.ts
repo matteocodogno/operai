@@ -12,6 +12,7 @@ import {
   pageOf,
   pageQuery,
   requiredText,
+  searchText,
 } from "../lib/http";
 import { CreateTermsSchema } from "../terms/terms.schemas";
 
@@ -186,10 +187,7 @@ export const PutTeamsSchema = z.object({ teamIds: z.array(IdSchema).max(MAX_ATTA
 
 /** The attach picker's search text: raw at most 200 and no NUL, then trimmed to at most 80; blank is no search (D13). */
 export const AttachableTeamsQuery = z.object({
-  q: z
-    .string()
-    .max(200)
-    .refine((value) => !value.includes("\u0000"), "Invalid characters")
+  q: searchText(200)
     .transform((value) => value.trim())
     .pipe(z.string().max(80))
     .optional(),
@@ -223,7 +221,7 @@ export const ProjectListItemSchema = z.object({
 /** 25 per page, fixed (AC-1.4): `page` is the only paging input. */
 export const ListProjectsQuery = z.object({
   page: pageQuery().page,
-  q: z.string().max(200).optional(),
+  q: searchText(200).optional(),
   type: ProjectTypeSchema.optional(),
   state: ProjectStateSchema.optional(),
   projectManagerId: IdSchema.optional(),

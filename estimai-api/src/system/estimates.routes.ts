@@ -12,6 +12,7 @@
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import type { MiddlewareHandler } from "hono";
+import { IdSchema } from "../lib/nulInput";
 import { manDaysOf } from "./manDays";
 import { problem, problemBody } from "./problem";
 import type { SystemAuthVariables } from "./systemAuth.middleware";
@@ -27,7 +28,7 @@ const findEstimateInDb: FindEstimate = async (id) => {
 };
 
 const ParamsSchema = z.object({
-  id: z.string().min(1).max(128),
+  id: IdSchema.max(128),
 });
 
 const ProblemSchema = z.object({

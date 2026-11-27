@@ -19,7 +19,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { PURCHASE_ORDER_BEXIO, authorized, requireCapability } from "../auth/guards";
 import type { AuthzVariables } from "../auth/authz.middleware";
 import { db } from "../lib/db";
-import { IdParams, assertVersion, commonErrors, etag, requireIfMatch } from "../lib/http";
+import { IdParams, NO_NUL, assertVersion, commonErrors, etag, hasNoNul, requireIfMatch } from "../lib/http";
 import { notFound, validationHook } from "../lib/problem";
 import { PurchaseOrderSchema } from "../projects/projects.schemas";
 import { purchaseOrderNotFound, toPurchaseOrderView, updatePurchaseOrderIfVersion } from "./view";
@@ -31,6 +31,7 @@ const BexioOrderSchema = z
   .object({
     bexioOrderId: z
       .string()
+      .refine(hasNoNul, NO_NUL)
       .transform((value) => value.trim())
       .pipe(z.string().max(MAX_BEXIO_ORDER_ID))
       .transform((value) => (value === "" ? null : value))

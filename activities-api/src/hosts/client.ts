@@ -31,6 +31,14 @@ import type { ActivityHost, HostEntity, HostRelated, RelatedType, ResolveResult 
 export const RESOLVE_TIMEOUT_MS = 2_000;
 /** The contract's cap on ids per resolve call. */
 export const RESOLVE_BATCH_SIZE = 25;
+/**
+ * The most SEQUENTIAL resolve calls one list request makes to ONE host (the hosts themselves are asked in parallel): `GET /activities?ids=`
+ * (≤ 50 ids, so `ceil(50 / RESOLVE_BATCH_SIZE)` calls) and one `?dealId=` page (the deal's company, then in `toViews` that company with the
+ * page's related contacts and deal). hours-api waits for those routes `LIST_HOST_ROUNDS × RESOLVE_TIMEOUT_MS + NAMES_WAIT_MS + margin`
+ * (`RELAYED_OWNER_TIMEOUT_MS`, specs/20261126-teams R13 b). Descriptive: `activities/hostRounds.test.ts` ties it to the code, and
+ * `hours-api/src/clients/owners.budgets.cross-package.test.ts` ties it to hours-api's wait.
+ */
+export const LIST_HOST_ROUNDS = 2;
 /** The contract's cap on related ids of one type per resolve call. */
 export const RESOLVE_RELATED_BATCH_SIZE = 100;
 const MAX_LABEL = 200;

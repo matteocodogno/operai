@@ -249,7 +249,21 @@ export function formatReport(report: SeedReport): string[] {
   return lines;
 }
 
-export const USAGE = "Usage: bun run seed:welld-ch [--dry-run]";
+/**
+ * What to tell the operator when the run failed. The KIND only, never the driver's text (it can carry a connection string): a seed
+ * file refusal, a database that has no schema yet (Prisma P2021 table / P2022 column missing: the migrations were not applied, so
+ * running it again cannot help), or any other failure.
+ */
+export function describeSeedFailure(error: unknown): string {
+  if (error instanceof SeedFileError) return `seed:welld-ch refused: ${error.message}`;
+  const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+  if (code === "P2021" || code === "P2022") {
+    return "seed:welld-ch failed: the accounting database has no schema (or an older one): apply the migrations first (`cd accounting-api && bun run db:deploy`); nothing was added";
+  }
+  return "seed:welld-ch failed: nothing was added; run it again";
+}
+
+export const USAGE ="Usage: bun run seed:welld-ch [--dry-run]";
 
 /**
  * The CLI without `process`: the arguments after the script name, a sink for the output, the exit code. 0 done, 1 refused
@@ -266,8 +280,7 @@ export async function runCli(args: readonly string[], out: (line: string) => voi
     for (const line of formatReport(report)) out(line);
     return 0;
   } catch (error) {
-    // The kind only: a driver error can carry a connection string.
-    err(error instanceof SeedFileError ? `seed:welld-ch refused: ${error.message}` : "seed:welld-ch failed: nothing was added; run it again");
+    err(describeSeedFailure(error));
     return 1;
   }
 }

@@ -111,8 +111,10 @@
 
 import { z } from "zod";
 import { Effect } from "effect";
+import { unexpectedDbFailure } from "@/lib/dbFailure";
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
+import { createMiddleware } from "hono/factory";
 import type { JwtVariables } from "@/auth/jwt.middleware";
 import { env } from "@/lib/env";
 import {
@@ -141,9 +143,13 @@ import {
 } from "./collaborators.repo";
 import {
   AddCollaboratorRequestSchema,
+  CollaboratorParamSchema,
   UpdateCollaboratorRequestSchema,
   type Collaborator,
 } from "./collaborators.schemas";
+
+// The path parameters of every collaborator route: the estimate, and the grant where the path has one.
+const PathParamsSchema = CollaboratorParamSchema.partial({ collaboratorId: true });
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -376,6 +382,26 @@ export function registerCollaboratorRoutes(
   router: OpenAPIHono<{ Variables: JwtVariables }>,
   deps: CollaboratorRouteDeps = defaultDeps,
 ): void {
+  // These handlers read their path parameters straight off the request (no `request.params` schema to validate them), so the schema
+  // runs here, before any of them: a NUL in the estimate id or the grant id is a 400, not a Postgres error (QE F1). Registered on the
+  // two path shapes, so `/collaborators/me` meets it too (as a `collaboratorId`).
+  const refuseBadPathParams = createMiddleware(async (c, next) => {
+    const parsed = PathParamsSchema.safeParse(c.req.param());
+    if (!parsed.success) {
+      return c.json(
+        problemBadRequest(
+          c.req.path,
+          parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "),
+          "invalid_input",
+        ),
+        400,
+      );
+    }
+    return next();
+  });
+  router.use("/estimates/:id/collaborators", refuseBadPathParams);
+  router.use("/estimates/:id/collaborators/:collaboratorId", refuseBadPathParams);
+
   const resolveOneIdentity = async (
     authHeader: string,
     userId: string,
@@ -394,7 +420,7 @@ export function registerCollaboratorRoutes(
 
     const accessExit = await Effect.runPromiseExit(resolveAccess(estimateId, callerId));
     if (accessExit._tag === "Failure") {
-      throw new Error("Unexpected database failure resolving estimate access");
+      throw unexpectedDbFailure("Unexpected database failure resolving estimate access", accessExit.cause);
     }
     const resolved = accessExit.value;
 
@@ -410,7 +436,7 @@ export function registerCollaboratorRoutes(
 
     const listExit = await Effect.runPromiseExit(listCollaborators(estimateId));
     if (listExit._tag === "Failure") {
-      throw new Error("Unexpected database failure listing collaborators");
+      throw unexpectedDbFailure("Unexpected database failure listing collaborators", listExit.cause);
     }
     const rows = listExit.value;
 
@@ -446,7 +472,7 @@ export function registerCollaboratorRoutes(
     // estimate's existence nor consume the rate budget.
     const accessExit = await Effect.runPromiseExit(resolveAccess(estimateId, callerId));
     if (accessExit._tag === "Failure") {
-      throw new Error("Unexpected database failure resolving estimate access");
+      throw unexpectedDbFailure("Unexpected database failure resolving estimate access", accessExit.cause);
     }
     const resolved = accessExit.value;
 
@@ -507,7 +533,7 @@ export function registerCollaboratorRoutes(
     // ── Step 5: duplicate check on (estimateId, email) — no auth round trip.
     const dupExit = await Effect.runPromiseExit(findCollaboratorByEmail(estimateId, normalizedEmail));
     if (dupExit._tag === "Failure") {
-      throw new Error("Unexpected database failure checking for an existing collaborator");
+      throw unexpectedDbFailure("Unexpected database failure checking for an existing collaborator", dupExit.cause);
     }
     const existing = dupExit.value;
     if (existing !== null) {
@@ -583,7 +609,7 @@ export function registerCollaboratorRoutes(
         // (estimateId, userId) catches it here.
         return c.json(problemConflict(path, cause.error.message, "already_collaborator"), 409);
       }
-      throw new Error("Unexpected database failure adding collaborator");
+      throw unexpectedDbFailure("Unexpected database failure adding collaborator", insertExit.cause);
     }
 
     const created = insertExit.value;
@@ -659,9 +685,7 @@ export function registerCollaboratorRoutes(
       findCollaboratorByUserId(estimateId, callerId),
     );
     if (ownGrantExit._tag === "Failure") {
-      throw new Error(
-        "Unexpected database failure looking up the caller's own collaborator grant",
-      );
+      throw unexpectedDbFailure("Unexpected database failure looking up the caller's own collaborator grant", ownGrantExit.cause);
     }
 
     // Covers three cases IDENTICALLY, by construction (no separate branch
@@ -699,9 +723,7 @@ export function registerCollaboratorRoutes(
       deleteCollaboratorByUserId(estimateId, callerId),
     );
     if (deleteExit._tag === "Failure") {
-      throw new Error(
-        "Unexpected database failure removing the caller's own collaborator grant",
-      );
+      throw unexpectedDbFailure("Unexpected database failure removing the caller's own collaborator grant", deleteExit.cause);
     }
 
     // NO notification — self-leave is explicitly excluded (AC-7.2).
@@ -720,7 +742,7 @@ export function registerCollaboratorRoutes(
 
     const accessExit = await Effect.runPromiseExit(resolveAccess(estimateId, callerId));
     if (accessExit._tag === "Failure") {
-      throw new Error("Unexpected database failure resolving estimate access");
+      throw unexpectedDbFailure("Unexpected database failure resolving estimate access", accessExit.cause);
     }
     const resolved = accessExit.value;
 
@@ -763,7 +785,7 @@ export function registerCollaboratorRoutes(
       findCollaboratorById(estimateId, collaboratorId),
     );
     if (existingExit._tag === "Failure") {
-      throw new Error("Unexpected database failure looking up the collaborator grant");
+      throw unexpectedDbFailure("Unexpected database failure looking up the collaborator grant", existingExit.cause);
     }
     if (existingExit.value === null) {
       return c.json(problemNotFound(path, `Collaborator grant ${collaboratorId} not found`), 404);
@@ -773,7 +795,7 @@ export function registerCollaboratorRoutes(
       updateCollaboratorAccessLevel(collaboratorId, bodyResult.data.accessLevel),
     );
     if (updateExit._tag === "Failure") {
-      throw new Error("Unexpected database failure updating the collaborator's access level");
+      throw unexpectedDbFailure("Unexpected database failure updating the collaborator's access level", updateExit.cause);
     }
     const updated = updateExit.value;
 
@@ -805,7 +827,7 @@ export function registerCollaboratorRoutes(
 
     const accessExit = await Effect.runPromiseExit(resolveAccess(estimateId, callerId));
     if (accessExit._tag === "Failure") {
-      throw new Error("Unexpected database failure resolving estimate access");
+      throw unexpectedDbFailure("Unexpected database failure resolving estimate access", accessExit.cause);
     }
     const resolved = accessExit.value;
 
@@ -825,7 +847,7 @@ export function registerCollaboratorRoutes(
       findCollaboratorById(estimateId, collaboratorId),
     );
     if (existingExit._tag === "Failure") {
-      throw new Error("Unexpected database failure looking up the collaborator grant");
+      throw unexpectedDbFailure("Unexpected database failure looking up the collaborator grant", existingExit.cause);
     }
     if (existingExit.value === null) {
       return c.json(problemNotFound(path, `Collaborator grant ${collaboratorId} not found`), 404);
@@ -833,7 +855,7 @@ export function registerCollaboratorRoutes(
 
     const deleteExit = await Effect.runPromiseExit(deleteCollaboratorById(collaboratorId));
     if (deleteExit._tag === "Failure") {
-      throw new Error("Unexpected database failure removing the collaborator");
+      throw unexpectedDbFailure("Unexpected database failure removing the collaborator", deleteExit.cause);
     }
     const removed = deleteExit.value;
 

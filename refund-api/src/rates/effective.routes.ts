@@ -24,6 +24,8 @@ import { ENTITY_CURRENCY, ProblemSchema } from "../requests/requests.schemas";
 import { fetchEffectiveRate } from "./repo";
 import { microsToDecimalString } from "./service";
 import { EffectiveRateQuerySchema, EffectiveRateResponseSchema } from "./schemas";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 const forbiddenProblem = (path: string, detail: string) => ({
   type: "https://httpstatuses.com/403",
@@ -35,6 +37,8 @@ const forbiddenProblem = (path: string, detail: string) => ({
 
 export const rateEffectiveRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -99,7 +103,7 @@ rateEffectiveRouter.openapi(effectiveRoute, async (c) => {
 
   const currency = ENTITY_CURRENCY[entity];
 
-  const exit = await Effect.runPromiseExit(fetchEffectiveRate(entity, date));
+  const exit = await runExit(fetchEffectiveRate(entity, date));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure resolving the effective mileage rate");
   }

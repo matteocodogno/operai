@@ -19,6 +19,7 @@
  */
 
 import { z } from "zod";
+import { NO_NUL, hasNoNul } from "@/lib/nulInput";
 import {
   ItVariantSchema,
   LinkSchema,
@@ -43,11 +44,12 @@ export const SystemNotificationRequestSchema = z.object({
   recipientId: z
     .string()
     .min(1, "recipientId is required")
-    .max(200, "recipientId must be at most 200 characters"),
+    .max(200, "recipientId must be at most 200 characters")
+    .refine(hasNoNul, NO_NUL),
   originApp: OriginAppSchema,
   severity: SeveritySchema.default("info"),
-  title: z.string().min(1, "title is required").max(200, "title must be at most 200 characters"),
-  body: z.string().min(1, "body is required").max(2000, "body must be at most 2000 characters"),
+  title: z.string().min(1, "title is required").max(200, "title must be at most 200 characters").refine(hasNoNul, NO_NUL),
+  body: z.string().min(1, "body is required").max(2000, "body must be at most 2000 characters").refine(hasNoNul, NO_NUL),
   link: LinkSchema.optional(),
   // specs/20261104-meetings (ADR 20261104-bilingual-system-notifications): optional Italian rendering of title/body.
   // The reader picks it from <html lang>; omit it and the notification renders

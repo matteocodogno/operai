@@ -24,6 +24,7 @@
  * uncaught Error for app.onError to turn into a 500.
  */
 
+import { unexpectedDbFailure } from "@/lib/dbFailure";
 import { createHash, randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { env } from "@/lib/env";
@@ -106,7 +107,7 @@ const persistDelivery = async (
     // A concurrent call with the same key recorded its `sent` first: that row is the answer.
     const failure = exit.cause._tag === "Fail" ? exit.cause.error : undefined;
     if (failure instanceof DeliveryAlreadySent) return { id: failure.delivery.id, replayed: true };
-    throw new Error("Unexpected database failure recording email delivery");
+    throw unexpectedDbFailure("Unexpected database failure recording email delivery", exit.cause);
   }
   return { id: exit.value.id, replayed: false };
 };
@@ -123,7 +124,7 @@ export const emailChannel: Channel<EmailSendInput, EmailSendResult> = {
     if (scope) {
       const exit = await Effect.runPromiseExit(findSentDelivery(scope));
       if (exit._tag === "Failure") {
-        throw new Error("Unexpected database failure looking up email delivery");
+        throw unexpectedDbFailure("Unexpected database failure looking up email delivery", exit.cause);
       }
       if (exit.value) return { deliveryId: exit.value.id, status: "sent", replayed: true };
     }

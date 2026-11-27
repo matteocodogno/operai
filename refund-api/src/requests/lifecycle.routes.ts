@@ -25,6 +25,7 @@ import { mapRequestDetail } from "./requests.service";
 import { submitRequest, withdrawRequest } from "./lifecycle.repo";
 import { hydrateDraftMileageLines } from "./mileageHydration";
 import { SubmitValidationProblemSchema } from "./lifecycle.schemas";
+import { runExit } from "../lib/runExit";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -91,12 +92,12 @@ function requireCreateCapabilityOr404(
  * /requests/:id's own hydrate-then-map sequence, requests.routes.ts).
  */
 async function fetchDetailAfterTransition(requestId: string) {
-  const exit = await Effect.runPromiseExit(findRequestWithLines(requestId));
+  const exit = await runExit(findRequestWithLines(requestId));
   if (exit._tag === "Failure" || !exit.value) {
     throw new Error("Unexpected database failure re-fetching refund request");
   }
   const request = exit.value;
-  const hydrationExit = await Effect.runPromiseExit(
+  const hydrationExit = await runExit(
     hydrateDraftMileageLines(request.lines, request.status),
   );
   if (hydrationExit._tag === "Failure") {
@@ -143,7 +144,7 @@ lifecycleRouter.openapi(submitRoute, async (c) => {
   const capDenial = requireCreateCapabilityOr404(authz, c.req.path, id);
   if (capDenial) return c.json(capDenial, 404);
 
-  const exit = await Effect.runPromiseExit(submitRequest(id, sub, email));
+  const exit = await runExit(submitRequest(id, sub, email));
   if (exit._tag === "Success") {
     return c.json(await fetchDetailAfterTransition(id), 200);
   }
@@ -197,7 +198,7 @@ lifecycleRouter.openapi(withdrawRoute, async (c) => {
   const capDenial = requireCreateCapabilityOr404(authz, c.req.path, id);
   if (capDenial) return c.json(capDenial, 404);
 
-  const exit = await Effect.runPromiseExit(withdrawRequest(id, sub, email));
+  const exit = await runExit(withdrawRequest(id, sub, email));
   if (exit._tag === "Success") {
     return c.json(await fetchDetailAfterTransition(id), 200);
   }

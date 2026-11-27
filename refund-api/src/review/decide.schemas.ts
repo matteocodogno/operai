@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { noNul } from "../lib/inputText";
 
 // AC-7.1 — "lower, raise, or set to zero independently per line": no upper
 // bound tied to requestedAmountCents, just a non-negative integer.
@@ -19,17 +20,19 @@ export type ApprovedTotalBody = z.infer<typeof ApprovedTotalBodySchema>;
 // like rejecting the whole request does: the employee must be told why.
 // Capped at 2000 characters so the reason fits the export PDF's detail column.
 export const RejectLineBodySchema = z.object({
-  reason: z
-    .string()
-    .trim()
-    .min(1, "reason is required")
-    .max(2000, "reason must be at most 2000 characters"),
+  reason: noNul(
+    z
+      .string()
+      .trim()
+      .min(1, "reason is required")
+      .max(2000, "reason must be at most 2000 characters"),
+  ),
 });
 export type RejectLineBody = z.infer<typeof RejectLineBodySchema>;
 
 // AC-7.3 — a non-empty rejection motivation is required BEFORE the rejection
 // is accepted; `.trim()` so whitespace-only input is treated as empty.
 export const RejectBodySchema = z.object({
-  motivation: z.string().trim().min(1, "motivation is required"),
+  motivation: noNul(z.string().trim().min(1, "motivation is required")),
 });
 export type RejectBody = z.infer<typeof RejectBodySchema>;

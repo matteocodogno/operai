@@ -31,6 +31,7 @@
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { db } from "@/lib/db";
+import { IdSchema } from "@/lib/nulInput";
 import {
   createSystemAuthMiddleware,
   type SystemAuthOptions,
@@ -50,8 +51,8 @@ export const MAX_NOTICE_CLOCK_SKEW_MS = 5 * 60_000;
 
 const NoticeSchema = z
   .object({
-    estimateId: z.string().min(1).max(64),
-    dealId: z.string().min(1).max(64),
+    estimateId: IdSchema.max(64),
+    dealId: IdSchema.max(64),
     event: z.enum(["linked", "unlinked"]),
     at: z
       .string()

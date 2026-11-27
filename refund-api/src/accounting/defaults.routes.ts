@@ -45,6 +45,7 @@ import {
   PutExpenseTypeDefaultBodySchema,
   TypeDefaultRowSchema,
 } from "./defaults.schemas";
+import { nulRefusal } from "../lib/inputText";
 
 const problem = <S extends number>(status: S, title: string, path: string, detail: string, code?: string) => ({
   type: `https://httpstatuses.com/${status}`,
@@ -59,6 +60,8 @@ const BODY_SIZE_LIMIT = 4 * 1024;
 
 export const defaultsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         problem(

@@ -18,6 +18,7 @@
  * dispatch, fire-and-forget (see the comment there).
  */
 
+import { unexpectedDbFailure } from "@/lib/dbFailure";
 import { Effect } from "effect";
 import { pushChannel } from "@/channels/push.channel";
 import { eventBus } from "@/notifications/eventBus";
@@ -71,7 +72,7 @@ export const inAppChannel: Channel<InAppSendInput, NotificationDto> & {
     const exit = await Effect.runPromiseExit(createNotification(input));
 
     if (exit._tag === "Failure") {
-      throw new Error("Unexpected database failure creating notification");
+      throw unexpectedDbFailure("Unexpected database failure creating notification", exit.cause);
     }
 
     const created = exit.value;
@@ -83,7 +84,7 @@ export const inAppChannel: Channel<InAppSendInput, NotificationDto> & {
     const exit = await Effect.runPromiseExit(createNotificationOnce(input, scope));
 
     if (exit._tag === "Failure") {
-      throw new Error("Unexpected database failure creating notification");
+      throw unexpectedDbFailure("Unexpected database failure creating notification", exit.cause);
     }
 
     const { notification, created } = exit.value;

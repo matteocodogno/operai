@@ -9,10 +9,10 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { PROJECT_MANAGE, authorized, requireCapability } from "../auth/guards";
 import type { AuthzVariables } from "../auth/authz.middleware";
 import { orCrmUnavailable, searchCompanies } from "../lib/crm";
-import { EntitySchema, commonErrors } from "../lib/http";
+import { EntitySchema, commonErrors, searchText } from "../lib/http";
 import { validationHook } from "../lib/problem";
 
-const ListCompaniesQuery = z.object({ q: z.string().max(200).optional() });
+const ListCompaniesQuery = z.object({ q: searchText(200).optional() });
 
 const CompanyChoiceSchema = z.object({ id: z.string(), name: z.string(), entity: EntitySchema });
 

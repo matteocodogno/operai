@@ -8,6 +8,7 @@
  */
 import type { Context } from "hono";
 import { env } from "./env";
+import { NUL_DATABASE_DETAIL, isNulDatabaseError, logNulRefusal } from "./nul";
 import { handleProblemError, problem } from "./problem";
 
 interface ZodIssueLike {
@@ -57,6 +58,12 @@ export const handleError = (err: Error, c: Context): Response => {
       { status, detail: err.message, ...(status === 400 ? { code: "invalid_request" } : {}) },
       c.req.path,
     );
+  }
+
+  // Safety net for a NUL that no schema refused: the request was wrong, not the server (QE D2). Names no value.
+  if (isNulDatabaseError(err)) {
+    logNulRefusal(err); // the code only (A09): a server-built bad value must not be blamed on the client with no trace
+    return problem({ status: 400, code: "invalid_request", detail: NUL_DATABASE_DETAIL }, c.req.path);
   }
 
   const code = (err as { code?: unknown }).code;

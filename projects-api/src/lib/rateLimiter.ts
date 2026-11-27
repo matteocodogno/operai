@@ -10,7 +10,8 @@
  *
  * Semantics that D15 relies on, unchanged from auth: only an ADMITTED attempt is recorded, so a refused attempt never
  * delays the caller's recovery, and trying again never extends a wait. Counters are per process, like every limiter in
- * the suite: projects-api runs one replica (R12).
+ * the suite: projects-api runs one replica (R12); `scripts/check-single-replica.ts` refuses another figure in
+ * `.railway/railway.ts`.
  *
  * Three module-scope windows, 10 minutes each:
  *   - `attachableTeamsLimiter`: `GET /attachable-teams`, 120 per caller (D13). Its own budget, never the page reads'.

@@ -37,6 +37,8 @@ import { appendSettingEntry, listSettingHistory } from "./repo";
 import { getSettingDescriptor } from "./registry";
 import { currentValue, isNoOpValue, mapSettingResponse, normalizeSettingValue } from "./service";
 import { PutSettingBodySchema, SettingKeyParamSchema, SettingResponseSchema } from "./schemas";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -79,6 +81,8 @@ const SETTINGS_BODY_SIZE_LIMIT = 4 * 1024;
 
 export const settingsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -154,7 +158,7 @@ settingsRouter.openapi(getSettingRoute, async (c) => {
     return c.json(notFoundProblem(c.req.path, `Unknown refund setting "${key}"`), 404);
   }
 
-  const exit = await Effect.runPromiseExit(listSettingHistory(key));
+  const exit = await runExit(listSettingHistory(key));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure fetching refund setting history");
   }
@@ -238,7 +242,7 @@ settingsRouter.openapi(putSettingRoute, async (c) => {
     }
   }
 
-  const historyExit = await Effect.runPromiseExit(listSettingHistory(key));
+  const historyExit = await runExit(listSettingHistory(key));
   if (historyExit._tag === "Failure") {
     throw new Error("Unexpected database failure fetching refund setting history");
   }
@@ -250,7 +254,7 @@ settingsRouter.openapi(putSettingRoute, async (c) => {
     return c.json(mapSettingResponse(key, history), 200);
   }
 
-  const appendExit = await Effect.runPromiseExit(
+  const appendExit = await runExit(
     appendSettingEntry({
       key,
       value: normalized,

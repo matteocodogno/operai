@@ -9,6 +9,7 @@
  */
 
 import { z } from "@hono/zod-openapi";
+import { noNul } from "../lib/inputText";
 import { ReferenceStateSchema } from "./defaults.schemas";
 
 const CURRENCIES = ["CHF", "EUR", "USD", "GBP"] as const;
@@ -139,7 +140,7 @@ export const ClassificationProblemSchema = z.object({
 // ─── PUT …/lines/{lineId}/classification ─────────────────────────────────────
 
 /** Accounting's natural keys are short (20 and 16 characters, AC-1.2, AC-1.5); the cap only bounds what is looked up. */
-const KeySchema = z.string().trim().min(1).max(32);
+const KeySchema = noNul(z.string().trim().min(1).max(32));
 
 /**
  * At least one of the two keys. `accountNumber` is a natural key and never null: the account is required and there is no

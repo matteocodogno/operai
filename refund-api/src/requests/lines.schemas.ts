@@ -19,6 +19,7 @@
  */
 
 import { z } from "zod";
+import { noNul } from "../lib/inputText";
 import { CurrencySchema, EntitySchema, ExpenseTypeSchema } from "./requests.schemas";
 
 const IsoDateOnlySchema = z
@@ -26,17 +27,19 @@ const IsoDateOnlySchema = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be an ISO 8601 date (YYYY-MM-DD)");
 
 /** One address of a mileage trip: trimmed, 1 to 300 characters. */
-export const TripAddressSchema = z
-  .string()
-  .trim()
-  .min(1, "the address must not be empty")
-  .max(300, "the address is at most 300 characters");
+export const TripAddressSchema = noNul(
+  z
+    .string()
+    .trim()
+    .min(1, "the address must not be empty")
+    .max(300, "the address is at most 300 characters"),
+);
 
 export const LineBodySchema = z
   .object({
     date: IsoDateOnlySchema,
     type: ExpenseTypeSchema,
-    motivo: z.string().min(1, "motivo is required").max(2000),
+    motivo: noNul(z.string().min(1, "motivo is required").max(2000)),
     entity: EntitySchema,
     currency: CurrencySchema.optional(),
     requestedAmountCents: z

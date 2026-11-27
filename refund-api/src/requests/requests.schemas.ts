@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { idParam } from "../lib/inputText";
 
 // ─── Domain enums (mirror prisma/schema.prisma) ────────────────────────────
 
@@ -81,18 +82,18 @@ export const CurrencySchema = z.enum(CURRENCY_VALUES);
 // ─── Route param schemas ───────────────────────────────────────────────────
 
 export const RequestIdParamSchema = z.object({
-  id: z.string().min(1, "id is required"),
+  id: idParam("id"),
 });
 
 export const LineIdParamSchema = z.object({
-  id: z.string().min(1, "id is required"),
-  lineId: z.string().min(1, "lineId is required"),
+  id: idParam("id"),
+  lineId: idParam("lineId"),
 });
 
 export const AttachmentIdParamSchema = z.object({
-  id: z.string().min(1, "id is required"),
-  lineId: z.string().min(1, "lineId is required"),
-  aid: z.string().min(1, "aid is required"),
+  id: idParam("id"),
+  lineId: idParam("lineId"),
+  aid: idParam("aid"),
 });
 
 // ─── Response shapes ────────────────────────────────────────────────────────

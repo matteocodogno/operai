@@ -100,29 +100,41 @@ describe("parseEnv", () => {
 });
 
 /**
- * The example file is the contract a person copies into their direnv file, so it must list exactly
- * the variables `env.ts` reads: one `env.ts` requires and the example forgets is a service that will
- * not start, one the example lists and `env.ts` ignores is a setting that does nothing.
+ * A person's local setup is two files: the example (copied to the gitignored `.env`, where the
+ * secret lives) and the committed direnv file, which derives `DATABASE_URL` from the shared local
+ * Postgres credentials. Together they must cover exactly the variables `env.ts` reads: one `env.ts`
+ * requires and neither file provides is a service that will not start, one listed that `env.ts`
+ * ignores is a setting that does nothing.
  */
-describe("hours-api/.env.example", () => {
-  const example = readFileSync(join(import.meta.dir, "..", "..", ".env.example"), "utf8");
+describe("hours-api local setup: example file + direnv file", () => {
+  const read = (name: string) => readFileSync(join(import.meta.dir, "..", "..", name), "utf8");
+  const example = read(".env.example");
+  const direnv = read(".envrc");
   const listed = example
     .split("\n")
     .filter((line) => /^[A-Z][A-Z0-9_]*=/.test(line))
-    .map((line) => line.slice(0, line.indexOf("=")))
-    .sort();
+    .map((line) => line.slice(0, line.indexOf("=")));
+  const exportedByDirenv = direnv
+    .split("\n")
+    .map((line) => /^export ([A-Z][A-Z0-9_]*)=/.exec(line)?.[1])
+    .filter((name): name is string => name !== undefined);
   const withDefaults = ["NODE_ENV", "PORT"];
   const failure = parseEnv({});
   const required = failure.ok ? [] : Object.keys(failure.errors);
 
-  it("sets every variable env.ts requires, and the two it defaults, and nothing else", () => {
-    expect(required).toHaveLength(13);
-    expect(listed).toEqual([...required, ...withDefaults].sort());
+  it("the direnv file exports DATABASE_URL, the one required variable the example no longer lists", () => {
+    expect(exportedByDirenv).toContain("DATABASE_URL");
+    expect(listed).not.toContain("DATABASE_URL");
   });
 
-  it("shows the local defaults: port 8090 and the `hours` database", () => {
+  it("the two files set every variable env.ts requires, and the two it defaults, and nothing else", () => {
+    expect(required).toHaveLength(13);
+    expect([...listed, "DATABASE_URL"].sort()).toEqual([...required, ...withDefaults].sort());
+  });
+
+  it("shows the local defaults: port 8090 (example) and the `hours` database on the shared Postgres, host port 5435 (direnv file)", () => {
     expect(example).toContain("PORT=8090");
-    expect(example).toContain("localhost:5435/hours\n");
+    expect(direnv).toContain("localhost:5435/hours");
   });
 });
 

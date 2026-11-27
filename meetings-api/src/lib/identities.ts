@@ -48,7 +48,15 @@ const MAX_ID_LENGTH = 64;
 const SYSTEM_PREFIX = "system:";
 const CACHE_TTL_MS = 60_000;
 const CACHE_SWEEP_THRESHOLD = 5_000;
-const REQUEST_TIMEOUT_MS = 5_000;
+/** One batch of `POST /authz/users/identities`, aborted past it. A bounded wait (`LIST_NAMES_WAIT_MS`) is shorter and does not abort it. */
+export const REQUEST_TIMEOUT_MS = 5_000;
+/**
+ * The longest a meeting LIST waits, in all, for its creators' names (specs/20261126-teams R13 b, ADR 20261119-on-demand-outbound-work-..., rule 6): hours-api asks
+ * `GET /meetings?ids=` inside 6 s, beside a host round of 2 s. A slow `auth` costs the names (`unknown`, the fail-soft display), not the list; the lookup is
+ * not aborted and fills the 60 s cache. Only `meetings/rows.ts` passes it: summaries and Q&A prompts (`promptSegments.ts`, `view.ts`) keep the whole wait,
+ * because a shorter one would put "unknown" speakers into a summary. Pinned by `hours-api/src/clients/owners.budgets.cross-package.test.ts`.
+ */
+export const LIST_NAMES_WAIT_MS = 800;
 
 interface CacheEntry {
   readonly identity: Identity;
@@ -106,6 +114,15 @@ async function fetchBatch(authorizationHeader: string, batch: readonly string[])
   return answered;
 }
 
+export interface ResolveOptions {
+  /**
+   * For a path inside another service's deadline (specs/20261126-teams R13 b): wait at most this long, in all, for the lookup. An id `auth`
+   * has not answered by then is `unknown` in the answer, which is a snapshot that never changes afterwards. The lookup is NOT aborted: it
+   * keeps its own `REQUEST_TIMEOUT_MS` per batch and fills the cache, so the next call has the names. Absent: wait for all.
+   */
+  readonly waitMs?: number;
+}
+
 /**
  * DISPLAY. One entry per distinct id in `ids`, always: a caller can index the
  * result by any id it passed and get an `Identity` back.
@@ -113,6 +130,7 @@ async function fetchBatch(authorizationHeader: string, batch: readonly string[])
 export async function resolveIdentities(
   authorizationHeader: string,
   ids: readonly string[],
+  options: ResolveOptions = {},
 ): Promise<Map<string, Identity>> {
   const result = new Map<string, Identity>();
   const now = Date.now();
@@ -130,28 +148,52 @@ export async function resolveIdentities(
 
   // Sequential, not Promise.all: `auth` rate-limits this route per caller, and a
   // burst of parallel chunks would spend the budget (and be throttled) at once.
-  for (const batch of chunk(toFetch, MAX_IDS_PER_REQUEST)) {
-    try {
-      const answered = await fetchBatch(authorizationHeader, batch);
-      if (cache.size >= CACHE_SWEEP_THRESHOLD) {
-        for (const [key, entry] of cache) if (entry.expiresAt <= now) cache.delete(key);
+  // With a bounded wait the lookup writes into its own map, so an answer that arrives after the wait cannot change the one already handed
+  // back; without one it writes into the result itself (the behaviour of every other caller). Never rejects: a failed batch is `unknown`.
+  const into = options.waitMs === undefined ? result : new Map<string, Identity>();
+  const lookup = async (): Promise<void> => {
+    for (const batch of chunk(toFetch, MAX_IDS_PER_REQUEST)) {
+      try {
+        const answered = await fetchBatch(authorizationHeader, batch);
+        if (cache.size >= CACHE_SWEEP_THRESHOLD) {
+          for (const [key, entry] of cache) if (entry.expiresAt <= now) cache.delete(key);
+        }
+        for (const [id, identity] of answered) {
+          into.set(id, identity);
+          cache.set(id, { identity, expiresAt: now + CACHE_TTL_MS });
+        }
+        // Asked but not answered: unknown, and NOT cached (the omission may be transient).
+        for (const id of batch) if (!into.has(id)) into.set(id, unknown(id));
+      } catch (error) {
+        console.error(
+          "[identities] could not resolve a batch from auth, degrading it to 'unknown':",
+          error instanceof Error ? error.message : "unknown error",
+        );
+        for (const id of batch) into.set(id, unknown(id));
       }
-      for (const [id, identity] of answered) {
-        result.set(id, identity);
-        cache.set(id, { identity, expiresAt: now + CACHE_TTL_MS });
-      }
-      // Asked but not answered: unknown, and NOT cached (the omission may be transient).
-      for (const id of batch) if (!result.has(id)) result.set(id, unknown(id));
-    } catch (error) {
-      console.error(
-        "[identities] could not resolve a batch from auth, degrading it to 'unknown':",
-        error instanceof Error ? error.message : "unknown error",
-      );
-      for (const id of batch) result.set(id, unknown(id));
     }
+  };
+
+  if (options.waitMs === undefined) {
+    await lookup();
+    return result;
   }
 
-  return result;
+  // Bounded wait: the lookup runs on in the background past the timer (and fills the cache); what it had answered by then is the answer.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      lookup(),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, options.waitMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+  const snapshot = new Map(result);
+  for (const id of toFetch) snapshot.set(id, into.get(id) ?? unknown(id));
+  return snapshot;
 }
 
 const identityUnavailable = () =>

@@ -23,7 +23,7 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import type { MiddlewareHandler } from "hono";
 import { jwtMiddleware } from "../auth/jwt.middleware";
-import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
+import { hostAuthzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { CRM_ACCESS, canSeeFinancials } from "../auth/guards";
 import { hasCapability } from "../authz/conditions";
 import { db } from "../lib/db";
@@ -49,8 +49,9 @@ const ResolvedItem = z.object({
 });
 
 // Typed as a plain list for the same reason `authorized` is (guards.ts): a literal tuple would
-// narrow the handler's context type.
-const hostCaller: MiddlewareHandler[] = [jwtMiddleware, authzMiddleware];
+// narrow the handler's context type. A host route is inside its caller's 2 s, so it uses the host variant of the permission
+// guard: at most `HOST_AUTHZ_WAIT_MS` for a cold check, then the usual 503 (R13 a, ADR 20261119-on-demand-outbound-work-...).
+const hostCaller: MiddlewareHandler[] = [jwtMiddleware, hostAuthzMiddleware];
 
 const resolveRoute = createRoute({
   method: "post",

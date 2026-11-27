@@ -303,12 +303,12 @@ describe("POST /time-entries on a meeting (AC-2.5, AC-2.10, AC-2.11)", () => {
     expect(await entryRows()).toHaveLength(0);
   });
 
-  it("is 503 host_unavailable when meetings-api is slower than its 2 s", async () => {
+  it("is 503 host_unavailable when meetings-api is slower than its 6 s (a relayed owner, R13 b)", async () => {
     hosts.meetings.add({ id: "m1", creator: ALICE });
-    hosts.fail("meetings.list", { delayMs: 2_600 });
+    hosts.fail("meetings.list", { delayMs: 6_300 });
     expectHostUnavailable(await post(body(meeting("m1"))));
     expect(await entryRows()).toHaveLength(0);
-  }, 10_000);
+  }, 15_000);
 
   describe("a meetings-api that predates its `ids` filter answers the caller's latest page (plan R7)", () => {
     it("is 503, never 404, when that page does not hold the asked meeting: it proves nothing about it", async () => {

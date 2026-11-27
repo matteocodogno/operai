@@ -47,6 +47,8 @@ import {
   RequestListItemSchema,
 } from "./requests.schemas";
 import { canReadRequest, mapRequestDetail, mapRequestListItem } from "./requests.service";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -91,6 +93,8 @@ const REQUESTS_BODY_SIZE_LIMIT = 4 * 1024; // 4 KiB
 
 export const requestsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -160,7 +164,7 @@ requestsRouter.openapi(createRequestRoute, async (c) => {
 
   // The display name is snapshotted from the token's `name` claim (jwt.middleware), as approve/reject do for the
   // decider: documents and the accounting export lead with the person, the email only when the account has no name.
-  const exit = await Effect.runPromiseExit(createDraftRequest(sub, email, normaliseOwnerName(c.get("userName"))));
+  const exit = await runExit(createDraftRequest(sub, email, normaliseOwnerName(c.get("userName"))));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure creating refund request");
   }
@@ -203,7 +207,7 @@ requestsRouter.openapi(listRequestsRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(listOwnRequests(sub));
+  const exit = await runExit(listOwnRequests(sub));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure listing refund requests");
   }
@@ -242,7 +246,7 @@ requestsRouter.openapi(getRequestRoute, async (c) => {
   const authz = c.get("authz");
   const { id } = c.req.valid("param");
 
-  const exit = await Effect.runPromiseExit(findRequestWithLines(id));
+  const exit = await runExit(findRequestWithLines(id));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure fetching refund request");
   }
@@ -257,7 +261,7 @@ requestsRouter.openapi(getRequestRoute, async (c) => {
   // every read — never served stale (Risk R2). Ever-submitted requests pass
   // through unchanged (their mileage lines are frozen — buildMileageInfo
   // reads the stored snapshot columns directly).
-  const hydrationExit = await Effect.runPromiseExit(
+  const hydrationExit = await runExit(
     hydrateDraftMileageLines(request.lines, request.status),
   );
   if (hydrationExit._tag === "Failure") {
@@ -308,7 +312,7 @@ requestsRouter.openapi(deleteRequestRoute, async (c) => {
     return c.json(notFoundProblem(c.req.path, `Refund request ${id} not found`), 404);
   }
 
-  const exit = await Effect.runPromiseExit(deleteDraftRequest(id, sub));
+  const exit = await runExit(deleteDraftRequest(id, sub));
   if (exit._tag === "Success") {
     return new Response(null, { status: 204 });
   }

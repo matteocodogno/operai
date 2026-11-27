@@ -183,6 +183,8 @@ describe("GET /system/purchase-orders?dealIds= — the deal page's source (AC-3.
     expect((await get("?dealIds=", token)).status).toBe(400);
     expect((await get("?dealIds=a,,b", token)).status).toBe(400);
     expect((await get(`?dealIds=${"x".repeat(65)}`, token)).status).toBe(400);
+    // A NUL is refused before the query (Postgres text cannot hold it; QE D2).
+    expect((await get("?dealIds=a%00b", token)).status).toBe(400);
   });
 });
 

@@ -126,6 +126,15 @@ describe("PUT /deals/{id}/offer-draft", () => {
     expect(bad.json).toMatchObject({ code: "answers_invalid", path: "client.date" });
   });
 
+  it("a client.date that is no date at all is the same 422, never a 500 (QE F4)", async () => {
+    const s = await setup();
+    for (const bad of ["x", "2026-13-45", "2026-00-10"]) {
+      const res = await save(s, (a) => (a.client.date = bad));
+      expect([bad, res.status]).toEqual([bad, 422]);
+      expect(res.json).toMatchObject({ code: "answers_invalid", path: "client.date" });
+    }
+  });
+
   it("refuses the reserved characters with their path (DD-30, DD-52)", async () => {
     const s = await setup();
     const key = "OGGETTO#0";

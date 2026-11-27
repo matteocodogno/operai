@@ -11,7 +11,7 @@
  */
 
 import { db } from "../lib/db";
-import { resolveIdentities as liveDisplayIdentities, toPersonRef, type PersonRef } from "../lib/identities";
+import { LIST_NAMES_WAIT_MS, resolveIdentities as liveDisplayIdentities, toPersonRef, type PersonRef } from "../lib/identities";
 import { resolve as resolveAtHost } from "../hosts/client";
 import { hostRegistry } from "../hosts/registry";
 import { derivedStatus, type DerivedStatus } from "./derived";
@@ -102,7 +102,8 @@ export async function buildMeetingRows(rows: readonly RowSource[], options: RowO
     recordingIds.length === 0
       ? Promise.resolve([])
       : db.recordingSession.findMany({ where: { meetingId: { in: recordingIds } }, orderBy: [{ startedAt: "desc" }, { id: "desc" }] }),
-    (options.deps?.resolveIdentities ?? liveDisplayIdentities)(options.authorization, [...new Set(rows.map((r) => r.creatorUserId))]),
+    // A list sits inside another service's deadline (hours-api, R13 b): the creators' names are waited for at most LIST_NAMES_WAIT_MS, then `unknown`.
+    (options.deps?.resolveIdentities ?? liveDisplayIdentities)(options.authorization, [...new Set(rows.map((r) => r.creatorUserId))], { waitMs: LIST_NAMES_WAIT_MS }),
     hostViews(rows, options),
   ]);
 

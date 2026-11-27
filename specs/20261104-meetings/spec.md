@@ -210,6 +210,15 @@ was not removed. The spec stays vendor-neutral; the body below is already update
   recording (no restart, no gap in the microphone); the previous share is stopped; closing the picker
   changes nothing; a later loss of the new share is reported again. The widget is capped in width,
   so a notice wraps under its controls.
+- **A20 — decided during specs/20261126-teams, plan D16 (commit 242c700b), recorded 2026-11-27
+  (AC-11.10):** `meetings-api/src/hosts/client.ts` may export one numeric constant besides its two
+  functions: `RESOLVE_TIMEOUT_MS` (2 000 ms, the deadline of a `resolve` call). Why: projects-api's
+  cross-package test checks that its own host wait (800 ms plus a 1 000 ms margin) stays inside
+  that deadline, so the number has to be readable from outside. The constant adds no way to call a
+  host and reads no host data, so the Meetings tool still never reads host data back. The AC-11.10
+  test (`meetings-api/src/hosts/client.test.ts`) now requires the callable surface to be exactly
+  `resolve` and `sendNotice` and the one value export to be `RESOLVE_TIMEOUT_MS`; any other new
+  export, value or function, fails it and needs a new amendment. Spec status is unchanged.
 
 ## Problem
 
@@ -853,7 +862,10 @@ so that meetings appear where my users work, without the Meetings tool knowing m
   is never refused or rolled back; the failure is shown to the creator without blocking
   (non-blocking notice with a "Try again" action) and is not silent.
 - AC-11.10: Given the host reacts to a notice, then what it does is its own business (US-14
-  for the CRM); the Meetings tool never reads host data back.
+  for the CRM); the Meetings tool never reads host data back. The host client's callable
+  surface is exactly two functions, `resolve` and `sendNotice`; the only other value it may
+  export is the numeric deadline of `resolve` (`RESOLVE_TIMEOUT_MS`, 2 000 ms), which is a
+  number and not a way to call a host. No other value and no other function is exported (A20).
 
 ### US-12: Notifications
 As a participant or requester, I want to be told when something concerns me, so that I do not

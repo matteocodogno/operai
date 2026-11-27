@@ -15,13 +15,14 @@
 
 import { z } from "zod";
 import { EMAIL_TEMPLATES } from "@/channels/email.channel";
+import { NO_NUL, hasNoNul } from "@/lib/nulInput";
 import { IdempotencyKeySchema } from "./notifications.schemas";
 
 export const SendEmailTemplateSchema = z.enum(EMAIL_TEMPLATES);
 
 export const SendEmailDataSchema = z.object({
-  inviteUrl: z.string().min(1, "data.inviteUrl is required").max(2000),
-  inviterName: z.string().min(1, "data.inviterName is required").max(200),
+  inviteUrl: z.string().min(1, "data.inviteUrl is required").max(2000).refine(hasNoNul, NO_NUL),
+  inviterName: z.string().min(1, "data.inviterName is required").max(200).refine(hasNoNul, NO_NUL),
   // Accepts both a bare-Z and an offset ISO 8601 datetime (auth may format
   // either way) — see plan.md's `expiresAt: "2026-07-16T10:00:00Z"` example.
   expiresAt: z
@@ -39,8 +40,9 @@ export const RefundBatchCompiledDataSchema = z.object({
     .string()
     .min(1, "data.batchUrl is required")
     .max(2000)
+    .refine(hasNoNul, NO_NUL)
     .url("data.batchUrl must be a valid URL"),
-  batchReference: z.string().min(1, "data.batchReference is required").max(200),
+  batchReference: z.string().min(1, "data.batchReference is required").max(200).refine(hasNoNul, NO_NUL),
   cutoff: z
     .string()
     .datetime({ offset: true, message: "data.cutoff must be ISO 8601" }),
@@ -81,6 +83,7 @@ const RequestUrlSchema = z
   .string()
   .min(1, "data.requestUrl is required")
   .max(2000)
+  .refine(hasNoNul, NO_NUL)
   .url("data.requestUrl must be a valid URL");
 
 const DecidedAtSchema = z
@@ -170,7 +173,8 @@ const ToSchema = z.string().email("to must be a valid email address").max(320);
 const RecipientIdSchema = z
   .string()
   .min(1, "recipientId must not be empty")
-  .max(200, "recipientId must be at most 200 characters");
+  .max(200, "recipientId must be at most 200 characters")
+  .refine(hasNoNul, NO_NUL);
 
 const envelope = {
   to: ToSchema.optional(),

@@ -676,6 +676,10 @@ describe("AC-10.4 (non-goal regression tripwire) — no ownership-reassignment r
       // array; a middleware addition is not what this tripwire guards
       // against, but it should still be a deliberate, reviewed change.
       "ALL /*",
+      // The collaborator routes' NUL-free path parameter guard (specs/20261126-teams QE F1): two middleware registrations on the
+      // two path shapes of `registerCollaboratorRoutes`, not routes.
+      "ALL /estimates/:id/collaborators",
+      "ALL /estimates/:id/collaborators/:collaboratorId",
       "POST /estimates",
       "GET /estimates",
       "GET /estimates/:id",

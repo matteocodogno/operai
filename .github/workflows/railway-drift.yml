@@ -16,12 +16,29 @@ on:
     branches: [main]
     paths:
       - ".railway/**"
+      - "scripts/check-single-replica*.ts"
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
 jobs:
+  # OFFLINE, no secret: a service that keeps state in process must have exactly one replica in
+  # .railway/railway.ts (specs/20261126-teams R12). Registry + self-test: scripts/check-single-replica.{ts,test.ts}.
+  single-replica:
+    name: single-replica services have one replica
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned like meetings-eval.yml and letterhead-api.yml (1.4.2): a checker that gates the infra must not change under a release of bun.
+          bun-version: "1.4.2"
+      - name: Test the checker
+        run: bun test scripts/check-single-replica.test.ts
+      - name: Check .railway/railway.ts
+        run: bun scripts/check-single-replica.ts
+
   plan:
     name: plan (production)
     runs-on: ubuntu-latest

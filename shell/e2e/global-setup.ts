@@ -38,7 +38,12 @@
  *        (b) CONFIRM   in this file's own code, every `proposed` worker / line / row record becomes `confirmed` (a row is
  *                      `acknowledged`). An `unresolved` record fails the run, naming the command that shows it: the dev database
  *                      holds lines or employees that need a person's decision, and no default is guessed;
- *        (c) RUN       `accounting:release --register <same workbook> --pairing <tmp>/pairing.csv`.
+ *        (c) CODES     the release refuses (exit 9) to issue a number to an employee who shares a prefix and holds no receipt
+ *                      code. A dev database that ran journeys with the release skipped holds many e2e accounts with the same
+ *                      initials ("E2E Employee …" = EE), so every `@operai.test` employee the receipt-code list flags as sharing a
+ *                      prefix without a code gets an unused one through refund-api's own route (`PUT /accounting/receipt-codes`,
+ *                      as a seeded admin). Only test accounts: a real person who shares a prefix still stops the release;
+ *        (d) RUN       `accounting:release --register <same workbook> --pairing <tmp>/pairing.csv`.
  *      The workbook is `refund-api/scripts/fixtures/synthetic-register-header-only.xlsx`: committed, the header row only, no data,
  *      so the release reads it as "no employee has a hand-issued 2026 number" and every receipt number a journey sees starts at 001.
  *      The pairing file names employees: it lives in a directory of its own under the OS temp directory (mode 0700, never inside
@@ -63,6 +68,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ACCOUNTING_API_URL } from './helpers/accountingFixtures'
+import { seedAdminSession } from './helpers/adminSession'
+import { freshToken, listReceiptCodeRows, putReceiptCode, unusedReceiptCodes } from './helpers/refundFixtures'
 import { seedRegistry, setUpLegalEntityPeople, ENTITIES } from './helpers/legalEntitiesFixtures'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -111,7 +118,9 @@ function databaseOverride(variable: string): string | undefined {
   const value = process.env[variable]?.trim()
   if (!value) return undefined
   if (!/^postgres(?:ql)?:\/\/\S+$/i.test(value)) {
-    throw new Error(`[global-setup] ${variable} is set but is not a postgres:// or postgresql:// URL (its value is not shown)`)
+    throw new Error(
+      `[global-setup] ${variable} is set but is not a postgres:// or postgresql:// URL (its value is not shown)`,
+    )
   }
   return value
 }
@@ -121,10 +130,17 @@ function databaseOverride(variable: string): string | undefined {
  * exported by a one-line wrapper that runs AFTER direnv has loaded `.envrc` (which would otherwise win), and it travels in the
  * child's environment, so it appears in neither the process list nor an error message.
  */
-function runUnderDirenv(dir: string, script: string, override: string | undefined, scriptArgs: readonly string[] = []): string {
+function runUnderDirenv(
+  dir: string,
+  script: string,
+  override: string | undefined,
+  scriptArgs: readonly string[] = [],
+): string {
   const wrapper = `if [ -n "$${PASSED_DATABASE_VARIABLE}" ]; then export DATABASE_URL="$${PASSED_DATABASE_VARIABLE}"; fi; exec "$@"`
   const env = { ...process.env }
   delete env[PASSED_DATABASE_VARIABLE]
+  // `mise run dev` defaults it the same way (refund-api's direnv file does not set it): the URL of the accounting-api the setup checked
+  if (!env['ACCOUNTING_INTERNAL_URL']?.trim()) env['ACCOUNTING_INTERNAL_URL'] = ACCOUNTING_API_URL
   if (override) env[PASSED_DATABASE_VARIABLE] = override
   return execFileSync('direnv', ['exec', '.', 'sh', '-c', wrapper, 'sh', 'bun', 'run', script, ...scriptArgs], {
     cwd: dir,
@@ -194,8 +210,14 @@ class PairingNeedsDecision extends Error {}
 export function confirmProposedPairing(csv: string): string {
   const rows = parseCsv(csv)
   const header = (rows[0] ?? []).map((c) => c.trim())
-  const [kind, id, state, decision] = ['record', 'id', 'state', 'decision'].map((name) => header.indexOf(name)) as [number, number, number, number]
-  if (kind < 0 || id < 0 || state < 0 || decision < 0) throw new Error('the proposed pairing file has no header with record, id, state and decision')
+  const [kind, id, state, decision] = ['record', 'id', 'state', 'decision'].map((name) => header.indexOf(name)) as [
+    number,
+    number,
+    number,
+    number,
+  ]
+  if (kind < 0 || id < 0 || state < 0 || decision < 0)
+    throw new Error('the proposed pairing file has no header with record, id, state and decision')
   const open: string[] = []
   const rewritten = rows.map((row, index) => {
     if (index === 0) return row
@@ -217,7 +239,13 @@ export function confirmProposedPairing(csv: string): string {
 
 /** The last line of a script's report (counts, never an employee), or `''`. */
 function lastLine(output: string): string {
-  return output.split('\n').map((l) => l.trim()).filter(Boolean).at(-1) ?? ''
+  return (
+    output
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .at(-1) ?? ''
+  )
 }
 
 /** What failed, from the child's exit status or spawn error and its stderr tail, with every connection string scrubbed. */
@@ -225,7 +253,11 @@ function describeFailure(error: unknown): string {
   if (typeof error !== 'object' || error === null) return scrub(String(error))
   const { status, code, stderr } = error as { status?: number | null; code?: unknown; stderr?: unknown }
   if (typeof code === 'string') return scrub(`${code} while starting \`direnv\`: is it installed and on the PATH?`) // spawn failed: nothing ran
-  const tail = String(stderr ?? '').trim().split('\n').slice(-8).join('\n')
+  const tail = String(stderr ?? '')
+    .trim()
+    .split('\n')
+    .slice(-8)
+    .join('\n')
   return scrub(`exit ${status ?? 'unknown'}${tail ? `\n${tail}` : ''}`)
 }
 
@@ -245,7 +277,9 @@ async function checkAccountingApi(): Promise<void> {
     service = ((await res.json().catch(() => null)) as { service?: unknown } | null)?.service
   } catch (error) {
     const reason = error instanceof Error ? error.name : 'error'
-    throw new Error(`[global-setup] accounting-api does not answer at ${ACCOUNTING_API_URL}/health (${reason}). ${start}.`)
+    throw new Error(
+      `[global-setup] accounting-api does not answer at ${ACCOUNTING_API_URL}/health (${reason}). ${start}.`,
+    )
   }
   if (status !== 200 || service !== 'accounting-api') {
     throw new Error(
@@ -265,7 +299,9 @@ function seedAccounting(): void {
     const output = runUnderDirenv(ACCOUNTING_API_DIR, 'seed:welld-ch', override)
     // the report names counts and account numbers, never a person
     const last = lastLine(output)
-    console.log(`[global-setup] accounting seeded${override ? ` (database from ${ACCOUNTING_DATABASE_OVERRIDE})` : ''}${last ? ` (${last})` : ''}`)
+    console.log(
+      `[global-setup] accounting seeded${override ? ` (database from ${ACCOUNTING_DATABASE_OVERRIDE})` : ''}${last ? ` (${last})` : ''}`,
+    )
   } catch (error) {
     throw new Error(
       `[global-setup] accounting could not be seeded: ${describeFailure(error)}\n` +
@@ -275,13 +311,40 @@ function seedAccounting(): void {
   }
 }
 
+/** E2E accounts only: every fixture seeds its people under this domain. */
+const TEST_ACCOUNT = /@operai\.test$/i
+
 /**
- * Runs refund-api's release once, in its three steps (see the header): propose, confirm `proposed` records, real run. The marker it
- * writes is what lets approvals through. It reads Accounting first.
+ * Step (c) of the header: gives every `@operai.test` employee who shares a prefix and has no receipt code an unused code, so the
+ * release does not stop on test accounts (exit 9). Returns how many were set. A real person is never touched.
  */
-function releaseRefundAccounting(): void {
+async function settleTestAccountPrefixes(): Promise<number> {
+  const admin = await seedAdminSession('e2e-setup-receipt-codes@operai.test', 'E2E Setup Receipt Codes')
+  const token = await freshToken(admin.cookieHeader)
+  const pending = (await listReceiptCodeRows(token)).filter(
+    (row) => row.sharesPrefix && row.code === null && TEST_ACCOUNT.test(row.email),
+  )
+  if (pending.length === 0) return 0
+  const codes = await unusedReceiptCodes(token, pending.length)
+  for (const [index, row] of pending.entries()) {
+    const res = await putReceiptCode(token, row.userId, codes[index]!)
+    if (res.status !== 200)
+      throw new Error(
+        `a test account's receipt code could not be set (PUT /accounting/receipt-codes answered ${res.status})`,
+      )
+  }
+  return pending.length
+}
+
+/**
+ * Runs refund-api's release once, in its steps (see the header): propose, confirm `proposed` records, codes for test accounts that
+ * share a prefix, real run. The marker it writes is what lets approvals through. It reads Accounting first.
+ */
+async function releaseRefundAccounting(): Promise<void> {
   if (skipRelease()) {
-    console.error('[global-setup] E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1: refund accounting is NOT released, approvals will answer 409')
+    console.error(
+      '[global-setup] E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1: refund accounting is NOT released, approvals will answer 409',
+    )
     return
   }
   const override = databaseOverride(REFUND_DATABASE_OVERRIDE)
@@ -300,7 +363,11 @@ function releaseRefundAccounting(): void {
   let step = 'propose'
   try {
     const proposed = runUnderDirenv(REFUND_API_DIR, 'accounting:release', override, [
-      '--dry-run', '--register', HEADER_ONLY_REGISTER, '--propose', pairing,
+      '--dry-run',
+      '--register',
+      HEADER_ONLY_REGISTER,
+      '--propose',
+      pairing,
     ])
     if (ALREADY_COMPLETED.test(proposed)) {
       console.log(`[global-setup] refund accounting was already released: nothing to do${where}`)
@@ -309,8 +376,16 @@ function releaseRefundAccounting(): void {
     step = 'confirm'
     if (!existsSync(pairing)) throw new Error('the propose step wrote no pairing file')
     writeFileSync(pairing, confirmProposedPairing(readFileSync(pairing, 'utf-8')), { encoding: 'utf-8', mode: 0o600 })
+    step = 'codes'
+    const settled = await settleTestAccountPrefixes()
+    if (settled > 0) console.log(`[global-setup] receipt codes set for ${settled} e2e account(s) that shared a prefix`)
     step = 'run'
-    const output = runUnderDirenv(REFUND_API_DIR, 'accounting:release', override, ['--register', HEADER_ONLY_REGISTER, '--pairing', pairing])
+    const output = runUnderDirenv(REFUND_API_DIR, 'accounting:release', override, [
+      '--register',
+      HEADER_ONLY_REGISTER,
+      '--pairing',
+      pairing,
+    ])
     // the script's report names counts, never an employee: print its last line only
     const last = lastLine(output)
     console.log(`[global-setup] refund accounting released${where}${last ? ` (${last})` : ''}`)
@@ -335,9 +410,11 @@ function releaseRefundAccounting(): void {
 export default async function globalSetup(): Promise<void> {
   if (!skipSeed() || !skipRelease()) await checkAccountingApi()
   seedAccounting()
-  releaseRefundAccounting()
+  await releaseRefundAccounting()
   if (process.env['E2E_SKIP_LEGAL_ENTITIES_SETUP'] === '1') {
-    console.error('[global-setup] E2E_SKIP_LEGAL_ENTITIES_SETUP=1: the legal-entity registry and its people are NOT prepared')
+    console.error(
+      '[global-setup] E2E_SKIP_LEGAL_ENTITIES_SETUP=1: the legal-entity registry and its people are NOT prepared',
+    )
     return
   }
   const people = await setUpLegalEntityPeople()

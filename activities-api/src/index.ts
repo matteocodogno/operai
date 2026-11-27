@@ -15,6 +15,7 @@ import { systemRouter } from "./system/system.routes";
 import { tasksRouter } from "./tasks/tasks.routes";
 import { filesRouter } from "./files/files.routes";
 import { startDueReminderScheduler } from "./tasks/dueReminders";
+import { NUL_DATABASE_DETAIL, isNulDatabaseError, logNulRefusal } from "./lib/nul";
 
 // Exported so the authorization matrix (src/matrix.test.ts, T11) can read the ASSEMBLED
 // app's own route table; Bun serves only the default export below.
@@ -72,6 +73,12 @@ app.onError((err: Error, c: Context) => {
   // A ProblemError is a deliberate, typed answer (409 task_blocked, …), not a fault.
   const typed = handleProblemError(err, c.req.path);
   if (typed) return typed;
+
+  // Safety net for a NUL that no schema refused: the request was wrong, not the server (QE D2). Names no value.
+  if (isNulDatabaseError(err)) {
+    logNulRefusal(err); // the code only (A09): a server-built bad value must not be blamed on the client with no trace
+    return problem({ status: 400, code: "validation_failed", detail: NUL_DATABASE_DETAIL }, c.req.path);
+  }
 
   // Name and code only: a database error's message and stack can carry the statement and its
   // parameters, which are free text about clients (OWASP review L2).

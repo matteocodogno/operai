@@ -19,14 +19,16 @@
  * could be read is answered `true` whatever else is unknown: more members never take a person off.
  *
  * Only JWT and live authorization run (no capability guard: a caller without access is answered,
- * not refused); an `auth` outage is the usual 503, which meetings-api reads as `host_unavailable`.
+ * not refused); an `auth` outage is the usual 503, which meetings-api reads as `host_unavailable`. Inside
+ * meetings-api's 2 s the route waits at most `HOST_AUTHZ_WAIT_MS` (500 ms) for a permission check it has not cached
+ * (`hostAuthzMiddleware`, R13 a): late is the same 503, and the check, not aborted, fills the cache for the retry.
  * Projects takes no host notices (the registry says `notices: false`): nothing about a meeting is
  * stored here. Reads only what it is asked about, writes nothing, never cached.
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { PROJECTS_ACCESS } from "../auth/guards";
-import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
+import { hostAuthzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { hasCapability } from "../authz/conditions";
 import { db } from "../lib/db";
@@ -61,7 +63,7 @@ const resolveRoute = createRoute({
   path: "/meeting-host/v1/resolve",
   tags: ["Meeting host"],
   summary: "What the caller may know about these projects (called by meetings-api as the caller)",
-  middleware: [jwtMiddleware, authzMiddleware],
+  middleware: [jwtMiddleware, hostAuthzMiddleware],
   request: { body: { content: { "application/json": { schema: ResolveBodySchema } }, required: true } },
   responses: {
     200: {

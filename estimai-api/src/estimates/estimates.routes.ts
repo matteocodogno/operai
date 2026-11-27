@@ -61,6 +61,7 @@
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { Effect } from "effect";
+import { nulRefusalIn, unexpectedDbFailure } from "@/lib/dbFailure";
 import { bodyLimit } from "hono/body-limit";
 import { jwtMiddleware, type JwtVariables } from "@/auth/jwt.middleware";
 import {
@@ -300,13 +301,14 @@ estimatesRouter.openapi(createEstimateRoute, async (c) => {
 
   if (exit._tag === "Failure") {
     const cause = exit.cause;
-    if (cause._tag === "Fail") {
+    // A NUL the schema did not refuse is the safety net's 400 `validation_failed` (QE F1), not this generic one.
+    if (cause._tag === "Fail" && nulRefusalIn(cause.error) === null) {
       return c.json(
         problemBadRequest(c.req.path, cause.error.message),
         400,
       );
     }
-    throw new Error("Unexpected database failure creating estimate");
+    throw unexpectedDbFailure("Unexpected database failure creating estimate", exit.cause);
   }
 
   // The creator is always the owner — no `auth` identity round trip needed.
@@ -382,7 +384,7 @@ estimatesRouter.openapi(listEstimatesRoute, async (c) => {
   const exit = await Effect.runPromiseExit(effect);
 
   if (exit._tag === "Failure") {
-    throw new Error("Unexpected database failure listing estimates");
+    throw unexpectedDbFailure("Unexpected database failure listing estimates", exit.cause);
   }
 
   const rows = exit.value;
@@ -485,7 +487,7 @@ estimatesRouter.openapi(getEstimateRoute, async (c) => {
     if (cause._tag === "Fail" && cause.error instanceof NotFoundError) {
       return c.json(problemNotFound(c.req.path, cause.error.message), 404);
     }
-    throw new Error("Unexpected database failure fetching estimate");
+    throw unexpectedDbFailure("Unexpected database failure fetching estimate", exit.cause);
   }
 
   const row = exit.value;
@@ -633,7 +635,7 @@ estimatesRouter.openapi(updateEstimateRoute, async (c) => {
         );
       }
     }
-    throw new Error("Unexpected database failure updating estimate");
+    throw unexpectedDbFailure("Unexpected database failure updating estimate", exit.cause);
   }
 
   const row = exit.value;
@@ -707,7 +709,7 @@ estimatesRouter.openapi(deleteEstimateRoute, async (c) => {
         403,
       );
     }
-    throw new Error("Unexpected database failure deleting estimate");
+    throw unexpectedDbFailure("Unexpected database failure deleting estimate", exit.cause);
   }
 
   return new Response(null, { status: 204 });

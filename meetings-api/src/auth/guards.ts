@@ -64,6 +64,14 @@ export const requireCapability = (...needs: readonly Capability[]): MiddlewareHa
 /** JWT only plus a never-refusing resolve (AC-10.6). */
 export const selfScoped: MiddlewareHandler[] = [jwtMiddleware, optionalAuthzMiddleware];
 
+/**
+ * JWT only, and NO permission call at all (specs/20261126-teams R13 b). For a self-scoped read that reads no permission: the meeting list,
+ * which another service (hours-api) asks inside its own deadline and whose rows are the caller's own by creator and participant, never by a
+ * grant. Nothing is put on the context but the verified identity, so `holds(...)` is false for everything here.
+ * Never on a route that renders a control or admits a host reader: those stay `selfScoped`, whose resolve decides what to withhold.
+ */
+export const jwtOnly: MiddlewareHandler[] = [jwtMiddleware];
+
 /** JWT + live resolve (503 on outage) + one of `needs` (403). */
 export const capability = (...needs: readonly Capability[]): MiddlewareHandler[] => [
   jwtMiddleware,

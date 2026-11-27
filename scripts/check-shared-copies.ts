@@ -50,6 +50,23 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
     ],
     why: "the auth service-token client (ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049/0056); a fix to one copy must reach every copy",
   },
+  {
+    name: "nulDatabaseError",
+    files: [
+      "auth/src/lib/nul.ts",
+      "estimai-api/src/lib/nul.ts",
+      "notify-api/src/lib/nul.ts",
+      "refund-api/src/lib/nul.ts",
+      "inventory-api/src/lib/nul.ts",
+      "crm-api/src/lib/nul.ts",
+      "meetings-api/src/lib/nul.ts",
+      "projects-api/src/lib/nul.ts",
+      "activities-api/src/lib/nul.ts",
+      "accounting-api/src/lib/nul.ts",
+      "hours-api/src/lib/nul.ts",
+    ],
+    why: "how a backend recognises the database's refusal of a U+0000 (22021 / 22P05, Prisma P2039 / P2010) so its global error handler answers 400, not 500 (specs/20261126-teams QE D2); a fix to one copy must reach every copy",
+  },
   // s3Residency is registered as TWO narrow regions on purpose. Each copy re-points the
   // MEETINGS_/CRM_/INVENTORY_S3_* names and its refusal messages (meetings-api's deliberately
   // never echo the endpoint, host or region, specs/20261104-meetings T11; crm/inventory-api's do), so
@@ -133,6 +150,26 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
     files: ["crm-api/src/offers/paper.ts", "crm-ui/src/lib/offerPaper/paper.ts"],
     why: "the offer PDF's page size, frame, type sizes and spacing, scaled by the wizard's preview (AC-11.10); change both copies in one commit",
     mode: "whole",
+  },
+  // The host authz middlewares of projects-api and crm-api (specs/20261126-teams R13 a): the (sub, perm_epoch) cache, the single
+  // flight and the bounded wait. The two differ only OUTSIDE the region (the header comment and the 503 helper, whose
+  // body carries `code: "authz_unavailable"` in projects-api and not in crm-api), so the helper sits below the end marker.
+  {
+    name: "authzFlight",
+    files: ["projects-api/src/auth/authz.middleware.ts", "crm-api/src/auth/authz.middleware.ts"],
+    why: "the permission cache, single flight and bounded host wait of a host's authz middleware, a fail-closed path (specs/20261126-teams R13 a); a fix to one copy must reach the other",
+  },
+  // The strict reader of `export const NAME = <n | n * n>;` that the cross-package budget tests apply to another package's
+  // source (a missing file or declaration FAILS, never skips; accounting-api/src/budgets.cross-package.test.ts is the older,
+  // single-name sibling and is not in the group).
+  {
+    name: "deadlineReader",
+    files: [
+      "projects-api/src/lib/teams.budgets.cross-package.test.ts",
+      "crm-api/src/lib/hostBudget.cross-package.test.ts",
+      "hours-api/src/clients/owners.budgets.cross-package.test.ts",
+    ],
+    why: "the strict constant reader of the cross-package deadline tests (specs/20261126-teams D16, R13); a loosened copy would let a budget drift unnoticed",
   },
   ...offerEngineGroups(),
 ];

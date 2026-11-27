@@ -14,8 +14,11 @@ import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 import { systemEstimatesRouter } from "./system/estimates.routes";
 import { registerCollaboratorOpenApiDocs } from "./openapi/collaborators.docs";
+import { nulRefusalIn } from "./lib/dbFailure";
+import { NUL_DATABASE_DETAIL, logNulRefusal } from "./lib/nul";
+import { describeUncaught } from "./lib/uncaughtLog";
 
-const app = new OpenAPIHono();
+export const app = new OpenAPIHono();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
@@ -97,7 +100,24 @@ app.route("/", estimatesRouter);
 // ─── Global error handler (RFC 7807 Problem JSON) ───────────────────────────
 
 app.onError((err: Error, c: Context) => {
-  console.error("[uncaught]", err);
+  // Safety net for a NUL that no schema refused: the request was wrong, not the server (QE D2). Names no value.
+  const nul = nulRefusalIn(err); // the NUL refusal anywhere down the cause chain: a route wraps the driver's error (QE F1)
+  if (nul !== null) {
+    logNulRefusal(nul); // the code only (A09): a server-built bad value must not be blamed on the client with no trace
+    return c.json(
+      {
+        type: "https://httpstatuses.com/400",
+        title: "Bad Request",
+        status: 400,
+        detail: NUL_DATABASE_DETAIL,
+        code: "validation_failed",
+        instance: c.req.path,
+      },
+      400,
+    );
+  }
+
+  console.error("[uncaught]", describeUncaught(err)); // name, code and the code's frames; a database cause by name and code only (A09)
 
   const status =
     "status" in err && typeof (err as { status: number }).status === "number"

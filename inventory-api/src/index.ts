@@ -24,6 +24,7 @@ import { startReminderScheduler } from "./assignments/reminders";
 import { requestLogger } from "./lib/logger";
 import { handleProblemError, problem } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
+import { NUL_DATABASE_DETAIL, isNulDatabaseError, logNulRefusal } from "./lib/nul";
 
 // Exported so the capability matrix (src/matrix.test.ts, T44) can read the
 // ASSEMBLED app's own route table; Bun serves only the default export below.
@@ -89,8 +90,14 @@ app.onError((err: Error, c: Context) => {
   // A ProblemError is a deliberate, typed answer (409 fiscal_year_closed, …),
   // not a fault: render it with its top-level `code`/extension members and do
   // not log it as uncaught.
-  const problem = handleProblemError(err, c.req.path);
-  if (problem) return problem;
+  const typed = handleProblemError(err, c.req.path);
+  if (typed) return typed;
+
+  // Safety net for a NUL that no schema refused: the request was wrong, not the server (QE D2). Names no value.
+  if (isNulDatabaseError(err)) {
+    logNulRefusal(err); // the code only (A09): a server-built bad value must not be blamed on the client with no trace
+    return problem({ status: 400, code: "validation_failed", detail: NUL_DATABASE_DETAIL }, c.req.path);
+  }
 
   console.error("[uncaught]", err);
 

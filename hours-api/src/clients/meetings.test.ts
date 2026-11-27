@@ -46,6 +46,13 @@ describe("listMeetingsByIds", () => {
     expect([...(await ok(["m1", "m2", "m3"])).keys()]).toEqual(["m1"]);
   });
 
+  it("waits for an owner that answers after 2.5 s: the list asks a host before it answers, so its default is 6 s, not 2 s (R13 b)", async () => {
+    hosts.meetings.add({ id: "m1", title: "Mine", creator: "user-alice" });
+    hosts.fail("meetings.list", { delayMs: 2_500 });
+    const items = await ok(["m1"]);
+    expect([...items.keys()]).toEqual(["m1"]);
+  }, 8_000);
+
   it("sends ONE `ids` member, comma-separated, and no `page`, nothing else", async () => {
     await ok(["m1", "m2", "m1"]);
     const [call] = hosts.callsTo("meetings.list");

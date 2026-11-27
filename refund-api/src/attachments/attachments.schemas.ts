@@ -4,11 +4,12 @@
  */
 
 import { z } from "zod";
+import { noNul } from "../lib/inputText";
 import { ALLOWED_CONTENT_TYPES, MAX_ATTACHMENT_BYTES } from "../lib/storage";
 import { AttachmentResponseSchema } from "../requests/requests.schemas";
 
 export const MintAttachmentBodySchema = z.object({
-  fileName: z.string().min(1, "fileName is required").max(255),
+  fileName: noNul(z.string().min(1, "fileName is required").max(255)),
   contentType: z.enum(ALLOWED_CONTENT_TYPES),
   sizeBytes: z
     .number()

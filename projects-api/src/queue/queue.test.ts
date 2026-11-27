@@ -186,3 +186,16 @@ describe("GET /queue — who may read it: `handoff:take`, sales and admin only (
     expect((await queue("", null)).status).toBe(401);
   });
 });
+
+describe("GET /queue?q: a NUL is refused before the CRM is asked (QE F2)", () => {
+  it("is 400 `validation_failed`, no echo, and no call to the CRM", async () => {
+    crm.deals = [makeDeal({ id: "d-1", title: "Portal rebuild" })];
+    const before = crm.calls;
+    const res = await queue("?q=zz%00qq");
+    expect(res.status).toBe(400);
+    expect(res.json).toMatchObject({ status: 400, code: "validation_failed" });
+    const { instance: _instance, ...rest } = res.json as Record<string, unknown>;
+    expect(JSON.stringify(rest)).not.toContain("zz");
+    expect(crm.calls).toBe(before);
+  });
+});

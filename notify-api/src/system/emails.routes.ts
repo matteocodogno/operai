@@ -38,6 +38,7 @@
  * envelope cap, mirroring raise.routes.ts's precedent.
  */
 
+import { unexpectedDbFailure } from "@/lib/dbFailure";
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { bodyLimit } from "hono/body-limit";
 import { emailChannel } from "@/channels/email.channel";
@@ -216,7 +217,7 @@ export const createSystemEmailsRouter = (
       // an outbound call to auth and its answer (the user may be inactive by now) must not undo a delivered send.
       if (idempotency) {
         const prior = await Effect.runPromiseExit(findSentDelivery(idempotency));
-        if (prior._tag === "Failure") throw new Error("Unexpected database failure looking up email delivery");
+        if (prior._tag === "Failure") throw unexpectedDbFailure("Unexpected database failure looking up email delivery", prior.cause);
         if (prior.value) return c.json({ deliveryId: prior.value.id, status: "sent" as const }, 200);
       }
 

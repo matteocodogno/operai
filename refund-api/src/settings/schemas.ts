@@ -4,11 +4,12 @@
  */
 
 import { z } from "zod";
+import { idParam, noNul } from "../lib/inputText";
 
 // ─── Shared :key param (GET/PUT /settings/:key) ────────────────────────────
 
 export const SettingKeyParamSchema = z.object({
-  key: z.string().min(1, "key is required"),
+  key: idParam("key"),
 });
 
 // ─── PUT /settings/:key body ────────────────────────────────────────────────
@@ -17,7 +18,7 @@ export const SettingKeyParamSchema = z.object({
 // here at the shape level so that normalization (not zod) owns the
 // clear-vs-malformed distinction (AC-1.3 vs AC-1.4).
 export const PutSettingBodySchema = z.object({
-  value: z.string().nullable(),
+  value: noNul(z.string()).nullable(),
 });
 export type PutSettingBody = z.infer<typeof PutSettingBodySchema>;
 

@@ -144,7 +144,7 @@ Described above.
 - **Deploy skew on the scope (R5).** A `teams:read` grant before auth knows the scope stops auth at startup. Mitigation: the step order in the plan (auth first, then the production grant, then projects-api).
 - **The consumer's cached service token lacks the scope for up to five minutes after the grant (R9).** Mitigation: a 401 drops the token and retries once.
 - **Allowances exhausted (D11, D15).** The `teams` allowance of 3 000 per 10 minutes is about ten times the expected use. Of it, page reads may take at most 2 400 per 10 minutes, so 600 stay for the cached decision path, which needs about 40 per 10 minutes per 50 attached teams. The `teamsOptions` allowance of 1 500 serves the attach search only. When a window is spent, the page fails soft (AC-5.6: the page loads and the markers say why), and decisions use the cache or say unavailable; a spent allowance never answers "nobody".
-- **Every limit is per process (R12).** The windows and the per-caller limits are in-process. projects-api runs one replica; a second replica doubles them and uses up the reserve, so it must first divide the figures by the replica count or move the windows to a shared store. The constants carry a comment saying so.
+- **Every limit is per process (R12).** The windows and the per-caller limits are in-process. projects-api runs one replica; a second replica doubles them and uses up the reserve, so it must first divide the figures by the replica count or move the windows to a shared store. The constants carry a comment saying so. *Amended 2026-11-27 (specs/20261126-teams R12, commit ea420aa5):* the single replica is checked mechanically. `scripts/check-single-replica.ts`, run by the `single-replica` job of `.github/workflows/railway-drift.yml` on every push that touches `.railway/**` or the checker, refuses a `.railway/railway.ts` that gives any of the five registered single-replica services (projects-api, notify-api, meetings-api, letterhead-api, accounting-api) anything but one replica in total; the message names the reason, and for projects-api the limiters above. Raising a figure means making the change that reason names first, then removing the entry from `SINGLE_REPLICA` in the same commit.
 
 ## Escalation triggers
 
@@ -155,7 +155,7 @@ This decision is revisited when any of these happens:
 - a consumer needs membership to be pushed to it, or needs to keep a list across requests: the replicated-copy shape of the Failure shape, which needs its own ADR;
 - the admin list passes about 500 teams: pagination and server-side search replace the browser filter (plan D12);
 - a team's membership changes must be seen by a consumer faster than 60 seconds: the answer to a cache is a new decision, not a shorter TTL;
-- projects-api runs a second replica: divide the D15 and per-caller figures by the replica count, or move the windows to a shared store (R12);
+- projects-api runs a second replica: divide the D15 and per-caller figures by the replica count, or move the windows to a shared store (R12); *amended 2026-11-27:* `scripts/check-single-replica.ts` refuses a second replica in `.railway/railway.ts` until that change is made and its registry entry removed in the same commit;
 - a person's or the service's window is reached in normal use, which the refusal log line (`[teams] page-read limited actor=<sub> window=<person|service>`) shows: the figures are then revisited;
 - more than about 750 teams are attached to projects: the cached path's worst case approaches the 600 reserve of the decisions' path.
 

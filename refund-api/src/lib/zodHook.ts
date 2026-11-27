@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { nulRefusal } from "./inputText";
 
 /**
  * `new OpenAPIHono({ defaultHook: zodIssuesHook })` for the routers that never had a hook of their
@@ -16,5 +17,7 @@ export const zodIssuesHook = (
   c: Context,
 ): Response | undefined => {
   if (result.success) return undefined;
+  const nul = nulRefusal(result, c);
+  if (nul) return nul;
   return c.json({ success: false, error: { issues: result.error.issues, name: "ZodError" } }, 400);
 };

@@ -280,17 +280,17 @@ describe("a deal whose owners do not answer: fail closed, nothing recorded (AC-2
     });
   });
 
-  it("is 503 when activities-api is unreachable, or slower than its 2 s", async () => {
+  it("is 503 when activities-api is unreachable, or slower than its 6 s (a relayed owner, R13 b)", async () => {
     hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB] });
     hosts.sever("activities");
     expectHostUnavailable(await post(body(deal("d1"))));
 
     hosts.reset();
     hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB] });
-    hosts.fail("activities.list", { delayMs: 2_600 });
+    hosts.fail("activities.list", { delayMs: 6_300 });
     expectHostUnavailable(await post(body(deal("d1"))));
     expect(await entryRows()).toHaveLength(0);
-  }, 10_000);
+  }, 15_000);
 
   it("is 503, not 403, when a later page of the scan does not answer: a shorter list never passes for the whole one", async () => {
     hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB] });

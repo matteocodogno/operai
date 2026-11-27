@@ -18,6 +18,7 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import type { MiddlewareHandler } from "hono";
 import { db } from "../lib/db";
+import { NO_NUL, hasNoNul } from "../lib/http";
 import { problem } from "../lib/problem";
 import { createSystemAuthMiddleware, type SystemAuthVariables } from "./systemAuth.middleware";
 
@@ -28,6 +29,7 @@ const DealIdsSchema = z
   .string()
   // +1 per comma: a hard cap before the split, so a huge string is never split.
   .max(MAX_DEAL_IDS * (MAX_DEAL_ID_LENGTH + 1))
+  .refine(hasNoNul, NO_NUL)
   .transform((value) => value.split(",").map((id) => id.trim()))
   .refine((ids) => ids.length <= MAX_DEAL_IDS, `At most ${MAX_DEAL_IDS} deal ids`)
   .refine(

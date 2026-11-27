@@ -29,7 +29,7 @@
 import { z } from "zod";
 import { env } from "../lib/env";
 import { serviceTokens } from "../lib/serviceToken";
-import { callOwner, inBatches, keepAsked, unavailable, UNAVAILABLE, type CallOptions, type OwnerAnswer, type Unavailable } from "./owner";
+import { callOwner, inBatches, keepAsked, RELAYED_OWNER_TIMEOUT_MS, unavailable, UNAVAILABLE, type CallOptions, type OwnerAnswer, type Unavailable } from "./owner";
 
 /** meetings-api's cap on `ids` of the list. */
 export const MEETINGS_IDS_BATCH_SIZE = 25;
@@ -64,7 +64,8 @@ export async function listMeetingsByIds(authorization: string, ids: readonly str
       authorization,
       // One comma-separated member, and no `page`.
       query: new URLSearchParams({ ids: batch.join(",") }),
-      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      // The list asks a host (the deal's label) beside the creators' names before it answers: the relayed owner's wait (R13 b).
+      timeoutMs: options.timeoutMs ?? RELAYED_OWNER_TIMEOUT_MS,
     });
     if (answer.kind === "unavailable") return { stop: UNAVAILABLE };
     const parsed = listBody.safeParse(answer.json);

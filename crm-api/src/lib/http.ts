@@ -150,11 +150,22 @@ export const requiredText = (max: number) =>
     .transform((v) => v.trim())
     .pipe(z.string().min(1, "Required").max(max));
 
+/**
+ * True for `YYYY-MM-DD` naming a real calendar day, false for anything else, and it never throws (QE F4): `toISOString()` raises a
+ * RangeError on an Invalid Date, and under zod 4 a refinement still runs on a string the regex already refused, so a refinement
+ * must answer on whatever text it is given. It checks the shape itself, so it does not rely on a `.regex` running before it.
+ */
+export function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const time = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().startsWith(value);
+}
+
 /** `YYYY-MM-DD`, a real calendar date. */
 export const DateOnlySchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
-  .refine((v) => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().startsWith(v), "Not a calendar date");
+  .refine(isCalendarDate, "Not a calendar date");
 
 export const toDateOnly = (value: Date | null): string | null =>
   value === null ? null : value.toISOString().slice(0, 10);

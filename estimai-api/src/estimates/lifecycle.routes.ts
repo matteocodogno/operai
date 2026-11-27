@@ -31,6 +31,7 @@
 
 import { createRoute, z, type OpenAPIHono } from "@hono/zod-openapi";
 import { Effect } from "effect";
+import { unexpectedDbFailure } from "@/lib/dbFailure";
 import type { JwtVariables } from "@/auth/jwt.middleware";
 import { resolveIdentities as realResolveIdentities } from "@/lib/authClient";
 import {
@@ -181,7 +182,7 @@ export function registerEstimateLifecycleRoutes(
             );
           }
         }
-        throw new Error(`Unexpected database failure on estimate ${transition}`);
+        throw unexpectedDbFailure(`Unexpected database failure on estimate ${transition}`, exit.cause);
       }
 
       const row = exit.value;

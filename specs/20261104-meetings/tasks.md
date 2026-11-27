@@ -1,7 +1,7 @@
 ---
 spec: 20261104
 generated: 2026-11-04
-synced: 2026-11-26
+synced: 2026-11-27
 ---
 
 # Tasks: Meetings — record, transcribe, summarise and question meetings

@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { noNul } from "../lib/inputText";
 import { EXPENSE_TYPE_VALUES } from "../requests/requests.schemas";
 
 export { EXPENSE_TYPE_VALUES };
@@ -18,7 +19,7 @@ export const ReferenceStateSchema = z.enum(["active", "deactivated", "not_found"
  * Accounting's natural keys are short (20 characters); a longer value cannot exist there, so the cap only bounds what is
  * looked up.
  */
-const nullableKey = z.string().trim().min(1).max(32).nullable();
+const nullableKey = noNul(z.string().trim().min(1).max(32)).nullable();
 
 /**
  * Unknown keys are refused, so the old `ledgerAccountId` / `vatCodeId` body cannot read as a successful "clear", and a body
@@ -28,7 +29,7 @@ export const PutExpenseTypeDefaultBodySchema = z.strictObject({
   accountNumber: nullableKey,
 });
 
-export const ExpenseTypeParamSchema = z.object({ type: z.string().min(1) });
+export const ExpenseTypeParamSchema = z.object({ type: noNul(z.string().min(1)) });
 
 const AccountSchema = z.object({ number: z.string(), name: z.string(), state: ReferenceStateSchema });
 

@@ -85,12 +85,37 @@ const subOf = (authorizationHeader: string): string => {
   return (JSON.parse(Buffer.from(payload, "base64url").toString("utf-8")) as { sub: string }).sub;
 };
 
-harness.setResolve(async (authorizationHeader) => {
+/**
+ * The fake `GET /authz/resolve` (R13 a). Every call is counted and its Authorization header kept; `hold` keeps a call
+ * unanswered until it settles, `delayMs` delays every call, `fail` makes the answer a failure (both after the hold).
+ * `resetWorld()` puts it back.
+ */
+export const authzFake = {
+  calls: 0,
+  headers: [] as string[],
+  hold: null as Promise<void> | null,
+  delayMs: 0,
+  fail: false,
+};
+
+const personaResolve = async (authorizationHeader: string) => {
+  authzFake.calls++;
+  authzFake.headers.push(authorizationHeader);
+  if (authzFake.hold) await authzFake.hold;
+  if (authzFake.delayMs > 0) await new Promise<void>((done) => setTimeout(done, authzFake.delayMs));
+  if (authzFake.fail) throw new Error("auth is down");
   const sub = subOf(authorizationHeader);
   const persona = Object.values(PERSONAS).find((p) => p.sub === sub);
   if (!persona) throw new Error(`no persona for ${sub}`);
   return { sub, epoch: 0, permissions: persona.permissions, entity: persona.entity, jobTitle: null };
-});
+};
+harness.setResolve(personaResolve);
+
+/**
+ * Puts the persona fake back as the process's `GET /authz/resolve` (the harness's resolve is process-wide and some test files
+ * swap it for their own fixture). Call it in the `beforeEach` of a test that drives `authzFake`.
+ */
+export const installAuthzFake = (): void => harness.setResolve(personaResolve);
 
 const tokens = new Map<string, string>();
 /** The `Authorization` header value `call()` sends for a persona: what a fake can compare a forwarded header with. */
@@ -698,6 +723,11 @@ export async function resetWorld(): Promise<void> {
   await db.projectMember.deleteMany();
   await db.project.deleteMany();
   __resetAuthzCacheForTests();
+  authzFake.calls = 0;
+  authzFake.headers = [];
+  authzFake.hold = null;
+  authzFake.delayMs = 0;
+  authzFake.fail = false;
   __resetIdentityCacheForTests();
   identities.down = false;
   identities.calls = 0;

@@ -57,6 +57,8 @@ export default defineRailway(() => {
     deploy: { restartPolicyMaxRetries: 3 },
     domains: [{ domain: "crm-api.operai.welld.io", port: 8084 }],
   });
+  // - Single replica: the team-read limiters (specs/20261126-teams D13, D15) are in process, so a second replica doubles them past auth's teams allowance (R12).
+  //   scripts/check-single-replica.ts refuses another figure (here and for notify-api, meetings-api, letterhead-api, accounting-api), in the railway-drift workflow.
   const projectsApi = service("projects-api", {
     source: github("matteocodogno/operai", { branch: "main", checkSuites: false, rootDirectory: "/projects-api" }),
     build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },

@@ -15,6 +15,20 @@ describe("technical estimates (specs/20261101-crm-sales-flow US-3)", () => {
   const request = (dealId: string, technicalUserId = "user-tech", as: "salesCh" | "admin" | "consultant" = "salesCh") =>
     call("POST", `/deals/${dealId}/estimate`, { as, body: { technicalUserId } });
   const linkOf = (dealId: string) => db.dealEstimate.findUniqueOrThrow({ where: { dealId } });
+  /** The next `db.$transaction` (the link's commit) rejects; the returned function puts the real one back. (A spy does not reach a Prisma client's method.) */
+  const failNextTransaction = (): (() => void) => {
+    const target = db as unknown as Record<string, unknown>;
+    const real = target["$transaction"] as (...args: unknown[]) => unknown;
+    let armed = true;
+    const put = (value: unknown) =>
+      Object.defineProperty(target, "$transaction", { configurable: true, enumerable: true, writable: true, value });
+    put((...args: unknown[]) => {
+      if (!armed) return real.apply(target, args);
+      armed = false;
+      return Promise.reject(new Error("commit failed"));
+    });
+    return () => put(real);
+  };
 
   it("creates the estimate in EstimAI, shares it with the technician, links it and tasks them (AC-1.2)", async () => {
     const deal = await qualifiedDeal();
@@ -74,9 +88,15 @@ describe("technical estimates (specs/20261101-crm-sales-flow US-3)", () => {
 
   it("a commit that fails after the put deletes the task again (AC-1.2)", async () => {
     const deal = await qualifiedDeal();
-    // A name Postgres cannot store (NUL): the link's insert fails, i.e. the commit does.
-    estimai.createdName = "broken\u0000name";
-    expect((await request(deal.id)).status).toBe(500);
+    // The link's transaction fails, i.e. the commit does. (A NUL in a name used to be the device; it is a 400 now, QE D2.)
+    const restore = failNextTransaction();
+    const quiet = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await request(deal.id)).status).toBe(500);
+    } finally {
+      restore();
+      quiet.mockRestore();
+    }
     const [put] = activitiesApi.puts();
     expect(put).toBeDefined();
     const deletes = activitiesApi.of("delete");
@@ -88,13 +108,14 @@ describe("technical estimates (specs/20261101-crm-sales-flow US-3)", () => {
 
   it("a compensation that itself fails is logged, never thrown over the real error", async () => {
     const deal = await qualifiedDeal();
-    estimai.createdName = "broken\u0000name";
+    const restore = failNextTransaction();
     const log = spyOn(console, "error").mockImplementation(() => {});
     activitiesApi.fail = { delete: 503 };
     try {
       expect((await request(deal.id)).status).toBe(500);
       expect(log.mock.calls.some((args) => String(args[0]).includes("could not remove the activity"))).toBe(true);
     } finally {
+      restore();
       log.mockRestore();
     }
   });

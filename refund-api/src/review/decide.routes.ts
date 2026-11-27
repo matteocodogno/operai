@@ -63,6 +63,8 @@ import {
   accountingUnavailableProblem,
   AccountingUnavailableError,
 } from "../accounting/accountingClient";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 /**
  * Fires the post-decision notification (T13, AC-3.6). Never throws — even
@@ -212,6 +214,8 @@ const REJECT_BODY_SIZE_LIMIT = 16 * 1024; // 16 KiB
 
 export const decideRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -270,7 +274,7 @@ decideRouter.use("/review/requests/:id/reject", authzMiddleware);
 
 /** Re-fetches the full detail after a successful decision. */
 async function fetchDetailAfterDecision(requestId: string) {
-  const exit = await Effect.runPromiseExit(findRequestWithLines(requestId));
+  const exit = await runExit(findRequestWithLines(requestId));
   if (exit._tag === "Failure" || !exit.value) {
     throw new Error("Unexpected database failure re-fetching refund request");
   }
@@ -338,7 +342,7 @@ decideRouter.openapi(setApprovedTotalRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(
+  const exit = await runExit(
     setApprovedTotal(id, lineId, approvedTotalCents, scope, sub, email),
   );
   if (exit._tag === "Success") {
@@ -439,7 +443,7 @@ decideRouter.openapi(approveRoute, async (c) => {
 
   const selfApprovalRestricted = approveRestrictedForCaller(authz);
 
-  const exit = await Effect.runPromiseExit(
+  const exit = await runExit(
     approveRequest(id, scope, sub, email, selfApprovalRestricted, c.get("userName")),
   );
   if (exit._tag === "Failure") {
@@ -544,7 +548,7 @@ decideRouter.openapi(rejectRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(
+  const exit = await runExit(
     rejectRequest(id, scope, sub, email, motivation, c.get("userName")),
   );
   if (exit._tag === "Failure") {
@@ -658,7 +662,7 @@ decideRouter.openapi(rejectLineRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(rejectLine(id, lineId, reason, scope, sub, email));
+  const exit = await runExit(rejectLine(id, lineId, reason, scope, sub, email));
   if (exit._tag === "Success") return c.json(mapLine(exit.value, "submitted"), 200);
 
   const cause = exit.cause;
@@ -684,7 +688,7 @@ decideRouter.openapi(restoreLineRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(restoreLine(id, lineId, scope, sub, email));
+  const exit = await runExit(restoreLine(id, lineId, scope, sub, email));
   if (exit._tag === "Success") return c.json(mapLine(exit.value, "submitted"), 200);
 
   const cause = exit.cause;

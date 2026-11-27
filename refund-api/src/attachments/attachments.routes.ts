@@ -58,6 +58,8 @@ import {
   MintAttachmentResponseSchema,
   SignedUrlResponseSchema,
 } from "./attachments.schemas";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -93,6 +95,8 @@ const MINT_ATTACHMENT_BODY_SIZE_LIMIT = 8 * 1024; // 8 KiB
 
 export const attachmentsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -205,7 +209,7 @@ attachmentsRouter.openapi(mintAttachmentRoute, async (c) => {
   const capDenial = requireCreateCapabilityOr404(authz, c.req.path, requestId);
   if (capDenial) return c.json(capDenial, 404);
 
-  const guardExit = await Effect.runPromiseExit(
+  const guardExit = await runExit(
     ensureOwnedDraftLine(requestId, lineId, sub),
   );
   if (guardExit._tag === "Failure") {
@@ -223,7 +227,7 @@ attachmentsRouter.openapi(mintAttachmentRoute, async (c) => {
 
   const upload = await mintPresignedPost(objectKey, contentType);
 
-  const createExit = await Effect.runPromiseExit(
+  const createExit = await runExit(
     createPendingAttachment({
       id: attachmentId,
       lineId,
@@ -279,7 +283,7 @@ attachmentsRouter.openapi(confirmAttachmentRoute, async (c) => {
   const capDenial = requireCreateCapabilityOr404(authz, c.req.path, requestId);
   if (capDenial) return c.json(capDenial, 404);
 
-  const guardExit = await Effect.runPromiseExit(
+  const guardExit = await runExit(
     ensureOwnedDraftLine(requestId, lineId, sub),
   );
   if (guardExit._tag === "Failure") {
@@ -291,7 +295,7 @@ attachmentsRouter.openapi(confirmAttachmentRoute, async (c) => {
     throw new Error("Unexpected database failure confirming attachment");
   }
 
-  const findExit = await Effect.runPromiseExit(findAttachmentInLine(lineId, aid));
+  const findExit = await runExit(findAttachmentInLine(lineId, aid));
   if (findExit._tag === "Failure") {
     throw new Error("Unexpected database failure looking up attachment");
   }
@@ -323,7 +327,7 @@ attachmentsRouter.openapi(confirmAttachmentRoute, async (c) => {
     );
   }
 
-  const markExit = await Effect.runPromiseExit(markAttachmentStored(aid));
+  const markExit = await runExit(markAttachmentStored(aid));
   if (markExit._tag === "Failure") {
     throw new Error("Unexpected database failure marking attachment stored");
   }
@@ -377,7 +381,7 @@ attachmentsRouter.openapi(deleteAttachmentRoute, async (c) => {
   const capDenial = requireCreateCapabilityOr404(authz, c.req.path, requestId);
   if (capDenial) return c.json(capDenial, 404);
 
-  const guardExit = await Effect.runPromiseExit(
+  const guardExit = await runExit(
     ensureOwnedDraftLine(requestId, lineId, sub),
   );
   if (guardExit._tag === "Failure") {
@@ -389,7 +393,7 @@ attachmentsRouter.openapi(deleteAttachmentRoute, async (c) => {
     throw new Error("Unexpected database failure deleting attachment");
   }
 
-  const findExit = await Effect.runPromiseExit(findAttachmentInLine(lineId, aid));
+  const findExit = await runExit(findAttachmentInLine(lineId, aid));
   if (findExit._tag === "Failure") {
     throw new Error("Unexpected database failure looking up attachment");
   }
@@ -408,7 +412,7 @@ attachmentsRouter.openapi(deleteAttachmentRoute, async (c) => {
     console.error("[attachments] best-effort object delete failed:", err);
   }
 
-  const deleteExit = await Effect.runPromiseExit(deleteAttachmentRow(aid));
+  const deleteExit = await runExit(deleteAttachmentRow(aid));
   if (deleteExit._tag === "Failure") {
     throw new Error("Unexpected database failure deleting attachment record");
   }
@@ -449,7 +453,7 @@ attachmentsRouter.openapi(getAttachmentUrlRoute, async (c) => {
   const authz = c.get("authz");
   const { id: requestId, lineId, aid } = c.req.valid("param");
 
-  const exit = await Effect.runPromiseExit(findRequestWithLines(requestId));
+  const exit = await runExit(findRequestWithLines(requestId));
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure fetching refund request");
   }

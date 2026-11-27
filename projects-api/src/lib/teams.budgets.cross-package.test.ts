@@ -13,13 +13,20 @@
  * that is missing, a declaration that is absent, repeated, not exported or not a plain number is a FAILURE, never a skip: the
  * inequality is the whole point of this file.
  *
+ * R13 (a) (specs/20261126-teams follow-up): a COLD permission check is part of the path too. A host route waits at most
+ * `HOST_AUTHZ_WAIT_MS` for `/authz/resolve` (`RESOLVE_TIMEOUT_MS`, 5 s, which keeps running and fills the cache), so
+ * `HOST_AUTHZ_WAIT_MS + TEAMS_HOST_WAIT_MS + HOST_PATH_REST_MS` stays under the same deadlines, and D16's margin is that
+ * wait plus the rest, itemized.
+ *
  * THE STATIC CHECK. The two host routes must read teams only through `teamReader.cached(`: a route moved to `fresh(` or
  * `options(` (the page path, 5 s) would silently be back inside its callers' 2 s. A planted source proves the check can fail.
  */
 import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
+import { HOST_AUTHZ_WAIT_MS, HOST_PATH_REST_MS } from "./hostBudget";
 import { TEAMS_HOST_MARGIN_MS, TEAMS_HOST_WAIT_MS, TEAMS_TIMEOUT_MS } from "./teams";
 
+// shared-copy:begin deadlineReader
 /** The value of the one `export const <name> = <n | n * n>;` of `source`; throws when it is not exactly that. */
 function deadlineOf(source: string, name: string): number {
   const declaration = new RegExp(`^export const ${name}\\s*(?::\\s*number\\s*)?=\\s*([^;\\n]*);`, "gm");
@@ -29,6 +36,7 @@ function deadlineOf(source: string, name: string): number {
   if (!/^\d[\d_]*(\s*\*\s*\d[\d_]*)*$/.test(expression)) throw new Error(`${name} is not a plain number or product of numbers: ${expression}`);
   return expression.split("*").reduce((product, factor) => product * Number(factor.trim().replaceAll("_", "")), 1);
 }
+// shared-copy:end deadlineReader
 
 /** Repo-relative: this file is `projects-api/src/lib/…`. */
 const fileUrl = (path: string): URL => new URL(`../../../${path}`, import.meta.url);
@@ -105,5 +113,58 @@ describe("a host route stays on the cached read (D16)", () => {
       "calls .fresh(",
     ]);
     expect(hostRouteProblems("")).toEqual(["does not read teams through teamReader.cached("]);
+  });
+});
+
+describe("the host path's permission wait sits inside the same deadlines (R13 a)", () => {
+  const resolveLimit = () => deadlineOf(readSource("projects-api/src/authz/resolveClient.ts"), "RESOLVE_TIMEOUT_MS");
+
+  it("pins the figures: wait 500 ms, rest 500 ms, the resolve's own limit 5 000 ms", () => {
+    expect(HOST_AUTHZ_WAIT_MS).toBe(500);
+    expect(HOST_PATH_REST_MS).toBe(500);
+    expect(resolveLimit()).toBe(5_000);
+  });
+
+  it("D16's margin is itemized: the permission wait and the rest fit in it, so D16's own inequality stands", () => {
+    expect(HOST_AUTHZ_WAIT_MS + HOST_PATH_REST_MS).toBeLessThanOrEqual(TEAMS_HOST_MARGIN_MS);
+  });
+
+  it("the permission wait is shorter than the resolve it does not abort, so a late answer still fills the cache", () => {
+    expect(HOST_AUTHZ_WAIT_MS).toBeLessThan(resolveLimit());
+  });
+
+  for (const { service, path, name } of CONSUMERS) {
+    it(`${service} ${name}: permission wait + team wait + rest is under it`, () => {
+      const deadline = deadlineOf(readSource(path), name);
+      expect(HOST_AUTHZ_WAIT_MS + TEAMS_HOST_WAIT_MS + HOST_PATH_REST_MS).toBeLessThan(deadline);
+    });
+  }
+});
+
+/** What is wrong with a host route's guard, as a list of problems (empty = fine). */
+function hostGuardProblems(source: string): string[] {
+  const problems: string[] = [];
+  if (!source.includes("middleware: [jwtMiddleware, hostAuthzMiddleware]")) problems.push("does not use [jwtMiddleware, hostAuthzMiddleware]");
+  if (source.includes("[jwtMiddleware, authzMiddleware]")) problems.push("uses [jwtMiddleware, authzMiddleware], the page variant with no wait");
+  return problems;
+}
+
+describe("a host route is on the bounded permission wait (R13 a)", () => {
+  it("the activity-host and meeting-host routes use hostAuthzMiddleware and never authzMiddleware", () => {
+    for (const path of ["projects-api/src/activity-host/activity-host.routes.ts", "projects-api/src/meeting-host/meeting-host.routes.ts"]) {
+      expect({ path, problems: hostGuardProblems(readSource(path)) }).toEqual({ path, problems: [] });
+    }
+  });
+
+  it("the check can fail: a route still on authzMiddleware, and one with neither, are each found", () => {
+    expect(hostGuardProblems("  middleware: [jwtMiddleware, hostAuthzMiddleware],")).toEqual([]);
+    expect(hostGuardProblems("  middleware: [jwtMiddleware, authzMiddleware],")).toEqual([
+      "does not use [jwtMiddleware, hostAuthzMiddleware]",
+      "uses [jwtMiddleware, authzMiddleware], the page variant with no wait",
+    ]);
+    expect(hostGuardProblems("  middleware: [jwtMiddleware, hostAuthzMiddleware], const x = [jwtMiddleware, authzMiddleware];")).toEqual([
+      "uses [jwtMiddleware, authzMiddleware], the page variant with no wait",
+    ]);
+    expect(hostGuardProblems("")).toEqual(["does not use [jwtMiddleware, hostAuthzMiddleware]"]);
   });
 });

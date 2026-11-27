@@ -24,12 +24,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const AUTH_DIR = path.resolve(__dirname, '../../../auth')
 
 function runFixtureScript(args: string[]): string {
-  const output = execFileSync(
-    'direnv',
-    ['exec', '.', 'bun', 'run', 'scripts/e2e-invite-fixtures.ts', ...args],
-    { cwd: AUTH_DIR, encoding: 'utf-8' },
-  )
-  const lines = output.split('\n').map((l) => l.trim()).filter(Boolean)
+  const output = execFileSync('direnv', ['exec', '.', 'bun', 'run', 'scripts/e2e-invite-fixtures.ts', ...args], {
+    cwd: AUTH_DIR,
+    encoding: 'utf-8',
+  })
+  const lines = output
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]
     if (line.startsWith('{')) return line
@@ -56,7 +58,9 @@ export function grantRefundAccounting(email: string, entity: 'welld_it' | 'welld
 
 /** The refund-api origin the e2e talks to. */
 export const REFUND_API_URL = (
-  process.env['E2E_REFUND_API_URL'] ?? process.env['VITE_REFUND_API_URL'] ?? 'http://localhost:8082'
+  process.env['E2E_REFUND_API_URL'] ??
+  process.env['VITE_REFUND_API_URL'] ??
+  'http://localhost:8082'
 ).replace(/\/$/, '')
 
 /**
@@ -103,9 +107,10 @@ export async function drainApprovedBacklog(token: string): Promise<number> {
 //
 // Nothing here runs without the e2e stack (refund-api, accounting-api, auth with ENABLE_TEST_AUTH): see playwright.config.ts.
 
-const AUTH_API_URL = (
-  process.env['E2E_AUTH_URL'] ?? process.env['VITE_AUTH_URL'] ?? 'http://localhost:3001'
-).replace(/\/$/, '')
+const AUTH_API_URL = (process.env['E2E_AUTH_URL'] ?? process.env['VITE_AUTH_URL'] ?? 'http://localhost:3001').replace(
+  /\/$/,
+  '',
+)
 
 /**
  * A bearer token minted AFTER the grants were written. `seedUserSession` returns the token it fetched before
@@ -198,7 +203,10 @@ export function getExpenseTypeDefaults(token: string): Promise<DefaultsResponse>
  * `restore` never throws: an account that was deactivated meanwhile answers 422 and is left as it is, with a line on stderr
  * that names the type and nothing else.
  */
-export async function snapshotAccountingDefaults(token: string, types: readonly string[]): Promise<() => Promise<void>> {
+export async function snapshotAccountingDefaults(
+  token: string,
+  types: readonly string[],
+): Promise<() => Promise<void>> {
   const before = await getExpenseTypeDefaults(token)
   return async () => {
     for (const type of types) {
@@ -206,7 +214,9 @@ export async function snapshotAccountingDefaults(token: string, types: readonly 
       try {
         await setExpenseTypeDefault(token, type, row?.account?.number ?? null)
       } catch (error) {
-        console.error(`[refundFixtures] default of ${type} not restored: ${error instanceof Error ? error.message : String(error)}`)
+        console.error(
+          `[refundFixtures] default of ${type} not restored: ${error instanceof Error ? error.message : String(error)}`,
+        )
       }
     }
   }
@@ -227,6 +237,8 @@ export interface ReceiptCodeRow {
   code: string | null
   prefix: string
   lastNumber: string | null
+  /** True when another employee has the same prefix (flagged in Settings; a codeless one stops the release, exit 9). */
+  sharesPrefix: boolean
 }
 
 /** Makes `token`'s owner known to Refund: the receipt-code list shows an employee after their first request. Returns the draft's id. */
@@ -252,7 +264,8 @@ export function putReceiptCode(token: string, userId: string, code: string | nul
 export async function unusedReceiptCodes(token: string, count: number): Promise<string[]> {
   const taken = new Set<string>()
   for (const row of await listReceiptCodeRows(token)) {
-    for (const value of [row.code, row.prefix, row.initials, row.lastNumber?.match(/^[A-Z]+/)?.[0]]) if (value) taken.add(value)
+    for (const value of [row.code, row.prefix, row.initials, row.lastNumber?.match(/^[A-Z]+/)?.[0]])
+      if (value) taken.add(value)
   }
   const letters = 'QXZJKWVY'
   const pool: string[] = []
@@ -262,6 +275,7 @@ export async function unusedReceiptCodes(token: string, count: number): Promise<
     ;[pool[i], pool[j]] = [pool[j]!, pool[i]!]
   }
   const free = pool.filter((candidate) => !taken.has(candidate)).slice(0, count)
-  if (free.length < count) throw new Error(`[refundFixtures] only ${free.length} of ${count} unused receipt codes are left`)
+  if (free.length < count)
+    throw new Error(`[refundFixtures] only ${free.length} of ${count} unused receipt codes are left`)
   return free
 }

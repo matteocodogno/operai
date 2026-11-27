@@ -12,6 +12,7 @@
 
 import { z } from "@hono/zod-openapi";
 import type { WizardAnswers } from "../offers/engine/answers";
+import { isCalendarDate } from "../lib/http";
 
 /** The whole body of a save, answers included, is refused above this (413 `draft_too_large`). */
 export const MAX_DRAFT_BYTES = 512 * 1024;
@@ -49,7 +50,7 @@ const recordOf = <T extends z.ZodTypeAny>(value: T, max: number) =>
 const realDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
-  .refine((value) => new Date(`${value}T00:00:00Z`).toISOString().startsWith(value), "Not a calendar date");
+  .refine(isCalendarDate, "Not a calendar date");
 
 const costKind = z.enum(["one_off", "yearly", "discount", "option"]);
 

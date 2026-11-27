@@ -31,17 +31,17 @@ const AUTH = "Bearer caller-jwt";
 // ─── The module's whole surface ──────────────────────────────────────────────
 
 describe("the client module (AC-11.10: a host is called for these two things only)", () => {
-  // `RESOLVE_TIMEOUT_MS` is a number, not a way to call a host: projects-api's cross-package test reads it
-  // (specs/20261126-teams plan D16). It is the one constant; the callable surface stays resolve and sendNotice.
-  it("exports only resolve and sendNotice as functions, and the one timeout constant", () => {
-    expect(Object.keys(client).sort()).toEqual(["RESOLVE_TIMEOUT_MS", "resolve", "sendNotice"]);
+  // `RESOLVE_TIMEOUT_MS` and `RESOLVE_BATCH` are numbers, not a way to call a host: projects-api's and hours-api's cross-package tests read them
+  // (specs/20261126-teams plan D16, R13 b). They are the two constants; the callable surface stays resolve and sendNotice.
+  it("exports only resolve and sendNotice as functions, and the two constants (the timeout and the batch size)", () => {
+    expect(Object.keys(client).sort()).toEqual(["RESOLVE_BATCH", "RESOLVE_TIMEOUT_MS", "resolve", "sendNotice"]);
     expect(Object.entries(client).filter(([, value]) => typeof value === "function").map(([name]) => name).sort()).toEqual(["resolve", "sendNotice"]);
   });
 
   it("declares no other value export in its source (static assertion)", () => {
     const source = readFileSync(join(import.meta.dir, "client.ts"), "utf8");
     const valueExports = [...source.matchAll(/^export\s+(?!type\b|interface\b)(.*)$/gm)].map((m) => m[1]!.trim());
-    expect(valueExports.map((line) => line.replace(/\(.*$/, "").trim())).toEqual(["const RESOLVE_TIMEOUT_MS = 2_000;", "async function resolve", "async function sendNotice"]);
+    expect(valueExports.map((line) => line.replace(/\(.*$/, "").trim())).toEqual(["const RESOLVE_TIMEOUT_MS = 2_000;", "const RESOLVE_BATCH = 25;", "async function resolve", "async function sendNotice"]);
   });
 });
 

@@ -42,6 +42,8 @@ import { fetchBatchWithRequests } from "./batches.repo";
 import { mapBatchDetail } from "./batches.service";
 import { resolvePdfLink } from "./pdfLink";
 import { BatchDetailSchema, BatchIdParamSchema } from "./batches.schemas";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -73,6 +75,8 @@ const conflictProblem = (path: string, detail: string) => ({
 
 export const batchDecideRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -107,7 +111,7 @@ batchDecideRouter.use("/batches/:id/discard", authzMiddleware);
  * 500 on top of a real, already-applied financial action.
  */
 async function fetchDetailAfterTransition(batchId: string) {
-  const exit = await Effect.runPromiseExit(fetchBatchWithRequests(batchId));
+  const exit = await runExit(fetchBatchWithRequests(batchId));
   if (exit._tag === "Failure" || !exit.value) {
     throw new Error(
       `Unexpected database failure re-fetching refund batch ${batchId} after a terminal transition`,
@@ -186,7 +190,7 @@ batchDecideRouter.openapi(markPaidRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(markBatchPaid(id, sub, email));
+  const exit = await runExit(markBatchPaid(id, sub, email));
   if (exit._tag === "Failure") {
     const cause = exit.cause;
     if (cause._tag === "Fail" && cause.error instanceof NotFoundError) {
@@ -259,7 +263,7 @@ batchDecideRouter.openapi(discardRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(discardBatch(id, sub, email));
+  const exit = await runExit(discardBatch(id, sub, email));
   if (exit._tag === "Failure") {
     const cause = exit.cause;
     if (cause._tag === "Fail" && cause.error instanceof NotFoundError) {

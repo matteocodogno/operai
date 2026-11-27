@@ -25,6 +25,7 @@ import { ProblemSchema } from "../requests/requests.schemas";
 import { listReviewQueueRequests } from "./review.repo";
 import { ReviewQueueItemSchema } from "./review.schemas";
 import { filterQueueInScope, mapQueueItem, scopeForReviewAction } from "./review.service";
+import { runExit } from "../lib/runExit";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ reviewRouter.openapi(listQueueRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(listReviewQueueRequests());
+  const exit = await runExit(listReviewQueueRequests());
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure listing the review queue");
   }

@@ -20,6 +20,7 @@ import { systemRouter } from "./system/system.routes";
 import { queueRouter } from "./queue/queue.routes";
 import { takeRouter } from "./queue/take.routes";
 import { requestLogger } from "./lib/logger";
+import { NUL_DATABASE_DETAIL, isNulDatabaseError, logNulRefusal } from "./lib/nul";
 import { handleProblemError, problem, validationHook } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -86,8 +87,17 @@ app.onError((err: Error, c: Context) => {
   // A ProblemError is a deliberate, typed answer (409 version_conflict, …),
   // not a fault: render it with its top-level `code`/extension members and do
   // not log it as uncaught.
-  const problem = handleProblemError(err, c.req.path);
-  if (problem) return problem;
+  const typed = handleProblemError(err, c.req.path);
+  if (typed) return typed;
+
+  // Safety net for a NUL that no schema refused: the request was wrong, not the server (QE D2). Names no value.
+  if (isNulDatabaseError(err)) {
+    logNulRefusal(err); // the code only (A09): a server-built bad value must not be blamed on the client with no trace
+    return problem(
+      { status: 400, code: "validation_failed", detail: NUL_DATABASE_DETAIL, extras: { field: "", errors: [] } },
+      c.req.path,
+    );
+  }
 
   console.error("[uncaught]", err);
 

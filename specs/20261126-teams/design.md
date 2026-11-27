@@ -130,7 +130,7 @@ Members card:
 | State | Render |
 |---|---|
 | Denied | `PermissionDenied` |
-| Loading | `SkeletonListRows` + live "Loading…"; the heading shows the fallback "Team" |
+| Loading | `SkeletonListRows` + live "Loading the team…"; the heading shows the fallback "Team" |
 | Not found (404 `team_not_found`) | `StatePanel role="alert" focusOnMount` "Team not found" with the back link still in the header |
 | Failed | `ErrorBanner` + Retry |
 | Loaded, no members | inside the Members card, `StatePanel` "No members yet" "Add the people who work in this team." (the picker stays above it) |
@@ -403,6 +403,7 @@ form: {
 detail: {
   titleFallback: 'Team'                                      'Team'
   back: 'Back to teams'                                      'Torna ai team'
+  loading: 'Loading the team…'                               'Caricamento del team…'
   loadError: 'Could not load this team.'                     'Impossibile caricare questo team.'
   notFound: { title: 'Team not found',                       { title: 'Team non trovato',
     body: 'It may have been removed, or the link is wrong.' }  body: 'Potrebbe essere stato rimosso, oppure il link non è corretto.' }
@@ -557,6 +558,7 @@ teams: {
     limitReached: (n, max) => `${n} of ${max} teams attached` `${n} team su ${max} collegati`
     attached: 'Attached teams'                                'Team collegati'
     none: 'No teams attached.'                                'Nessun team collegato.'
+    unnamed: 'Team that could not be loaded'                 'Team che non è stato possibile caricare'
     removeHint: 'Removing a team removes its members from     'Rimuovere un team toglie i suoi membri da questo progetto,
       this project, unless they are also listed or in            a meno che siano anche elencati o in un altro team
       another attached team.'                                    collegato.'
@@ -594,6 +596,7 @@ saved.teams: 'Teams saved.'                                   'Team salvati.'
 // projects.list
 team: 'Team'                                                  'Team'
 teamArchived: (name) => `${name} (archived)`                  `${name} (archiviato)`
+teamUnreadable: 'Team that could not be loaded'              'Team che non è stato possibile caricare'
 teamsFailed: 'The teams could not be loaded.'                 'Non è stato possibile caricare i team.'
 noTeamsYet: 'No team is attached to a project yet.'           'Nessun team è ancora collegato a un progetto.'
 // tasks.form

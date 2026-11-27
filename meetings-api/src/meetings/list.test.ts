@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { readFileSync } from "node:fs";
+import { LIST_NAMES_WAIT_MS } from "../lib/identities";
 import { createKit, type Kit } from "../test-support/routeKit";
 
 // AC-10.1, AC-10.2, AC-10.3, AC-11.5 (specs/20261104-meetings T23): "My meetings", the list every signed-in
@@ -339,5 +341,97 @@ describe("ids filter (specs/20261112-time-tracking AC-2.5, AC-2.10)", () => {
     for (const query of ["?ids=", "?ids=a,,b", "?ids=a,", "?ids=,a", "?ids=%20", `?ids=${"x".repeat(65)}`, "?ids=a&ids=b"]) {
       expect([query, (await list("alice", query)).status]).toEqual([query, 422]);
     }
+  });
+});
+
+// specs/20261126-teams R13 b (ADR 20261119-on-demand-outbound-work-..., rule 7): hours-api asks `GET /meetings?ids=` inside 6 s. The list reads no
+// permission, so it makes no permission call (`jwtOnly`), and it waits at most `LIST_NAMES_WAIT_MS` for its creators' names.
+describe("the list inside another service's deadline (R13 b)", () => {
+  const settle = () => new Promise<void>((done) => setTimeout(done, 30));
+
+  it("makes no /authz/resolve call, and answers normally while auth holds every resolve", async () => {
+    const mine = await seed({ title: "Mine" });
+    kit.holdResolve(new Promise<void>(() => {})); // never answers: a resolve made here would hang
+    const started = Date.now();
+    const res = await list("alice", `?ids=${mine.id}`);
+    expect(res.status).toBe(200);
+    expect(titles(await json(res))).toEqual(["Mine"]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(kit.resolveCalls()).toBe(0);
+    // the unfiltered list too: the same guard
+    expect((await list("alice")).status).toBe(200);
+    expect(kit.resolveCalls()).toBe(0);
+  });
+
+  it("still returns only the caller's own meetings, whatever else they hold: a non-participant gets nothing (ADR 20261104-meetings-tool-shape-visibility-by-participation)", async () => {
+    const bobs = await seed({ title: "Bob's private", creatorUserId: "bob" });
+    const hostVisible = await seed({ title: "Bob's host-visible", creatorUserId: "bob", hostVisible: true, ...W1 });
+    const external = await seed({ title: "External", creatorUserId: "bob", participants: { create: [{ externalName: "carol", addedBy: "bob" }] } });
+    const invited = await seed({ title: "Invited", creatorUserId: "bob", participants: { create: [{ userId: "guest", addedBy: "bob" }] } });
+    const asked = `?ids=${[bobs.id, hostVisible.id, external.id, invited.id].join(",")}`;
+
+    // everyone with every grant, an administrator and an erase holder among them, a stranger and a host reader: nothing of Bob's
+    for (const who of ["alice", "admin"]) {
+      expect(await json(await list(who, asked))).toMatchObject({ items: [], total: 0 });
+      expect(await json(await list(who))).toMatchObject({ items: [], total: 0 });
+    }
+    // the participant sees exactly the meeting they were added to
+    expect(titles(await json(await list("guest", asked)))).toEqual(["Invited"]);
+    // and a caller with no grant at all, auth held, the same
+    kit.holdResolve(new Promise<void>(() => {}));
+    expect(titles(await json(await list("guest", asked)))).toEqual(["Invited"]);
+    expect(kit.resolveCalls()).toBe(0);
+  });
+
+  it("waits at most 800 ms for the creators' names: a slow auth gives status unknown and the next call names them with no call", async () => {
+    const mine = await seed({ title: "Mine", creatorUserId: "bob", participants: { create: [{ userId: "alice", addedBy: "bob" }] } });
+    let release!: () => void;
+    kit.holdIdentities(new Promise<void>((done) => (release = done))); // auth answers when the test says so (about 3 s in a real outage)
+    try {
+      const started = Date.now();
+      const res = await list("alice", `?ids=${mine.id}`);
+      const took = Date.now() - started;
+      expect(res.status).toBe(200);
+      expect(took).toBeGreaterThanOrEqual(LIST_NAMES_WAIT_MS - 20);
+      expect(took).toBeLessThan(1_500);
+      expect((await json(res))["items"][0].creator).toEqual({ id: "bob", name: null, status: "unknown" });
+      expect(kit.identityCalls).toHaveLength(1);
+    } finally {
+      release();
+    }
+    await settle(); // the lookup, not aborted, fills the cache
+    const next = await list("alice", `?ids=${mine.id}`);
+    expect((await json(next))["items"][0].creator).toEqual({ id: "bob", name: "Name bob", status: "active" });
+    expect(kit.identityCalls).toHaveLength(1);
+  });
+
+  it("answers at once when auth is fast", async () => {
+    const mine = await seed({ title: "Mine" });
+    const started = Date.now();
+    const res = await list("alice", `?ids=${mine.id}`);
+    expect(Date.now() - started).toBeLessThan(LIST_NAMES_WAIT_MS / 2);
+    expect((await json(res))["items"][0].creator.name).toBe("Name alice");
+  });
+});
+
+// A control on the list would need the permissions it no longer resolves: the day one is added, the route moves back to `selfScoped`.
+describe("the list reads no permission (static)", () => {
+  const FORBIDDEN = ["holds(", 'c.get("authz")', "capabilities", "callerOf", "selfScoped"];
+  const problemsOf = (source: string) => FORBIDDEN.filter((word) => source.includes(word));
+  const read = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
+
+  it("list.routes.ts and rows.ts name none of holds(, c.get(\"authz\"), capabilities, callerOf, selfScoped", () => {
+    expect({ file: "list.routes.ts", problems: problemsOf(read("list.routes.ts")) }).toEqual({ file: "list.routes.ts", problems: [] });
+    expect({ file: "rows.ts", problems: problemsOf(read("rows.ts")) }).toEqual({ file: "rows.ts", problems: [] });
+  });
+
+  it("the check can fail", () => {
+    expect(problemsOf("if (holds(c, X)) {}")).toEqual(["holds("]);
+    expect(problemsOf('c.get("authz"); const caller = callerOf(c); middleware: selfScoped')).toEqual(['c.get("authz")', "callerOf", "selfScoped"]);
+    expect(problemsOf("middleware: jwtOnly")).toEqual([]);
+  });
+
+  it("the route is on jwtOnly", () => {
+    expect(read("list.routes.ts")).toContain("middleware: jwtOnly,");
   });
 });

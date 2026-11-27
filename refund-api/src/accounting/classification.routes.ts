@@ -58,6 +58,7 @@ import {
   ClassifyBodySchema,
   RequestAccountingSchema,
 } from "./classification.schemas";
+import { nulRefusal } from "../lib/inputText";
 
 const problem = <S extends number>(status: S, title: string, path: string, detail: string, code?: string) => ({
   type: `https://httpstatuses.com/${status}`,
@@ -70,6 +71,8 @@ const problem = <S extends number>(status: S, title: string, path: string, detai
 
 export const classificationRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         problem(

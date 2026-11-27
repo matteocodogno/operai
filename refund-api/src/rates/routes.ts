@@ -39,6 +39,8 @@ import { ENTITY_CURRENCY, ProblemSchema } from "../requests/requests.schemas";
 import { createRateEntry, listAllRateEntries } from "./repo";
 import { decimalToMicros, mapRateHistoryResponse, microsToDecimalString } from "./service";
 import { AddRateBodySchema, RateEntryResponseSchema, RateHistoryResponseSchema } from "./schemas";
+import { runExit } from "../lib/runExit";
+import { nulRefusal } from "../lib/inputText";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -67,6 +69,8 @@ const todayIso = (): string => new Date().toISOString().slice(0, 10);
 
 export const ratesRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) {
       return c.json(
         {
@@ -131,7 +135,7 @@ ratesRouter.openapi(listRatesRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(listAllRateEntries());
+  const exit = await runExit(listAllRateEntries());
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure listing mileage rates");
   }
@@ -195,7 +199,7 @@ ratesRouter.openapi(addRateRoute, async (c) => {
   const currency = ENTITY_CURRENCY[body.entity];
   const ratePerKmMicros = decimalToMicros(body.ratePerKm);
 
-  const exit = await Effect.runPromiseExit(
+  const exit = await runExit(
     createRateEntry({
       entity: body.entity,
       currency,
@@ -214,7 +218,7 @@ ratesRouter.openapi(addRateRoute, async (c) => {
   // <= today AND nothing newer already supersedes it for today — recompute
   // against the FULL history rather than assuming true, so a backdated add
   // (AC-4.8) never over-claims current effect.
-  const historyExit = await Effect.runPromiseExit(listAllRateEntries());
+  const historyExit = await runExit(listAllRateEntries());
   const inEffectToday =
     historyExit._tag === "Success"
       ? mapRateHistoryResponse(historyExit.value, todayIso()).entities.some(

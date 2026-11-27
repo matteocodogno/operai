@@ -23,6 +23,7 @@ import { setupOpenAPI } from "./openapi/registry";
 import { createS3Client } from "./lib/storage";
 import { runStartupChecks } from "./lib/startupChecks";
 import { startWorker } from "./jobs/handlers";
+import { NUL_DATABASE_DETAIL, isNulDatabaseError, logNulRefusal } from "./lib/nul";
 
 // Exported so the assembled-app tests (specs/20261104-meetings T42) can read the real route
 // table; Bun serves only the default export below.
@@ -81,6 +82,12 @@ app.onError((err: Error, c: Context) => {
   // A ProblemError is a deliberate, typed answer (409 version_conflict, …), not a fault.
   const typed = handleProblemError(err, c.req.path);
   if (typed) return typed;
+
+  // Safety net for a NUL that no schema refused: the request was wrong, not the server (QE D2). Names no value.
+  if (isNulDatabaseError(err)) {
+    logNulRefusal(err); // the code only (A09): a server-built bad value must not be blamed on the client with no trace
+    return problem({ status: 400, code: "validation_failed", detail: NUL_DATABASE_DETAIL }, c.req.path);
+  }
 
   // Name only: an error message can carry a title or a file name (AC-4.10).
   console.error("[uncaught]", err.name);

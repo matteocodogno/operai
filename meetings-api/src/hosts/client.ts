@@ -40,7 +40,7 @@ import type {
 export const RESOLVE_TIMEOUT_MS = 2_000;
 const NOTICE_TIMEOUT_MS = 5_000;
 /** The contract's cap on ids per resolve call. */
-const RESOLVE_BATCH = 25;
+export const RESOLVE_BATCH = 25;
 const MAX_TITLE = 200;
 
 export interface ClientOptions {

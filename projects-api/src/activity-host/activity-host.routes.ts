@@ -18,14 +18,16 @@
  * Unlike every other route, a caller WITHOUT `projects:access` is not refused: the answer is
  * `reader:false` with every id `missing` (AC-7.4, AC-8.3 — a project one cannot read is
  * indistinguishable from one that does not exist). Only JWT and live authorization run; an `auth`
- * outage is the usual 503 `authz_unavailable`, which activities-api reads as `host_unavailable`.
+ * outage is the usual 503 `authz_unavailable`, which activities-api reads as `host_unavailable`. The route is inside
+ * activities-api's 2 s, so it waits at most `HOST_AUTHZ_WAIT_MS` (500 ms) for a permission check it has not cached
+ * (`hostAuthzMiddleware`, R13 a): late is the same 503, and the check, not aborted, fills the cache for the retry.
  * The route reads nothing it is not asked about and writes nothing. Its team read is the CACHED path (D2), never the
  * page's windows (D15, AC-5.6): a decision is not limited per person.
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { PROJECTS_ACCESS, manageScope } from "../auth/guards";
-import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
+import { hostAuthzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { hasCapability } from "../authz/conditions";
 import { db } from "../lib/db";
@@ -72,7 +74,7 @@ const resolveRoute = createRoute({
   tags: ["Activity host"],
   summary: "What the caller may do with these projects' tasks (called by activities-api as the caller)",
   // JWT + live authorization only: a caller without projects:access gets `reader:false`, not a 403.
-  middleware: [jwtMiddleware, authzMiddleware],
+  middleware: [jwtMiddleware, hostAuthzMiddleware],
   request: { body: { content: { "application/json": { schema: ResolveBodySchema } }, required: true } },
   responses: {
     200: { description: "One item per distinct id, in request order", content: { "application/json": { schema: ResolveResponseSchema } } },

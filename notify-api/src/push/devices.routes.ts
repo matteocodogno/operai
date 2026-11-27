@@ -19,6 +19,7 @@
  * DELETE keep working while push is off so a user can always see and remove what is stored.
  */
 
+import { unexpectedDbFailure } from "@/lib/dbFailure";
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import { Effect } from "effect";
 import { createMiddleware } from "hono/factory";
@@ -162,8 +163,6 @@ pushDevicesRouter.openapi(registerRoute, async (c) => {
     );
   }
 
-  const failure = () => new Error("Unexpected database failure registering a push device");
-
   const exit = await Effect.runPromiseExit(
     upsertByEndpoint({
       userId,
@@ -173,7 +172,7 @@ pushDevicesRouter.openapi(registerRoute, async (c) => {
       label: deviceLabel(c.req.header("user-agent")),
     }),
   );
-  if (exit._tag === "Failure") throw failure();
+  if (exit._tag === "Failure") throw unexpectedDbFailure("Unexpected database failure registering a push device", exit.cause);
 
   // The cap is decided inside the repository's transaction (atomic, S-M2); "limit" wrote nothing.
   const result = exit.value;
@@ -202,7 +201,7 @@ const listRoute = createRoute({
 
 pushDevicesRouter.openapi(listRoute, async (c) => {
   const exit = await Effect.runPromiseExit(listByUser(c.get("userId")));
-  if (exit._tag === "Failure") throw new Error("Unexpected database failure listing push devices");
+  if (exit._tag === "Failure") throw unexpectedDbFailure("Unexpected database failure listing push devices", exit.cause);
   return c.json({ items: exit.value.map(toDto) }, 200);
 });
 
@@ -230,7 +229,7 @@ pushDevicesRouter.openapi(deleteRoute, async (c) => {
     if (error?._tag === "NotFoundError") {
       return c.json(problem(404, "Not Found", "Push device not found", c.req.path), 404);
     }
-    throw new Error("Unexpected database failure deleting a push device");
+    throw unexpectedDbFailure("Unexpected database failure deleting a push device", exit.cause);
   }
   return c.body(null, 204);
 });

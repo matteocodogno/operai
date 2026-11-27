@@ -69,7 +69,13 @@ export async function createKit() {
   // ── auth ──────────────────────────────────────────────────────────────────
   const grants = new Map<string, Set<Cap>>();
   let authDown = false;
+  /** R13 b: how many `GET /authz/resolve` reached the fake, and a hold that keeps each unanswered until it settles. */
+  let resolveCalls = 0;
+  let resolveHold: Promise<void> | null = null;
+  let identityHold: Promise<void> | null = null;
   harness.setResolve(async (authorization): Promise<ResolveResponse> => {
+    resolveCalls++;
+    if (resolveHold) await resolveHold;
     if (authDown) throw new Error("auth GET /authz/resolve responded with HTTP 503");
     const sub = subOf(authorization);
     return {
@@ -91,6 +97,7 @@ export async function createKit() {
       if (identitiesDown) return new Response("down", { status: 503 });
       const ids = (JSON.parse(String(init?.body)) as { ids: string[] }).ids;
       identityCalls.push(ids);
+      if (identityHold) await identityHold;
       const users: Identity[] = ids.map((id) =>
         deactivated.has(id) || id.startsWith("gone-")
           ? { id, name: null, status: "deleted" }
@@ -162,6 +169,16 @@ export async function createKit() {
     reactivate(id: string) {
       deactivated.delete(id);
     },
+    /** How many `GET /authz/resolve` the fake auth has answered or is holding since the last reset. */
+    resolveCalls: () => resolveCalls,
+    /** Keeps every `GET /authz/resolve` unanswered until `hold` settles; `null` lets them through. */
+    holdResolve(hold: Promise<void> | null) {
+      resolveHold = hold;
+    },
+    /** Keeps every `POST /authz/users/identities` unanswered until `hold` settles; `null` lets them through. */
+    holdIdentities(hold: Promise<void> | null) {
+      identityHold = hold;
+    },
     setIdentitiesDown(down: boolean) {
       identitiesDown = down;
     },
@@ -171,6 +188,9 @@ export async function createKit() {
       identitiesDown = false;
       authDown = false;
       identityCalls.length = 0;
+      resolveCalls = 0;
+      resolveHold = null;
+      identityHold = null;
       notified.length = 0;
       fake.reset();
       storage.failWith(null);

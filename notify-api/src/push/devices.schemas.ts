@@ -6,6 +6,7 @@
 
 import { createECDH } from "node:crypto";
 import { z } from "@hono/zod-openapi";
+import { NO_NUL, hasNoNul } from "@/lib/nulInput";
 import { MAX_PUSH_ENDPOINT_LENGTH } from "./pushEndpoint";
 
 // Canonical unpadded base64url of exactly `bytes` bytes (the round trip rejects stray bits).
@@ -38,7 +39,7 @@ export const PushConfigResponseSchema = z
 export const RegisterDeviceSchema = z
   .object({
     // Length is a schema (400) concern; whether the host is a push service is the 422.
-    endpoint: z.string().min(1).max(MAX_PUSH_ENDPOINT_LENGTH),
+    endpoint: z.string().min(1).max(MAX_PUSH_ENDPOINT_LENGTH).refine(hasNoNul, NO_NUL),
     keys: z.object({
       p256dh: z
         .string()
@@ -60,7 +61,7 @@ export const PushDeviceSchema = z
 export const PushDeviceListSchema = z.object({ items: z.array(PushDeviceSchema) }).openapi("PushDeviceList");
 
 export const DeviceIdParamSchema = z.object({
-  id: z.string().min(1).openapi({ param: { name: "id", in: "path" } }),
+  id: z.string().min(1).refine(hasNoNul, NO_NUL).openapi({ param: { name: "id", in: "path" } }),
 });
 
 /** RFC 7807 Problem JSON with the machine-readable `code` extension member the plan names. */

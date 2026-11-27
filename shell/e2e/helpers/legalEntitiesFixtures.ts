@@ -38,6 +38,7 @@ import { createServer, type Server } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { applySessionCookie, seedAdminSession, seedUserSession, type SeededSession } from './adminSession'
 import { AUTH_URL, authCall, ibanWithCheckDigits, type Call } from '../fixtures/letterheads'
+import { hostOf } from './databaseUrl'
 
 export type { Call, SeededSession }
 export { applySessionCookie }
@@ -193,27 +194,69 @@ export async function ensureRegistryComplete(admin: SeededSession, entity: Entit
 
 // ─── The import (T9) ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
+const CRM_API_DIR = fileURLToPath(new URL('../../../crm-api/', import.meta.url))
+const AUTH_IMPORT_DIR = fileURLToPath(new URL('../../../auth/', import.meta.url))
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1'])
+
+/** A connection string never reaches a message: the output of the import is quoted in errors. */
+const scrubUrls = (text: string): string => text.replace(/postgres(?:ql)?:\/\/[^\s'"`]+/gi, 'postgresql://***')
 
 /**
- * Runs `mise run legal-entities:import` (T9) from the repository root: LOCAL compose databases only (the task builds both URLs
- * itself), applies, prints counts and field names and never a value. It is only called when an entity has no version.
- * Exit 1 (a CRM value differs from the registry's) and exit 2 (`crm_legal_columns_absent`: the move is over) are the
- * script's own answers; whether the registry is usable is judged by reading it afterwards, not by the exit code. A failure
- * to RUN it at all (no `mise`, the stack down) is returned for the caller to put in its message when the registry is still empty.
+ * The two URLs the checks below passed travel to the import under these names and are exported by a one-line wrapper that runs
+ * AFTER `direnv exec` has loaded the service's own environment file, so that file cannot replace what was checked (the same
+ * shape as global-setup's `E2E_SETUP_DATABASE_URL`). They live only in the child's environment: not in the process list, not in an error.
+ */
+const PASSED_CRM_URL = 'E2E_SETUP_CRM_DATABASE_URL'
+const PASSED_AUTH_URL = 'E2E_SETUP_AUTH_DATABASE_URL'
+const PASS_CHECKED_URLS = `export CRM_DATABASE_URL="$${PASSED_CRM_URL}" DATABASE_URL="$${PASSED_AUTH_URL}"; exec "$@"`
+
+/**
+ * Runs the one-off import of the CRM's legal details (T9: `auth/scripts/import-crm-legal-details.ts --apply`) the way the other
+ * fixtures reach `auth`: under `direnv exec` in the service's own directory, so the databases and their credentials are the ones
+ * `mise run dev` uses (auth's `DATABASE_URL`, crm-api's `DATABASE_URL` as the CRM source), with no `POSTGRES_USER` /
+ * `POSTGRES_PASSWORD` to export and none written here. `mise run legal-entities:import` builds both URLs from `POSTGRES_*` with
+ * `postgres:postgres` as the default, which a compose database with another password refuses (28P01). As that task did, this
+ * refuses a database that is not on this machine (unless `E2E_ALLOW_REMOTE_DB=1`; a URL whose `host`, `hostaddr` or `service` parameter moves the host is
+ * treated as not a postgres URL, `databaseUrl.ts`) and never prints a URL. The URLs it checked are the ones the import reads (`PASS_CHECKED_URLS`). It prints counts and
+ * field names, never a value, and is only called when an entity has no version. Exit 1 (a CRM value differs from the registry's)
+ * and exit 2 (`crm_legal_columns_absent`: the move is over) are the script's own answers; whether the registry is usable is
+ * judged by reading it afterwards, not by the exit code. A failure to RUN it at all (no `direnv`, the stack down) is returned for
+ * the caller to put in its message when the registry is still empty.
  */
 export function runLegalEntitiesImport(): { ok: boolean; output: string } {
   try {
-    const output = execFileSync('mise', ['run', 'legal-entities:import'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120_000,
-    })
-    return { ok: true, output }
+    const read = (dir: string): string =>
+      execFileSync('direnv', ['exec', '.', 'sh', '-c', 'printf %s "$DATABASE_URL"'], {
+        cwd: dir,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim()
+    const databases = { auth: read(AUTH_IMPORT_DIR), 'crm-api': read(CRM_API_DIR) }
+    for (const [name, url] of Object.entries(databases)) {
+      const host = hostOf(url)
+      if (host === null) return { ok: false, output: `the DATABASE_URL that direnv gives ${name} is not a postgres URL (its value is not shown)` }
+      if (!LOCAL_HOSTS.has(host) && process.env['E2E_ALLOW_REMOTE_DB'] !== '1') {
+        return {
+          ok: false,
+          output: `the DATABASE_URL of ${name} is not on this machine and the import applies: set E2E_ALLOW_REMOTE_DB=1 if you mean it (its value is not shown)`,
+        }
+      }
+    }
+    const output = execFileSync(
+      'direnv',
+      ['exec', '.', 'sh', '-c', PASS_CHECKED_URLS, 'sh', 'bun', 'run', 'scripts/import-crm-legal-details.ts', '--apply'],
+      {
+        cwd: AUTH_IMPORT_DIR,
+        encoding: 'utf-8',
+        env: { ...process.env, [PASSED_CRM_URL]: databases['crm-api'], [PASSED_AUTH_URL]: databases.auth },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 120_000,
+      },
+    )
+    return { ok: true, output: scrubUrls(output) }
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; message: string }
-    return { ok: false, output: `${failure.stdout ?? ''}${failure.stderr ?? ''}` || failure.message }
+    return { ok: false, output: scrubUrls(`${failure.stdout ?? ''}${failure.stderr ?? ''}` || failure.message) }
   }
 }
 

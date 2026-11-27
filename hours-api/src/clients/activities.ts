@@ -27,7 +27,7 @@
 
 import { z } from "zod";
 import { env } from "../lib/env";
-import { callOwner, inBatches, keepAsked, unavailable, UNAVAILABLE, type CallOptions, type Unavailable } from "./owner";
+import { callOwner, inBatches, keepAsked, RELAYED_OWNER_TIMEOUT_MS, unavailable, UNAVAILABLE, type CallOptions, type Unavailable } from "./owner";
 
 /** activities-api's cap on `ids` (elements as sent). */
 export const ACTIVITIES_IDS_BATCH_SIZE = 50;
@@ -95,7 +95,7 @@ export async function listActivitiesByIds(authorization: string, ids: readonly s
       authorization,
       // One comma-separated member, and no `page` / `pageSize`: the answer is always one page.
       query: new URLSearchParams({ ids: batch.join(",") }),
-      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      timeoutMs: options.timeoutMs ?? RELAYED_OWNER_TIMEOUT_MS,
     });
     if (answer.kind === "unavailable") return { stop: UNAVAILABLE };
     const parsed = byIdsBody.safeParse(answer.json);
@@ -121,8 +121,9 @@ export async function listDealActivities(authorization: string, dealId: string, 
       baseUrl: env.ACTIVITIES_API_URL,
       path: "/activities",
       authorization,
+      // activities-api asks the deal's company host, then the page's related hosts (two rounds): the relayed owner's wait (R13 b).
       query: new URLSearchParams({ dealId, page: String(page), pageSize: String(DEAL_SCAN_PAGE_SIZE) }),
-      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      timeoutMs: options.timeoutMs ?? RELAYED_OWNER_TIMEOUT_MS,
     });
     if (answer.kind === "unavailable") return UNAVAILABLE;
     const parsed = dealPageBody.safeParse(answer.json);

@@ -119,15 +119,18 @@ export const PersonSchema = z.object({
   deleted: z.boolean(),
 });
 
+/** Postgres text cannot hold U+0000: every text a request can carry to a query is refused here, before the database sees it. */
+export const hasNoNul = (value: string): boolean => !value.includes("\u0000");
+export const NO_NUL = "Must not contain a NUL character";
+
+/** A free-text string, at most `max` characters before trimming, never a NUL (a search `q`, a name, a note). */
+export const searchText = (max: number) => z.string().max(max).refine(hasNoNul, NO_NUL);
+
 /**
  * Ids are text (cuids), never uuids: 1–64 characters (tasks.md, "Ids are text"). A NUL is refused here: Postgres text cannot
  * hold U+0000, so one that reached a query would be a 500 instead of a validation failure (specs/20261126-teams, QE D1).
  */
-export const IdSchema = z
-  .string()
-  .min(1)
-  .max(64)
-  .refine((value) => !value.includes("\u0000"), "Must not contain a NUL character");
+export const IdSchema = z.string().min(1).max(64).refine(hasNoNul, NO_NUL);
 
 export const IdParams = z.object({ id: IdSchema });
 
@@ -136,6 +139,7 @@ export const optionalText = (max: number) =>
   z
     .string()
     .max(max)
+    .refine(hasNoNul, NO_NUL)
     .transform((v) => (v.trim() === "" ? null : v.trim()))
     .nullable()
     .optional();
@@ -143,6 +147,7 @@ export const optionalText = (max: number) =>
 export const requiredText = (max: number) =>
   z
     .string()
+    .refine(hasNoNul, NO_NUL)
     .transform((v) => v.trim())
     .pipe(z.string().min(1, "Required").max(max));
 

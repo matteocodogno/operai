@@ -9,6 +9,13 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { handleError, handleNotFound, invalidRequestHook } from "./errors";
 import { ProblemError } from "./problem";
 
+/**
+ * Only the calls that carry the safety net's own prefix. A spy another test file left on `console.warn` comes back from `spyOn` with
+ * that file's calls, and an unrelated warning is not this test's (QE F3): count and read the `[nul]` lines, not the whole log.
+ */
+const nulLines = (spy: { mock: { calls: unknown[][] } }): unknown[][] =>
+  spy.mock.calls.filter((call) => call[0] === "[nul] database refused U+0000 or invalid text");
+
 const body = z.object({ minutes: z.number().int(), note: z.string().optional() }).strict();
 
 const app = new OpenAPIHono({ defaultHook: invalidRequestHook });
@@ -44,6 +51,29 @@ app.get("/typed", () => {
 });
 app.get("/boom", () => {
   throw Object.assign(new Error('insert into "time_entry" values (user-1, "a private note")'), { code: "P2010" });
+});
+// A NUL that reached Postgres (QE D2), in the forms the driver stack gives it: Prisma-wrapped, as the adapter's own error, unwrapped.
+const adapterError = { name: "DriverAdapterError", cause: { kind: "postgres", code: "22021", originalCode: "22021" } };
+app.get("/nul-wrapped", () => {
+  throw Object.assign(new Error("Invalid `db.timeEntry.create()` invocation: note secret-note"), {
+    code: "P2039",
+    meta: { driverAdapterError: adapterError },
+  });
+});
+app.get("/nul-raw", () => {
+  throw Object.assign(new Error("Raw query failed. Code: `22P05` secret-note"), {
+    code: "P2010",
+    meta: { driverAdapterError: { ...adapterError, cause: { kind: "postgres", code: "22P05", originalCode: "22P05" } } },
+  });
+});
+app.get("/nul-adapter", () => {
+  throw Object.assign(new Error("invalid byte sequence for encoding UTF8: 0x00 secret-note"), adapterError);
+});
+app.get("/nul-pg", () => {
+  throw Object.assign(new Error("unsupported Unicode escape sequence secret-note"), { code: "22P05" });
+});
+app.get("/other-db-failure", () => {
+  throw Object.assign(new Error("duplicate"), { code: "P2039", meta: { driverAdapterError: { cause: { code: "23505", originalCode: "23505" } } } });
 });
 app.onError(handleError);
 app.notFound(handleNotFound);
@@ -124,6 +154,65 @@ describe("handleError", () => {
     expect(logged).toContain("Error");
     expect(logged).not.toContain("private note");
     expect(logged).not.toContain("time_entry");
+  });
+});
+
+describe("handleError, a NUL the database refused (QE D2)", () => {
+  let errorLog: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    errorLog = spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => errorLog.mockRestore());
+
+  for (const path of ["/nul-wrapped", "/nul-raw", "/nul-adapter", "/nul-pg"]) {
+    it(`${path} is a 400 \`invalid_request\` that names no value and none of the database's words`, async () => {
+      const res = await app.request(path);
+      expect(res.status).toBe(400);
+      const text = await res.text();
+      expect(JSON.parse(text)).toMatchObject({ status: 400, title: "Bad Request", code: "invalid_request", instance: path });
+      expect(text).not.toMatch(/secret-note|22021|22P05|invalid byte|prisma|UTF8/i);
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+  }
+
+  it("a driver failure that is not about a NUL stays a 500", async () => {
+    expect((await app.request("/other-db-failure")).status).toBe(500);
+  });
+});
+
+// Security review A09: the safety net answers 400 and leaves ONE line, the code(s) only, so a server-built bad value is not blamed on the
+// client with no trace. No message, no value, no arguments, no person.
+describe("handleError, the line a NUL the database refused leaves behind (A09)", () => {
+  let warnLog: ReturnType<typeof spyOn>;
+  let errorLog: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warnLog = spyOn(console, "warn").mockImplementation(() => {});
+    warnLog.mockClear();
+    errorLog = spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnLog.mockRestore();
+    errorLog.mockRestore();
+  });
+
+  for (const [path, codes] of [
+    ["/nul-wrapped", "P2039/22021"],
+    ["/nul-raw", "P2010/22P05"],
+    ["/nul-adapter", "22021"],
+    ["/nul-pg", "22P05"],
+  ] as const) {
+    it(`${path}: one warning carrying ${codes}, no message, no value`, async () => {
+      expect((await app.request(`${path}?q=secret-query`)).status).toBe(400);
+      expect(nulLines(warnLog)).toHaveLength(1);
+      expect(nulLines(warnLog)[0]).toEqual(["[nul] database refused U+0000 or invalid text", codes]);
+      expect(JSON.stringify(nulLines(warnLog))).not.toMatch(/secret|invocation|Invalid|invalid byte|Unicode|Raw query/);
+      expect(errorLog).not.toHaveBeenCalled();
+    });
+  }
+
+  it("a driver failure that is not about a NUL logs no such line", async () => {
+    expect((await app.request("/other-db-failure")).status).toBe(500);
+    expect(nulLines(warnLog)).toHaveLength(0);
   });
 });
 

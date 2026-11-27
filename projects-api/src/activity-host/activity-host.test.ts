@@ -4,7 +4,8 @@
  */
 import { beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { teamReadPersonLimiter, teamReadServiceLimiter } from "../lib/rateLimiter";
-import { advanceTime, attachTeam, call, db, makeTeam, resetWorld, seedDealProject, teamsAuth, type PersonaName } from "../test-support/world";
+import { HOST_AUTHZ_WAIT_MS, HOST_PATH_REST_MS } from "../lib/hostBudget";
+import { advanceTime, attachTeam, authzFake, installAuthzFake, call, db, makeTeam, resetWorld, seedDealProject, teamsAuth, type PersonaName } from "../test-support/world";
 import type { Prisma } from "../lib/generated/prisma/client";
 
 beforeEach(resetWorld);
@@ -287,5 +288,31 @@ describe("POST /activity-host/v1/resolve — attached teams", () => {
     } finally {
       for (const spy of spies) spy.mockRestore();
     }
+  });
+});
+
+describe("POST /activity-host/v1/resolve under a slow permission check (R13 a)", () => {
+  it("answers 503 authz_unavailable within the permission wait plus the rest while auth holds /authz/resolve, then answers normally once it has", async () => {
+    installAuthzFake(); // the harness's resolve is process-wide and other files swap it
+    const project = await seed();
+    let release!: () => void;
+    authzFake.hold = new Promise<void>((done) => {
+      release = done;
+    });
+    try {
+      const started = Date.now();
+      const res = await resolve({ entityType: "project", ids: [project.id] });
+      expect(res.status).toBe(503);
+      expect(res.json.code).toBe("authz_unavailable");
+      expect(Date.now() - started).toBeLessThan(HOST_AUTHZ_WAIT_MS + HOST_PATH_REST_MS);
+      expect(authzFake.calls).toBe(1);
+    } finally {
+      release();
+    }
+    await new Promise<void>((done) => setTimeout(done, 30)); // the flight, not aborted, fills the cache
+    const retry = await resolve({ entityType: "project", ids: [project.id] });
+    expect(retry.status).toBe(200);
+    expect(retry.json.items[0].state).toBe("open");
+    expect(authzFake.calls).toBe(1); // served from the cache the late answer filled
   });
 });

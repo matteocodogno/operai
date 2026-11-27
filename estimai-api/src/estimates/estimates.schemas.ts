@@ -39,6 +39,7 @@
  */
 
 import { z } from "zod";
+import { IdSchema, text } from "@/lib/nulInput";
 
 // ─── Sub-schemas that mirror the UI types ────────────────────────────────────
 
@@ -62,8 +63,8 @@ export const ParametersSchema = z.object({
 });
 
 export const ReleaseSchema = z.object({
-  id: z.string().max(200),
-  name: z.string().max(500),
+  id: text(200),
+  name: text(500),
   // z.coerce.number() — UI may store fte as a string (e.g. "1") in saved data.
   fte: z.coerce.number(),
 });
@@ -71,19 +72,19 @@ export const ReleaseSchema = z.object({
 export const ActivitySchema = z.object({
   // `num` is typed as `string` in the UI (estimai-ui/src/types.ts Activity.num).
   // Kept as string|number union (no coerce) — display-only, never used in arithmetic.
-  id: z.string().max(200),
-  num: z.union([z.string().max(50), z.number()]).optional(),
-  epic: z.string().max(500).optional(),
-  act: z.string().max(500).optional(),
-  prof: z.string().max(200).optional(),
+  id: text(200),
+  num: z.union([text(50), z.number()]).optional(),
+  epic: text(500).optional(),
+  act: text(500).optional(),
+  prof: text(200).optional(),
   // z.coerce.number() — UI stores o/ml/p/risk/aiGain as strings in saved estimates.
   o: z.coerce.number().optional(),
   ml: z.coerce.number().optional(),
   p: z.coerce.number().optional(),
   risk: z.coerce.number().optional(),
   aiGain: z.coerce.number().optional(),
-  notes: z.string().max(2000).optional(),
-  release: z.string().max(200).optional(),
+  notes: text(2000).optional(),
+  release: text(200).optional(),
 });
 
 // ─── EstimateContent ─────────────────────────────────────────────────────────
@@ -108,8 +109,8 @@ export type EstimateContent = z.infer<typeof EstimateContentSchema>;
 // ─── EstimateUpsert (POST / PUT request body) ────────────────────────────────
 
 export const EstimateUpsertSchema = z.object({
-  name: z.string().min(1, "name is required").max(500),
-  author: z.string().max(200).default(""),
+  name: text(500).min(1, "name is required"),
+  author: text(200).default(""),
   content: EstimateContentSchema,
 });
 
@@ -210,7 +211,7 @@ export type EstimateFull = z.infer<typeof EstimateFullSchema>;
 // ─── Route param schema ───────────────────────────────────────────────────────
 
 export const EstimateIdParamSchema = z.object({
-  id: z.string().min(1, "id is required"),
+  id: IdSchema,
 });
 
 // ─── Bulk import schemas (T6, AC-5.2/AC-5.4) ─────────────────────────────────
@@ -224,7 +225,7 @@ export const EstimateIdParamSchema = z.object({
  * caller cannot smuggle server-controlled fields into the batch (OWASP A01).
  */
 export const ImportElementSchema = EstimateUpsertSchema.extend({
-  localId: z.string().min(1, "localId is required").max(500),
+  localId: text(500).min(1, "localId is required"),
 });
 
 export type ImportElement = z.infer<typeof ImportElementSchema>;

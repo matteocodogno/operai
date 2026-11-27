@@ -14,8 +14,10 @@ import { setupOpenAPI } from "./openapi/registry";
 import { pushDevicesRouter } from "./push/devices.routes";
 import { systemEmailsRouter } from "./system/emails.routes";
 import { systemNotificationsRouter } from "./system/notifications.routes";
+import { nulRefusalIn } from "./lib/dbFailure";
+import { NUL_DATABASE_DETAIL, logNulRefusal } from "./lib/nul";
 
-const app = new OpenAPIHono();
+export const app = new OpenAPIHono();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
@@ -59,6 +61,23 @@ setupOpenAPI(app);
 // ─── Global error handler (RFC 7807 Problem JSON) ───────────────────────────
 
 app.onError((err: Error, c: Context) => {
+  // Safety net for a NUL that no schema refused: the request was wrong, not the server (QE D2). Names no value.
+  const nul = nulRefusalIn(err); // the NUL refusal anywhere down the cause chain: a route wraps the driver's error (QE F1)
+  if (nul !== null) {
+    logNulRefusal(nul); // the code only (A09): a server-built bad value must not be blamed on the client with no trace
+    return c.json(
+      {
+        type: "https://httpstatuses.com/400",
+        title: "Bad Request",
+        status: 400,
+        detail: NUL_DATABASE_DETAIL,
+        code: "validation_failed",
+        instance: c.req.path,
+      },
+      400,
+    );
+  }
+
   // Log the error's name and code ONLY — never the object or its message/stack/cause: those can carry recipient
   // addresses or notice content (specs/20261117-legal-entities D9-3, AC-9.12).
   const code = (err as { code?: unknown }).code;

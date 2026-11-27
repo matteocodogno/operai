@@ -11,7 +11,7 @@
  */
 import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { startHosts, tokenShaped, type HostName, type RouteName } from "../test-support/hosts";
-import { OWNER_TIMEOUT_MS, type CallOptions } from "./owner";
+import { OWNER_TIMEOUT_MS, RELAYED_OWNER_TIMEOUT_MS, type CallOptions } from "./owner";
 import { listActivitiesByIds, listDealActivities } from "./activities";
 import { resolveDeals } from "./crm";
 import { listMeetingsByIds } from "./meetings";
@@ -24,6 +24,8 @@ interface Subject {
   readonly name: string;
   readonly route: RouteName;
   readonly host: HostName;
+  /** An owner that itself asks a host before it answers (activities-api, the meetings list): R13 b, `RELAYED_OWNER_TIMEOUT_MS`. */
+  readonly relayed?: true;
   /** Scripts what lets the fake answer this call normally. */
   readonly arrange: () => void;
   readonly call: (authorization: string, options?: CallOptions) => Promise<{ readonly state: string }>;
@@ -46,6 +48,7 @@ const SUBJECTS: readonly Subject[] = [
   },
   {
     name: "activities by ids",
+    relayed: true,
     host: "activities",
     route: "activities.list",
     arrange: () => hosts.activities.add({ id: "a1", subject: "Task one", project: "p1" }),
@@ -53,6 +56,7 @@ const SUBJECTS: readonly Subject[] = [
   },
   {
     name: "activities of a deal",
+    relayed: true,
     host: "activities",
     route: "activities.list",
     arrange: () => hosts.activities.add({ id: "a1", subject: "Call", type: "call", deal: "d1" }),
@@ -60,6 +64,7 @@ const SUBJECTS: readonly Subject[] = [
   },
   {
     name: "meetings by ids",
+    relayed: true,
     host: "meetings",
     route: "meetings.list",
     arrange: () => hosts.meetings.add({ id: "m1", creator: "user-alice" }),
@@ -93,13 +98,15 @@ describe.each(SUBJECTS)("$name", (subject) => {
     expect(received.every((call) => call.authorization === CALLER)).toBe(true);
   });
 
-  it("uses a 2 s timeout by default", async () => {
+  it("uses its default timeout: 2 s for a host, 6 s for an owner that asks a host before it answers (R13 b)", async () => {
     subject.arrange();
     const timeout = spyOn(AbortSignal, "timeout");
     try {
       await subject.call(CALLER);
       expect(OWNER_TIMEOUT_MS).toBe(2_000);
-      expect(timeout).toHaveBeenCalledWith(OWNER_TIMEOUT_MS);
+      expect(RELAYED_OWNER_TIMEOUT_MS).toBe(6_000);
+      expect(timeout).toHaveBeenCalledWith(subject.relayed ? RELAYED_OWNER_TIMEOUT_MS : OWNER_TIMEOUT_MS);
+      expect(timeout).not.toHaveBeenCalledWith(subject.relayed ? OWNER_TIMEOUT_MS : RELAYED_OWNER_TIMEOUT_MS);
     } finally {
       timeout.mockRestore();
     }

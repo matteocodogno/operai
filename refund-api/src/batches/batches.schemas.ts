@@ -16,6 +16,7 @@
  */
 
 import { z } from "zod";
+import { idParam } from "../lib/inputText";
 import { OwnerSchema, SubtotalSchema } from "../requests/requests.schemas";
 
 // specs/20260722-refund-settings, ADR 20260722-batch-email-recipient-live-resolution-amends-0021 — widened with "blocked_unconfigured"
@@ -76,7 +77,7 @@ export type CompileBody = z.infer<typeof CompileBodySchema>;
 // ─── Shared :id param (GET/POST /batches/:id, .../pdf-url, .../email, .../mark-paid, .../discard, T4) ──
 
 export const BatchIdParamSchema = z.object({
-  id: z.string().min(1, "id is required"),
+  id: idParam("id"),
 });
 
 // ─── BatchDetail (AC-2.1; also POST /batches' 201 body, T3) ────────────────

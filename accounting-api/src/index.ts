@@ -16,6 +16,7 @@ import { createRatesRouter } from "./rates/rates.routes";
 import { createRatesService } from "./rates/rates.service";
 import { referenceDataRouter } from "./system/referenceData.routes";
 import { createSystemRatesRouter } from "./system/rates.routes";
+import { NUL_DATABASE_DETAIL, isNulDatabaseError, logNulRefusal } from "./lib/nul";
 
 // Exported so tests (and the route matrix of the later tasks) can read the ASSEMBLED app;
 // Bun serves only the default export below.
@@ -81,6 +82,12 @@ app.onError((err: Error, c: Context) => {
   // render it with its top-level `code`/extension members and do not log it as uncaught.
   const handled = handleProblemError(err, c.req.path);
   if (handled) return handled;
+
+  // Safety net for a NUL that no schema refused: the request was wrong, not the server (QE D2). Names no value.
+  if (isNulDatabaseError(err)) {
+    logNulRefusal(err); // the code only (A09): a server-built bad value must not be blamed on the client with no trace
+    return problem({ status: 400, code: "validation_failed", detail: NUL_DATABASE_DETAIL }, c.req.path);
+  }
 
   // A framework error that carries a client status (malformed JSON body: 400) keeps it; anything
   // else is a 500 whose detail never leaves the process outside development (AC-6.10).

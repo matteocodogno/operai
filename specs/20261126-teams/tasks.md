@@ -79,6 +79,8 @@ Re-synced 2026-11-27 against the plan amendments made during verification. No ne
 - QE D1 (plan § API contracts "No NUL in ids and team text"): fix 05d2981b, ed8e160b — QE round 1 PASS.
 - Eval round 1 (plan D16, the host path waits at most 800 ms for a team read; Italian register): fix 242c700b, 2ea04944 — QE round 2 PASS.
 
+- After the close (2026-11-27): R12 and R13 fixed as a follow-up per `r12-r13-decision.md`; R14 recorded in plan § Risks. No AC of this feature changes.
+
 ## Coverage
 
 | AC | Tasks |

@@ -1,7 +1,8 @@
 /**
  * `GET /meetings`: "My meetings" (specs/20261104-meetings plan.md § API contracts → Meetings;
  * AC-10.1, AC-10.2, AC-10.3, AC-11.5). Every signed-in user gets it, with no grant at all
- * and while `auth` is down (`selfScoped`, AC-10.6).
+ * and while `auth` is down (AC-10.6). It makes no permission call at all (`jwtOnly`, specs/20261126-teams R13 b): it reads no permission, and hours-api
+ * asks it inside its own deadline.
  *
  * The list is the caller's own: meetings they created, and meetings they were added to as
  * an Operai participant. Nothing else, whatever they hold: an administrator, an erase holder
@@ -23,13 +24,12 @@
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { selfScoped } from "../auth/guards";
-import type { AuthzVariables } from "../auth/authz.middleware";
+import { jwtOnly } from "../auth/guards";
+import type { JwtVariables } from "../auth/jwt.middleware";
 import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { PAGE_SIZE, commonErrors, likeLiteral, pageOf, pageQuery, skipTake } from "../lib/http";
 import { validationHook } from "../lib/problem";
-import { callerOf } from "./caller";
 import { derivedStatus } from "./derived";
 import { ROW_SELECT, buildMeetingRows } from "./rows";
 import { DERIVED_STATUSES, MeetingRowSchema } from "./schemas";
@@ -67,7 +67,7 @@ const listMeetings = createRoute({
   path: "/meetings",
   tags: ["Meetings"],
   summary: "My meetings: created by or shared with the caller",
-  middleware: selfScoped,
+  middleware: jwtOnly,
   request: { query: ListQuery },
   responses: {
     200: { description: "A page of meetings", content: { "application/json": { schema: pageOf(MeetingRowSchema) } } },
@@ -76,11 +76,12 @@ const listMeetings = createRoute({
   },
 });
 
-export const listRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({ defaultHook: validationHook });
+export const listRouter = new OpenAPIHono<{ Variables: JwtVariables }>({ defaultHook: validationHook });
 
 listRouter.openapi(listMeetings, async (c) => {
   const { q, role, status, hostApp, folder, ids, page } = c.req.valid("query");
-  const caller = callerOf(c);
+  // The verified identity and the header to forward: all this route needs of the caller (no permission is resolved on it).
+  const caller = { userId: c.get("userId"), authorization: c.req.header("Authorization") ?? "" };
   const now = new Date();
 
   const mine: Prisma.MeetingWhereInput =

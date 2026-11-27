@@ -28,6 +28,7 @@ import {
   ReceiptCodesResponseSchema,
   UserIdParamSchema,
 } from "./receiptCode.schemas";
+import { nulRefusal } from "../lib/inputText";
 
 const LIST_PATTERN = "/accounting/receipt-codes";
 const ONE_PATTERN = "/accounting/receipt-codes/{userId}";
@@ -53,6 +54,8 @@ const BODY_SIZE_LIMIT = 1024;
 
 export const receiptCodeRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   defaultHook: (result, c) => {
+    const nul = nulRefusal(result, c);
+    if (nul) return nul;
     if (!result.success) return c.json(problem(422, "Unprocessable Entity", patternOf(c.req.path), INVALID_DETAIL, "receipt_code_invalid"), 422);
     return undefined;
   },
