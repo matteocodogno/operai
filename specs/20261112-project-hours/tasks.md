@@ -1,7 +1,7 @@
 ---
 spec: 20261112
 generated: 2026-11-26
-synced: 2026-11-26
+synced: 2026-11-27
 ---
 
 # Tasks: Project hours — time worked against what was sold
@@ -48,11 +48,11 @@ stack up (`mise run dev`).
   - touch: unknown — a whole-branch rebase onto PR #12's branch; scheduled alone
   - done when: `git merge-base --is-ancestor 75c712da HEAD` (PR #12's head; a later #12 head if it moved) holds and `feat/project-hours` has no merge commit; the conflicts in `specs/20261112-time-tracking/ledger.md`, `AGENTS.md` and `.claude/context/glossary.md` are resolved keeping both sides (ledger: D54–D77 then D78–D84, F and A entries in order); `bunx prisma generate` re-run in hours-api and meetings-api; `cd hours-api && bun run typecheck`, `cd meetings-api && bun run typecheck`, `cd hours-ui && pnpm build` and `mise run shared:check` are green; nothing is pushed (the branch has never been pushed, so no force push is needed; a push is the owner's call)
 
-- [ ] T6: [BE] hours-api clients and owner fakes: a project's linked meetings, `projectManagerId`, `ownerUserId` — refs: AC-4.1, AC-2.3, AC-2.4 — deps: T5
+- [x] T6: [BE] hours-api clients and owner fakes: a project's linked meetings, `projectManagerId`, `ownerUserId` — refs: AC-4.1, AC-2.3, AC-2.4 — deps: T5
   - touch: `hours-api/src/clients/meetings.ts`, `hours-api/src/clients/meetings.system.test.ts`, `hours-api/src/clients/projects.ts`, `hours-api/src/clients/projects.test.ts`, `hours-api/src/clients/crm.ts`, `hours-api/src/clients/crm.test.ts`, `hours-api/src/test-support/*`
   - done when: `cd hours-api && bun run typecheck && bun test src/clients` passes: `readMeetingsLinkedToProject(projectId)` calls `?projectId=` with hours-api's service credential and keeps only `projects/project/<id>` hosts, unavailable on any failure (as the deal's); the projects and crm resolve parsers expose `projectManagerId` / `ownerUserId` and still accept an answer without them (an older owner: `undefined`, never a grant); the fake owners in `test-support/hosts.ts` serve `projectId`, `projectManagerId` and `ownerUserId`
 
-- [ ] T7: [BE] hours-api labels: a meeting's project (`on.project`, `MeetingProject`) — refs: AC-4.7, AC-4.10 — deps: T6
+- [x] T7: [BE] hours-api labels: a meeting's project (`on.project`, `MeetingProject`) — refs: AC-4.7, AC-4.10 — deps: T6
   - touch: `hours-api/src/labels/*`, `hours-api/src/entries/view.ts`, `hours-api/src/entries/view.test.ts`, `hours-api/src/entries/list.routes.ts`, `hours-api/src/test-support/*`
   - done when: `cd hours-api && bun run typecheck && bun test src/labels src/entries/view.test.ts` passes: a meeting's `on.project` is `linked visible {id,label,href}` only when the viewer reads the project, `linked hidden|unavailable` with no id/label/href otherwise, `none` when not linked to a project, `unknown` when meetings-api did not answer (with `"meeting-projects"` in `unavailable`); at most one of `on.deal`/`on.project` is linked; `OnSchema` stays strict
 
@@ -101,8 +101,8 @@ stack up (`mise run dev`).
   - done when: `cd shell && pnpm e2e project-hours.spec.ts` passes with the stack up: a project with a yearly package and entries shows used / left without opening the breakdown; its PM opens the breakdown and sees By person, another `projects:access` reader does not; recording 1 h with Record hours on the page grows the card's figures by 1 h without a reload; My hours filtered by the project lists an entry on a meeting linked to it
 
 - [ ] T19: [DOCS] AGENTS.md, infra/README (deploy order), changesets — refs: plan § Deploy order — deps: T1, T2, T3, T4, T9, T10, T11, T12, T13, T14, T15, T16, T17
-  - touch: `AGENTS.md`, `infra/README.md`, `.changeset/*`
-  - done when: AGENTS.md describes the summary route, meetings-api's `projectId`, `./HostHours` and `hours.hostHours`, the `operai:time-entry-recorded` event and the one Hours card; infra/README states the five-step deploy order of the plan; one changeset selects meetings-api, projects-api, crm-api, hours-api, hours-ui, shell, projects-ui and crm-ui (minor); `mise run changeset:check` passes
+  - touch: `AGENTS.md`, `infra/README.md`, `meetings-api/README.md`, `.changeset/*`
+  - done when: AGENTS.md describes the summary route, meetings-api's `projectId` (and `meetings-api/README.md`'s route paragraph names it), `./HostHours` and `hours.hostHours`, the `operai:time-entry-recorded` event and the one Hours card; infra/README states the five-step deploy order of the plan; one changeset selects meetings-api, projects-api, crm-api, hours-api, hours-ui, shell, projects-ui and crm-ui (minor); `mise run changeset:check` passes
 
 - [ ] T20: Close the feature: all gates green, spec status → done — refs: all ACs — deps: T18, T19
   - touch: `specs/20261112-project-hours/*`
