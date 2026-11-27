@@ -98,6 +98,14 @@ export type HourPackage = {
   expiryDate?: string | null
 }
 
+/**
+ * The package period projects-api derives on read (specs/20261112-project-hours AC-1.1–1.3, AC-1.9; plan § Consumption):
+ * a yearly package's period 12 months long that holds today, a capacity package's `[start, expiry]` (or `[start, today]`
+ * without an expiry). `ended` is `true` only for a capacity package past its expiry, whose period then stays the
+ * final one (D83). The server owns the Europe/Zurich day, so the browser never works a period out itself.
+ */
+export type CurrentPeriod = { from: string; to: string; ended: boolean }
+
 export type Position = { profile: string; plannedManDays: number }
 
 export type FixedPriceTerms = { deadline: string; estimatedManDays?: number | null; maxEffortManDays: number }
@@ -127,7 +135,16 @@ export type TermsType = Exclude<ProjectType, 'internal'>
 export type FixedPriceTermsView = { deadline: string; estimatedManDays: number | null; maxEffortManDays: number }
 export type SlaAndHoursTermsView = {
   sla: Sla | null
-  hourPackage: (HourPackage & { expiryDate: string | null }) | null
+  hourPackage:
+    | (HourPackage & {
+        expiryDate: string | null
+        /**
+         * `null` before the package's start date (no period is current, A51). Absent from a projects-api that predates
+         * the Hours card: read it through `lib/consumption.ts`, which treats an absent period as nothing to compare.
+         */
+        currentPeriod?: CurrentPeriod | null
+      })
+    | null
 }
 export type TAndMTermsView = { positions: Position[] }
 export type TermsView = FixedPriceTermsView | SlaAndHoursTermsView | TAndMTermsView
