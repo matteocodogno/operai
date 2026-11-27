@@ -10,6 +10,7 @@ import { HoursApiError, isCode } from './errors'
 import {
   createEntry,
   deleteEntry,
+  getSummary,
   getTimeLists,
   getTotals,
   listEntries,
@@ -151,6 +152,58 @@ describe('getTotals (plan § Totals)', () => {
     const controller = new AbortController()
     await getTotals('day', mine, { signal: controller.signal })
     expect(lastRequest().signal).toBe(controller.signal)
+  })
+})
+
+describe('getSummary (specs/20261112-project-hours plan § API contracts, `GET /time-entries/summary`)', () => {
+  const ANSWER = {
+    on: { type: 'project', id: 'p1' },
+    totalMinutes: 90,
+    byWorkType: [],
+    byPerson: null,
+    unavailable: [],
+  }
+
+  it('asks GET /time-entries/summary?projectId= for a project: its id and nothing else (no window, no span)', async () => {
+    apiFetch.mockResolvedValue(json(ANSWER))
+    await expect(getSummary('project', 'p1')).resolves.toEqual(ANSWER)
+    expect(lastRequest()).toMatchObject({
+      origin: 'http://hours-api.test',
+      method: 'GET',
+      path: '/time-entries/summary',
+      query: { projectId: 'p1' },
+    })
+    expect(lastRequest().rawQuery).toBe('?projectId=p1')
+  })
+
+  it('asks ?dealId= for a deal', async () => {
+    apiFetch.mockResolvedValue(json({ ...ANSWER, on: { type: 'deal', id: 'd1' } }))
+    await getSummary('deal', 'd1')
+    expect(lastRequest()).toMatchObject({ path: '/time-entries/summary', query: { dealId: 'd1' } })
+    expect(lastRequest().rawQuery).toBe('?dealId=d1')
+  })
+
+  it('encodes the id in the query, so an odd one cannot add a parameter', async () => {
+    apiFetch.mockResolvedValue(json(ANSWER))
+    await getSummary('project', 'p1&dealId=d9')
+    expect(lastRequest().query).toEqual({ projectId: 'p1&dealId=d9' })
+  })
+
+  it('hands the caller’s signal on, so a read nobody waits for can be dropped', async () => {
+    apiFetch.mockResolvedValue(json(ANSWER))
+    const controller = new AbortController()
+    await getSummary('project', 'p1', { signal: controller.signal })
+    expect(lastRequest().signal).toBe(controller.signal)
+  })
+
+  it.each([
+    [404, 'not_found'],
+    [503, 'host_unavailable'],
+  ])('a %s refusal is an HoursApiError carrying the typed code', async (status, code) => {
+    apiFetch.mockResolvedValue(json({ status, title: 'No', code }, status))
+    const error = await getSummary('deal', 'd1').catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(HoursApiError)
+    expect(isCode(error, code as 'not_found' | 'host_unavailable')).toBe(true)
   })
 })
 

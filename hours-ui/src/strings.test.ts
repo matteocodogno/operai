@@ -25,6 +25,7 @@ const AREAS = [
   'settings',
   'table',
   'recordHours',
+  'hostHours',
 ]
 
 // Every `strings/<namespace>.ts` module, loaded as written: each exports `<namespace> = { en, it }`

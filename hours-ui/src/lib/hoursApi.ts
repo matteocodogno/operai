@@ -24,6 +24,7 @@ import type {
   EntryInput,
   EntryPatch,
   GroupBy,
+  SummaryAnswer,
   TimeEntryView,
   TimeListsView,
   TotalsAnswer,
@@ -102,6 +103,17 @@ export const getTotals = (
 ): Promise<TotalsAnswer> =>
   request<TotalsAnswer>(
     `/time-entries/totals${queryString([['groupBy', groupBy], ...filterParams(filters, withoutUser)])}`,
+    { signal },
+  )
+
+/**
+ * The hours of every person on one project or deal, the entries on its linked meetings included (specs/20261112-project-hours plan §
+ * API contracts, `GET /time-entries/summary`): what `./HostHours` shows. hours-api asks the record's owner whether the caller may read it
+ * and answers a missing record and an unreadable one with one 404. The widget asks for no window: it never needs the period's figure.
+ */
+export const getSummary = (on: 'project' | 'deal', targetId: string, { signal }: Init = {}): Promise<SummaryAnswer> =>
+  request<SummaryAnswer>(
+    `/time-entries/summary${queryString([[on === 'project' ? 'projectId' : 'dealId', targetId]])}`,
     { signal },
   )
 

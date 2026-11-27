@@ -112,6 +112,33 @@ export type TotalsGroup =
 
 export type TotalsAnswer = { totalMinutes: number; groups: TotalsGroup[]; unavailable: Unavailable }
 
+// ─── A record's hours (specs/20261112-project-hours) ─────────────────────────
+
+/**
+ * What a read of a record's hours could not ask (plan § API contracts, `SummaryAnswer.unavailable`): `identities` means the names of
+ * the people are unknown (their groups arrive with `label: null`); `authz` means the per-person right could not be asked, so
+ * `byPerson` is withheld (fail closed). The figures themselves are complete in both cases.
+ */
+export type SummaryUnavailable = 'identities' | 'authz'
+
+/**
+ * `GET /time-entries/summary?projectId=|dealId=` (specs/20261112-project-hours plan § API contracts): the hours of EVERY person on
+ * one project or deal, the entries on the meetings linked to it included, to whoever can read the record. Groups only: it never carries
+ * an entry, a note, a meeting id or title, a subject or an amount (AC-1.8). The order of every group is the server's, never re-sorted.
+ */
+export type SummaryAnswer = {
+  on: { type: 'project' | 'deal'; id: string }
+  /** All time: the entries on the record plus the entries on its linked meetings. */
+  totalMinutes: number
+  /** The same, for the days of the window the caller asked for; `null` without one (hours-ui's widget never asks for one). */
+  windowMinutes: number | null
+  /** Keyed by work type (`kind: 'keyed'`), plus one `none` group for the entries without one (the meetings' included). */
+  byWorkType: TotalsGroup[]
+  /** Keyed by person; `null` when the caller may not see it (not the record's manager or owner, nor a holder of see everyone's hours). */
+  byPerson: TotalsGroup[] | null
+  unavailable: SummaryUnavailable[]
+}
+
 // ─── Lists ──────────────────────────────────────────────────────────────────
 
 export type CategoryView = { id: string; name: string; requiresNote: boolean; retired: boolean }
