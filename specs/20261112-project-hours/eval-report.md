@@ -2,178 +2,148 @@
 spec: 20261112
 evaluated: 2026-11-27
 rubric: default-v2
-score: 80.0
+score: 83.5
 verdict: PASS
 ---
 # Eval report: Project hours — time worked against what was sold
 
+Previous verdict: PASS 80.0 (US-1–US-4, 30 ACs), committed at `79dd3970`; its findings are input here, not carried as a verdict.
+
 **Rubric:** `default-v2`. Neither `gates/configs/eval-rubric.yml` nor `.wellforge-gates/gates/configs/eval-rubric.yml` exists, so I used the
-tool-bundled copy at `~/.claude/plugins/cache/wellforge/wellforge/2.61.0/config/eval-rubric.yml`. I found it through the `installPath` of the
-`wellforge@wellforge` entry in `~/.claude/plugins/installed_plugins.json` (`$CLAUDE_PLUGIN_ROOT` is not set). The spec has no `eval.md`, so no
-overrides apply. `design.md` exists, so the conditional `design_fidelity` dimension applies and the weight pool is 115.
+tool-bundled copy `~/.claude/plugins/cache/wellforge/wellforge/2.61.0/config/eval-rubric.yml` (the `installPath` of `wellforge@wellforge` in
+`~/.claude/plugins/installed_plugins.json`; `$CLAUDE_PLUGIN_ROOT` is not set). No `eval.md`, so no overrides. `design.md` exists, so
+`design_fidelity` applies and the weight pool is 115.
 
-**What I evaluated:** HEAD `fb82ddae` on `feat/project-hours`, range `a61939cd..HEAD`. That is 44 commits and 231 files, +16,433/−456; 146 of
-those files are outside `specs/`, `docs/` and `*.md`. Spec approved 2026-11-26 and amended for D81–D85 (A52). Plan approved, six amendments.
-Design: D80 plus the QE D1/D3 amendments. Tasks T1–T19 and T21 are checked; T20 is the close.
+**What I evaluated:** the whole feature at HEAD `eeab24b7` (`feat/project-hours`), 59 ACs: US-1–US-4 (30) and US-5 (AC-5.1–5.29), with the
+amended AC-1.7, AC-1.9 and AC-3.2. Since `79dd3970` the product code changed only in projects-api (`asOf`, 2 files) and projects-ui (US-5,
+8 files), plus e2e journeys E and F; hours-api, hours-ui, meetings-api, crm-api, crm-ui and shell source are byte-identical to what the
+previous eval scored (`git diff --stat 79dd3970..HEAD -- . ':!specs'`). Spec approved 2026-11-27 after the second re-opening (D86–D94),
+plan approved at gate 2 with D95–D96 (eight amendments), design.md amended for US-5 (G7–G13), tasks T1–T19 and T21–T26 checked, T20 open.
 
-**Verification inputs:** `qe-report.md` ends at **PASS** (pass 3, measured at `2166b8e7`), not BLOCKED. QE's diff checks show no product code
-has changed since pass 1, so pass 1's backend runs stand: hours-api 2457/0, meetings-api 2169/0, projects-api 1260/0, crm-api 2399 with one
-known red outside the feature. Pass 1 also ran 8/8 e2e journeys against real owners and measured coverage on the changed files at 96.7–100 %.
-The owasp-reviewer verdict (PASS: 0 critical, high or medium; 1 low; 4 info) comes from the brief. It is not on disk.
+**Verification inputs:** `qe-report.md` pass 4 is **PASS** (not BLOCKED): a full sweep of US-5 by a fresh agent, 29/29 ACs executed, the 19
+states of design S1.1 rendered (272 captures, en and it, 1280/360/320, both themes), axe 96 runs with 0 violations, every backend and
+frontend suite re-run green, e2e 10/10 including E and F. The owasp-reviewer verdicts (US-1–US-4 PASS with one low; US-5 diff PASS, 0
+findings at low or above, 2 info) come from the brief; neither report is on disk, but the hook log records the US-5 review
+(`.forge/runs/.events.jsonl`, `wellforge:owasp-reviewer`, 14:15Z).
 
-**What I ran myself** (no backend test, e2e, browser or stack, as instructed; the tree was clean before and after):
+**What I ran myself** (no e2e, no stack, no dev database; the working tree was clean before and after):
 
 | Check | Result |
 |---|---|
-| hours-ui `pnpm lint`, `tsc -b`, `vitest run` | 0 / 0 / **104 files, 3116 passed** |
-| projects-ui `pnpm lint`, `tsc -b`, `vitest run` | 0 / 0 / **55 files, 1169 passed + 2 expected-fail** (`MyTasksPage.projectsDown.qe.test.tsx`, which predates this feature) |
-| crm-ui `pnpm lint`, `tsc -b`, `vitest run` with `NODE_OPTIONS=--no-webstorage` (as QE ran it) | 0 / 0 / **100 files, 1880 passed** |
-| crm-ui without the flag | 1 red, `src/hooks/useOfferDraft.test.tsx` (web storage). This feature does not touch the file (`git diff --stat a61939cd..HEAD -- crm-ui/src/hooks/` is empty). Pre-existing, not counted |
-| shell `pnpm lint`, `tsc -b`, `tsc -p tsconfig.e2e.json`, `vitest run` (`--no-webstorage`) | 0 / 0 / 0 / **46 files, 766 passed** |
-| `mise run shared:check` | 36 groups in sync, including `timeEntryRecordedEvent` |
-| `mise run changeset:check` | OK (`.changeset/project-hours-card-and-consumption.md`) |
-| **My own mutations**: 31 single-line changes to product code, run in a `git archive` copy under the scratchpad (deleted afterwards), each against its own test files | **31/31 killed** (Test quality below) |
+| projects-ui `pnpm lint`, `tsc -b`, `vitest run` | 0 / 0 / **58 files, 1553 passed + 2 expected-fail** (`MyTasksPage.projectsDown.qe.test.tsx`, predates the feature) |
+| projects-ui `vite build` (in a `git archive` copy, so no `dist/` was written to the tree) | built |
+| projects-api `typecheck`; `bun test src/terms src/projects src/queue` on the scratch `projects_test` | 0; **546 pass / 0 fail** |
+| `mise run shared:check`, `mise run changeset:check` | 36 groups in sync (incl. `timeEntryRecordedEvent`); OK |
+| **My mutations of the US-5 product code**, one line each, in a `git archive` copy under the scratchpad | **74 of 74 killed**: 73 in projects-ui (`consumption.ts` 34, `ConsumptionBlock.tsx` 24, `ConsumptionBar.tsx` 9, `HoursSection.tsx` 1, `ProjectDetailPage.tsx` 1, `strings/project.ts` 4) and 1 in projects-api (`asOf` read from a second clock call). **Every mutant was killed by at least one implementer-written test file**, not only by QE's oracle |
 
 | Dimension | Weight | Score (/5) | Floor | Weighted | Evidence |
 |---|---|---|---|---|---|
-| AC satisfaction | 35 | 4 | 4 | 28.0 | **All 30 ACs are met as the approved spec states them, A52 included.** Each has an executed test and most have observed behaviour. **US-1:** AC-1.1–1.3 and 1.9: `packagePeriod` (`projects-api/src/terms/packagePeriod.ts:68-87`) is proven by `packagePeriod.test.ts` and by the QE oracle `packagePeriod.oracle.test.ts`, which kills 3 mutations. `currentPeriod` appears on every `TermsViewSchema` answer (`terms.ts:166-216`, `terms.test.ts`). The summary window is checked in `hours-api/src/summary/figures.test.ts:144-205`. e2e `project-hours.spec.ts:234` A shows used and left in period 2, and the "Expired" badge is in the screenshot `qe-evidence/variant-capexp-320-dark.png`. AC-1.4–1.6: `consumption.ts:62-63` (half up in integers) and `:154-179`, with the vectors in `consumption.test.ts:52-125`; live 7.5 / 10.0 / 12.0 man-days. AC-1.7: `HoursSection.tsx:43` and `consumption.test.ts:235`. AC-1.8: the key-set test `answer.test.ts:73` and the money scan `HoursSection.test.tsx:471`. **US-2:** AC-2.1 and 2.2: `summary.ts:151-166`, `figures.test.ts:43`, `:255`, `HostHours.test.tsx:163-256`, e2e B. AC-2.3–2.5: `summary.ts:107-115`, `people.test.ts:64-238`, e2e B (PM against reader). AC-2.6 and 4.9: `record.test.ts:139-240`; four failure combinations in `HoursSection.test.tsx:286-363`; live screenshot `unavailable-both-1280-light.png`. AC-2.7: `people.test.ts:239-270` and the projects-api resolve (`activity-host.routes.ts:63,131`). AC-2.8: `RecordHours.tsx:119-120`, `HostHours.tsx:77-87`, `ConsumptionBlock.tsx:158-165`, e2e C. **US-3:** AC-3.1: `matrix.test.ts` (one new GET, write routes pinned). AC-3.2: `catalogGaps` and the copy scans pass in 3 apps. **US-4:** AC-4.1–4.5 and 4.10: `filters.ts:109-135`, `list.routes.ts:192`, `totals.ts:66-98`, `labels/resolve.ts:206,247,273`, `projectFilter.test.ts:60-240`, `totals/projectMeetings.test.ts`, e2e D and visibility C (relink). AC-4.6: `hoursWorkbook.ts:196,213`, `hoursWorkbook.test.ts:76,253`, and the file sum equals the totals in visibility C. AC-4.7: `meetingLinkOf` returns an id only when visible; outsider check in visibility C. AC-4.8: `MyHoursPage.tsx:258-268`, `HoursExport.tsx:47` (T21). AC-4.11: `tableGrid.test.ts` (new describe). **Why not 5:** see Findings |
-| Spec fidelity | 20 | 4 | 3 | 16.0 | The contracts match the plan's § API contracts: `SummaryAnswer` (`summary.routes.ts:49-66`), strict query (`query.ts:39-55`), one 404 body (`summary.ts:69`), `no-store` set before anything can throw (`summary.routes.ts:97`). Also `MeetingProject` (`view.ts:51-63`), `currentPeriod { from, to, ended }`, `projectManagerId: string \| null` (`activity-host.routes.ts:63`), `ownerUserId: string` (`crm-api/.../resolve.routes.ts:101,178`), `projectId` with exactly one of three filters (`meetings-api/src/system/hosts.routes.ts:46,87,137`), `hours.hostHours` (`shell/src/lib/extensions.tsx:69,85`), and the event in a byte-identical copy (`shared:check`). Every reinterpretation is in `decisions.md`: event built from props, guard stricter, `byWorkType` all time, `dealId`+`projectId` allowed together, `summaryRequestOf` exported. Drift was amended into plan and spec before code relied on it: T3 `currentPeriod` on the terms routes (`b50325c3`), D85/A52/R8 (`668e5f0d`, `7ce1fcdf`), T19 column wording (`a6bcbae4`). The additions no AC asks for are listed by design as droppable: the `identities`/`authz` notes, the grouping banner, the hints. **Why not 5:** the release notes understate the accepted limitation (Findings) |
-| Test quality | 20 | 5 | 3 | 20.0 | **Tests verify behaviour, not shape, and catch regressions.** Of my **31 mutations, all 31 were killed**. They covered: left going negative, truncation in place of half up, a package asked for all time, the block re-reading for any project, Expired always shown, the server's "today" shown as an end, wire validation dropped (both apps), the divider always drawn, the region never `hidden`, the panel ignoring the event's kind, no empty state, the event naming the wrong kind, the guard accepting extra members, a missing `on.project` read as unknown, a hidden project named, export columns 7/8 swapped, the refusal lost on My hours and on Everyone's hours, the 409 not restarted, the T21 export refusal deal-only, a skeleton on re-read (panel and block), the event dispatched before the save (19 red), a late answer kept, `ended` dropped, a line for an unknown project, a person-table placeholder, the disclosure reset on re-read, focus not restored after Retry, and the grouping banner shown on the wrong grouping. QE killed 6 more (the oracle's 3, and M1–M3 on the table view's restart). Backend tests run the assembled app against real Postgres with fake owners. They assert exact groups, call logs (who was asked and with which credential: `record.test.ts:101`, `figures.test.ts:285`), byte-identical 404s (`record.test.ts:49-90`), every owner outage failing closed, auth's refusal-30 s / grant-never caching (`people.test.ts:214-238`), and legacy owners that omit the member (`:271`). Edge cases are covered: 29 February, the expiry day inclusive, before the start, NUL and 65-character ids, reversed or half windows, a burst of events, abort and late answers, malformed answers. The e2e uses an independent period oracle (`project-hours.spec.ts:219`) |
-| Code quality & conventions | 15 | 4 | 3 | 12.0 | The code follows the house patterns. The owner clients parse strictly and read a missing member as "not stated, never a grant" (`clients/projects.ts`, `crm.ts`). The labels mirror the deal's twin with ONE hosts read (`labels/resolve.ts:181-206`). Every read fails closed: 503 rather than a low figure (`filters.ts:109-118`), and `byPerson` is withheld when `auth` is down (`summary.ts:107-115`). The summary's figures are one REPEATABLE READ snapshot with the total summed from the groups (`summary.ts:127-148,199`). `packagePeriod` is pure calendar integer arithmetic. Both UIs validate the wire before showing a figure (`HostHoursModel.ts:57-62`, `projects-ui/src/lib/hoursApi.ts:43-50`). The UIs abort superseded reads and drop late answers, and reuse `useResource` `keepDataOnRetry`. Copy is in en/it catalogs, colours are token utilities, and there is no new dependency. Every API used exists: Prisma `groupBy`/`aggregate`/`$transaction` with `isolationLevel`, `Intl.DateTimeFormat#formatToParts`. Lint and typecheck are clean in all four frontends. **Why not 5:** see Findings |
-| Design fidelity (UI) | 15 | 4 | 3 | 12.0 | design.md is complete. It has flows F1–F8, a states table per part with four failure combinations, and an a11y plan covering headings, the disclosure (`aria-expanded`/`aria-controls` to an always-mounted `hidden` region), focus after Retry, spoken durations and 320 px. Reuse is mapped (24 reuse, 4 new). Gaps G1–G6 were resolved by the owner. The build realises it. The card sits right after Details (`ProjectDetailPage.tsx:265`) and after Meetings on the deal page (`DealDetailPage.tsx:265`). The frame always shows and only the slot swaps (`projects-ui/.../HoursSection.tsx:45-64`). "Over by" has no colour (screenshot `variant-over-1280-light.png`). The "Expired" `StatusBadge voided` sits beside the dates (`ConsumptionBlock.tsx:65-72`). The disclosure is built as designed (`HostHours.tsx:179-191`). QE walked it at 320/360/1280, light and dark, en and it, with keyboard and contrast measured (lowest 4.87), and axe ran in `HoursSection.test.tsx:413`. **Why not 5:** see Findings |
-| Trajectory | 10 | 2 | 2 | 4.0 | **No `wellforge-run/v3` trace for this feature exists in `.forge/runs/`.** The newest traces are meeting-hours' (2026-11-24, 2026-11-25), and the brief says this run's trace is written after this eval. Per the rubric and the evaluator rule, this is the neutral floor, as earlier evals in this repo scored the same situation (`specs/20261116-letterhead-service`, `specs/20261115-crm-offer-wizard`). Git and the hook events corroborate (Findings) but do not replace the trace |
-| **Total** | **115** | | | **92.0 → 80.0/100** | normalised: 92.0 / 115 × 100 = **80.00** |
+| AC satisfaction | 35 | 4 | 4 | 28.0 | **59 of 59 met as the approved spec states them.** US-1–US-4: product code unchanged since the previous eval, which found all 30 met; QE pass 4 re-ran every suite green (hours-api 2457/0, meetings-api 2169/0, crm-api 2399 + the known red outside scope, hours-ui 3116, crm-ui 1880, shell 766) and re-checked the three amended ACs live (qe-report rows 1.7, 1.9, 3.2). US-5: each AC has unit and component tests, and QE observed each on a live fixture (qe-report pass 4 AC sweep). AC-5.1–5.3: `consumption.ts:318-404`, `consumption.test.ts:361-411`, e2e E (`project-hours.spec.ts:488`, the oracle from the API's own `asOf` and `currentPeriod`). AC-5.4: `shareOf` returns null at a reference ≤ 0 (`:237`), no share for `none`/`not_started`/`unavailable`; `consumption.test.ts:843`, `ConsumptionBlock.signals.test.tsx:616`. AC-5.5–5.9: floor by integer division and states cross-multiplied on exact minutes (`:240-248`); the AC-5.6 property over every minute to 2.5 × the reference (`consumption.test.ts:413-462`); "Limit reached" vs "Over the limit" from `excess === null` (`ConsumptionBlock.tsx:180-190`, `signals.test.tsx:240-284`, it pair in `HoursSection.it.test.tsx`). AC-5.10–5.11: icon per level (`ConsumptionBlock.tsx:173-177`, `:258-261`); bar `aria-hidden` with a closed label set (`ConsumptionBar.tsx:50`, `ConsumptionBar.test.tsx:40-87`). AC-5.12–5.13: `excessOf` half up, `belowOneTenth` (`consumption.ts:208-212`); "Less than 0.1 man-day". AC-5.14–5.17: `bar` positions (`:251-258`), `estimateMarkOf` (`:218-221`); e2e F reads the drawn styles. AC-5.18–5.20: `elapsedPercentOf` (`:197-203`) with the 10-, 365-, 366- and 1-day vectors (`consumption.test.ts:603-668`). AC-5.21–5.24: `dateSignalsOf` reads the terms alone (`:428-440`); dates shown while loading and beside the "unavailable" banner (`ConsumptionBlock.tsx:405-425`). AC-5.25–5.26: `stateSaid` false for `ended` and closed/cancelled (`:327`, `:358`), neutral bar (`ConsumptionBar.tsx:19,47`); e2e F closes the project and reloads. AC-5.27: no function takes a viewer (`consumption.test.ts:1151`), e2e E PM vs reader. AC-5.28: e2e C (`:554`) moves the percentage and not the time elapsed; `signals.test.tsx:1208-1276`. AC-5.29: `asOf` from the one `today` (`terms.ts:233`, `terms.test.ts:937` "reads the clock once"); no `Date` in the module (`consumption.test.ts:1108`), other TZ (`:1132`); QE live in Pacific/Kiritimati and Los Angeles. **Why not 5:** Findings |
+| Spec fidelity | 20 | 4 | 3 | 16.0 | The contracts match plan § API contracts. `asOf` is a required string on `TermsSchema` (`projects.schemas.ts:86`), from the same `today` as `currentPeriod` (`terms.ts:225-234`), not in the ETag and refused as input (`terms.test.ts:881`). `consumption.ts` exports exactly the plan's constants, `Share`, `Excess`, `DateSignal`, `consumptionOf(terms, summary, projectState)`, `dateSignalsOf`, `hasConsumptionBlock`, `elapsedPercentOf` and `levelOfState`. `ConsumptionBar({ share })` and the `{ projectId, terms, state }` props are as planned (`ProjectDetailPage.tsx:265`). No route, migration, variable or library export was added. Every reinterpretation is in `decisions.md` § T22–T26: integer civil-date arithmetic instead of `Date.UTC`, thresholds written against the constants, the extra test ids, and F asserting "0.1 man-days". The one design deviation, the narrow-bar rule for the "125%" label (a 17th utility new to the suite), is recorded and folded into design.md and plan.md (`15a85d09`). The previous eval's finding is fixed: the known limitation now names the five cases (a)–(e) in the changeset, AGENTS.md (lines 95-96) and infra/README (`f7bc365d`). **Why not 5:** Findings |
+| Test quality | 20 | 5 | 3 | 20.0 | **The tests verify behaviour and would catch regressions.** Of my **74 mutations, all were killed**, each by an implementer-written test. They covered: every boundary (near 30/31 days, today as passed, 80 %/100 % on both sides, exactly 100 % with an excess or a beyond part, the 125 % estimate edge), every rounding (percentage half up, elapsed counting today, span off by one, excess floored), every clamp (within, beyond, elapsed past 100), the no-state rules (ended package; closed and cancelled per variant), the date order and kinds, the 1 March day count, an over-loose date regex, a reversed span, the fallback to a browser clock, the "Limit reached" words, icons per level, the neutral tone, the stripes as shape, `aria-hidden` on the bar and on the percentage, the container-query class, a re-read on a deal event with the project's id, a skeleton on re-read, focus after Retry, the `<time>` element, plurals and the Italian article. QE's own 13 mutations found one survivor in the implementer's suite (the leap rule cut to every fourth year, which matters only for a 29 February in a century year) and one equivalent mutant; QE's committed oracle (`consumption.oracle.qe.test.ts`, 60 000-case Date.UTC and BigInt comparisons) now kills. e2e F was proven to fail when `bg-linear-90` is cut (qe-report pass 4, row "e2e F detects R13"). The projects-api tests pin `asOf` with a clock seam at 23:30Z on the eve of an anniversary, and my second-clock mutant fails two of them. A52 case (e), which the previous eval found unpinned, is now pinned by AC-5.28's tests (`signals.test.tsx:1211`) |
+| Code quality & conventions | 15 | 4 | 3 | 12.0 | `consumption.ts` is pure, `import type` only, and uses no `Date`, no float quotient and no clock. It has an exact `intDiv` (`:154`) and a strict civil-date parser that refuses year 0 and impossible days (`:173-188`). A reference ≤ 0 returns no share rather than "NaN %". Thresholds are cross-multiplied on exact minutes. An `asOf` that is absent or malformed means no signal, never a guess. Styling follows the dialect: complete class strings per state (`ConsumptionBar.tsx:14-19`, `ConsumptionBlock.tsx:173-177,258-261`), inline `style` only for positions, every colour a token utility, lint clean. Copy is en/it with formatted figures passed into the sentences (`strings/project.ts` `Count`). There is no new dependency, and every API used exists (Tailwind 4 `@container` / `@max-[…]`, `bg-linear-90`, `bg-size-[…]`, all generated by the shell's 4.3.2 per QE). Lint, `tsc -b` and build are clean. **Why not 5:** Findings |
+| Design fidelity (UI) | 15 | 4 | 3 | 12.0 | design.md S1.1 is complete for US-5. It has a 19-row states table per variant (loading, unavailable, re-read, older projects-api, reference 0 included), complete class strings for each tone, a contrast table for both themes, and an a11y plan: the bar `aria-hidden`, the percentage said once, no tab stop, reading order, reflow, greyscale and no motion. The copy is in en/it, the reuse is mapped with one justified NEW component, and the gaps G7–G13 each end with their resolution. The build realises it. QE rendered 19/19 states. Measured contrast matches the design's predictions (lowest 3.02, as predicted). axe found 0 violations in 96 runs, and there are 0 tab stops inside the block. My spot checks of `qe-evidence/signals-fixed-demo-1280-light.png` (identical to the S1.1 sketch: facts, "Over the limit" 112 %, diamond, today mark, stripes, deadline and end-date boxes) and `signals-cap-ended-over-320-light.png` (neutral bar, "Expired", no state words, "125%" dropped) agree. The previous eval's design findings are closed: the six superseded passages are folded, and `status: draft` is now explained as the workflow's convention for an ungated design (design.md line 34). **Why not 5:** Findings |
+| Trajectory | 10 | 4 | 2 | 8.0 | A run trace exists for the feature: `2026-11-26T15-13-04Z-orchestrate-20261112-project-hours.json`, `wellforge-run/v3`. It covers US-1–US-4, is written retroactively and says so, and its 25 agent entries agree with the live hook log the previous eval listed. For US-5 the hook log and git give the order. PO (10:31Z, 10:41Z) → spec approved (`66a6d077`, 10:42Z). Then architect 11:03Z → designer 11:29Z → architect 11:42Z. Then adr-writer 13:04Z, PO 13:06Z, architect 13:09Z, designer 13:10Z → gate 2 (`938b36ae`, `4417041b`, 13:11Z) → tasks re-synced (`93166a35`). Then backend-dev T22 (`f5c527df`, 13:20Z) in parallel with frontend-dev T23 (`e0ef9ddb`, 13:31Z) → frontend-dev T24 (`d30ba888`, 13:53Z) → devops T26 (`f7bc365d`, 14:00Z) → plan/design amended for T24's drift (`15a85d09`, 14:09Z) → QE T25 (`663e2192`, 14:11Z) → owasp-reviewer 14:15Z → QE pass 4 (`8aa155c6`, `2c9c41f6`, 14:57Z). The task dependencies held: T24 after T23, and T25 and T26 after T22 and T24. Verification was not skipped: QE did a full sweep with its own mutation check, and the security review ran. **Why not 5:** Findings |
+| **Total** | **115** | | | **96.0 → 83.5/100** | normalised: 96.0 / 115 × 100 = **83.48** |
 
-**Verdict: PASS.** 80.0 against a `pass_score` of 80, and every applicable dimension is at or above its floor. **The margin is zero.**
-AC satisfaction (4/4) and trajectory (2/2) both sit exactly on their floors. A one-anchor drop anywhere makes this a FAIL:
-- spec fidelity 4→3 gives 76.5;
-- test quality 5→4 gives 76.5;
-- code quality or design 4→3 gives 77.4;
-- AC satisfaction or trajectory one lower falls below its floor.
-
-The written run trace, if it matches git and the hook events below, would lift trajectory to 4 (83.5).
+**Verdict: PASS.** 83.5 against a `pass_score` of 80, and every applicable dimension is at or above its floor. AC satisfaction sits on
+its floor (4/4). The margin is 3.5 points. Any single one-anchor drop elsewhere still passes: test quality, spec fidelity or trajectory
+one lower gives 80.0, 80.0 and 81.7; code or design one lower gives 80.9. AC satisfaction one lower is a FAIL by its floor, as
+are any two one-anchor drops on different dimensions (at least 5 weighted points, 91.0 → 79.1).
 
 ## Findings
 
 ### AC satisfaction: 4 (on its floor)
-- **Thin evidence (test, no observed behaviour):**
-  - AC-2.7 (a project awaiting its manager) is integration-only (`people.test.ts:239-270`, projects-api resolve test); QE could not build an
-    awaiting project live.
-  - AC-4.11 is unit-only (`tableGrid.test.ts`, a new describe).
-  - AC-4.10 was observed only through a rewritten response, not a real Meetings outage.
+- **Thin evidence (test, no observed behaviour)**, carried from US-1–US-4 because that code did not change:
+  - AC-2.7 (a project awaiting its manager) is integration-only (`people.test.ts:239-270`, the projects-api resolve test). No
+    awaiting-manager project was built live.
+  - AC-4.11 is unit-only (`tableGrid.test.ts`).
 
-  That is the 4 anchor's "one or two thin".
-- **A judgement the reader should see: A52.** A page left open across a Zurich date keeps its day:
-  - AC-1.1 and AC-1.3: the period, and "up to today";
-  - A51: "not started";
-  - AC-1.9: "Expired";
-  - AC-2.8: the block does not follow a save in cases (a)–(c).
-
-  `plan.md` says so in its own words: the AC-1.1 and AC-2.8 test rows read "not met by a page open across …". I count these ACs as met because
-  the owner accepted the behaviour into the approved spec as assumption A52 (D85, 2026-11-27), and the code matches A52 exactly. QE O5 agrees,
-  and so does `consumption.ts:107-118`: the window is `currentPeriod` as read with the page. The ACs hold in the normal flow, live: e2e C on
-  the project and visibility B on the deal. **If a reviewer reads A52 as an unmet AC rather than a scoping assumption, AC-2.8 is only
-  partially satisfied, this dimension falls to 2 and the verdict is FAIL.** I did not take that reading: the spec is the contract, and the
-  owner amended it before this eval.
-- **To reach 5:**
-  - an awaiting-manager journey in e2e (AC-2.7);
-  - an observed table-view check for AC-4.11;
-  - the R8 "way out" (re-read the project on the event), which removes A52's cases (a)–(c).
+  That is the 4 anchor's "one or two thin". AC-4.10 was observed only through a rewritten response; its backend half is proven by
+  integration tests, so I do not count it as a third.
+- **US-5 has no thin AC.** The weakest are AC-5.29 and AC-5.6's own example:
+  - AC-5.29 was observed with a browser clock and time zone moved to another day, not a real Zurich midnight. That is what the AC asks:
+    which day the signals read. It is pinned by tests on both sides.
+  - AC-5.6's own example (19 h of 3.0 man-days) is unit-pinned. A live case of the same property was rendered (9 h of 1.1 man-days:
+    "Over the limit", 102 %).
+- **The A52 judgement is still mine and the reader should see it.** A page left open across a Zurich date keeps its day (A52 (a)–(e)).
+  AC-5.28 and AC-5.29 now write case (e) into the criteria themselves ("the time elapsed and the date signals do not change", "kept until
+  the page is reloaded"). The code matches them exactly: `asOf` comes only from the project read, and a re-read asks the summary alone.
+  For AC-2.8's block in cases (a)–(c) I keep the previous eval's reading: an accepted assumption of the approved spec (D85), not an unmet
+  AC. **If a reviewer read A52 as an unmet AC-2.8, this dimension would fall below its floor and the verdict would be FAIL.**
+- **To reach 5:** an awaiting-manager journey in e2e (AC-2.7) and an observed table-view check for AC-4.11. Those two only.
 
 ### Spec fidelity: 4
-- **The release notes understate the accepted limitation.** A52/D85 was widened to four cases at 08:44 (`7ce1fcdf`). Two minutes later T19
-  (`49bc0be5`) wrote three documents that each describe **only case (a)**, the open-ended capacity package:
-  - the changeset's "Known limitation" (`.changeset/project-hours-card-and-consumption.md`);
-  - AGENTS.md (lines 77-79);
-  - infra/README.md (lines 3915-3917).
-
-  None of them mentions case (b), the yearly anniversary, case (c), the start date arriving, or case (d), "Expired" only after a reload.
-  Behaviour is unaffected, but what reaches users and operators is narrower than what the owner accepted. Fix: one sentence in each of the
-  three files (docs only).
-- Otherwise the build matches its contracts. Each drift was amended before code relied on it, and each reinterpretation is recorded.
-- **What would lower it:** an undocumented contract difference. I found none: I compared `summary.routes.ts`, `query.ts`, `view.ts`,
-  `hosts.routes.ts`, both resolve answers and `extensions.tsx` against plan § API contracts.
+- **The T24 deviation was built before it was designed.** The narrow-bar rule (`@max-[230px]:hidden` on the "125%" label) was committed in
+  `d30ba888` (13:53Z), and design.md and plan.md were amended after it in `15a85d09` (14:09Z). The plan's eighth amendment came "after
+  approval" without a new gate. No AC changes and the label is decoration, so the drift is harmless and recorded. Even so, behaviour went
+  ahead of its contract.
+- **UI no AC asks for is still present**, listed as droppable by design: the narrow-bar rule, and, from US-1–US-4, the `identities`/`authz`
+  notes, the grouping banner and the hints.
+- **A stale comment:** `ConsumptionBar.tsx:41-42` says the shell keeps its 64 px rail "at every width". Design's fourth pass corrected that
+  to "below 640 px".
+- **What would lower it:** an unrecorded contract difference. I found none. I compared `terms.ts`, `projects.schemas.ts`, `consumption.ts`,
+  `ConsumptionBar.tsx`, `ConsumptionBlock.tsx`, `HoursSection.tsx` and the page call against plan § API contracts and § Signals.
 
 ### Code quality: 4
-- **A component copied from another app, against AGENTS.md § Frontend** ("never copy a component from another app"):
-  `projects-ui/src/components/ConsumptionBlock.tsx:17` re-implements hours-ui's `Duration` (`hours-ui/src/components/EntryRow.tsx:33`). It
-  is deliberate and recorded (design § Component inventory, "lift when next touched", because of the live-shell deploy rule), so it is a nit
-  with a reason, not a slip.
-- **A third hand-made disclosure** (`HostHours.tsx:179-191`), after meetings-ui and projects-ui. AGENTS.md says a pattern a second app needs
-  goes into `@operai/ui`. Also recorded and deferred by design.
-- **A misleading name:** `DealFilterUnavailable` (`hours-ui/src/components/DealFilterUnavailable.tsx:30`) now renders the project refusal too
-  (`kind`, `HostFilterKind`), so the name says less than the component does.
-- **A cast:** `summary.ts:133` casts `row.userId as string` inside a conditional groupBy shape.
-- **To reach 5:** lift `Duration` and a `Disclosure` into `@operai/ui` and rename the refusal component. These are follow-ups, not defects.
-- **What would make it 3:** a stricter reading of AGENTS.md's "never copy" rule, one that does not accept the design's recorded deferral.
+- **Carried, recorded deferrals:**
+  - `ConsumptionBlock.tsx:31` still re-implements hours-ui's `Duration`, against AGENTS.md's "never copy a component from another app".
+    It is deliberate, because of the live-shell deploy rule.
+  - `DealFilterUnavailable` renders the project refusal too, so its name says less than it does.
+  - `summary.ts:133` casts `row.userId as string`.
+- **New, small:**
+  - `percentOf` (`ConsumptionBlock.tsx:193-196`) and `percentLabel` (`ConsumptionBar.tsx:26-27`) are the same percent formatter call
+    written twice.
+  - `ConsumptionBlock.tsx` has grown to 471 lines holding seven private components (Group, StateLine, PaceLine, DateLine, Signals, Facts,
+    SummaryConsumption). It reads fine, but it is the file a next change will find hardest.
+  - The `TODAY_START_BELOW` / `ESTIMATE_*` thresholds were sized for a 234 px bar. QE measured the overhang (≤ 10.3 px, inside the
+    padding, G13), so nothing breaks.
+- **To reach 5:** lift `Duration` (and the disclosure) into `@operai/ui` once the release order allows it, share one percent helper, and
+  rename the refusal component. These are follow-ups, not defects.
 
 ### Design fidelity: 4
-- **design.md keeps superseded text** that only § Gap resolutions (line 606, "These override the text above") cancels:
-  - line 56, "hours left (negative when exceeded)";
-  - line 167, "−4 h 30 (a real minus sign)";
-  - line 301, "Nothing in the widget changes when someone records hours in place (G5)";
-  - line 419, "Considered and not designed: … an 'expired' cue (G3), a Refresh action (G5)";
-  - line 430, the spoken "over" twin;
-  - line 522, the `leftSpoken`/`overSpoken` copy row.
+- **The design's reflow figures were computed, not rendered, and wrong.** It counted a 274/234 px card; the real one is 205/165 px. Only
+  T24's render caught it, and the result was an unplanned deviation (the narrow-bar rule) and G13 (labels hang into the padding, measured
+  ≤ 10.3 px). The design owned up to it and was corrected, but the US-5 a11y/reflow plan was thin where it mattered most, at 320 px.
+- **One a11y item is unrealised at the state US-5 made prominent:** QE O9. At exactly 100 % ("Limit reached") the fact "Hours left 0 min"
+  is spoken "0 seconds", and so is "Hours used 0 min". design.md asks for the spoken twin of the short text. The cause is
+  `formatDuration(0, { style: 'spoken' })` in `@operai/ui`, so the fix belongs to the library owner, but this feature shows it.
+- **Cosmetic items from pass 1 are still open** (QE O4): the period's date range wraps at 1280 when four facts share the row, and the focus
+  ring on the Consumption group sits flush against its text.
+- **To reach 5:** a spoken zero that says minutes, the O4 items, and a rendered (not computed) reflow check before the next bar-like
+  component is designed.
 
-  A reader building from S1 or the Copy table would build the wrong thing.
-- **The front matter is still `status: draft`** (line 3).
-- **QE found two design-versus-code contradictions (D1, D3).** In both, the code was right and design.md was amended.
-- **Cosmetic and a11y items open** (QE O2–O4):
-  - the period's date range wraps at 1280 when four facts share the row (visible in `variant-over-1280-light.png`);
-  - the focus ring on the Consumption group sits flush against its text;
-  - an empty total is spoken "0 seconds";
-  - at 320 px a long unbroken name pushes Time out of view.
-- **QE O1** (the open breakdown closed itself twice, not reproduced). I checked the seam:
-  - `HostExtension` reloads only on `[name]`, and its boundary is keyed by `resetKey` (`shell/src/lib/extensions.tsx`);
-  - a reset on re-read is caught by tests (mutation S8);
-  - the page unmounts the card only through its own load states (`ProjectDetailPage.tsx`, `recordChanged` → `resource.retry()` after a failed
-    project re-read).
-
-  Nothing points at this feature. It remains an unexplained observation.
-- **To reach 5:** strike the superseded passages (or fold the resolutions into S1, S3, Copy and Accessibility), set `status`, and fix the
-  date-range wrap and the focus-ring inset.
-
-### Trajectory: 2 (neutral floor)
-- There is no run trace. The evidence that would support a 4 once the trace exists:
-  - **Hook events** (`.forge/runs/.events.jsonl`, 2026-11-26/27, WellForge agents only):
-    - adr-writer ×4 and designer ×3 (11-26);
-    - architect, then devops T5 (15:49Z);
-    - backend-dev and frontend-dev in two parallel waves (06:54Z–07:34Z);
-    - architect drift amendment (07:06Z);
-    - product-owner/architect for D85 (07:32Z, 07:43Z);
-    - quality-engineer T18 (07:41Z), devops T19 (07:47Z), owasp-reviewer (07:54Z);
-    - quality-engineer pass 1 (08:35Z), architect (08:38Z), quality-engineer pass 2 (09:18Z);
-    - designer D1 fix (09:22Z), quality-engineer (09:27Z), designer D3 fix (09:29Z), quality-engineer pass 3 (09:37Z).
-  - **Git order:** spec → plan/design/ADRs → tasks (`2ce3ed26`…`99964632`) → T5 restack → T1–T4/T14/T15/T17 → T10/T11 → T6/T7 → T12/T13/T16 →
-    T8/T9 → T21 → T19 → T18 → QE ×3 with two fix rounds (the cap).
-  - Every code commit is tagged with its task, and decisions are recorded per task.
-- Author times show the parallel waves interleaved, as worktree isolation allows. Dependencies held: T8 (08:18) after T7 (08:01); T9 (08:32)
-  after T8; T13/T16 after T10/T11/T15.
-- **Gaps even with a trace:**
-  - the branch was rebased mid-run, so committer dates are all 09:02;
-  - QE pass 1 found a neighbouring e2e regression (D2) that T11/T18 had missed. QE fixed it, but in test code it changed itself.
+### Trajectory: 4
+- **No live trace for either run.** The US-1–US-4 trace was reconstructed after the fact, from git, decisions.md and the QE and eval
+  reports. The US-5 trace is to be written after this eval, so for US-5 the evidence is git plus the hook log. Both agree, and the order
+  is right.
+- **One step ran ahead of its document:** T24's deviation, above.
+- **The owasp reports are not on disk.** The US-5 review is evidenced only by the hook event and the brief.
+- **To reach 5:** write the US-5 trace from the hook log and these commits before the close, and keep the owasp verdicts in the spec
+  directory.
 
 ### Test quality: 5
-- Residual gaps, none of which reaches the 4 anchor's "edge cases missing", because every link is pinned:
-  - **QE O6:** no single test runs the List's 409 restart as one chain, or the export button's alert after the third refusal. Everyone's hours
-    has no page-level 409 test; the shared hook covers it, and my mutation H11 killed it through `useHoursQuery.test.tsx`.
-  - **No test pins A52's accepted behaviour.** Only the request shape is pinned (`consumption.test.ts:276`).
-- I did not run the backend suites (by instruction). Backend quality is judged from reading `src/summary/*.test.ts`,
-  `entries/projectFilter.test.ts` and `totals/projectMeetings.test.ts`, plus QE's runs and mutations.
+- **Residual gaps.** None reaches the 4 anchor's "edge cases missing".
+  - I did not run the e2e (it writes undeletable projects to the shared dev database). E and F are judged from reading
+    `project-hours.spec.ts` (E `:488`, C `:554`, F `:698`) and QE's two green runs.
+  - F's R13 reads ran against the dev stack's vite shell. A built sheet was checked only by QE's DOM replay, not by a `preview`. The
+    deploy-time `curl` of R13 (2) still has to be done at step 3.
+  - QE O6 (List and Everyone's hours 409 restart as one chain) still rests on pinned pieces, as before.
 
 ## Recommended next step
-- **PASS → the spec may move to `done` (T20).**
-- Before or with the close, docs only and not blocking:
-  1. Widen the "known limitation" sentence in the changeset, AGENTS.md and infra/README.md to all four A52 cases.
-  2. Strike or fold design.md's superseded passages and set its status.
-  3. Write this run's `wellforge-run/v3` trace, which is the one item that moves trajectory.
-- Owner follow-ups already offered: the owasp low (projects-ui's block receives `byPerson` on the wire for a PM and discards it; ask the
-  summary without people, or accept), the `Duration`/`Disclosure` lift into `@operai/ui`, and the R8 way out.
+- **PASS → the spec may move to `done` (T20)**, after the orchestrator writes the US-5 run trace, as the observability skill requires.
+- **Not blocking, for the owner:**
+  1. QE O9: the spoken zero ("0 seconds") reads wrong at "Limit reached". This is a library change (`formatDuration`), for its owner.
+  2. The ConsumptionBar comment at `:41-42`.
+  3. The pass-1 cosmetic items (O4).
+  4. The open owasp low (projects-ui's block receives `byPerson` on the wire for a project manager and discards it).
+  5. The `Duration`/`Disclosure` lift into `@operai/ui`.
+  6. R8's way out (re-read the project on a Record hours save), which would end every case of A52.
+- **At release:** plan R13 check (2): the live shell's CSS holds `bg-linear-90` before projects-ui (step 5).
 
-**Verdict: PASS — 80.0/100 (default-v2; AC satisfaction and trajectory on their floors; zero margin).**
+**Verdict: PASS — 83.5/100 (default-v2; AC satisfaction on its floor; no dimension below its floor).**
 
-Self-critique: this PASS sits exactly on the threshold, and three of my calls each decide it. First, reading A52 as a scoping assumption
-rather than an unmet AC-2.8. Second, test quality 5 rather than 4. Third, code quality 4 despite a documented copy of another app's
-component. I made each from cited evidence, not to land on 80. The first two are the ones I would defend least casually: the first rests on
-the owner's amendment, the second on 31/31 frontend mutations plus reading, not running, the backend suites.
+The calls that decide this verdict, made from the evidence cited above and not to land on a number: AC satisfaction at 4 rests on reading
+A52 as an accepted assumption of the approved spec (the previous eval's call, which AC-5.28 and AC-5.29 now partly write into the
+criteria); test quality at 5 rests on 74/74 mutants of my own plus QE's oracle, with the e2e judged from reading and QE's runs rather than
+run by me; trajectory at 4 rests on a retroactive trace corroborated by the live hook log, not on a trace written during either run.
