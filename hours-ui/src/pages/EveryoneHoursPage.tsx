@@ -229,9 +229,9 @@ function EveryoneHoursView() {
   const reads = [entries.first, totals.state, people.state]
   const refused = reads.some((read) => failedWith(read, 'read_all_required'))
   const authzDown = !refused && [entries.first, totals.state].some((read) => failedWith(read, 'authz_unavailable'))
-  // An export the deal-filter refusal stopped (T30) is the same state. It is remembered as the first page it was
-  // made over, so it is gone the moment the view reads again (Retry, any change of a filter) and can never block
-  // a later view.
+  // An export the deal-filter or project-filter refusal stopped (T30, T21) is the same state. It is remembered as
+  // the first page it was made over, so it is gone the moment the view reads again (Retry, any change of a filter)
+  // and can never block a later view.
   const firstPage = entries.first.status === 'loaded' ? entries.first.data : null
   const [exportRefusedFor, setExportRefusedFor] = useState<EntriesPage | null>(null)
   const exportRefused = firstPage !== null && exportRefusedFor === firstPage
@@ -388,7 +388,7 @@ function EveryoneHoursView() {
                 <HoursExport
                   filters={filters}
                   resetKey={filterKey}
-                  onDealFilterUnavailable={() => setExportRefusedFor(firstPage)}
+                  onFilterUnavailable={() => setExportRefusedFor(firstPage)}
                 />
               ) : undefined
             }
