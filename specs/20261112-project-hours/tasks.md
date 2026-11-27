@@ -28,19 +28,19 @@ Test commands: hours-ui, projects-ui, crm-ui, shell `pnpm lint && pnpm build && 
 database (their suites truncate tables); `mise run shared:check`; e2e `cd shell && pnpm e2e project-hours.spec.ts` with the
 stack up (`mise run dev`).
 
-- [ ] T1: [BE] meetings-api `GET /system/meetings/hosts` takes `projectId=` — refs: AC-4.1, AC-4.2, AC-4.4, AC-4.8, AC-4.9 — deps: none
+- [x] T1: [BE] meetings-api `GET /system/meetings/hosts` takes `projectId=` — refs: AC-4.1, AC-4.2, AC-4.4, AC-4.8, AC-4.9 — deps: none
   - touch: `meetings-api/src/system/hosts.routes.ts`, `meetings-api/src/system/hosts.routes.test.ts`
   - done when: `cd meetings-api && bun run typecheck && bun test src/system/hosts.routes.test.ts` passes with new cases: exactly one of `ids`, `dealId`, `projectId` (two or none → 422); `projectId` returns only meetings whose host is `{app:"projects", entityType:"project", entityId}` now (a deal-hosted and an unlinked meeting are absent; a relinked one moves); the answer stays `{ items: [{ id, host }] }`; scope `meetings.hosts.read` and `sub` `system:hours-api` unchanged, any other credential the same 401
 
-- [ ] T2: [BE] projects-api activity-host resolve answers `projectManagerId` — refs: AC-2.3, AC-2.7 — deps: none
+- [x] T2: [BE] projects-api activity-host resolve answers `projectManagerId` — refs: AC-2.3, AC-2.7 — deps: none
   - touch: `projects-api/src/activity-host/activity-host.routes.ts`, `projects-api/src/activity-host/activity-host.test.ts`
   - done when: `cd projects-api && bun run typecheck && bun test src/activity-host/activity-host.test.ts` passes: an open item carries `projectManagerId` (the PM's id), `null` for a project awaiting its manager; `assignees`, `may`, `missing` and `reader:false` unchanged (existing tests untouched)
 
-- [ ] T3: [BE] projects-api `packagePeriod`, the Zurich business day and `hourPackage.currentPeriod { from, to, ended }` — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.9 — deps: none
+- [x] T3: [BE] projects-api `packagePeriod`, the Zurich business day and `hourPackage.currentPeriod { from, to, ended }` — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.9 — deps: none
   - touch: `projects-api/src/terms/packagePeriod*.ts`, `projects-api/src/lib/businessDay*.ts`, `projects-api/src/projects/projects.schemas.ts`, `projects-api/src/projects/projects.routes.ts`, `projects-api/src/projects/*.test.ts`
   - done when: `cd projects-api && bun run typecheck && bun test src/terms src/lib/businessDay* src/projects` passes with `packagePeriod` vectors (plan Test strategy AC-1.1–1.3, AC-1.9): yearly period *k* and its boundaries, an anniversary on 29 February in a common year, capacity with expiry, without (to = today), after expiry (stays, `ended: true`), before start (`null`), yearly and unexpired `ended: false`; `businessDay` returns the Europe/Zurich date across midnight UTC; `GET /projects/{id}` carries `currentPeriod` inside `hourPackage` and nothing else changes in the view
 
-- [ ] T4: [BE] crm-api deal resolve answers `ownerUserId` — refs: AC-2.4 — deps: none
+- [x] T4: [BE] crm-api deal resolve answers `ownerUserId` — refs: AC-2.4 — deps: none
   - touch: `crm-api/src/activity-host/resolve.routes.ts`, `crm-api/src/activity-host/resolve.test.ts`
   - done when: `cd crm-api && bun run typecheck && bun test src/activity-host/resolve.test.ts` passes: a deal's open item carries `ownerUserId`; `involved`, `reader:false` and the strict body unchanged
 
@@ -80,11 +80,11 @@ stack up (`mise run dev`).
   - touch: `hours-ui/src/HostHours*.tsx`, `hours-ui/src/HostHoursModel*.ts`, `hours-ui/vite.config.ts`, `hours-ui/src/lib/hoursApi.ts`, `hours-ui/src/lib/hoursApi.types.ts`, `hours-ui/src/strings/hostHours.ts`, `hours-ui/src/strings.ts`, `hours-ui/src/federation/*`
   - done when: `cd hours-ui && pnpm lint && pnpm build && pnpm test` passes with (design S3, § Gap resolutions): one summary call on mount; total and the "includes linked meetings" line visible; "Show breakdown" closed on mount, `aria-expanded`/`aria-controls` to a region kept in the DOM with `hidden`, opening makes no request; By person only when `byPerson` is present, no placeholder otherwise; empty = "0 min" + sentence, no disclosure; 503/404/network → warning banner with Retry, no figure; `authz`/`identities` notes inside the open region; invalid props throw; an event naming its target re-reads keeping the figures until the answer, another target or malformed detail ignored, a burst one re-read; it imports no exceljs, page or router; `./HostHours` exposed
 
-- [ ] T14: [FE] shell registers `hours.hostHours` — refs: AC-2.6 — deps: none
+- [x] T14: [FE] shell registers `hours.hostHours` — refs: AC-2.6 — deps: none
   - touch: `shell/src/lib/extensions*`, `shell/src/federation/*`
   - done when: `cd shell && pnpm lint && pnpm build && NODE_OPTIONS=--no-webstorage pnpm test` passes: `ExtensionProps['hours.hostHours']` is `{ on: 'project' | 'deal'; targetId: string }`, `LOADERS` imports `hours/HostHours`, a failed import or timeout renders the host's fallback (test as for `hours.recordHours`)
 
-- [ ] T15: [FE] projects-ui `consumption.ts` (pure) and `currentPeriod` types — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.9 — deps: none
+- [x] T15: [FE] projects-ui `consumption.ts` (pure) and `currentPeriod` types — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.9 — deps: none
   - touch: `projects-ui/src/lib/consumption*.ts`, `projects-ui/src/lib/types.ts`
   - done when: `cd projects-ui && pnpm lint && pnpm build && pnpm test` passes with `consumptionOf` vectors: package used/left, exceeded → `overBy` the absolute minutes, never negative (D81); `ended` passed through (D83); man-days in integer tenths (480 → 1.0, 30 → 0.1, 24 → 0.1, 23 → 0.0, 3 600 → 7.5); fixed price with and without `estimatedManDays`; T&M against Σ planned man-days, no per-position figure; `none` for no terms or an SLA without hour package (D82)
 
@@ -92,7 +92,7 @@ stack up (`mise run dev`).
   - touch: `projects-ui/src/components/HoursSection*.tsx`, `projects-ui/src/components/ConsumptionBlock*.tsx`, `projects-ui/src/pages/ProjectDetailPage*.tsx`, `projects-ui/src/lib/hoursApi*.ts`, `projects-ui/src/federation/remotes.d.ts`, `projects-ui/src/strings/project.ts`
   - done when: `cd projects-ui && pnpm lint && pnpm build && pnpm test` passes with (design S1, § Gap resolutions): one card right after Details; consumption facts (variants A–D, "Over by", "Expired" `StatusBadge` `voided` only when `ended`), divider, widget slot; no comparable terms → widget alone; block and widget fail independently (four combinations, two banners each with Retry); the slot fallback leaves the block; an event naming the project re-reads the block keeping its figures until the answer; no money formatter imported; en/it parity and the hardcoded-copy scan
 
-- [ ] T17: [FE] crm-ui one "Hours" card on the deal page — refs: AC-2.2, AC-2.4, AC-2.6, AC-3.2 — deps: none
+- [x] T17: [FE] crm-ui one "Hours" card on the deal page — refs: AC-2.2, AC-2.4, AC-2.6, AC-3.2 — deps: none
   - touch: `crm-ui/src/components/HoursSection*.tsx`, `crm-ui/src/pages/DealDetailPage*.tsx`, `crm-ui/src/strings/deals.ts`, `crm-ui/src/federation/*`
   - done when: `cd crm-ui && pnpm lint && pnpm build && pnpm test` passes: one "Hours" card after Meetings and before the timeline holding `hours.hostHours` with `{ on: 'deal', targetId }`; a failed or missing extension shows the slot's "Hours are unavailable. Reload the page to try again." and the page renders; en/it parity
 
