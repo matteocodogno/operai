@@ -296,7 +296,7 @@ test.describe('specs/20261112-time-tracking T36: booking checked by the real own
     await file.saveAs(saved)
     const sheet = await readHoursExport(saved)
 
-    // The nine columns, one row per entry (four), the Hours a NUMBER of hours (AC-4.9: "2 h 30" is the screen's).
+    // The ten columns (Counts for project, the 7th, since specs/20261112-project-hours AC-4.6), one row per entry (four), the Hours a NUMBER of hours (AC-4.9: "2 h 30" is the screen's).
     expect(sheet.header).toEqual([
       'Day',
       'Person',
@@ -304,6 +304,7 @@ test.describe('specs/20261112-time-tracking T36: booking checked by the real own
       'On',
       'Name',
       'Counts for deal',
+      'Counts for project',
       'Category or work type',
       'Activity',
       'Note',
@@ -312,6 +313,8 @@ test.describe('specs/20261112-time-tracking T36: booking checked by the real own
     for (const row of sheet.rows) {
       expect(typeof row.hours).toBe('number')
       expect(row.person).toBe(owner.name)
+      // Nothing here is on a project or on a meeting linked to one (the meeting is linked to a deal): no row counts for a project.
+      expect(row.countsForProject).toBe('')
     }
     expect(sheet.rows.map((row) => row.hours).sort()).toEqual([1, 1, 1.5, 2])
 

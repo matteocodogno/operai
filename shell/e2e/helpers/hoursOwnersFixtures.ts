@@ -172,7 +172,10 @@ export const projectSummaryViaApi = (
 
 // ─── The export file ────────────────────────────────────────────────────────
 
-/** The nine columns of the file, in order (plan § Export file), as the spreadsheet has them. */
+/**
+ * The ten columns of the file, in order, as the spreadsheet has them (specs/20261112-time-tracking plan § Export file, widened by
+ * specs/20261112-project-hours AC-4.6: Counts for project is the 7th, right after Counts for deal).
+ */
 export interface ExportRow {
   day: unknown
   person: string
@@ -181,6 +184,7 @@ export interface ExportRow {
   on: string
   name: string
   countsForDeal: string
+  countsForProject: string
   categoryOrWorkType: string
   activity: string
   note: string
@@ -223,11 +227,11 @@ export async function readHoursExport(file: string): Promise<ExportSheet> {
   const sheet = workbook.worksheets[0]
   if (!sheet) throw new Error('[hoursOwnersFixtures] the export has no sheet')
   const cellsOf = (index: number): ExcelCell[] =>
-    Array.from({ length: 9 }, (_, column) => sheet.getRow(index).getCell(column + 1))
+    Array.from({ length: 10 }, (_, column) => sheet.getRow(index).getCell(column + 1))
   const header = cellsOf(1).map(textOf)
   const rows: ExportRow[] = []
   for (let index = 2; index <= sheet.rowCount; index += 1) {
-    const [day, person, hours, on, name, countsForDeal, categoryOrWorkType, activity, note] = cellsOf(index)
+    const [day, person, hours, on, name, countsForDeal, countsForProject, categoryOrWorkType, activity, note] = cellsOf(index)
     rows.push({
       day: day!.value,
       person: textOf(person!),
@@ -235,6 +239,7 @@ export async function readHoursExport(file: string): Promise<ExportSheet> {
       on: textOf(on!),
       name: textOf(name!),
       countsForDeal: textOf(countsForDeal!),
+      countsForProject: textOf(countsForProject!),
       categoryOrWorkType: textOf(categoryOrWorkType!),
       activity: textOf(activity!),
       note: textOf(note!),
