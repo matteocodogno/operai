@@ -31,6 +31,11 @@
  * `related` belongs to companies only: sent with a deal it is a 422. The answer is no wider than
  * `GET /deals/{id}`, which shows every `crm:access` holder the same owner and technical contact
  * (ADR 20261101-crm-tool-shape-and-authorization).
+ *
+ * An open deal also carries `ownerUserId` (specs/20261112-project-hours AC-2.4, D-P2): the deal's owner by role, the one
+ * fact hours-api needs to decide who sees the per-person hours of a deal. Like `involved`, it is the owner stating a
+ * fact (who holds the role), never a decision: whether those hours may be shown is time tracking's rule. It is the owner
+ * `GET /deals/{id}` already shows every holder, and it never reaches a non-reader.
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -93,6 +98,7 @@ const ResolvedDealItem = z.union([
     href: z.string(),
     may: z.object({ write: z.literal(true), manage: z.literal(true) }),
     involved: z.array(z.string()),
+    ownerUserId: z.string(),
   }),
 ]);
 
@@ -120,7 +126,7 @@ const resolveRoute = createRoute({
   responses: {
     200: {
       description:
-        "reader and one item per distinct id in the order asked; for a company also the related rows found, for a deal each open item carries `involved`",
+        "reader and one item per distinct id in the order asked; for a company also the related rows found, for a deal each open item carries `involved` and `ownerUserId`",
       content: {
         "application/json": {
           schema: z.union([
@@ -168,6 +174,9 @@ async function resolveDeals(ids: readonly string[]): Promise<z.infer<typeof Reso
       may: { write: true as const, manage: true as const },
       // People, not roles: the owner who is also the technical contact is listed once.
       involved: [...new Set([deal.ownerUserId, ...technical])],
+      // The role hours-api needs by itself (specs/20261112-project-hours AC-2.4, D-P2): who owns the deal. Not
+      // `involved[0]`, which is an order and not a role.
+      ownerUserId: deal.ownerUserId,
     };
   });
 }
