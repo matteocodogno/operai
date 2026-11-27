@@ -245,9 +245,41 @@
 - **Man-day**: 8 hours, in every comparison with what was sold — not the **Contractual day**.
 - **Package period**: for a yearly hour package, each 12 months from its start date; for a
   capacity package, from its start date to its expiry. Unused hours never carry over.
+- **Consumption block**: the part of a project's page that shows its **Consumption** and, since
+  2026-11-27, its **Signals** (specs/20261112-project-hours). The only place a signal is drawn.
+  _Avoid:_ progress card, burn-down.
+- **Reference** (of a consumption): what the **Consumed percentage** is a share of — an hour
+  package's hours, a fixed price's max effort, or the total of a time-and-material project's
+  positions' planned man-days. A fixed price's estimated man-days is only a mark on the bar,
+  never the reference. _Avoid:_ budget (money), baseline, quota.
+- **Consumed percentage**: the **Hours on a project** a consumption counts (an hour package's
+  current period only) as a share of the **Reference**, rounded down to a whole number (119 h 30
+  of 120 h reads 99 %) and shown as it is beyond 100 %. _Avoid:_ usage percentage, burn rate,
+  utilisation.
+- **State** (of a consumption): what the consumption block says about the consumed percentage —
+  *on track* (below 80 % of the reference), *close to the limit* (80 % to below 100 %) or *over*
+  (100 % and more), decided on the exact hours, never on the rounded percentage. Not a project's
+  own state (planned, active, on hold, closed, cancelled). _Avoid:_ status, health, RAG.
+- **Level**: the two degrees of attention a **State** or a **Date signal** can carry — the milder
+  (close to the limit; a date that is near) and the graver (over; a date that has passed); on
+  track carries none. _Avoid:_ severity, priority.
+- **Time elapsed**: how much of a span of days has gone by, today not counted, as a whole number
+  of percent — 0 % up to the first day, 100 % only from the day after the last; shown for a
+  package period with an end and for a fixed price from its start date to its deadline.
+  _Avoid:_ progress, schedule percentage.
+- **Pace line**: the one line of the consumption block that states the **Consumed percentage**
+  and, where there is one, the **Time elapsed** ("used 40 % of the hours with 50 % of the period
+  elapsed"); it judges nothing and forecasts nothing. _Avoid:_ burn rate, forecast.
+- **Date signal**: what the consumption block says about a terms' end date or a fixed price's
+  deadline — that it has passed (graver level, with the number of days) or is near (30 days or
+  fewer ahead, the day itself included; milder level); a date's own day is today and has not
+  passed. _Avoid:_ overdue (a task not done by its due date), deadline alert.
+- **Signal**: anything the consumption block says beyond its figures — a state, the excess, the
+  time elapsed or a date signal; drawn on the project page only, creating no task and no
+  notification. Not an **Alert**. _Avoid:_ warning, notification.
 - **Alert**: a project task Operai creates when a project reaches a moment that needs a
-  decision (a package threshold, an end date, a deadline, idle hours). _Avoid:_ warning,
-  reminder, notification (a notification is how notify-api tells a person).
+  decision (a package threshold, an end date, a deadline, idle hours). Not a **Signal**.
+  _Avoid:_ warning, reminder, notification (a notification is how notify-api tells a person).
 
 ### Teams (specs/20261126-teams)
 - **Team**: a named group of Operai users managed by administrators in Admin; it grants no

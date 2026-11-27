@@ -29,6 +29,8 @@ Decision map (parents first; re-drawn after D1, all branches closed):
 - B25 Amending specs/20261103-projects — D15 (nothing to amend)
 - B10 Hours of a meeting linked to a project (specs/20261112-project-hours, re-opened 2026-11-26) — D78; B8b-i per-person
   figure of a project awaiting its project manager — D79
+- B11 Signals on the consumption block (specs/20261112-project-hours, re-opened a second time 2026-11-27) — D86–D94 (D92
+  rounding of the percentage, D93 closed and cancelled projects, D94 the day of a date)
 
 Decided (the user chose):
 - D1 Purpose: record the time employees spend on company work — development on projects, pre-sales, meetings and more; "consumo di ore" did not mean consumption against what was sold (that is B3) — user, 2026-11-12
@@ -206,6 +208,59 @@ change: no acceptance criterion changes and the spec's status and approval stand
   day is the server's to decide); letting the summary take an open-ended window (a contract and hours-api change for a rare
   case); re-reading the project on every save (rejected for now, as more than the case is worth)
 
+Decided when specs/20261112-project-hours was re-opened a second time (2026-11-27, after it had passed QE and eval; the owner
+asked for signals on the consumption block and chose to add them to THIS spec, which re-opens gate 1; they looked at three
+mockups and chose option C, then decided the points below, the recommendations put to them accepted). Numbered after D85:
+- D86 Scope and look: **signals on the consumption block** — a consumed percentage, the states on track, close to the limit
+  and over, the excess beyond 100 %, the time elapsed, and dates passed or near — are added to THIS spec as US-5, not to a spec
+  of their own and not to specs/20261112-project-alerts. The status goes back to `draft` until the owner approves again;
+  `approved:` stays 2026-11-26, the date of the previous approval. The look is "option C" of the three mockups: under the
+  consumption figures, a bar of the consumed share on a scale that goes beyond 100 % (to 125 %), marks at 80 % and 100 %, the
+  part beyond 100 % drawn distinctly, a "today" mark for the time elapsed in the period, a line "used X % of the hours with Y %
+  of the period elapsed", the estimate as a reference mark for a fixed price, and a deadline line (passed / near). It reverses
+  two decisions of specs/20261112-project-hours/design.md S1 — "Exceeded" has no status colour, and the block has no progress
+  bar — which were taken while raising attention was project-alerts' alone: the designer amends the design. Alerts stay
+  project-alerts' (D34): nothing here creates a task or a notification. D85's limitation (A52) applies to every signal that
+  reads today — owner, 2026-11-27
+- D87 Thresholds, fixed and not configurable: below 80 % of the reference is on track; from 80 % to below 100 % is "close to
+  the limit" (the milder level, a warning); from 100 % is "over" (the graver level, a danger). The same thresholds as
+  specs/20261112-project-alerts (AC-1.1, AC-1.6), so the card and the alert task agree. A state is always said in words with
+  an icon, never by colour alone — owner, 2026-11-27
+- D88 The consumed percentage is rounded to a whole number (down: D92) and shown as it is beyond 100 % ("117 %"). The reference: an hour
+  package → its hours in the current period; `fixed_price` → its max effort (the estimate, when known, is shown as a reference
+  mark on the bar, not as the percentage's base); `t_and_m` → the sum of its positions' planned man-days. None for an SLA-only,
+  an internal and a no-terms project, nor for a package not started (as the figures today) — owner, 2026-11-27. The owner's
+  phrase was "usage percentage"; the glossary lists "usage" among the words to avoid for consumption, so the spec says
+  "consumed percentage"
+- D89 Dates ("times overrun"): the `fixed_price` deadline AND the terms' end date of every client type — passed → the graver
+  state, saying by how many days; 30 days or fewer remaining → the milder state, saying in how many days; otherwise nothing.
+  The same 30 days as specs/20261112-project-alerts AC-1.4 — owner, 2026-11-27
+- D90 Time elapsed (the "today" mark and the pace line): shown for hour packages whose current period has an end (yearly;
+  capacity with an expiry date) and for a `fixed_price` over the span from its terms' start date to its deadline; not shown
+  for a capacity package without an expiry, a `t_and_m`, SLA-only, internal or no-terms projects — owner, 2026-11-27
+- D91 An expired capacity package: its final figures stay neutral — no close-to-the-limit or over state, even if it had gone
+  over — with the existing "Expired" mark (AC-1.9, D83); the excess still reads in the figures — owner, 2026-11-27
+
+Decided by the owner on 2026-11-27, the same day, answering the two open questions the second re-opening raised (O5, O6) and
+confirming one of its assumptions (A55), before the spec's new approval. Numbered after D91:
+- D92 (closes O5) The consumed percentage is the exact percentage rounded DOWN to a whole number (the floor), beyond 100 % as
+  well, so the number never contradicts the state: 119 h 30 of 120 h (99.58 %) reads "99 %" and is close to the limit; 95 h 30
+  of 120 h (79.58 %) reads "79 %" and is on track; 116.25 % reads "116 %"; "100 %" is read only once the reference is fully used
+  (from exactly the reference up to, not including, 101 % of it). The state, the excess and the bar still follow the exact
+  hours (A53). Both thresholds being whole numbers, the floor reads below 80 % exactly when the project is on track, 80 % to
+  99 % exactly when it is close to the limit and 100 % or more exactly when it is over. Refines D88 ("rounded to a whole
+  number"); AC-5.5 to AC-5.9, AC-5.12 and A53 follow. Rejected: rounding half up (95 h 30 of 120 h would read 80 % and 119 h 30
+  would read 100 %, with the state saying on track and close to the limit with 30 min left) — owner, 2026-11-27
+- D93 (closes O6) A closed or cancelled project shows no state and no date signal, as project-alerts gives it no alert
+  (specs/20261112-project-alerts AC-1.5, AC-1.8, A30); a planned, active or on-hold project shows them; its figures, its bar and
+  its time elapsed read as for any other project (AC-5.26). Confirms A54. Rejected: showing them like any other project (a
+  project whose terms ended on purpose, F20, would read "passed by 200 days" at the graver level once closed) — owner,
+  2026-11-27
+- D94 (confirms A55) A date — a terms' end date, a fixed price's deadline — is a whole calendar day of the Europe/Zurich
+  calendar, counted in whole days from the page's day (A52, D85); the day itself is "today" and has not passed (0 days away,
+  said as today); it has passed from the next day, by 1 day, as a capacity package's expiry date has (AC-1.9, F18). D89 had not
+  said; confirmed as written (AC-5.21, AC-5.22) — owner, 2026-11-27
+
 Found while re-opening specs/20261112-project-hours (read from the repo, not asked):
 - F14 A meeting has at most one host, a CRM deal or (since 2026-11-23) a project; a meeting started from a project task is
   linked to the task's project — specs/20261104-meetings A18; meetings-api `GET /system/meetings/hosts` answers `ids=` or
@@ -214,11 +269,48 @@ Found while re-opening specs/20261112-project-hours (read from the repo, not ask
   a fixed-price project always has a deadline and a max effort, its estimated man-days may be absent —
   projects-api `project_terms` CHECKs
 
+Found while re-opening specs/20261112-project-hours a second time (2026-11-27, read from the repo, not asked):
+- F16 Today the consumption block draws figures only: hours used and left (or "Over by" once a package is exceeded, D81),
+  man-days used against the estimate, the max effort or the planned total — no percentage, no state, no bar and no date line;
+  a capacity package past its expiry shows the "Expired" mark; terms that sold nothing comparable draw no block at all —
+  `projects-ui/src/components/ConsumptionBlock.tsx:50-111`, `projects-ui/src/lib/consumption.ts:120-181`. The design recorded
+  "no status colour" and "no progress bar" — `specs/20261112-project-hours/design.md:182-190` (reversed by D86)
+- F17 What terms allow: a start date is required and an end date optional, not before the start, for every client type; a
+  fixed price has a required deadline, a max effort above zero and an optional estimate of zero or more; an hour package has
+  more than zero hours; a time-and-material project has 1 to 50 positions, each above zero man-days. No rule orders a fixed
+  price's deadline against its start date, nor its estimate against its max effort — `projects-api/src/terms/terms.schemas.ts:30-70,
+  83-87`, `projects-api/prisma/migrations/20261103163000_init/migration.sql:137-165`. So a reference is never zero, a deadline
+  can precede the start date (no span for the time elapsed) and an estimate can exceed the max effort (a mark beyond the scale)
+- F18 A package period's ends are inclusive and a capacity package has ended only from the day after its expiry date
+  (`ended: today > expiryDate`); the day is Europe/Zurich and the server's (D85) — `projects-api/src/terms/packagePeriod.ts:68-87`
+- F19 A project's states are planned, active, on_hold, closed and cancelled; specs/20261112-project-alerts raises no alert for a
+  closed or cancelled project and raises the end-date and deadline alert only for one that is not — `projects-ui/src/lib/types.ts:14`,
+  `specs/20261112-project-alerts/spec.md:57-58, 63`
+- F20 The terms' end date is also how a project "ends" its terms (a contract is never deleted, it ends by an end date) —
+  specs/20261103-projects AC-2.10 — so a passed end date can be deliberate; specs/20261112-project-alerts raises its alert for it all the same (AC-1.5)
+- F21 The library has no percentage formatter of its own: `formatNumber` takes `{ style: 'percent' }` (en-GB and it-IT number
+  formats) — `operai-ui/src/lib/format.ts:114-121`
+
 Assumed while re-opening specs/20261112-project-hours (2026-11-26, not grilled — strike any that is wrong):
 - A48 (030) An hour recorded both on a linked meeting and on its project counts twice for the project (A1); not detected
 - A49 (030) The project manager's per-person figure includes people outside the team who took part in a linked meeting
 - A50 (030) A deal's hours do not count for the project made from it, nor the reverse
 - A51 (030) Before an hour package's start date no period is current; hours recorded before it count in no period
+
+Assumed while re-opening specs/20261112-project-hours a second time (2026-11-27, not grilled — strike any that is wrong;
+A52 is the spec's own, written at D85; A53 to A55 were then confirmed by the owner the same day, D92–D94, and A56 was added):
+- A53 (030) The state, the excess and the bar are decided on the exact hours, and the percentage is the exact percentage
+  rounded down for display (D92): with whole-number thresholds it never contradicts the state — confirmed by the owner with
+  D92 (closes O5)
+- A54 (030) A closed or cancelled project shows no state and no date signal, as it gets no alert (project-alerts AC-1.5, AC-1.8,
+  A30); a planned, active or on-hold project shows them — confirmed by the owner, D93 (closes O6)
+- A55 (030) A date is a whole calendar day of the Europe/Zurich calendar, counted in whole days from the page's day; the date
+  itself has not yet passed (it has passed from the next day, as a capacity package's expiry date has, AC-1.9) and is 0 days
+  away, said as today — D89 did not say; confirmed by the owner, D94
+- A56 (030) The time elapsed (AC-5.20) is rounded down to a whole number, as the consumed percentage is (D92): rounded half up,
+  a span of 200 days or more would read 100 % on its last day, before it has ended (a yearly package, 365 days, would), which
+  contradicts "100 % from the day after its last day". Written after D92, not asked of the owner, whose answer was about the
+  consumed percentage — strike it if the time elapsed should be rounded another way
 
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
@@ -281,3 +373,5 @@ Open (unresolved — each needs an owner):
 - O2 (specs/20261112-project-hours) closed by D28
 - O3 Labour-law check before go-live: informing employees about the hours recorded and who reads them (IT: art. 4 L. 300/1970; CH: art. 26 OLL 3) — owner: management / HR
 - O4 A lock or approval of recorded hours before they are used to bill T&M on a timesheet — owner: product owner, at the latest with specs/20261112-project-hours or a billing export
+- O5 (specs/20261112-project-hours) closed by D92 — the consumed percentage is rounded down, so it never reads at or above a threshold the state has not reached
+- O6 (specs/20261112-project-hours) closed by D93 — a closed or cancelled project shows no state and no date signal
