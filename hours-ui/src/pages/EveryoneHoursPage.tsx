@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { Banner, Button, Card, LoadMore, PageHeader, SkeletonRows, StatePanel, VisuallyHidden } from '@operai/ui'
 import DealFilterUnavailable from '../components/DealFilterUnavailable'
+import type { HostFilterKind } from '../components/DealFilterUnavailable'
 import EntriesTable from '../components/EntriesTable'
 import ErrorBanner from '../components/ErrorBanner'
 import HoursBanners from '../components/HoursBanners'
@@ -41,11 +42,17 @@ const totalsFailure = (error: unknown): string =>
 const entriesFailure = (error: unknown): string =>
   statusOf(error) === null ? strings.common.networkError : strings.everyone.entries.error.body
 
-const NO_BANNERS: HoursBannersProps = { sources: [], dealGroupingUnavailable: false, hiddenNames: false }
+const NO_BANNERS: HoursBannersProps = {
+  sources: [],
+  dealGroupingUnavailable: false,
+  projectGroupingUnavailable: false,
+  hiddenNames: false,
+}
 
 const sameBanners = (a: HoursBannersProps, b: HoursBannersProps): boolean =>
   a.sources.join() === b.sources.join() &&
   a.dealGroupingUnavailable === b.dealGroupingUnavailable &&
+  a.projectGroupingUnavailable === b.projectGroupingUnavailable &&
   a.hiddenNames === b.hiddenNames
 
 /** A read that came back with one of these refusals of hours-api. */
@@ -228,11 +235,18 @@ function EveryoneHoursView() {
   const firstPage = entries.first.status === 'loaded' ? entries.first.data : null
   const [exportRefusedFor, setExportRefusedFor] = useState<EntriesPage | null>(null)
   const exportRefused = firstPage !== null && exportRefusedFor === firstPage
-  const blocked =
+  // The same state for a project filter (specs/20261112-project-hours AC-4.8). Both depend on the one Meetings answer, so with
+  // both set the project's words show — the person is never told about a filter that is not set — and clearing it leaves the
+  // deal's refusal if the deal still triggers it.
+  const hostFilter: HostFilterKind | null = project !== null ? 'project' : deal !== null ? 'deal' : null
+  const blockedBy: HostFilterKind | null =
     !refused &&
     !authzDown &&
-    deal !== null &&
+    hostFilter !== null &&
     (reads.some((read) => failedWith(read, 'host_unavailable')) || exportRefused)
+      ? hostFilter
+      : null
+  const blocked = blockedBy !== null
 
   const totalsCard = useRef<TotalsCardHandle>(null)
   const blocker = useRef<HTMLDivElement>(null)
@@ -279,6 +293,8 @@ function EveryoneHoursView() {
       loadedPeople?.unavailable,
     ),
     dealGroupingUnavailable: state.group === 'deal' && (loadedTotals?.unavailable.includes('meeting-deals') ?? false),
+    projectGroupingUnavailable:
+      state.group === 'project' && (loadedTotals?.unavailable.includes('meeting-projects') ?? false),
     hiddenNames: hasHiddenName(loadedEntries, loadedTotals),
   }
   const [banners, setBanners] = useState(live)
@@ -302,7 +318,13 @@ function EveryoneHoursView() {
     setPickerKey((current) => current + 1)
   }
 
-  const clearDeal = () => {
+  // "Clear the … filter" of the refusal: drops the filter the banner names and puts focus in its picker.
+  const clearHostFilter = () => {
+    if (blockedBy === 'project') {
+      setProject(null)
+      document.querySelector<HTMLElement>('[data-testid="hours-filter-project-input"]')?.focus()
+      return
+    }
     setDeal(null)
     document.querySelector<HTMLElement>('[data-testid="hours-filter-deal-input"]')?.focus()
   }
@@ -347,7 +369,7 @@ function EveryoneHoursView() {
           {t.authUnavailable.body}
         </Banner>
       ) : blocked ? (
-        <DealFilterUnavailable ref={blocker} onRetry={retryAll} onClear={clearDeal} />
+        <DealFilterUnavailable ref={blocker} kind={blockedBy} onRetry={retryAll} onClear={clearHostFilter} />
       ) : (
         <>
           <TotalsCard

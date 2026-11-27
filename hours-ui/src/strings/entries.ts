@@ -1,7 +1,8 @@
 /**
  * The entries by day on My hours (T25; design S1 "Entries", F4): the card, a row, a day's total, Load more,
  * the banners that say what a source or a permission left out, and the deal-filter-unavailable state
- * (AC-4.11), which Everyone's hours (T29) shows with the same words. The words for a name the viewer cannot
+ * (AC-4.11) and its project twin (specs/20261112-project-hours AC-4.8), which Everyone's hours (T29) shows with the
+ * same words. The words for a name the viewer cannot
  * read are in `names.ts`, shared with the export.
  */
 
@@ -67,6 +68,9 @@ const en = {
     /** Grouping by deal while the meeting → deal link did not answer. */
     dealGrouping:
       "Meeting hours can't be placed under their deal right now, so they are shown in one separate row. The total is unchanged.",
+    /** Grouping by project while the meeting → project link did not answer (specs/20261112-project-hours AC-4.10). */
+    projectGrouping:
+      "Meeting hours can't be placed under their project right now, so they are shown in one separate row. The total is unchanged.",
     /** A standing fact, not news: read in place, never announced. */
     hidden: {
       label: 'Entries without a visible name',
@@ -78,6 +82,12 @@ const en = {
     title: "Hours on this deal can't be shown right now",
     body: 'Operai could not check which meetings belong to this deal, so a list or total would be incomplete. Nothing is shown until it can. Try again in a moment.',
     clear: 'Clear the deal filter',
+  },
+  /** AC-4.8: the same refusal for a project filter, now that its linked meetings count (specs/20261112-project-hours). */
+  projectFilterUnavailable: {
+    title: "Hours on this project can't be shown right now",
+    body: 'Operai could not check which meetings belong to this project, so a list or total would be incomplete. Nothing is shown until it can. Try again in a moment.',
+    clear: 'Clear the project filter',
   },
 }
 
@@ -129,6 +139,8 @@ const it: typeof en = {
       `Le ore sono complete; questi nomi non sono stati caricati e risultano non disponibili: ${sources}.`,
     dealGrouping:
       'Al momento le ore delle riunioni non possono essere attribuite alla loro opportunità, quindi compaiono in una riga separata. Il totale non cambia.',
+    projectGrouping:
+      'Al momento le ore delle riunioni non possono essere attribuite al loro progetto, quindi compaiono in una riga separata. Il totale non cambia.',
     hidden: {
       label: 'Registrazioni senza nome visibile',
       body: "Alcune registrazioni riguardano un progetto, un'opportunità o una riunione che non puoi aprire, quindi compaiono senza nome. Le loro ore sono comunque conteggiate.",
@@ -138,6 +150,11 @@ const it: typeof en = {
     title: 'Al momento non è possibile mostrare le ore di questa opportunità',
     body: 'Operai non è riuscito a verificare quali riunioni appartengono a questa opportunità, quindi un elenco o un totale sarebbero incompleti. Non viene mostrato nulla finché non è possibile. Riprova tra un momento.',
     clear: 'Rimuovi il filtro opportunità',
+  },
+  projectFilterUnavailable: {
+    title: 'Al momento non è possibile mostrare le ore di questo progetto',
+    body: 'Operai non è riuscito a verificare quali riunioni appartengono a questo progetto, quindi un elenco o un totale sarebbero incompleti. Non viene mostrato nulla finché non è possibile. Riprova tra un momento.',
+    clear: 'Rimuovi il filtro progetto',
   },
 }
 

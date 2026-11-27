@@ -7,8 +7,9 @@
  * code this build does not know (kept as `rawCode`, so a server one step ahead of the UI degrades
  * to the generic message instead of being mistaken for a known refusal). Screens branch on `code`,
  * never on the status alone: a 503 is `host_unavailable` (an owner did not answer a write, or the
- * meeting → deal link did not answer a deal filter, AC-4.11) or `authz_unavailable` (`auth` did not
- * answer an oversight read, AC-5.4), and the two read differently.
+ * meeting → deal link did not answer a deal filter, AC-4.11, or the meeting → project link a project
+ * filter, AC-4.8) or `authz_unavailable` (`auth` did not answer an oversight read, AC-5.4), and the two
+ * read differently.
  *
  * A network failure is not an `HoursApiError`: `fetch`'s rejection propagates, and
  * `errorMessage` words it as the network line.
@@ -43,8 +44,9 @@ export const HOURS_ERROR_CODES = [
   // 404 (identical for missing and unreadable, AC-2.10), 409, 503
   'not_found',
   'name_taken',
-  // 409: a cursor read under a deal filter after the deal's meetings changed (the walk starts over)
+  // 409: a cursor read under a deal filter, or a project filter, after the linked meetings changed (the walk starts over)
   'deal_meetings_changed',
+  'project_meetings_changed',
   'host_unavailable',
   'authz_unavailable',
 ] as const

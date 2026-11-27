@@ -7,6 +7,8 @@ export type HoursBannersProps = {
   sources: UnavailableSource[]
   /** Grouping by deal while the meeting → deal link did not answer: the meeting hours are one separate row. */
   dealGroupingUnavailable: boolean
+  /** Grouping by project while the meeting → project link did not answer (specs/20261112-project-hours AC-4.10): the same note. */
+  projectGroupingUnavailable: boolean
   /** Anything on screen is withheld because the viewer may not read it (`hasHiddenName`). */
   hiddenNames: boolean
   /**
@@ -23,19 +25,21 @@ export type HoursBannersProps = {
  *
  * - names missing (`info`, polite): hours are complete, these sources did not answer, so their names show as
  *   unavailable — one banner however many sources;
- * - deal grouping (`warning` in tone, polite): the meeting hours cannot be placed under their deal right now;
- *   never an `alert`, because the totals read fine and only a grouping is degraded;
+ * - deal grouping and project grouping (`warning` in tone, polite): the meeting hours cannot be placed under their
+ *   deal, or under their project, right now; never an `alert`, because the totals read fine and only a grouping is
+ *   degraded (only one of the two can apply: a view groups by one thing);
  * - names not visible (`info`, `live="off"`): a standing fact the viewer reads in place, named for a screen
  *   reader that lands on it, and never announced.
  */
 export default function HoursBanners({
   sources,
   dealGroupingUnavailable,
+  projectGroupingUnavailable,
   hiddenNames,
   hiddenCopy = strings.entries.banners.hidden,
 }: HoursBannersProps) {
   const t = strings.entries.banners
-  if (sources.length === 0 && !dealGroupingUnavailable && !hiddenNames) return null
+  if (sources.length === 0 && !dealGroupingUnavailable && !projectGroupingUnavailable && !hiddenNames) return null
   return (
     <div className="flex flex-col gap-3" data-testid="hours-banners">
       {sources.length > 0 && (
@@ -46,6 +50,11 @@ export default function HoursBanners({
       {dealGroupingUnavailable && (
         <Banner tone="warning" live="polite" data-testid="hours-banner-deal-grouping">
           {t.dealGrouping}
+        </Banner>
+      )}
+      {projectGroupingUnavailable && (
+        <Banner tone="warning" live="polite" data-testid="hours-banner-project-grouping">
+          {t.projectGrouping}
         </Banner>
       )}
       {hiddenNames && (

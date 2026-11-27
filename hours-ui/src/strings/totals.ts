@@ -43,6 +43,8 @@ const en = {
     project: {
       hidden: 'Projects not visible to you',
       unavailable: 'Projects whose name is unavailable',
+      /** Meeting hours whose project could not be asked: one row, never placed under a guess (AC-4.5, AC-4.10). */
+      projectUnknown: 'Meetings whose project is unknown right now',
       none: 'Not on a project',
     },
     deal: {
@@ -94,6 +96,7 @@ const it: typeof en = {
     project: {
       hidden: 'Progetti non visibili a te',
       unavailable: 'Progetti il cui nome non è disponibile',
+      projectUnknown: 'Riunioni il cui progetto al momento non è noto',
       none: 'Non su un progetto',
     },
     deal: {
