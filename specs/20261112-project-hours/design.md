@@ -18,6 +18,8 @@ amendment had tabs Overview | Hours, which the owner dropped because the record 
 The tabs, `?tab`, the tablist and the banner split are gone; the page is today's page plus this one card. Changed in place: Surfaces, F1–F3, F8, S1, S2, S3,
 the inventory, Accessibility, Copy, AC coverage, G5, G6. S4 and G1–G4 are as first drafted.
 
+**Amended 2026-11-27 (QE pass 1, defect D1):** S4 said a 409 `project_meetings_changed` restarts the list "and the polite status says it was refreshed". The deal's 409 has no such status (specs/20261112-time-tracking plan, cursor amendment of 2026-11-23: "the list reloads its first page, the export restarts its walk"; its design.md never mentions the 409) and AC-4.8 asks for none, so the sentence described a behaviour the deal never had; the code (`hours-ui/src/lib/useHoursQuery.ts`, `exportPages.ts`) restarts silently for both host filters. Decision: one behaviour for both, the **silent restart**; the status is dropped, not added (nothing is wrong, nothing is for the person to do, and the region's own polite loading line already says the list is being read again). Changed in place: F4 (one sentence), S4 (the 409 sentence became its own paragraph), Accessibility (one bullet). No code change.
+
 Library in use: **`@operai/ui`** (the Operai design system, shared by the shell as a Module Federation singleton; AGENTS.md § Tech stack),
 Tailwind 4 token utilities, TanStack Router; copy in each app's strings module (`en` plus a complete `it: typeof en`, `selectStrings`).
 The project has a design system, so there is **no `## Visual direction`**: the system wins.
@@ -72,7 +74,7 @@ with a screen line **"Counts for project <name>"** (the cue; there is no filter-
 A meeting whose project the viewer cannot read keeps its row with "Counts for a project that is not visible to you" and no name.
 Exit: *refused* when Meetings cannot say which meetings are linked: Totals and Entries (and the table view's grid) are replaced
 by one warning banner, Retry and "Clear the project filter" (the deal filter's refusal, generalised). Without a project
-filter nothing is refused: the view answers, and the unknown link is said (F5).
+filter nothing is refused: the view answers, and the unknown link is said (F5). A relink between two pages of the list is not an exit the person is told about: the list starts over from its first page, silently (S4).
 
 **F5 Totals by project — AC-4.5, 4.10.** Group by Project: a meeting entry is counted under its project; one on a project the viewer
 cannot read joins the existing "Projects not visible to you" row; when Meetings cannot be asked the meeting hours form
@@ -306,8 +308,9 @@ and the "pages already shown stay, with the error below them" rule (D48) are exa
 `MyHoursPage.tsx:525` (table view), `:610` (list view); `EveryoneHoursPage.tsx:350`). It replaces Totals and Entries (and the table's
 grid), never the empty state, never "0 min". Clear returns focus to the **Project** picker's input. If both a deal and a project filter are
 set, the project wording shows; clearing it leaves the deal's if the deal filter still triggers the refusal (both depend on the
-same Meetings answer), so the person is never shown a filter that is not set. A 409 `project_meetings_changed` (the linked set changed
-between pages) is handled like `deal_meetings_changed`: the list restarts from its first page and the polite status says it was refreshed.
+same Meetings answer), so the person is never shown a filter that is not set.
+
+**The linked set changed between two pages (AC-4.4; amended 2026-11-27, QE D1).** A 409 `project_meetings_changed` answers a *Load more* when the set of meetings linked to the project changed after the previous page was read (a meeting linked, unlinked or deleted). It is handled exactly as the deal's `deal_meetings_changed` is: the list starts over from its first page, **silently**. The Entries region shows its ordinary loading state (the skeleton and the polite "Loading your hours…") and then answers as any first page does: the new list, the region's own error banner with Retry, or the refusal above when Meetings cannot say. There is no `Banner`, no alert and no "refreshed" status for the restart itself, because nothing is wrong and there is nothing to do: the pages dropped are read again with Load more, and the restart exists so that the list never mixes two sets of meetings. The export's walk restarts the same way, at most three walks in all, and shows nothing for a restart; a walk refused three times in a row fails like any other export failure, with the button's own alert. This is one code path for both host filters, in My hours' List and in Everyone's hours; My hours' table view reads one complete period, has no pages and cannot restart.
 
 **The screen line (AC-4.7).** A Meeting entry carries one line under its name: `Counts for deal <name>` today; now `Counts for project <name>`
 when its host is a project, in the same place and style (`EntryRow.tsx:82,104`; `EntriesTable.tsx:64`, the "On" cell). A meeting has one
@@ -440,6 +443,7 @@ Headings: the tool keeps one h1; each record page keeps one h2 (`PageHeader`); t
 **Hours views (S4)**
 - The refusal: `Banner` `role="alert"`, `tabIndex={-1}`; it does not take focus when it appears (the person is in the Filters card); after a Retry that failed it takes
   focus (its Retry button is gone); on success focus goes to the Totals heading; Clear goes to the Project picker's input (the deal rules).
+- The restart after a 409 between pages is silent by design (S4): the only announcement is the Entries region's ordinary polite loading line; no status text, no alert, no banner.
 - The screen line is a `p` in the meta style under the name (read after it, as the deal line is); hidden and unavailable variants are plain words, never an id.
 - The by-project merged rows are table rows like the others, named by their words. The grouping banner is polite, not an alert.
 - Export: the existing `ExportButton` contract (busy, status, failure alert); the file's new column header is a plain cell; a note starting with `=` stays text (unchanged).
