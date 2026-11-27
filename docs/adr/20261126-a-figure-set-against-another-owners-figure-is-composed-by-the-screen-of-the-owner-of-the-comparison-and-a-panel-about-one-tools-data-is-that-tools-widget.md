@@ -131,6 +131,35 @@ rendering; the copies drift the first time the owner's rule changes. ADR
 - Data residency: compliant (EU services only, no new processor).
 - Audit trail: not required by this decision.
 
+## Amendment 2026-11-27 — the day a figure was derived for travels with it
+
+**Date:** 2026-11-27  
+**Amends:** § Decision 1 (projects-api states the day its derived period was computed for) and the rule this records (a companion signal that reads today is judged on that stated day). Adds decision A-27 below; the original sections are unchanged.  
+**Source:** specs/20261112-project-hours, plan § Decisions D-P7 and § Signals on the consumption block, decided by the owner at the plan's approval gate (gate 2), 2026-11-27; spec AC-5.29. It builds on specs/20261112-time-tracking ledger D85 and A52 (the page keeps the day it loaded), D89, D90 and D94 (the date and elapsed-time signals read the same day).
+
+### A-27 — a derived figure and the companion signals that read today share one stated day
+
+Projects-api derives `currentPeriod` from today on every read (Decision 1). The consumption block also shows signals that read today: the time elapsed in the period or to a deadline, and whether a date has passed or is near. If each side took "today" from its own clock, a card could set a period computed for the 27th beside a date line read on the 28th: a deadline reads "passed" on a card whose hours are the 27th's, around Europe/Zurich midnight.
+
+The decision is that the service states the day it derived a figure for, beside the figure, and the screen that composes the comparison judges every companion signal against that day only.
+
+- projects-api returns `asOf: "YYYY-MM-DD"` on every answer carrying `TermsSchema`: the Europe/Zurich business day that `toTermsView` derived `currentPeriod` for, taken from the same `today` argument. It is required on every terms type and never `null` in a valid answer. It is derived on read, never stored, and not part of the ETag (`version` remains the ETag).
+- `asOf` is not an input. The terms request schemas are strict, so a request carrying it is `400 validation_failed`.
+- projects-ui works out the time elapsed and each date signal from `asOf` by integer calendar arithmetic on the date strings. It reads no clock and no time zone for them. A page keeps the `asOf` it was read with until it reads the project again, which is the limitation A52 (e) and R8 already accept; the companions now agree with the period they sit beside.
+- An `asOf` that is absent, empty or not `YYYY-MM-DD` (an older projects-api) means no time elapsed and no date signal. It is never replaced by a guess from the browser's clock.
+
+**Failure shape of this amendment.** A figure and a signal that reads the same day are two reads, possibly at two moments or from two clocks, shown as one judgement. The same shape appears wherever a derived figure has a companion that depends on today: a server figure beside a browser-computed date; a figure loaded at one moment beside a signal recomputed after a later re-read (a save, a refresh of one part of the page); a service that derives the companions in its own process, from its own clock, for a figure another service derived. On the write side it is a client that decides "is this day in the future" from its own clock while the server decides from its; that is acceptable only when the server re-checks and the client's answer never becomes a shown figure. Recognise it in any card, row or message that puts two day-dependent facts next to each other.
+
+*Rejected* (from the plan's candidate):
+- **The browser's Europe/Zurich clock.** It fits a guard that the server re-checks (hours-ui's form uses it that way). Here it can straddle midnight against the server's period, and it puts two days on one card if the browser's clock disagrees with the server's.
+- **projects-api derives each signal** (the time elapsed on `currentPeriod` and on a fixed price's terms, the days to each date). That is four derived members on the wire for two lines of arithmetic over a day the service can simply state. It also splits the block's rules across two services, while the percentage, the state and the excess need the summary and so stay in the browser (D-P3).
+- **A calendar route, or the HTTP `Date` header.** Each is a second read at another moment than the terms'. `Date` is an instant in UTC that a cross-origin script cannot read without an `Access-Control-Expose-Headers` change.
+- **No day at all.** It drops the time-elapsed and date signals (AC-5.18 to AC-5.24).
+
+*Constrains:* any later derived-on-read figure with a today-dependent companion states its own day beside it, under the same name and the same rules. That covers project-alerts' server path and any future projects-list signal, which must reuse `packagePeriod` and state the day it used. A consumer that sets two of these side by side judges both on one stated day. The stated day is never an input, never part of an ETag, and never read from a browser clock to replace a missing one.
+
+Spec and plan: specs/20261112-project-hours (plan § Decisions D-P7, § Signals on the consumption block, § ADR candidates; spec AC-5.29), with the time-tracking ledger's D85 and A52 for the accepted limitation.
+
 ---
 
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*
