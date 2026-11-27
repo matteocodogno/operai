@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { __setClockForTests } from "../lib/businessDay";
-import { call, crm, db, resetWorld, seedDealProject, type PersonaName } from "../test-support/world";
+import { app, call, crm, db, resetWorld, seedDealProject, type PersonaName } from "../test-support/world";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { toTermsView } from "./terms";
 
@@ -62,6 +62,7 @@ const termsCount = () => db.projectTerms.count();
 
 describe("POST /projects/:id/terms — terms per project type (AC-2.1, AC-2.3 – AC-2.8, AC-5.3)", () => {
   it("creates fixed price terms: 201, the project's type, the ETag, the terms nested (AC-2.1, AC-2.3)", async () => {
+    at("2026-12-15T12:00:00Z");
     const project = await seed("fixed_price");
     const res = await create(project.id, { ...start, terms: TERMS.fixed_price });
     expect(res.status).toBe(201);
@@ -73,6 +74,7 @@ describe("POST /projects/:id/terms — terms per project type (AC-2.1, AC-2.3 �
       endDate: null,
       terms: { deadline: "2027-03-31", estimatedManDays: 40, maxEffortManDays: 55.5 },
       version: 1,
+      asOf: "2026-12-15", // the Zurich day the view was derived for (specs/20261112-project-hours T22, AC-5.29)
     });
     expect(await db.projectTerms.findUniqueOrThrow({ where: { id: res.json.id } })).toMatchObject({
       projectId: project.id,
@@ -806,6 +808,98 @@ describe("no amount anywhere (AC-2.9, D14)", () => {
   });
 });
 
+// ─── The day the view was derived for ────────────────────────────────────────
+
+/**
+ * specs/20261112-project-hours T22 (AC-5.29, plan § API contracts, D-P7): the `POST` and `PATCH /projects/:id/terms` answers carry
+ * `asOf` like every answer carrying the terms: the Europe/Zurich day `currentPeriod` was derived for, derived on read, no part of the
+ * ETag, and never an input.
+ */
+describe("the terms routes' asOf — the day currentPeriod was derived for (specs/20261112-project-hours T22, AC-5.29)", () => {
+  const yearly = { hourPackage: { hours: 80, kind: "yearly", startDate: "2026-03-15" } };
+  const first = { startDate: "2026-03-15", terms: yearly };
+
+  it("is on the POST answer: the next Zurich day at 23:30Z on the eve of an anniversary, the day of the period it gives (AC-5.29)", async () => {
+    at("2027-03-14T23:30:00Z"); // 00:30 on 15 March 2027 in Zurich: period 1 of the package has begun
+    const project = await seed("maintenance");
+    const res = await create(project.id, first);
+    expect(res.status).toBe(201);
+    expect(res.json.asOf).toBe("2027-03-15");
+    expect(res.json.terms.hourPackage.currentPeriod).toEqual({ from: "2027-03-15", to: "2028-03-14", ended: false });
+  });
+
+  it("is on the PATCH answer, the day it was derived for then, whatever day the terms were created on (AC-5.29)", async () => {
+    at("2027-03-14T22:30:00Z"); // 23:30 on the 14th in Zurich: the last day of period 0
+    const project = await seed("maintenance");
+    const created = await create(project.id, first);
+    expect(created.json.asOf).toBe("2027-03-14");
+    expect(created.json.terms.hourPackage.currentPeriod.to).toBe("2027-03-14");
+
+    at("2027-03-14T23:30:00Z"); // an hour later it is the 15th in Zurich
+    const edited = await patch(project.id, { endDate: "2030-01-01" });
+    expect(edited.status).toBe(200);
+    expect(edited.json.asOf).toBe("2027-03-15");
+    expect(edited.json.terms.hourPackage.currentPeriod).toEqual({ from: "2027-03-15", to: "2028-03-14", ended: false });
+  });
+
+  it("is on the terms of every type, never null, a time-and-material project's included (AC-5.29)", async () => {
+    at("2026-12-15T12:00:00Z");
+    for (const type of ["fixed_price", "maintenance", "t_and_m", "saas"] as const) {
+      const { project } = await withTerms(type, { name: `P ${type}` });
+      const edited = await patch(project.id, { endDate: "2027-12-31" }, "admin");
+      expect(edited.json.asOf).toBe("2026-12-15");
+      expect((await page(project.id)).terms.asOf).toBe("2026-12-15");
+    }
+  });
+
+  it("is not part of the ETag: terms created one day are edited the next on the same If-Match, and the version counts writes only (AC-5.29)", async () => {
+    at("2026-12-15T12:00:00Z");
+    const project = await seed("maintenance");
+    const created = await create(project.id, first);
+    expect(created.headers.get("ETag")).toBe('"1"');
+    at("2026-12-16T12:00:00Z");
+    expect((await page(project.id)).terms).toMatchObject({ version: 1, asOf: "2026-12-16" }); // a read on another day moves `asOf`, not the version
+    const edited = await patch(project.id, { endDate: "2027-12-31" }, "pmCh", 1);
+    expect(edited.status).toBe(200);
+    expect(edited.headers.get("ETag")).toBe('"2"');
+    expect(edited.json).toMatchObject({ version: 2, asOf: "2026-12-16" });
+  });
+
+  it("is declared in the OpenAPI document as a required string of every answer carrying the terms, and in no request body (AC-5.29)", async () => {
+    type Schema = { required?: string[]; properties?: Record<string, { type?: string }> };
+    type Operation = { requestBody?: { content: { "application/json": { schema: Schema } } }; responses: Record<string, { content: { "application/json": { schema: Schema } } }> };
+    const doc = (await (await app.request("/openapi.json")).json()) as { paths: Record<string, Record<string, Operation>> };
+    for (const [method, status] of [["post", "201"], ["patch", "200"]] as const) {
+      const operation = doc.paths["/projects/{id}/terms"]![method]!;
+      const answer = operation.responses[status]!.content["application/json"].schema;
+      expect(answer.required).toContain("asOf");
+      expect(answer.properties?.["asOf"]?.type).toBe("string");
+      expect(operation.requestBody!.content["application/json"].schema.properties).not.toHaveProperty("asOf");
+    }
+  });
+
+  it("is not an input: a POST or PATCH body carrying it is 400 `validation_failed`, whether beside the dates or inside `terms`, and nothing is stored or changed (AC-5.29)", async () => {
+    const project = await seed("fixed_price");
+    for (const body of [
+      { ...start, terms: TERMS.fixed_price, asOf: "2026-12-15" },
+      { ...start, terms: { ...TERMS.fixed_price, asOf: "2026-12-15" } },
+    ]) {
+      const res = await create(project.id, body);
+      expect(res.status).toBe(400);
+      expect(res.json).toMatchObject({ status: 400, code: "validation_failed" });
+    }
+    expect(await termsCount()).toBe(0);
+
+    const { project: stored, terms } = await withTerms("fixed_price", { name: "Stored" });
+    for (const body of [{ endDate: "2027-01-31", asOf: "2026-12-15" }, { terms: { ...TERMS.fixed_price, asOf: "2026-12-15" } }, { asOf: "2026-12-15" }]) {
+      const res = await patch(stored.id, body);
+      expect(res.status).toBe(400);
+      expect(res.json).toMatchObject({ status: 400, code: "validation_failed" });
+    }
+    expect(await db.projectTerms.findUniqueOrThrow({ where: { id: terms.id } })).toMatchObject({ version: 1, endDate: null });
+  });
+});
+
 // ─── The view at a given day ─────────────────────────────────────────────────
 
 describe("toTermsView(row, today) — the period is derived at the day it is given (specs/20261112-project-hours T3)", () => {
@@ -831,5 +925,25 @@ describe("toTermsView(row, today) — the period is derived at the day it is giv
     at("2026-03-20T12:00:00Z");
     expect(toTermsView(row, "2028-05-01").terms).toMatchObject({ hourPackage: { currentPeriod: { from: "2028-03-15", to: "2029-03-14" } } });
     expect(toTermsView(row).terms).toMatchObject({ hourPackage: { currentPeriod: { from: "2026-03-15", to: "2027-03-14" } } });
+  });
+
+  // specs/20261112-project-hours T22 (AC-5.29, D-P7): `asOf` is the very day the period was derived for.
+  it("returns the day it was given as `asOf`, beside the period of that day, and the business day when given none (AC-5.29)", () => {
+    at("2026-03-20T12:00:00Z");
+    expect(toTermsView(row, "2028-05-01")).toMatchObject({ asOf: "2028-05-01", terms: { hourPackage: { currentPeriod: { from: "2028-03-15" } } } });
+    expect(toTermsView(row)).toMatchObject({ asOf: "2026-03-20", terms: { hourPackage: { currentPeriod: { from: "2026-03-15" } } } });
+  });
+
+  it("reads the clock once: a clock that crosses Zurich midnight between two reads still gives one day to the period and to `asOf` (AC-5.29)", () => {
+    // 22:59Z on 14 March 2027 is 23:59 in Zurich (the last day of period 0); every later read is on the 15th. A view that read the
+    // clock once for the period and again for `asOf` would put the 14th's period beside the 15th, or the reverse.
+    const instants = ["2027-03-14T22:59:59Z", "2027-03-14T23:00:01Z", "2027-03-14T23:00:02Z"];
+    let reads = 0;
+    __setClockForTests(() => new Date(instants[Math.min(reads++, instants.length - 1)]!));
+    const view = toTermsView(row);
+    expect(reads).toBe(1);
+    const period = (view.terms as { hourPackage: { currentPeriod: { from: string; to: string } } }).hourPackage.currentPeriod;
+    expect(view.asOf).toBe("2027-03-14");
+    expect(period.from <= view.asOf && view.asOf <= period.to).toBe(true);
   });
 });

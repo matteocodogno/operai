@@ -7,7 +7,8 @@
  * 400 / 422 naming the field, never a 500 from a constraint.
  *
  * The wire shape is specs/20261103-projects's contract shape, renamed: `{ id, type, startDate, endDate, terms,
- * version }`, with the type-specific `terms` nested (`termsView`).
+ * version }`, with the type-specific `terms` nested (`termsView`), and since specs/20261112-project-hours T22 the
+ * `asOf` day it was derived for (`toTermsView`).
  */
 
 import type { z } from "@hono/zod-openapi";
@@ -212,7 +213,15 @@ export function termsView(row: TermsRow, today: string = businessDay()) {
   }
 }
 
-/** The `Terms` of tasks.md § API contracts: `{ id, type, startDate, endDate, terms, version }`. */
+/**
+ * The `Terms` of tasks.md § API contracts: `{ id, type, startDate, endDate, terms, version, asOf }`.
+ *
+ * `asOf` is the Europe/Zurich business day this view was derived for: the one `today` argument, resolved once here and given
+ * to `termsView` (so to `packagePeriod`) and returned beside it, so a period and every signal that reads today (the time
+ * elapsed, a date signal, "Expired") are of one day by construction, never of two reads of a clock that can straddle midnight
+ * (specs/20261112-project-hours T22, AC-5.29, D-P7; ADR 20261126 figure composed by the screen, § Amendment 2026-11-27). It is
+ * derived on read, never stored, no part of the ETag (`version` is) and never an input (the terms request schemas are strict).
+ */
 export function toTermsView(row: TermsRow, today: string = businessDay()) {
   return {
     id: row.id,
@@ -221,5 +230,6 @@ export function toTermsView(row: TermsRow, today: string = businessDay()) {
     endDate: toDateOnly(row.endDate),
     terms: termsView(row, today),
     version: row.version,
+    asOf: today,
   };
 }

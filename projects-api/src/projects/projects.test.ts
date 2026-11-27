@@ -511,6 +511,7 @@ describe("GET /projects/:id", () => {
         endDate: null,
         terms: { sla: null, hourPackage: null },
         version: 1,
+        asOf: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), // the day it was derived for (T22); its value is pinned by the asOf cases below
       },
       startDate: "2026-03-01",
       endDate: null,
@@ -948,7 +949,7 @@ describe("GET /projects/:id — the hour package's current period (specs/2026111
     at("2026-11-27T12:00:00Z");
     const res = await call("GET", `/projects/${project.id}`, { as: "viewer" });
     expect(Object.keys(res.json.terms.terms.hourPackage).sort()).toEqual(["currentPeriod", "expiryDate", "hours", "kind", "startDate"]);
-    expect(Object.keys(res.json.terms).sort()).toEqual(["endDate", "id", "startDate", "terms", "type", "version"]);
+    expect(Object.keys(res.json.terms).sort()).toEqual(["asOf", "endDate", "id", "startDate", "terms", "type", "version"]); // `asOf`: T22, AC-5.29
     expect(Object.keys(res.json.terms.terms).sort()).toEqual(["hourPackage", "sla"]);
     expect(Object.keys(res.json).sort()).toEqual(
       [
@@ -999,6 +1000,129 @@ describe("GET /projects/:id — the hour package's current period (specs/2026111
       expiryDate: null,
       currentPeriod: { from: "2026-11-01", to: "2027-10-31", ended: false },
     });
+  });
+});
+
+/**
+ * specs/20261112-project-hours T22 (AC-5.29, plan § API contracts, D-P7): every answer carrying the terms also carries `asOf`, the
+ * Europe/Zurich business day the terms view was derived for, taken from the very `today` that gives `currentPeriod` its window. It is
+ * derived on read, never stored, no part of the ETag and never an input. One clock per test, never the real one.
+ */
+describe("the terms' asOf — the day currentPeriod was derived for (specs/20261112-project-hours T22, AC-5.29)", () => {
+  afterEach(() => __setClockForTests(null));
+  const at = (instant: string) => __setClockForTests(() => new Date(instant));
+  const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+  /** A maintenance project with an hour package straight in the database. */
+  const seedPackage = async (pkg: { kind: "capacity" | "yearly"; start: string; expiry?: string | null }) => {
+    const project = await seed({ type: "maintenance" });
+    await seedTerms(project.id, {
+      type: "maintenance",
+      startDate: date(pkg.start),
+      hourPackageHours: 80,
+      hourPackageKind: pkg.kind,
+      hourPackageStart: date(pkg.start),
+      hourPackageExpiry: pkg.expiry ? date(pkg.expiry) : null,
+    });
+    return project;
+  };
+  const read = async (projectId: string) => {
+    const res = await call("GET", `/projects/${projectId}`, { as: "viewer" });
+    expect(res.status).toBe(200);
+    return res;
+  };
+
+  it("is on GET /projects/:id, the Zurich day, and the day an open-ended capacity package's period runs up to (AC-5.29)", async () => {
+    const project = await seedPackage({ kind: "capacity", start: "2026-09-01" });
+    at("2026-11-27T12:00:00Z");
+    const { json } = await read(project.id);
+    expect(json.terms.asOf).toBe("2026-11-27");
+    // An open-ended capacity package runs `[start, today]`: its end IS the day the view was derived for.
+    expect(json.terms.terms.hourPackage.currentPeriod.to).toBe(json.terms.asOf);
+  });
+
+  it("is the next Zurich day, not the UTC one, at 23:30Z on the eve of an anniversary, with the period of that day (AC-5.29)", async () => {
+    const project = await seedPackage({ kind: "yearly", start: "2026-03-15" });
+    // 23:30Z on 14 March 2027 is 00:30 on the 15th in Zurich (CET): period 1 has begun, and `asOf` says so.
+    at("2027-03-14T23:30:00Z");
+    const { json } = await read(project.id);
+    expect(json.terms.asOf).toBe("2027-03-15");
+    expect(json.terms.terms.hourPackage.currentPeriod).toEqual({ from: "2027-03-15", to: "2028-03-14", ended: false });
+    // One hour earlier it is still the 14th in Zurich: the last day of period 0, and the same day in `asOf`.
+    at("2027-03-14T22:30:00Z");
+    const before = (await read(project.id)).json;
+    expect(before.terms.asOf).toBe("2027-03-14");
+    expect(before.terms.terms.hourPackage.currentPeriod).toEqual({ from: "2026-03-15", to: "2027-03-14", ended: false });
+  });
+
+  it("is on the terms of every type, a string in every case and never null, even where no period exists (AC-5.29)", async () => {
+    at("2026-11-27T12:00:00Z");
+    const slaOnly = await seed({ type: "maintenance", name: "SLA only" });
+    await seedTerms(slaOnly.id, { type: "maintenance", slaHighDays: 1, slaNormalDays: 3 });
+    const notStarted = await seedPackage({ kind: "yearly", start: "2026-12-01" });
+    const tAndM = await seed({ name: "T&M" });
+    await seedTerms(tAndM.id);
+    const fixed = await seedDealProject({ type: "fixed_price" });
+    const saas = await seed({ type: "saas", name: "Licence" });
+    await seedTerms(saas.id, { type: "saas" });
+    for (const id of [slaOnly.id, notStarted.id, tAndM.id, fixed.project.id, saas.id]) {
+      expect((await read(id)).json.terms.asOf).toBe("2026-11-27");
+    }
+  });
+
+  it("is a member of the terms only: a project without terms has none, and the project view keeps its own keys (AC-5.29)", async () => {
+    at("2026-11-27T12:00:00Z");
+    const bare = await seed({ name: "No terms yet" });
+    const res = await read(bare.id);
+    expect(res.json.terms).toBeNull();
+    expect(res.json).not.toHaveProperty("asOf");
+    const withTerms = await seedPackage({ kind: "yearly", start: "2026-03-15" });
+    expect(Object.keys((await read(withTerms.id)).json).sort()).toEqual(Object.keys(res.json).sort());
+    expect(Object.keys((await read(withTerms.id)).json.terms).sort()).toEqual(["asOf", "endDate", "id", "startDate", "terms", "type", "version"]);
+  });
+
+  it("is derived on read: the day follows the clock between two reads with nothing written, and the ETag and the version do not move (AC-5.29)", async () => {
+    const project = await seedPackage({ kind: "yearly", start: "2026-03-15" });
+    at("2026-11-27T12:00:00Z");
+    const first = await read(project.id);
+    at("2026-11-28T12:00:00Z");
+    const second = await read(project.id);
+    expect(first.json.terms.asOf).toBe("2026-11-27");
+    expect(second.json.terms.asOf).toBe("2026-11-28");
+    // Not stored, not in the ETag: the project's and the terms' versions are what they were.
+    expect(second.headers.get("ETag")).toBe(first.headers.get("ETag"));
+    expect(second.json.version).toBe(first.json.version);
+    expect(second.json.terms.version).toBe(first.json.terms.version);
+    expect(second.json.updatedAt).toBe(first.json.updatedAt);
+  });
+
+  it("is on every answer built by toProjectView: create, update, transition and team replacement, the same day as the period (AC-5.29)", async () => {
+    at("2027-03-14T23:30:00Z"); // 15 March 2027 in Zurich
+    const sameDay = (json: { terms: { asOf: string; terms: { hourPackage: { currentPeriod: { from: string; to: string } } } } }) => {
+      expect(json.terms.asOf).toBe("2027-03-15");
+      expect(json.terms.terms.hourPackage.currentPeriod.from).toBe("2027-03-15");
+    };
+    const created = await create({
+      name: "Support",
+      type: "maintenance",
+      entity: "welld_ch",
+      companyId: "co-acme",
+      terms: { startDate: "2026-03-15", terms: { hourPackage: { hours: 40, kind: "yearly", startDate: "2026-03-15" } } },
+    });
+    expect(created.status).toBe(201);
+    sameDay(created.json);
+
+    const renamed = await call("PATCH", `/projects/${created.json.id}`, { as: "pmCh", ifMatch: 1, body: { name: "Support 2" } });
+    expect(renamed.status).toBe(200);
+    sameDay(renamed.json);
+
+    const started = await call("POST", `/projects/${created.json.id}/transitions`, { as: "pmCh", ifMatch: 2, body: { to: "active" } });
+    expect(started.status).toBe(200);
+    sameDay(started.json);
+
+    const team = await call("PUT", `/projects/${created.json.id}/team`, { as: "pmCh", ifMatch: 3, body: { memberIds: ["user-colleague"] } });
+    expect(team.status).toBe(200);
+    sameDay(team.json);
   });
 });
 

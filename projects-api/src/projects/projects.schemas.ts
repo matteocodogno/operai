@@ -70,7 +70,13 @@ export const TermsViewSchema = z.union([
   z.object({}),
 ]);
 
-/** The delivery terms of a project (specs/20261103-projects's contract shape, renamed): the dates and the nested terms. */
+/**
+ * The delivery terms of a project (specs/20261103-projects's contract shape, renamed): the dates and the nested terms.
+ *
+ * `asOf` is the Europe/Zurich business day the view was derived for, the same `today` that gives an hour package its
+ * `currentPeriod` (specs/20261112-project-hours AC-5.29, D-P7): derived on read, never stored, not part of the ETag, never an
+ * input. It is on every terms type, a time-and-material project's end date included, and is never `null` in a valid answer.
+ */
 export const TermsSchema = z.object({
   id: z.string(),
   type: ProjectTypeSchema,
@@ -78,6 +84,10 @@ export const TermsSchema = z.object({
   endDate: DateOnlyOrNull,
   terms: TermsViewSchema,
   version: z.number().int(),
+  asOf: z.string().openapi({
+    description: "The Europe/Zurich business day this view was derived for (YYYY-MM-DD): the day currentPeriod is of. Derived on read, never stored, never an input.",
+    example: "2026-11-27",
+  }),
 });
 
 // ─── Purchase order (output) ─────────────────────────────────────────────────

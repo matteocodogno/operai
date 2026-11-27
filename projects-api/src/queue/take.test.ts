@@ -11,6 +11,7 @@
  * the push to the ops-manager (AC-4.3), which a notify-api failure never turns into a failed take (AC-4.4).
  */
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { __setClockForTests } from "../lib/businessDay";
 import { env } from "../lib/env";
 import { createNotifier, resetNotifierForTests, setNotifierForTests, type NotifyEvent } from "../lib/notify";
 import { serviceTokens } from "../lib/serviceToken";
@@ -153,6 +154,30 @@ describe("POST /queue/:dealId/project — a new project from a won deal (AC-1.2,
       type: "saas",
       company: { id: "co-acme", name: "Acme SA" },
       terms: { type: "saas", startDate: "2026-12-01", endDate: "2027-11-30", terms: { sla: null, hourPackage: null } },
+    });
+  });
+
+  // specs/20261112-project-hours T22 (AC-5.29): the take's answer is built by `toProjectView`, so its terms carry `asOf` too,
+  // the Zurich day the period was derived for.
+  describe("the terms' asOf on the take's answer (specs/20261112-project-hours T22, AC-5.29)", () => {
+    afterEach(() => __setClockForTests(null));
+    const yearly = { startDate: "2026-03-15", terms: { hourPackage: { hours: 80, kind: "yearly", startDate: "2026-03-15" } } };
+
+    it("is the day the package's current period was derived for: the next Zurich day at 23:30Z on the eve of an anniversary", async () => {
+      __setClockForTests(() => new Date("2027-03-14T23:30:00Z")); // 00:30 on 15 March 2027 in Zurich
+      crm.deals = [makeDeal({ id: "d-1" })];
+      const res = await takeAsProject("d-1", body({ type: "maintenance", terms: yearly }));
+      expect(res.status).toBe(201);
+      expect(res.json.terms.asOf).toBe("2027-03-15");
+      expect(res.json.terms.terms.hourPackage.currentPeriod).toEqual({ from: "2027-03-15", to: "2028-03-14", ended: false });
+    });
+
+    it("is on every type the take makes, a time-and-material project's included", async () => {
+      __setClockForTests(() => new Date("2026-12-15T12:00:00Z"));
+      crm.deals = [makeDeal({ id: "d-1" })];
+      const res = await takeAsProject("d-1", body());
+      expect(res.status).toBe(201);
+      expect(res.json.terms).toMatchObject({ type: "t_and_m", asOf: "2026-12-15" });
     });
   });
 

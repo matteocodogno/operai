@@ -4,6 +4,7 @@
  * is linked by `tenderDealId` (taken once). The CRM's deal page read is in system/purchaseOrders.routes.test.ts.
  */
 import { beforeEach, describe, expect, it } from "bun:test";
+import { __setClockForTests } from "../lib/businessDay";
 import { call, crm, db, makeDeal, resetWorld } from "../test-support/world";
 
 beforeEach(async () => {
@@ -40,6 +41,19 @@ describe("a won tender", () => {
     expect(again.status).toBe(409);
     expect(again.json.code).toBe("deal_taken");
     expect(await db.project.count()).toBe(1);
+  });
+
+  // specs/20261112-project-hours T22 (AC-5.29): the tender's take answers through `toProjectView` as the deal's does.
+  it("answers with its terms' asOf, the Zurich day the terms were derived for", async () => {
+    try {
+      __setClockForTests(() => new Date("2026-12-15T23:30:00Z")); // 00:30 on 16 December in Zurich
+      crm.deals = [TENDER()];
+      const res = await take(body());
+      expect(res.status).toBe(201);
+      expect(res.json.terms).toMatchObject({ type: "t_and_m", asOf: "2026-12-16" });
+    } finally {
+      __setClockForTests(null);
+    }
   });
 
   it("refuses an ops-manager or a referent, and needs a project manager who can use Projects", async () => {
