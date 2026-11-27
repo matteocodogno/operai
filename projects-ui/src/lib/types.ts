@@ -160,6 +160,12 @@ type TermsOf<Type extends TermsType, View extends TermsView> = {
   endDate: string | null
   terms: View
   version: number
+  /**
+   * The Europe/Zurich business day projects-api derived `currentPeriod` for (`YYYY-MM-DD`; specs/20261112-project-hours
+   * AC-5.29, D-P7), kept until the project is read again. Absent from a projects-api that predates it: no time elapsed
+   * and no date signal then, never the browser's own day (R10).
+   */
+  asOf?: string
 }
 export type Terms =
   | TermsOf<'fixed_price', FixedPriceTermsView>

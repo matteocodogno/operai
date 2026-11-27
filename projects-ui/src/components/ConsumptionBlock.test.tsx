@@ -12,7 +12,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { fakeApi, problem, termsOf } from '../test-support/fakeApi'
 import type { FakeAnswer } from '../test-support/fakeApi'
 import { TIME_ENTRY_RECORDED } from '../lib/timeEntryRecordedEvent'
-import type { CurrentPeriod, Terms } from '../lib/types'
+import type { CurrentPeriod, ProjectState, Terms } from '../lib/types'
 import ConsumptionBlock from './ConsumptionBlock'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
@@ -91,7 +91,7 @@ const timeAndMaterial = (): Terms =>
 const slaOnly = (): Terms => termsOf('maintenance', { sla: { highDays: 1, normalDays: 3 }, hourPackage: null })
 
 const mount = (terms: Terms | null, projectId = 'p1') =>
-  render(<ConsumptionBlock projectId={projectId} terms={terms} />)
+  render(<ConsumptionBlock projectId={projectId} terms={terms} state="active" />)
 
 /** What the eye reads of an element: the spoken twin of a duration (visually hidden) is left out. */
 const visible = (element: Element): string => {
@@ -365,6 +365,23 @@ describe('time and material (AC-1.5)', () => {
     expect(screen.queryByText('Designer')).toBeNull()
     expect(screen.queryByRole('table')).toBeNull()
   })
+})
+
+describe("the project's state (AC-5.26; plan D-P9): the figures read as for any other project, whatever its state", () => {
+  it.each<ProjectState>(['planned', 'active', 'on_hold', 'closed', 'cancelled'])(
+    'a project that is %s shows the same facts and asks hours-api the same once',
+    async (state) => {
+      answers(summary({ windowMinutes: 5070 }))
+      render(<ConsumptionBlock projectId="p1" terms={yearly(120)} state={state} />)
+
+      await loaded()
+
+      expect(terms_()).toEqual(['Yearly package', 'Current period', 'Hours used in this period', 'Hours left'])
+      expect(fact('Hours used in this period')).toBe('84 h 30')
+      expect(fact('Hours left')).toBe('35 h 30')
+      expect(reads()).toHaveLength(1)
+    },
+  )
 })
 
 describe('terms with nothing to compare (AC-1.7, D82)', () => {
@@ -658,7 +675,9 @@ describe('when the terms change under the block', () => {
     const next = deferred()
     serve(() => next.answer)
 
-    view.rerender(<ConsumptionBlock projectId="p1" terms={yearly(120, period('2027-03-01', '2028-02-29'))} />)
+    view.rerender(
+      <ConsumptionBlock projectId="p1" terms={yearly(120, period('2027-03-01', '2028-02-29'))} state="active" />,
+    )
 
     await waitFor(() => expect(reads()).toHaveLength(2))
     expect(reads()[1]!.params).toMatchObject({ windowFrom: '2027-03-01', windowTo: '2028-02-29' })
@@ -677,7 +696,7 @@ describe('when the terms change under the block', () => {
     expect(fact('Hours left')).toBe('35 h 30')
 
     // A fresh object for the same window, as the page's re-read after a terms save hands over.
-    view.rerender(<ConsumptionBlock projectId="p1" terms={yearly(150)} />)
+    view.rerender(<ConsumptionBlock projectId="p1" terms={yearly(150)} state="active" />)
 
     await waitFor(() => expect(fact('Hours left')).toBe('65 h 30'))
     expect(reads()).toHaveLength(1)
@@ -688,7 +707,7 @@ describe('when the terms change under the block', () => {
     const view = mount(yearly(120))
     await loaded()
 
-    view.rerender(<ConsumptionBlock projectId="p1" terms={slaOnly()} />)
+    view.rerender(<ConsumptionBlock projectId="p1" terms={slaOnly()} state="active" />)
 
     expect(screen.queryByTestId('project-hours-consumption')).toBeNull()
   })
@@ -700,7 +719,7 @@ describe('a different project', () => {
     const view = mount(yearly(120), 'p1')
     await loaded()
 
-    view.rerender(<ConsumptionBlock projectId="p2" terms={yearly(120)} />)
+    view.rerender(<ConsumptionBlock projectId="p2" terms={yearly(120)} state="active" />)
 
     await waitFor(() => expect(reads()).toHaveLength(2))
     expect(reads()[1]!.params).toMatchObject({ projectId: 'p2' })
@@ -710,7 +729,7 @@ describe('a different project', () => {
     answers(summary())
     const view = mount(yearly(120), 'p1')
     await loaded()
-    view.rerender(<ConsumptionBlock projectId="p2" terms={yearly(120)} />)
+    view.rerender(<ConsumptionBlock projectId="p2" terms={yearly(120)} state="active" />)
     await waitFor(() => expect(reads()).toHaveLength(2))
     await loaded()
 

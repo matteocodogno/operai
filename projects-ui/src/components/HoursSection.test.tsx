@@ -17,7 +17,7 @@ import axe from 'axe-core'
 import { fakeApi, problem, termsOf } from '../test-support/fakeApi'
 import type { FakeAnswer } from '../test-support/fakeApi'
 import { TIME_ENTRY_RECORDED } from '../lib/timeEntryRecordedEvent'
-import type { Terms } from '../lib/types'
+import type { ProjectState, Terms } from '../lib/types'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 
@@ -105,7 +105,7 @@ afterEach(() => {
 describe('the card', () => {
   it('is one card titled "Hours" with the consumption block, a divider and the panel, in that order', async () => {
     const HoursSection = await load(() => ({ HostExtension: hostExtension }))
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
 
     await screen.findByTestId('host-hours-panel')
     await screen.findByTestId('project-hours-consumption-facts')
@@ -123,7 +123,7 @@ describe('the card', () => {
 
   it('hands the panel the project as { on, targetId } and nothing else, keyed by the project', async () => {
     const HoursSection = await load(() => ({ HostExtension: hostExtension }))
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
 
     await screen.findByTestId('host-hours-panel')
 
@@ -142,7 +142,7 @@ describe('the card', () => {
     ['terms of an SLA and no hour package (D82)', slaOnly()],
   ])('with %s the card is the panel alone: no block, no divider, no read of the summary', async (_name, terms) => {
     const HoursSection = await load(() => ({ HostExtension: hostExtension }))
-    render(<HoursSection projectId="p1" terms={terms} />)
+    render(<HoursSection projectId="p1" terms={terms} state="active" />)
 
     await screen.findByTestId('host-hours-panel')
 
@@ -158,7 +158,7 @@ describe('the card', () => {
       sla: null,
       hourPackage: { hours: 120, kind: 'capacity', startDate: '2027-03-01', expiryDate: null, currentPeriod: null },
     })
-    render(<HoursSection projectId="p1" terms={notStarted} />)
+    render(<HoursSection projectId="p1" terms={notStarted} state="active" />)
 
     await screen.findByTestId('host-hours-panel')
 
@@ -173,7 +173,7 @@ describe('the card', () => {
       release = resolve
     })
     const HoursSection = await load(() => seam as unknown as Record<string, unknown>)
-    render(<HoursSection projectId="p1" terms={fixedPrice()} />)
+    render(<HoursSection projectId="p1" terms={fixedPrice()} state="active" />)
 
     expect(within(card()).getByRole('heading', { name: 'Hours' })).not.toBeNull()
     expect(screen.getByText('Loading hours…')).not.toBeNull()
@@ -192,7 +192,7 @@ describe('when the panel cannot be had (AC-2.6): only its slot changes, the card
     const HoursSection = await load(() => {
       throw new Error('Failed to fetch dynamically imported module')
     })
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
 
     const notice = await screen.findByTestId('project-hours-unavailable')
 
@@ -205,7 +205,7 @@ describe('when the panel cannot be had (AC-2.6): only its slot changes, the card
 
   it('a shell whose module lacks HostExtension shows the same notice instead of throwing', async () => {
     const HoursSection = await load(() => ({}))
-    render(<HoursSection projectId="p1" terms={null} />)
+    render(<HoursSection projectId="p1" terms={null} state="active" />)
 
     expect((await screen.findByTestId('project-hours-unavailable')).textContent).toBe(UNAVAILABLE)
     expect(screen.getByRole('heading', { name: 'Hours' })).not.toBeNull()
@@ -219,7 +219,7 @@ describe('when the panel cannot be had (AC-2.6): only its slot changes, the card
         return fallback
       },
     }))
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
 
     await waitFor(() => expect(seen).not.toBeNull())
     expect(within(card()).getByTestId('project-hours-unavailable').textContent).toBe(UNAVAILABLE)
@@ -238,7 +238,7 @@ describe('when the panel cannot be had (AC-2.6): only its slot changes, the card
     render(
       <div>
         <p>rest of the page</p>
-        <HoursSection projectId="p1" terms={yearly()} />
+        <HoursSection projectId="p1" terms={yearly()} state="active" />
       </div>,
     )
 
@@ -259,10 +259,10 @@ describe('when the panel cannot be had (AC-2.6): only its slot changes, the card
         return createElement('div', { 'data-testid': 'host-hours-panel' }, (props as { targetId: string }).targetId)
       },
     }))
-    const view = render(<HoursSection projectId="bad" terms={null} />)
+    const view = render(<HoursSection projectId="bad" terms={null} state="active" />)
     expect(await screen.findByTestId('project-hours-unavailable')).not.toBeNull()
 
-    view.rerender(<HoursSection projectId="good" terms={null} />)
+    view.rerender(<HoursSection projectId="good" terms={null} state="active" />)
 
     expect((await screen.findByTestId('host-hours-panel')).textContent).toBe('good')
     expect(screen.queryByTestId('project-hours-unavailable')).toBeNull()
@@ -273,7 +273,7 @@ describe('when the panel cannot be had (AC-2.6): only its slot changes, the card
   it('unmounting before the import settles does not update state', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const HoursSection = await load(() => ({ HostExtension: hostExtension }))
-    const view = render(<HoursSection projectId="p1" terms={null} />)
+    const view = render(<HoursSection projectId="p1" terms={null} state="active" />)
     view.unmount()
     await new Promise((resolve) => setTimeout(resolve, 20))
 
@@ -296,7 +296,7 @@ describe('the block and the panel fail independently (AC-2.6, AC-4.9; design S1 
   it('block fails, panel loads: the warning of the block, then the panel as usual', async () => {
     serve(() => problem(503, 'host_unavailable'))
     const HoursSection = await load(() => ({ HostExtension: hostExtension }))
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
 
     expect(await screen.findByTestId('project-hours-consumption-unavailable')).not.toBeNull()
     expect(await screen.findByTestId('host-hours-panel')).not.toBeNull()
@@ -306,7 +306,7 @@ describe('the block and the panel fail independently (AC-2.6, AC-4.9; design S1 
 
   it('panel fails, block loads: the consumption facts, then the notice of the slot', async () => {
     const HoursSection = await load(() => ({ HostExtension: ({ fallback }: SlotProps) => fallback }))
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
 
     expect(await screen.findByTestId('project-hours-unavailable')).not.toBeNull()
     expect(await screen.findByTestId('project-hours-consumption-facts')).not.toBeNull()
@@ -320,7 +320,7 @@ describe('the block and the panel fail independently (AC-2.6, AC-4.9; design S1 
     const HoursSection = await load(() => ({
       HostExtension: () => createElement(FailingPanel, { onRetry: () => (panelRetries += 1) }),
     }))
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
 
     const blockWarning = await screen.findByTestId('project-hours-consumption-unavailable')
     expect(await screen.findByTestId('panel-error')).not.toBeNull()
@@ -340,7 +340,7 @@ describe('the block and the panel fail independently (AC-2.6, AC-4.9; design S1 
 
   it('neither fails: the facts and the panel, and no alert', async () => {
     const HoursSection = await load(() => ({ HostExtension: hostExtension }))
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
 
     await screen.findByTestId('project-hours-consumption-facts')
     await screen.findByTestId('host-hours-panel')
@@ -352,7 +352,7 @@ describe('the block and the panel fail independently (AC-2.6, AC-4.9; design S1 
   it('the heading survives whichever part fails', async () => {
     serve(() => problem(503, 'host_unavailable'))
     const HoursSection = await load(() => ({ HostExtension: ({ fallback }: SlotProps) => fallback }))
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
 
     await screen.findByTestId('project-hours-consumption-unavailable')
     await screen.findByTestId('project-hours-unavailable')
@@ -381,7 +381,7 @@ describe('a save made with Record hours on this page (AC-2.8, D84)', () => {
       )
     }
     const HoursSection = await load(() => ({ HostExtension: () => createElement(Disclosure) }))
-    render(<HoursSection projectId="p1" terms={yearly(120)} />)
+    render(<HoursSection projectId="p1" terms={yearly(120)} state="active" />)
     await screen.findByTestId('project-hours-consumption-facts')
     const toggle = await screen.findByRole('button', { name: 'Show breakdown' })
     fireEvent.click(toggle)
@@ -398,7 +398,7 @@ describe('a save made with Record hours on this page (AC-2.8, D84)', () => {
 
   it('an event naming another project leaves the block as it is', async () => {
     const HoursSection = await load(() => ({ HostExtension: hostExtension }))
-    render(<HoursSection projectId="p1" terms={yearly()} />)
+    render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
     await screen.findByTestId('project-hours-consumption-facts')
 
     recorded({ on: 'project', targetId: 'p9' })
@@ -430,7 +430,7 @@ describe('accessibility (design § Accessibility)', () => {
       body: summary({ windowMinutes: terms?.type === 'fixed_price' ? null : windowMinutes }),
     }))
     const HoursSection = await load(() => ({ HostExtension: hostExtension }))
-    const { container } = render(<HoursSection projectId="p1" terms={terms} />)
+    const { container } = render(<HoursSection projectId="p1" terms={terms} state="active" />)
     await screen.findByTestId('host-hours-panel')
     if (terms !== null) await screen.findByTestId('project-hours-consumption-facts')
 
@@ -440,7 +440,7 @@ describe('accessibility (design § Accessibility)', () => {
   it('has no axe violation with the block unavailable and the panel replaced by the host notice', async () => {
     serve(() => problem(503, 'host_unavailable'))
     const HoursSection = await load(() => ({ HostExtension: ({ fallback }: SlotProps) => fallback }))
-    const { container } = render(<HoursSection projectId="p1" terms={yearly()} />)
+    const { container } = render(<HoursSection projectId="p1" terms={yearly()} state="active" />)
     await screen.findByTestId('project-hours-consumption-unavailable')
     await screen.findByTestId('project-hours-unavailable')
 
@@ -460,12 +460,68 @@ describe('accessibility (design § Accessibility)', () => {
         currentPeriod: { from: '2026-03-01', to: '2026-09-30', ended: true },
       },
     })
-    const { container } = render(<HoursSection projectId="p1" terms={expired} />)
+    const { container } = render(<HoursSection projectId="p1" terms={expired} state="active" />)
     // Loading first: the polite line and the skeletons.
     expect(await axeViolations(container)).toEqual([])
     await screen.findByTestId('project-hours-consumption-expired')
     expect(await axeViolations(container)).toEqual([])
   })
+})
+
+describe('the divider and the project state (AC-1.7 amended, AC-5.24, AC-5.26; plan D-P9): one rule says whether there is a block', () => {
+  /** SLA-only terms with an end date and the Europe/Zurich day projects-api derived them for. */
+  const ending = (endDate: string | null): Terms => ({
+    ...termsOf('maintenance', { sla: { highDays: 1, normalDays: 3 }, hourPackage: null }, { endDate }),
+    asOf: '2026-11-27',
+  })
+  const draws = async (terms: Terms | null, state: ProjectState) => {
+    const HoursSection = await load(() => ({ HostExtension: hostExtension }))
+    render(<HoursSection projectId="p1" terms={terms} state={state} />)
+    await screen.findByTestId('host-hours-panel')
+  }
+
+  it.each([
+    ['an end date that has passed', '2026-11-26'],
+    ['an end date that is today', '2026-11-27'],
+    ['an end date 30 days ahead', '2026-12-27'],
+  ])(
+    'terms of an SLA and no hour package with %s: the divider is drawn, and nothing is read from hours-api',
+    async (_label, endDate) => {
+      await draws(ending(endDate), 'active')
+
+      expect(screen.getByTestId('project-hours-divider')).not.toBeNull()
+      expect(reads()).toBe(0)
+    },
+  )
+
+  it.each([
+    ['no end date', null],
+    ['an end date 31 days ahead', '2026-12-28'],
+  ])('the same terms with %s: the panel alone, no divider', async (_label, endDate) => {
+    await draws(ending(endDate), 'active')
+
+    expect(screen.queryByTestId('project-hours-divider')).toBeNull()
+    expect(screen.queryByTestId('project-hours-consumption')).toBeNull()
+  })
+
+  it.each<ProjectState>(['closed', 'cancelled'])(
+    'the same terms with a passed end date on a %s project: the panel alone',
+    async (state) => {
+      await draws(ending('2026-11-26'), state)
+
+      expect(screen.queryByTestId('project-hours-divider')).toBeNull()
+    },
+  )
+
+  it.each<ProjectState>(['planned', 'active', 'on_hold', 'closed', 'cancelled'])(
+    'a fixed price keeps its figures, its divider and its panel on a %s project (only the state and the dates go, AC-5.26)',
+    async (state) => {
+      await draws(fixedPrice(), state)
+
+      expect((await screen.findByTestId('project-hours-consumption-facts')).textContent).toContain('Man-days used')
+      expect(screen.getByTestId('project-hours-divider')).not.toBeNull()
+    },
+  )
 })
 
 describe('no money anywhere (AC-1.8)', () => {

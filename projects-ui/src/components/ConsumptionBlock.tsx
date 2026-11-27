@@ -7,7 +7,7 @@ import { consumptionOf, summaryRequestOf } from '../lib/consumption'
 import type { Consumption } from '../lib/consumption'
 import { getHoursSummary } from '../lib/hoursApi'
 import { TIME_ENTRY_RECORDED, isTimeEntryRecordedDetail } from '../lib/timeEntryRecordedEvent'
-import type { Terms } from '../lib/types'
+import type { ProjectState, Terms } from '../lib/types'
 import { strings } from '../strings'
 import { Loading } from './LoadState'
 
@@ -142,7 +142,17 @@ type Span = { from: string; to: string } | null
  * `consumptionOf`'s answer. It is complete or absent — never a figure it could not read (AC-4.9) — and it reads again, keeping what is
  * on screen until the answer, when Record hours announces a save on this project (D84).
  */
-function SummaryConsumption({ projectId, terms, span }: { projectId: string; terms: Terms | null; span: Span }) {
+function SummaryConsumption({
+  projectId,
+  terms,
+  state,
+  span,
+}: {
+  projectId: string
+  terms: Terms | null
+  state: ProjectState
+  span: Span
+}) {
   const from = span?.from ?? null
   const to = span?.to ?? null
   const load = useCallback(
@@ -174,7 +184,7 @@ function SummaryConsumption({ projectId, terms, span }: { projectId: string; ter
     }
   })
 
-  const drawn = resource.status === 'ready' ? consumptionOf(terms, resource.data) : null
+  const drawn = resource.status === 'ready' ? consumptionOf(terms, resource.data, state) : null
   // Never "none" here — this part only exists for terms `summaryRequestOf` asked a summary for — but the type says it can be.
   if (drawn?.variant === 'none') return null
   return (
@@ -207,16 +217,26 @@ function SummaryConsumption({ projectId, terms, span }: { projectId: string; ter
  * whether it has to ask hours-api at all, is `lib/consumption.ts`'s (a package that has not started is drawn from
  * the terms alone, A51; terms that sold nothing comparable draw nothing at all, AC-1.7). It is composed here, by the
  * screen of the terms' owner, from the terms and the summary (plan D-P3), and shows no amount, price or rate (AC-1.8).
+ * `state` is the project's own: the signals of US-5 (the state said, the date lines) read it, and a closed or cancelled
+ * project says no state and no date (AC-5.26).
  */
-export default function ConsumptionBlock({ projectId, terms }: { projectId: string; terms: Terms | null }) {
+export default function ConsumptionBlock({
+  projectId,
+  terms,
+  state,
+}: {
+  projectId: string
+  terms: Terms | null
+  state: ProjectState
+}) {
   const request = summaryRequestOf(terms)
   if (request === null) {
-    const sold = consumptionOf(terms, null)
+    const sold = consumptionOf(terms, null, state)
     return sold.variant === 'package_not_started' ? (
       <Group>
         <Facts drawn={sold} />
       </Group>
     ) : null
   }
-  return <SummaryConsumption projectId={projectId} terms={terms} span={request.window} />
+  return <SummaryConsumption projectId={projectId} terms={terms} state={state} span={request.window} />
 }

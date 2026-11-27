@@ -82,7 +82,7 @@ const setup = async (
   vi.resetModules()
   vi.doMock('shell/extensions', extensions)
   const HoursSection = (await import('./HoursSection')).default
-  render(<HoursSection projectId="p1" terms={terms} />)
+  render(<HoursSection projectId="p1" terms={terms} state="active" />)
 }
 
 const visible = (element: Element): string => {

@@ -200,6 +200,31 @@ describe('the Hours card on the project page (AC-1.1, AC-1.7)', () => {
   })
 })
 
+describe("the card is given the project's own state (AC-5.26, plan § API contracts: HoursSection({ projectId, terms, state }))", () => {
+  /** An SLA-only project whose end date passed the day before the day projects-api derived its terms for. */
+  const endedYesterday: Terms = {
+    ...termsOf('maintenance', { sla: { highDays: 1, normalDays: 3 }, hourPackage: null }, { endDate: '2026-11-26' }),
+    asOf: '2026-11-27',
+  }
+
+  it('an active project with a passed end date has a block of date lines, so the card draws its divider', async () => {
+    await renderProject(projectDetail({ id: 'p1', state: 'active', type: 'maintenance', terms: endedYesterday }))
+    await screen.findByTestId('host-hours-panel')
+
+    expect(screen.getByTestId('project-hours-divider')).not.toBeNull()
+  })
+
+  it.each<Project['state']>(['closed', 'cancelled'])(
+    'the same project once it is %s has no block: the card holds the panel alone',
+    async (state) => {
+      await renderProject(projectDetail({ id: 'p1', state, type: 'maintenance', terms: endedYesterday }))
+      await screen.findByTestId('host-hours-panel')
+
+      expect(screen.queryByTestId('project-hours-divider')).toBeNull()
+    },
+  )
+})
+
 describe('when hours cannot be had the page still loads (AC-2.6, AC-4.9)', () => {
   it('hours-api down and no panel: the page, its other cards and the Hours card with its title and two notices', async () => {
     shell.hoursPanel = 'fallsBack'

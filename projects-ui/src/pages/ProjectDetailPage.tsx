@@ -276,7 +276,7 @@ export default function ProjectDetailPage() {
           />
         </Card>
         {/* The ONE Hours card (specs/20261112-project-hours, D80): what the terms sold against the hours used, then hours-ui's panel. */}
-        <HoursSection projectId={project.id} terms={project.terms} />
+        <HoursSection projectId={project.id} terms={project.terms} state={project.state} />
         <TeamCard
           project={project}
           currentUserId={currentUserId}
