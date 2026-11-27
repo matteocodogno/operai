@@ -31,6 +31,7 @@ import { activitiesAnswer, projectTasks } from './test-support/fixtures/activity
 import { DEAL_ROWS, ENTRY_LISTS, PROJECT_ROWS, TODAY, refusal } from './test-support/fixtures/entry'
 import { typeDuration } from './test-support/typeDuration'
 import { CONFIRMATION_DISMISS_MS } from '@operai/ui'
+import { TIME_ENTRY_RECORDED, isTimeEntryRecordedDetail } from './lib/timeEntryRecordedEvent'
 
 const e = strings.entry
 const f = e.fields
@@ -720,7 +721,7 @@ describe('after a save (AC-4.3, G1; design S3)', () => {
     expect(status.className).toContain('basis-full')
   })
 
-  it('changes nothing else: no entry is read again and nothing is told to the host', async () => {
+  it('changes nothing else: no entry is read again and nothing comes back to the host through the seam', async () => {
     await record(PROJECT)
     await screen.findByTestId(MESSAGE)
 
@@ -742,5 +743,181 @@ describe('what it never does (AC-4.4)', () => {
     const methods = requests(apiFetch).map((request) => request.method)
     expect(methods).not.toContain('PATCH')
     expect(methods).not.toContain('DELETE')
+  })
+})
+
+describe('the fact it broadcasts after a save (AC-2.8; plan § Refreshing after Record hours, D-P6; ADR 20261116 amended)', () => {
+  // Heard the way a panel on the page hears it: on `window`, by name.
+  const heard: CustomEvent[] = []
+  const listen = (event: Event) => {
+    heard.push(event as CustomEvent)
+  }
+  beforeEach(() => {
+    heard.length = 0
+    window.addEventListener(TIME_ENTRY_RECORDED, listen)
+  })
+  afterEach(() => {
+    window.removeEventListener(TIME_ENTRY_RECORDED, listen)
+  })
+  const details = () => heard.map((event) => event.detail as unknown)
+
+  /** A CRM task with no deal records on no entity: it needs a category before it saves. */
+  const recordOtherWork = async () => {
+    await open(CRM_TASK)
+    await typeDuration(durationField(), '1:30')
+    await userEvent.selectOptions(select(f.category.label), 'Formazione')
+    await save()
+  }
+
+  it.each([
+    ['the project page', PROJECT, { on: 'project', targetId: 'p1' }],
+    ['the deal page', DEAL, { on: 'deal', targetId: 'd1' }],
+    ['a project task row: the task’s project, never the task', PROJECT_TASK, { on: 'project', targetId: 'p1' }],
+    ['a deal task row: the task’s deal, never the task', DEAL_TASK, { on: 'deal', targetId: 'd1' }],
+  ])('%s: exactly one event after the save, naming the target and nothing else', async (_where, props, detail) => {
+    await record(props, { note: 'Prepared the workshop' })
+    await screen.findByTestId(MESSAGE)
+
+    expect(details()).toEqual([detail])
+    expect(isTimeEntryRecordedDetail(details()[0])).toBe(true)
+  })
+
+  it('other work (a CRM task with no deal): the event names no target, `targetId` is ""', async () => {
+    await recordOtherWork()
+    await screen.findByTestId(MESSAGE)
+
+    expect(details()).toEqual([{ on: 'none', targetId: '' }])
+    expect(isTimeEntryRecordedDetail(details()[0])).toBe(true)
+  })
+
+  it('names the target the POST was sent for: the same project or deal as the body, for every set of props', async () => {
+    for (const props of [PROJECT, DEAL, PROJECT_TASK, DEAL_TASK]) {
+      apiFetch.mockClear()
+      heard.length = 0
+      await record(props)
+      await screen.findByTestId(MESSAGE)
+      const body = posted()[0]?.body as { on: { type: string; id: string } }
+
+      expect(details()).toEqual([{ on: body.on.type, targetId: body.on.id }])
+      cleanup()
+    }
+  })
+
+  it('is a CustomEvent on `window`, whose detail carries no minutes, day, note, person or entry id', async () => {
+    await record(PROJECT, { duration: '2:30', note: 'Prepared the workshop' })
+    await screen.findByTestId(MESSAGE)
+
+    expect(heard).toHaveLength(1)
+    expect(heard[0]).toBeInstanceOf(CustomEvent)
+    expect(heard[0]?.type).toBe('operai:time-entry-recorded')
+    expect(Object.keys(heard[0]?.detail as object).sort()).toEqual(['on', 'targetId'])
+    expect(JSON.stringify(heard[0]?.detail)).not.toMatch(/150|2:30|2026|workshop|u-ada/)
+  })
+
+  it('is sent after hours-api has answered, not while the save is still on its way', async () => {
+    const answer = deferred<FakeAnswer>()
+    stubApi({ 'POST /time-entries': () => answer.promise })
+    await record(PROJECT)
+    await waitFor(() => expect(posted()).toHaveLength(1))
+
+    expect(details()).toEqual([])
+    await act(async () => answer.resolve({ status: 201, body: {} }))
+    await screen.findByTestId(MESSAGE)
+
+    expect(details()).toEqual([{ on: 'project', targetId: 'p1' }])
+  })
+
+  it.each([
+    ['not_on_project', 403, 'not_on_project'],
+    ['not_involved_in_deal', 403, 'not_involved_in_deal'],
+    ['the project gone', 404, 'not_found'],
+    ['an activity hours-api no longer accepts', 422, 'activity_not_allowed'],
+    ['an unreadable duration', 422, 'invalid_minutes'],
+    ['the owner could not be asked', 503, 'host_unavailable'],
+    ['something went wrong', 500, undefined],
+  ])('sends none when hours-api refuses the save (%s): nothing was recorded', async (_what, status, code) => {
+    stubApi({ 'POST /time-entries': () => refusal(status, code) })
+    await record(PROJECT, { note: 'Prepared the workshop' })
+    await within(dialog()).findByRole('alert')
+
+    expect(details()).toEqual([])
+    expect(queryDialog()).not.toBeNull()
+  })
+
+  it('sends none when the request does not reach hours-api at all', async () => {
+    stubApi({
+      'POST /time-entries': () => {
+        throw new TypeError('Failed to fetch')
+      },
+    })
+    await record(PROJECT)
+    await within(dialog()).findByRole('alert')
+
+    expect(details()).toEqual([])
+  })
+
+  it('sends none for a save the dialog refuses before anything is sent (a day after today)', async () => {
+    await open(PROJECT)
+    await typeDuration(durationField(), '2:30')
+    fireEvent.change(dayField(), { target: { value: '2026-11-14' } })
+    await save()
+    await screen.findByText(e.errors.dayFuture)
+
+    expect(posted()).toEqual([])
+    expect(details()).toEqual([])
+  })
+
+  it('sends none for a dialog that was cancelled, or a message that was dismissed afterwards', async () => {
+    await open(PROJECT)
+    await userEvent.click(screen.getByRole('button', { name: strings.common.cancel }))
+    expect(details()).toEqual([])
+
+    await userEvent.click(recordButton())
+    await screen.findByRole('dialog')
+    await typeDuration(durationField(), '2:30')
+    await save()
+    await screen.findByTestId(MESSAGE)
+    expect(details()).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: strings.common.dismiss }))
+    expect(details()).toHaveLength(1)
+  })
+
+  it('a refusal that is put right and saved again is one event in all: the save that happened', async () => {
+    let attempt = 0
+    stubApi({
+      'POST /time-entries': () => (++attempt === 1 ? refusal(503, 'host_unavailable') : { status: 201, body: {} }),
+    })
+    await record(PROJECT)
+    await within(dialog()).findByRole('alert')
+    expect(details()).toEqual([])
+
+    await save()
+    await screen.findByTestId(MESSAGE)
+
+    expect(posted()).toHaveLength(2)
+    expect(details()).toEqual([{ on: 'project', targetId: 'p1' }])
+  })
+
+  it('is one event for each save: two saves, two events', async () => {
+    await record(PROJECT, { duration: '2:30' })
+    await screen.findByTestId(MESSAGE)
+    await userEvent.click(recordButton())
+    await screen.findByRole('dialog')
+    await typeDuration(durationField(), '1:00')
+    await save()
+    await waitFor(() => expect(details()).toHaveLength(2))
+
+    expect(details()).toEqual([
+      { on: 'project', targetId: 'p1' },
+      { on: 'project', targetId: 'p1' },
+    ])
+  })
+
+  it('reads nothing more because of it, and sends no second write: the listener re-reads, the widget does not', async () => {
+    await record(PROJECT)
+    await screen.findByTestId(MESSAGE)
+
+    expect(requests(apiFetch).filter((request) => request.method !== 'GET')).toHaveLength(1)
+    expect(requests(apiFetch, 'GET /time-entries')).toEqual([])
   })
 })

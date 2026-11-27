@@ -177,6 +177,28 @@ describe("the committed registry", () => {
     expect(a?.equals(b ?? Buffer.alloc(0))).toBe(true);
   });
 
+  // specs/20261112-project-hours T10 (plan § Browser event, D84, D-P6): the event's name and detail guard is the contract between the
+  // widget that broadcasts it (hours-ui) and the panel that listens (projects-ui), in two apps that share no package.
+  test("registers the timeEntryRecordedEvent module of hours-ui and projects-ui, compared whole-file, in sync right now", () => {
+    const g = SHARED_COPIES.find((x) => x.name === "timeEntryRecordedEvent");
+    expect(g?.files).toEqual(["hours-ui/src/lib/timeEntryRecordedEvent.ts", "projects-ui/src/lib/timeEntryRecordedEvent.ts"]);
+    expect(g?.mode).toBe("whole");
+    expect(checkGroups(g ? [g] : [], repoRoot)).toEqual([]);
+  });
+
+  test("the two timeEntryRecordedEvent files are byte-identical, and a one-byte drift in either is reported", () => {
+    const [hours, projects] = ["hours-ui", "projects-ui"].map((app) => readFileSync(join(repoRoot, app, "src/lib/timeEntryRecordedEvent.ts")));
+    expect(hours?.equals(projects ?? Buffer.alloc(0))).toBe(true);
+    const root = tree({
+      "hours-ui/src/lib/timeEntryRecordedEvent.ts": hours?.toString("utf8") ?? "",
+      "projects-ui/src/lib/timeEntryRecordedEvent.ts": (projects?.toString("utf8") ?? "").replace("operai:time-entry-recorded", "operai:time-entry-recorded "),
+    });
+    const g = SHARED_COPIES.find((x) => x.name === "timeEntryRecordedEvent");
+    const errors = checkGroups(g ? [g] : [], root);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("projects-ui/src/lib/timeEntryRecordedEvent.ts");
+  });
+
   test("registers accounting-api's problem and logger copies (specs/20261119-accounting T4)", () => {
     for (const name of ["problem", "logger"]) {
       const g = SHARED_COPIES.find((x) => x.name === name);
