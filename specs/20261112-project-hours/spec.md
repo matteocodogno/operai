@@ -1,11 +1,12 @@
 ---
 id: 20261112
 slug: project-hours
-status: approved
+status: done
 rigor: production
 created: 2026-11-12
 reopened: 2026-11-27
 approved: 2026-11-27
+done: 2026-11-27
 depends-on: 20261103-projects, 20261103-projects-handoff, 20261104-meetings, 20261112-time-tracking, 20261116-record-hours-in-place
 ---
 
