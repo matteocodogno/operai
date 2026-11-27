@@ -9,14 +9,17 @@
  *   ids      comma-separated meeting ids (at most 100): each one's current host, or `null` when it is
  *            linked to none. An id that names no meeting is absent.
  *   dealId   the meetings currently linked to that CRM deal (no paging: a row is an id and a link).
+ *   projectId the meetings currently linked to that Projects project, by the same rule (specs/20261112-project-hours T1 —
+ *            AC-4.1, AC-4.2, AC-4.4, AC-4.8, AC-4.9; D78: the hours on a project include its linked meetings').
  *
- * Exactly one of the two (422 otherwise). The answer is `{ items: { id, host }[] }` and NOTHING else —
+ * Exactly one of the three (422 otherwise). The answer is `{ items: { id, host }[] }` and NOTHING else —
  * never a title, a participant, a duration or any content (ADR 20261104-meetings-tool-shape-visibility-by-participation: content opens by relationship to
  * the record, for no role and no service). The link is independent of the creator's `hostVisible`
  * choice, which only decides whether host readers may open the meeting.
  *
  * A host is data, never a branch (ADR 20261104-meeting-host-contract-resolve-and-notices): `host` reports whatever the meeting stores. Only the
- * `dealId` filter names a host, because its contract is "the CRM deal".
+ * `dealId` and `projectId` filters name a host, because their contracts are "the CRM deal" and "the Projects project":
+ * each matches the app, the entity type AND the id, so another app's entity of the same type or id is never a match.
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -39,6 +42,9 @@ export const HOSTS_ALLOWED_SUBS = ["system:hours-api"] as const;
 /** What the `dealId` filter means: the CRM's deal host (`src/hosts/registry.ts`). */
 const DEAL_HOST = { app: "crm", entityType: "deal" } as const;
 
+/** What the `projectId` filter means: the Projects app's project host (`src/hosts/registry.ts`, specs/20261112-project-hours D78). */
+const PROJECT_HOST = { app: "projects", entityType: "project" } as const;
+
 export const MAX_IDS = 100;
 const MAX_ID_LENGTH = 64;
 
@@ -56,20 +62,32 @@ const IdsQuery = z
   .refine((ids) => ids.length <= MAX_IDS, `At most ${MAX_IDS} ids`)
   .refine((ids) => ids.every(lengthOk), `Every id is 1-${MAX_ID_LENGTH} characters`);
 
-/** `dealId=<id>`: one CRM deal id, 1-64 characters. */
-const DealIdQuery = z
-  .string()
-  .max(MAX_ID_LENGTH * 2)
-  .openapi({ description: "A CRM deal id: the meetings currently linked to it. Exactly one of ids and dealId.", example: "cm0d1" })
-  .transform((value) => value.trim())
-  .refine(lengthOk, `The deal id is 1-${MAX_ID_LENGTH} characters`);
+/** `dealId=<id>` / `projectId=<id>`: one host entity id, 1-64 characters (ids are text). */
+const hostEntityIdQuery = (what: "deal" | "project", description: string, example: string) =>
+  z
+    .string()
+    .max(MAX_ID_LENGTH * 2)
+    .openapi({ description, example })
+    .transform((value) => value.trim())
+    .refine(lengthOk, `The ${what} id is 1-${MAX_ID_LENGTH} characters`);
 
-/** Exactly one filter: neither would be "every meeting" and both would be a question nobody asked. */
-const Query = z.object({ ids: IdsQuery.optional(), dealId: DealIdQuery.optional() }).superRefine((query, ctx) => {
-  if ((query.ids === undefined) === (query.dealId === undefined)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ids"], message: "Give exactly one of ids or dealId" });
-  }
-});
+const DealIdQuery = hostEntityIdQuery("deal", "A CRM deal id: the meetings currently linked to it. Exactly one of ids, dealId and projectId.", "cm0d1");
+
+const ProjectIdQuery = hostEntityIdQuery(
+  "project",
+  "A Projects project id: the meetings currently linked to it. Exactly one of ids, dealId and projectId.",
+  "cm0p1",
+);
+
+/** Exactly one filter: none would be "every meeting" and two would be a question nobody asked. */
+const Query = z
+  .object({ ids: IdsQuery.optional(), dealId: DealIdQuery.optional(), projectId: ProjectIdQuery.optional() })
+  .superRefine((query, ctx) => {
+    const given = [query.ids, query.dealId, query.projectId].filter((filter) => filter !== undefined).length;
+    if (given !== 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ids"], message: "Give exactly one of ids, dealId or projectId" });
+    }
+  });
 
 const HostSchema = z.object({ app: z.string(), entityType: z.string(), entityId: z.string() });
 
@@ -85,7 +103,8 @@ const hostsRoute = (auth: MiddlewareHandler) =>
     description:
       "Authorization: Bearer <service JWT> from auth (aud = SERVICE_AUDIENCE, scope meetings.hosts.read, sub system:hours-api). " +
       "A user JWT is never accepted. Exactly one of `ids` (at most 100: each one's current host, or null when it is linked to none; " +
-      "an unknown id is absent) and `dealId` (the meetings currently linked to that CRM deal). " +
+      "an unknown id is absent), `dealId` (the meetings currently linked to that CRM deal) and `projectId` " +
+      "(the meetings currently linked to that project). " +
       "Returns the link and nothing else: no title, participant, duration or content.",
     request: { query: Query },
     responses: {
@@ -98,19 +117,25 @@ const hostsRoute = (auth: MiddlewareHandler) =>
 /** Postgres text cannot hold a NUL: such an id names no meeting, and sending it would make the driver throw (a 500). */
 const queryable = (id: string) => !id.includes("\u0000");
 
+/** The meetings whose stored host is exactly this entity now; an id that cannot name one matches none. */
+const linkedTo = (host: { readonly app: string; readonly entityType: string }, entityId: string): Prisma.MeetingWhereInput | null =>
+  queryable(entityId) ? { hostApp: host.app, hostEntityType: host.entityType, hostEntityId: entityId } : null;
+
 export const createSystemHostsRouter = (auth: MiddlewareHandler) => {
   const router = new OpenAPIHono<{ Variables: SystemAuthVariables }>({ defaultHook: validationHook });
 
   // The guard rides on the route (`middleware`), never `router.use("*")`: Hono copies a
   // sub-app's `use("*")` onto the whole app.
   router.openapi(hostsRoute(auth), async (c) => {
-    const { ids, dealId } = c.req.valid("query");
+    const { ids, dealId, projectId } = c.req.valid("query");
     const where: Prisma.MeetingWhereInput | null =
       ids !== undefined
         ? { id: { in: ids.filter(queryable) } }
-        : dealId !== undefined && queryable(dealId)
-          ? { hostApp: DEAL_HOST.app, hostEntityType: DEAL_HOST.entityType, hostEntityId: dealId }
-          : null;
+        : dealId !== undefined
+          ? linkedTo(DEAL_HOST, dealId)
+          : projectId !== undefined
+            ? linkedTo(PROJECT_HOST, projectId)
+            : null;
     const rows = where
       ? await db.meeting.findMany({
           where,
