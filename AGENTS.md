@@ -74,9 +74,32 @@ hours never carried; capacity: from its start date to its expiry, or to today wi
 left, or **Over by** the absolute figure once exceeded (never a negative), and an **Expired** badge on a capacity package past its expiry; a
 `fixed_price` project shows man-days used against its estimated man-days (when known) and its max effort, a `t_and_m` one against the total of its
 positions' planned man-days (a man-day is 8 hours, shown with one decimal); terms with nothing to compare (none, or an SLA and no hour package) leave
-the widget alone in the card. No amount, price or rate anywhere. A capacity package without an expiry is compared up to the Zurich day the page was
-loaded on, so a page left open across Zurich midnight keeps the new day's hours out of the block until it is reloaded (accepted, specs/20261112-project-hours
-A52, D85).
+the widget alone in the card unless an end date has passed or is near (below). No amount, price or rate anywhere. Since 2026-11-27 (specs/20261112-project-hours
+US-5) the block also carries **signals**: arithmetic of `consumption.ts` over what it already holds (the terms, the summary's two totals, the project's `state`),
+the same for every `projects:access` reader and none per person (AC-5.27), drawn on the project page only and creating no task or notification (those are
+specs/20261112-project-alerts'). The **consumed percentage** is the hours used (a package period's, else all) over the *reference* — a package's hours, a fixed
+price's max effort or a time-and-material project's total planned man-days; a fixed price's estimated man-days is only a mark on the bar — rounded down by integer
+division and uncapped (119 h 30 of 120 h reads 99 %, 216 h reads 180 %, D92). The **state** is decided on the exact minutes, never the rounded percentage: on track
+below 80 %, close to the limit from 80 % to below 100 %, over from exactly 100 %, said "Limit reached" at exactly the reference and "Over the limit" above it with
+one level, icon and tone (D87, D95), each state and date signal in words and an icon of its own (AC-5.10). The **excess** is the "Over by" fact ("Less than 0.1
+man-day", never "0.0"). The **time elapsed**, in a pace line beside the percentage, is worked out for a package period with an end (a yearly package, a capacity
+package with an expiry, an expired one included) and for a fixed price from its start date to its deadline: whole days, both ends counted, rounded down, 100 %
+only from the day after the last day (AC-5.20). **Date signals** are one line each for a fixed price's deadline and any terms' end date: **passed** by N days
+(graver) or **near**, today or 30 days or fewer ahead (milder), nothing beyond; they read the terms alone, so they also show while the hours cannot be loaded, for a
+package not started and for an SLA-only project (a block of date lines alone). A closed or cancelled project shows no state and no date signal, and a capacity
+package past its expiry no state (D91, D93). The **bar** (`ConsumptionBar`, projects-ui's own, `aria-hidden`: 0–125 % of the reference, ticks at 80 % and 100 %, the
+part beyond 100 % striped and told apart by shape, a today mark, a fixed price's estimate diamond; no library change) only draws what the lines say (AC-5.11). Every
+signal that reads today takes its day from `asOf`, projects-api's terms-view member stating the Europe/Zurich day the view was derived for, never from a clock:
+`consumption.ts` holds no `Date.now(` and no `new Date(`, so the browser's own day never enters (AC-5.29, ADR 20261126-a-figure-set-against-another-owners-figure-…,
+amended 2026-11-27). The bar uses Tailwind utilities no other source in the suite uses, and the suite's one sheet is the shell's, so the shell is rebuilt from the
+same commit as projects-ui (no source change of its own; infra/README.md § Project hours release). **Known limitation, five cases of one cause:** a project page keeps
+what was true on the Zurich day it was loaded on until it is reloaded, a Record hours save included — (a) a capacity package without an expiry is compared up to that
+day, so hours recorded on a later day stay out of the block (used too low, left too high) while the panel's total includes them, the one case with no date on screen
+to show it; (b) a yearly package's anniversary passing leaves the block on the period that has ended; (c) a package's start date arriving leaves it saying the
+package has not started; (d) a capacity package's expiry passing shows "Expired" only after a reload, its figures right; (e) the time elapsed, the today mark and each
+date signal stay on the loaded day, so a date that is today still says today after midnight, a date 31 days ahead is not yet near and a date that passes at
+midnight is not yet passed, while the percentage, state and excess follow the hours (AC-5.28); a reload corrects each (accepted, specs/20261112-project-hours A52, D85,
+D86, R8).
 
 **The hours on a project include the hours recorded on the meetings linked to it now**, as a deal's always have (specs/20261112-time-tracking AC-2.6),
 whoever recorded them; a relink moves them at the next read because nothing is stored on the entry. They count in the summary, in the Project filter of
@@ -182,7 +205,7 @@ operai/
 │                        # shell/session (specs/20261103-projects, 028, ADR 20261103-projects-tool-shape-and-authorization); embeds through
 │                        # shell/extensions Meetings' panel (`meetings.hostMeetings`) on the project page (specs/20261104-meetings A18) and
 │                        # hours-ui's Record hours (`hours.recordHours`) on the project page and the task rows (specs/20261116-record-hours-in-place);
-│                        # one "Hours" card right after Details (`HoursSection`: `ConsumptionBlock` over the pure `src/lib/consumption.ts`, calling hours-api's summary through
+│                        # one "Hours" card right after Details (`HoursSection`: `ConsumptionBlock` and its bar `ConsumptionBar` over the pure `src/lib/consumption.ts`, whose signals of US-5 read projects-api's `asOf` and no clock, calling hours-api's summary through
 │                        # `shell/session`'s `getHoursApiBaseUrl()`, then hours-ui's read panel `hours.hostHours`), re-read on `operai:time-entry-recorded` (specs/20261112-project-hours)
 ├── accounting-ui/       # Accounting tool — federated remote (port 5183; 5185 in the e2e preview): exposes ./App (gated, /accounting) and ./version; calls
 │                        # accounting-api through shell/session (`VITE_ACCOUNTING_API_URL` is the shell's, no VITE_* of its own). Routes `/accounting/ledger-accounts`,
@@ -269,7 +292,7 @@ operai/
 │                        # estimate man-days, the PO's referent and ops-manager picker, all read live, and a notification to
 │                        # the ops-manager (specs/20261103-projects-handoff, ADR 20261104-projects-handoff-live-reads-between-crm-and-projects-over-service-credentials–0094); the Projects host of activities-api
 │                        # (`POST /activity-host/v1/resolve`, specs/20261110-activities) — it never stores tasks; the terms view's `hourPackage.currentPeriod` is derived on
-│                        # read (`src/terms/packagePeriod.ts`, at the Europe/Zurich business day, `src/lib/businessDay.ts`) and a project's resolve item states `projectManagerId`
+│                        # read (`src/terms/packagePeriod.ts`, at the Europe/Zurich business day, `src/lib/businessDay.ts`), the view states that day as `asOf` (US-5), and a project's resolve item states `projectManagerId`
 │                        # for hours-api (specs/20261112-project-hours)
 ├── activities-api/      # Bun + Hono + TypeScript backend (port 8087, DB `activities`) — activities, tasks, task blockers and
 │                        # the meeting mirror state for the CRM (pre-sales) and Projects (operational); NO permission catalog:
@@ -523,7 +546,10 @@ Per-service specifics:
   (`src/lib/businessDay.ts`, the rule of hours-api's `today.ts`) — yearly: period *k* is `[start + 12k months, start + 12(k+1) months − 1 day]`, each period
   on its own, a 29 February anniversary falling on 28 February in a common year; capacity: `[start, expiry]`, or `[start, today]` without an expiry, and past
   the expiry the same window stays with `ended: true`; `null` before the start date (A51) — in `termsView`/`toTermsView`, so every response carrying
-  `TermsViewSchema` has it, the `POST`/`PATCH /projects/{id}/terms` answers included, and no write or `If-Match` rule changes
+  `TermsViewSchema` has it, the `POST`/`PATCH /projects/{id}/terms` answers included, and no write or `If-Match` rule changes. The same view states
+  `asOf: "YYYY-MM-DD"`, the **Europe/Zurich** day it was derived for (`toTermsView`'s one `today` argument, resolved once, so the period, `ended` and every signal
+  projects-ui reads from today are of one day; specs/20261112-project-hours AC-5.29, D-P7): on `GET /projects/{id}`, a project write's answer and the terms
+  `POST`/`PATCH` answers, never stored, never an input (a terms body carrying it is `400 validation_failed`) and never part of the ETag
 - `activities-api` — activities, tasks and blockers of the CRM and Projects (specs/20261110-activities): a JWKS resource
   server with **no permission catalog** — who may read or change an activity is asked of the host as the
   caller on every request (`POST /activity-host/v1/resolve` on crm-api or projects-api with the forwarded JWT,
@@ -871,7 +897,7 @@ The authoritative glossary is `.claude/context/glossary.md` § Time tracking.
 | `see everyone's hours` | The permission `time-entry:read-all` (`admin` only by seed): reads every person's entries and totals through hours-api's oversight path (ADR 20261112-hours-api-time-entries-own-service-hours-catalog); never a write, and not part of the user directory's gate |
 | `hours on a project` | The hours recorded on the project itself plus the hours recorded on the meetings linked to it now, whoever recorded them; every figure of the project-hours spec about a project's hours means these, as a deal's hours have always included its linked meetings'. A relink moves them at the next read (nothing is stored on the entry). Read from hours-api's `GET /time-entries/summary`, the Project filter, the by-project totals and the export's **Counts for project** column (specs/20261112-project-hours D78) |
 | `record's hours summary` | `GET /time-entries/summary?projectId=\|dealId=`: the total hours on one project or deal (every person's), per work type, and per person only for the project's manager (`projectManagerId`), the deal's owner (`ownerUserId`) or a `time-entry:read-all` holder; readable by whoever the record's **owner** says may read the record, asked as the reader on every request, and never shown low (503 while the owner or Meetings cannot say). Shown by hours-ui's `./HostHours` (`hours.hostHours`) in the one **Hours** card of the project and deal pages (ADR 20261126-a-record-hours-summary-is-authorised-by-the-records-owner-…) |
-| `consumption` | A project's **hours on a project** set against what its terms sold, composed by projects-ui from projects-api's `currentPeriod` and the summary: an hour package's hours used and left in its current period (or **Over by**, never a negative; **Expired** for a capacity package past its expiry), man-days (8 hours, one decimal) against a fixed price's estimated man-days and max effort, or a time-and-material project's Σ planned man-days; no money (specs/20261112-project-hours, ADR 20261126-a-figure-set-against-another-owners-figure-…) |
+| `consumption` | A project's **hours on a project** set against what its terms sold, composed by projects-ui from projects-api's `currentPeriod` and the summary: an hour package's hours used and left in its current period (or **Over by**, never a negative; **Expired** for a capacity package past its expiry), man-days (8 hours, one decimal) against a fixed price's estimated man-days and max effort, or a time-and-material project's Σ planned man-days; no money; since 2026-11-27 it also carries **signals** drawn on the project page only (the consumed percentage rounded down, a state — on track, close to the limit, over — decided on the exact hours, the excess, the time elapsed, date signals for an end date or a deadline that has passed or is near, and the bar that draws them), none per person, no state and no date signal for a closed or cancelled project, and every one that reads today taken from projects-api's `asOf` (specs/20261112-project-hours, ADR 20261126-a-figure-set-against-another-owners-figure-…) |
 | `package period` | An hour package's current window, derived on read by projects-api (`currentPeriod { from, to, ended } \| null`, at the Europe/Zurich day): yearly, each 12 months from its start date, each on its own, unused hours never carried; capacity, from its start date to its expiry (or to today without one), `ended` once past it; `null` before the start date |
 
 ---

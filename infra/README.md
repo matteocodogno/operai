@@ -3887,7 +3887,8 @@ every 30 min), and `hours-api` applies only the newest version of a meeting.
 ## Project hours release (specs/20261112-project-hours, ADR 20261126-a-record-hours-summary-is-authorised-by-the-records-owner-as-the-reader-and-its-per-person-part-by-a-role-the-owner-states, ADR 20261126-a-figure-set-against-another-owners-figure-is-composed-by-the-screen-of-the-owner-of-the-comparison-and-a-panel-about-one-tools-data-is-that-tools-widget; plan § Deploy order, R1, R2, R4)
 
 A project's page and a deal's page get one **Hours** card (the record's total hours and a closed breakdown; on a project, also the hours set against what its
-terms sold), and the hours recorded on the meetings linked to a project now count for the project everywhere a linked meeting already counts for a deal. This
+terms sold, and, since US-5, what that says about the project: a consumed percentage, a state, the excess, a bar, the time elapsed and date lines), and the hours
+recorded on the meetings linked to a project now count for the project everywhere a linked meeting already counts for a deal. This
 release adds no service, no database, **no migration**, no secret, no variable, no scope and no `env:doctor` entry: `auth`, `notify-api`, `activities-api` and
 `tools/env-doctor` do not change, and `infra/check.sh` has nothing new to pin (the Hours card calls hours-api from the shell's document, whose CSP `connect-src`
 and trusted origins already include it for hours-ui).
@@ -3895,12 +3896,12 @@ and trusted origins already include it for hours-ui).
 | Piece | Where | What this release changes |
 |---|---|---|
 | `meetings-api` | Railway | `GET /system/meetings/hosts` takes `projectId=` (exactly one of `ids`, `dealId`, `projectId`); same scope `meetings.hosts.read`, same `sub` `system:hours-api`, same `{ id, host }` answer (code only) |
-| `projects-api` | Railway | the resolve answer carries `projectManagerId` (`null` while a project awaits its manager) and the terms view's `hourPackage` carries `currentPeriod { from, to, ended } \| null` (code only) |
+| `projects-api` | Railway | the resolve answer carries `projectManagerId` (`null` while a project awaits its manager) and the terms view's `hourPackage` carries `currentPeriod { from, to, ended } \| null`; US-5: the terms view states `asOf` (`YYYY-MM-DD`), the Europe/Zurich day `currentPeriod` was derived for, on `GET /projects/{id}`, a project write's answer and the terms `POST`/`PATCH` answers (never stored, never an input, not part of the ETag) (code only) |
 | `crm-api` | Railway | the resolve answer for a deal carries `ownerUserId` (code only) |
 | `hours-ui` | Vercel | exposes `./HostHours`; `./RecordHours` broadcasts `operai:time-entry-recorded` after a save; the Project filter, the by-project totals and the export's **Counts for project** column know a project's linked meetings; a missing `on.project` reads as none (code only) |
-| `shell` | Vercel | the host extension `hours.hostHours`: its loader imports `hours/HostHours` |
+| `shell` | Vercel | the host extension `hours.hostHours`: its loader imports `hours/HostHours`. **US-5: no source change, but it is rebuilt from the release commit**, so that its Tailwind sheet, the suite's only one, holds the 17 utilities of `projects-ui`'s consumption bar that no other source in the suite uses (step 3's confirm check, below) |
 | `hours-api` | Railway | the route `GET /time-entries/summary`; the `projectId` filter and `groupBy=project` count a project's linked meetings (409 `project_meetings_changed`, the `project-unknown` group, `meeting-projects` in `unavailable`); a meeting entry's `on.project` (code only) |
-| `projects-ui`, `crm-ui` | Vercel | the Hours card: on the project page the consumption block and hours-ui's panel, on the deal page the panel (code only) |
+| `projects-ui`, `crm-ui` | Vercel | the Hours card: on the project page the consumption block and hours-ui's panel, on the deal page the panel; US-5: the consumption block's signals (consumed percentage, state, excess, the bar, time elapsed, date lines) in `projects-ui` only, drawn from `projects-api`'s `asOf` (code only) |
 
 **Before step 1: the meeting hours release has shipped, by its own order (§ Meeting hours release).** This work is stacked on specs/20261112-meeting-hours
 (PR #12) and reaches `main` only after it has merged, so that release's preconditions hold first, above all its step 0, `HOURS_API_URL` on `meetings-api`: a
@@ -3913,15 +3914,28 @@ scope in production `SERVICE_CLIENTS`).
 1. **`meetings-api`, `projects-api`, `crm-api`**: the new filter and the two new facts. Additive: their only consumer, `hours-api`, parses an owner's answer with
    `z.object`, which drops a member it does not know, so an `hours-api` that is not yet on the release is not disturbed.
 2. **`hours-ui`**: accepts `project-unknown`, `meeting-projects` and `on.project`, and exposes `./HostHours`, which shows its own unavailable state until step 4.
-3. **`shell`**: registers `hours.hostHours`. An unknown name, or a failed import, renders the host's fallback either way.
+3. **`shell`**: registers `hours.hostHours`. An unknown name, or a failed import, renders the host's fallback either way. **US-5 gives this step a condition, with no
+   source change:** the shell must be built from the same commit as `projects-ui`, because the suite has one Tailwind sheet, which the shell generates from every
+   remote's source, and Tailwind emits only the classes a scanned source holds; 17 utilities of the consumption bar are in no other source today. This release's
+   commit rebuilds the shell anyway (it changes `shell/` and rewrites `shell/src/lib/suiteVersion.generated.json`), so the step is to **confirm** it, before step 5,
+   with the live shell's CSS:
+
+   ```bash
+   for css in $(curl -s https://operai.welld.io/ | grep -oE '/assets/[^"]+\.css'); do curl -s "https://operai.welld.io$css"; done | grep -c 'bg-linear-90'   # 1 or more: the live sheet holds the bar
+   ```
+
+   `0` means the live shell predates the bar: redeploy the shell from the release commit before `projects-ui` goes live, or accept the skew described under § What a
+   wrong order does. Run the check again if the shell is rolled back, or if a later push changes `projects-ui` alone.
 4. **`hours-api`**: the summary, and the project filter and by-project placement. **Never before step 1**: a `meetings-api` that predates the filter answers 422
    to `projectId`, which `hours-api` reads as "cannot say" (never as "no meeting is linked").
 5. **`projects-ui`, `crm-ui`**: embed the panel and show the consumption block.
 
 A push to `main` redeploys every connected Railway service and builds every Vercel project at once, in no fixed order, so this is the order to **confirm live**,
 and to promote in if a build has to be redone: `railway deployment list --service <svc>` shows the newest row `SUCCESS` with the release's commit, and a Vercel
-project's newest production deployment is `Ready`. No step has a manual action or a gate of its own, since nothing is configured. Every other order is degraded
-and never wrong: a figure is withheld or marked unavailable, never shown low (AC-4.9), and each row below clears by itself once the piece it needs is live.
+project's newest production deployment is `Ready`. No step has a manual action or a gate of its own, since nothing is configured (step 3's CSS check only confirms
+what its build did). **US-5 (2026-11-27) adds no step and moves none**: `projects-api`'s `asOf` ships with step 1 and `projects-ui`'s signals with step 5. Every other
+order is degraded and never wrong: a figure is withheld or marked unavailable, never shown low (AC-4.9), a signal or a drawing is left out, and each row below clears
+by itself once the piece it needs is live.
 
 ### What a wrong order does (plan R2, R4)
 
@@ -3931,13 +3945,20 @@ and never wrong: a figure is withheld or marked unavailable, never shown low (AC
 | `hours-api` (4) before `projects-api` or `crm-api` (1) | the owner's answer has no `projectManagerId` / `ownerUserId`, which is read as an older owner (nobody's, never a grant): the project's manager and the deal's owner do not see the per-person hours yet; the total and the work-type breakdown show as usual |
 | `hours-api` (4) before `hours-ui` (2) | the one case where an old `hours-ui` meets something it does not know: the `project-unknown` group of a by-project totals read whose hosts read failed (R4); this is why `hours-ui` is step 2 |
 | `projects-ui` or `crm-ui` (5) before `hours-api` (4) | the summary route does not exist yet: the panel and the consumption block each show their own unavailable state with **Retry** (it works once `hours-api` is live), and the page and the rest of the card load (AC-2.6) |
-| `projects-ui` (5) before `projects-api` (1) | `currentPeriod` is absent, which reads as nothing to compare, never as "not started": an hour package's consumption is not shown and the panel is alone in the card; a fixed-price or time-and-material project's block shows (it needs only `hours-api`) |
-| `projects-ui` or `crm-ui` (5) before the `shell` (3) | the live shell does not know `hours.hostHours`, and an unknown name renders the host's fallback, "Hours are unavailable. Reload the page to try again." (the consumption block is `projects-ui`'s own and shows) |
+| `projects-ui` (5) before `projects-api` (1) | `currentPeriod` is absent, which reads as nothing to compare, never as "not started": an hour package's consumption is not shown and the panel is alone in the card; a fixed-price or time-and-material project's block shows (it needs only `hours-api`), **with no time elapsed and no date line either**, since `asOf` is absent too: its percentage, state, excess and bar show, and an SLA-only project's block of date lines alone does not (less, never wrong) |
+| `projects-ui` or `crm-ui` (5) before the `shell` (3) | the live shell does not know `hours.hostHours`, and an unknown name renders the host's fallback, "Hours are unavailable. Reload the page to try again." (the consumption block is `projects-ui`'s own and shows; for its bar see the next row) |
+| `projects-ui` (5) live before a `shell` built from the release commit (3) (a build that finishes first, a shell rolled back or promoted to an older deployment, or a tab loaded before the shell's deploy) | every line of the consumption block (the state, the pace line, the excess, the date lines) is drawn right, their utilities being in the sheet already, but **the bar has no track, fill, beyond part or estimate diamond** (zero height or size, no stripes, no outlines): only its ticks, today mark and labels show, the "125%" label past the bar's end. A missing drawing, never a wrong figure: the bar is `aria-hidden` and the lines say everything it shows. Cleared by the shell's deploy and a reload (the sheet is the document's, read once) |
 | the `shell` (3) before `hours-ui` (2) | the shell's loader imports `hours/HostHours`, which the live `hours-ui` does not expose yet: the import is rejected and the host shows the same fallback |
 
-A page that was already open when the last piece went live shows the new card or the new figures after a reload. A capacity hour package without an expiry date is
-compared up to the Zurich day the page was loaded on, so a page left open across Zurich midnight keeps the new day's hours out of the **consumption block** (the
-panel's total includes them) until it is reloaded: a known limitation, not a fault (specs/20261112-project-hours A52, D85, R8).
+A page that was already open when the last piece went live shows the new card or the new figures after a reload. A project page keeps what was true on the Zurich day
+it was loaded on until it is reloaded, a Record hours save included, which has five cases of one cause: (a) a capacity hour package without an expiry date is
+compared up to that day, so a page left open across Zurich midnight keeps the new day's hours out of the **consumption block** (hours used too low, hours left too
+high; the panel's total includes them), the one case with no date on screen to show it; (b) a yearly package's anniversary passing leaves the block on the period
+that has ended, and a save dated in the new period does not move it; (c) a package's start date arriving leaves the block saying the package has not started;
+(d) a capacity package's expiry date passing shows "Expired" only after a reload, its figures right all along; (e) the time elapsed, the today mark and each date
+line (US-5) stay on the loaded day, so a date that is today still says today after midnight, a date 31 days ahead is not yet near and a date that passes at
+midnight is not yet said to have passed, while the percentage, the state and the excess follow the hours; a reload corrects each of the five: a known limitation,
+not a fault (specs/20261112-project-hours A52, D85, D86, R8).
 
 ### Verify
 
@@ -3950,7 +3971,8 @@ curl -s https://meetings-api.operai.welld.io/openapi.json | jq -e '[.paths["/sys
 ```
 
 Then by hand, as a person who reads a project with an hour package and some hours: the project page has one **Hours** card right after Details, showing the
-package's hours, the hours used in its period and the hours left, then the total and **Show breakdown** (closed); a deal's page has the same card after Meetings, with
+package's hours, the hours used in its period and the hours left, its consumed percentage and state (in words and an icon) and a bar with a visible track and fill (no
+track: the live shell's sheet predates the bar, step 3), then the total and **Show breakdown** (closed); a deal's page has the same card after Meetings, with
 the total and the breakdown. Opening the breakdown makes no request. As the project's manager the breakdown also shows **By person**; as another reader it does not.
 Recording 30 minutes with **Record hours** on the page grows the card's figures without a reload. In My hours, filtering by a project that has a linked meeting with
 hours lists that meeting's entries, each with "Counts for project <name>".
@@ -3965,10 +3987,11 @@ Nothing in this release has a migration, so no database step undoes it; each pie
   filter stops counting a project's linked meetings, and by-project totals place those entries under `none`; entries are untouched. The meeting hours migration of #12
   is a different release and is not undone this way (§ Meeting hours release, § Rollback by step).
 - **`shell`, `hours-ui` (steps 3 and 2):** redeploy the previous Vercel deployment. Every host's Hours panel becomes the host's fallback; the Project filter and the
-  export lose the linked meetings' line and column.
+  export lose the linked meetings' line and column. Roll the `shell` back together with `projects-ui` (step 5), never alone past this release: an older shell under a
+  `projects-ui` on US-5 draws the consumption bar without its track (§ What a wrong order does).
 - **`meetings-api`, `projects-api`, `crm-api` (step 1):** redeploy the previous Railway deployment. Rolling `meetings-api` back while `hours-api` is on the release makes
   every project filter and project summary 503 (the first row above): roll `hours-api` back first, or accept the refusal. Rolling `projects-api` back hides an hour
-  package's consumption block; rolling `crm-api` back hides a deal owner's per-person hours.
+  package's consumption block and, on every project, the time elapsed and the date lines (no `asOf`); rolling `crm-api` back hides a deal owner's per-person hours.
 
 ## Rollback & operations
 
