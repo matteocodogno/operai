@@ -106,6 +106,32 @@ export const PurchaseOrderSchema = z.object({
 
 // ─── Project ─────────────────────────────────────────────────────────────────
 
+/** One member of an attached team as the page shows it (specs/20261126-teams D10): name and flags from auth's team read. */
+export const TeamMemberViewSchema = z.object({
+  id: z.string(),
+  /** `null` for a deactivated member. */
+  name: z.string().nullable(),
+  deleted: z.boolean(),
+  /** Holds access to Projects: a member without it is attached but not on the project (AC-4.7). */
+  projectsAccess: z.boolean(),
+});
+
+/**
+ * A team attached to a project. Projects keep no copy of a name or a member (AC-1.3, O6): `name` and `archived` are
+ * `null` together when the team could not be read (D9), `members` is `null` when they "could not be loaded" (AC-5.4).
+ */
+export const AttachedTeamViewSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  archived: z.boolean().nullable(),
+  members: z.array(TeamMemberViewSchema).nullable(),
+});
+
+/** Why the page's team read did not complete (D15). A closed enum: a new value is a contract change. */
+export const TEAMS_STATUSES = ["complete", "unavailable", "rate_limited"] as const;
+export const TeamsStatusSchema = z.enum(TEAMS_STATUSES);
+export type TeamsStatus = z.infer<typeof TeamsStatusSchema>;
+
 export const ProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -120,6 +146,15 @@ export const ProjectSchema = z.object({
   /** The project has a purchase order and no project manager yet. */
   awaitingProjectManager: z.boolean(),
   team: z.array(PersonSchema),
+  /** The attached teams, in attach order (specs/20261126-teams). */
+  teams: z.array(AttachedTeamViewSchema),
+  /** Who is on the project: manager, listed members, counted team members, each once (AC-4.4); the known part when incomplete. */
+  onProject: z.array(PersonSchema),
+  /** False when an attached team's members could not be loaded. */
+  onProjectComplete: z.boolean(),
+  teamsStatus: TeamsStatusSchema,
+  /** Whole seconds until the person's own limit lets the page read teams again, 1..600; set exactly with `rate_limited` (D15). */
+  teamsRetryAfterSeconds: z.number().int().min(1).max(600).nullable(),
   /** `null` for a hand-made project, which never has one (D38), and for a project taken from a tender (US-10). */
   purchaseOrder: PurchaseOrderSchema.nullable(),
   /** The CRM tender deal this project was taken from (specs/20261101-crm US-10); `null` otherwise. */
@@ -133,6 +168,44 @@ export const ProjectSchema = z.object({
   version: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
+});
+
+/** The invariants of the team fields (plan § "The project view's team read"), for tests and for whoever builds a view. */
+export const ProjectTeamsInvariants = ProjectSchema.superRefine((view, ctx) => {
+  const issue = (message: string) => ctx.addIssue({ code: "custom", message });
+  if ((view.teamsStatus === "complete") !== view.onProjectComplete) issue("teamsStatus is complete exactly when onProjectComplete");
+  if ((view.teamsRetryAfterSeconds !== null) !== (view.teamsStatus === "rate_limited")) {
+    issue("teamsRetryAfterSeconds is set exactly with rate_limited");
+  }
+  if (view.teamsStatus === "rate_limited" && view.teams.length === 0) issue("rate_limited only when there are teams");
+});
+
+/** The teams of a project, replaced as a whole (specs/20261126-teams AC-4.1): at most 10 (O9). */
+export const MAX_ATTACHED_TEAMS = 10;
+export const PutTeamsSchema = z.object({ teamIds: z.array(IdSchema).max(MAX_ATTACHED_TEAMS) }).strict();
+
+/** The attach picker's search text: raw at most 200 and no NUL, then trimmed to at most 80; blank is no search (D13). */
+export const AttachableTeamsQuery = z.object({
+  q: z
+    .string()
+    .max(200)
+    .refine((value) => !value.includes("\u0000"), "Invalid characters")
+    .transform((value) => value.trim())
+    .pipe(z.string().max(80))
+    .optional(),
+});
+
+export const AttachableTeamsSchema = z.object({
+  items: z.array(z.object({ id: z.string(), name: z.string() })),
+  truncated: z.boolean(),
+});
+
+/**
+ * The distinct teams attached to at least one project: what feeds the list's team filter (AC-4.8). A name is `null` (and
+ * `archived` with it) when the team could not be read: unknown is not a name, and the list still loads (AC-5.4).
+ */
+export const AttachedTeamsSchema = z.object({
+  items: z.array(z.object({ id: z.string(), name: z.string().nullable(), archived: z.boolean().nullable() })),
 });
 
 export const ProjectListItemSchema = z.object({
@@ -154,6 +227,8 @@ export const ListProjectsQuery = z.object({
   type: ProjectTypeSchema.optional(),
   state: ProjectStateSchema.optional(),
   projectManagerId: IdSchema.optional(),
+  /** Only the projects this team is attached to (specs/20261126-teams AC-4.8): a local filter, archived teams included. */
+  teamId: IdSchema.optional(),
 });
 
 export const ProjectPageSchema = pageOf(ProjectListItemSchema);

@@ -55,7 +55,7 @@ export const en = {
   },
   notFound: {
     title: 'Page not found',
-    body: 'This admin section doesn’t exist. Use the navigation above to pick Roles, Departments, Users or Audit.',
+    body: 'This admin section doesn’t exist. Use the navigation above to pick Roles, Departments, Teams, Users or Audit.',
   },
   confirmDelete: {
     body: (name: string) => `‘${name}’ will be permanently deleted. This cannot be undone.`,
@@ -128,7 +128,7 @@ export const it: typeof en = {
   },
   notFound: {
     title: 'Pagina non trovata',
-    body: 'Questa sezione di amministrazione non esiste. Usare la navigazione in alto per scegliere Ruoli, Reparti, Utenti o Audit.',
+    body: 'Questa sezione di amministrazione non esiste. Usare la navigazione in alto per scegliere Ruoli, Reparti, Team, Utenti o Audit.',
   },
   confirmDelete: {
     body: (name: string) => `‘${name}’ sarà eliminato definitivamente. L’operazione non è reversibile.`,

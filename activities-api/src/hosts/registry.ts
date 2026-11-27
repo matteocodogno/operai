@@ -65,8 +65,12 @@ export type HostEntity =
       /** A path inside the suite. */
       readonly href: string;
       readonly may: HostMay;
-      /** Only from a host with `assignees: "host_list"`; null from every other. */
-      readonly assignees: readonly string[] | null;
+      /**
+       * Only from a host with `assignees: "host_list"`; null from every other. `"unavailable"`: that
+       * host said `assignees: null`, "could not find out" (specs/20261126-teams AC-5.4), which is
+       * not an empty list: an assignment is refused on it, nothing else is.
+       */
+      readonly assignees: readonly string[] | "unavailable" | null;
     };
 
 /** A contact or deal the host found under one of the companies asked about. */

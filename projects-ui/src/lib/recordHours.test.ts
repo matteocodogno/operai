@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { ADA, projectDetail } from '../test-support/fakeApi'
 import type { MyTask, PersonRef, PreSalesTask, ProjectTask, TaskDetails } from './activitiesApi'
 import type { Person } from './types'
-import { MY_HOURS_HREF, mayRecordOnProject, mayRecordOnTask, recordHoursPropsOf } from './recordHours'
+import { MY_HOURS_HREF, mayRecordOnProject, mayRecordOnTask, peopleOnProject, recordHoursPropsOf } from './recordHours'
 
 const BOB: Person = { id: 'u-bob', name: 'Bob Builder', deleted: false }
 const CARA: Person = { id: 'u-cara', name: 'Cara Coder', deleted: false }
@@ -84,6 +84,44 @@ describe('mayRecordOnProject (AC-1.1, AC-1.2)', () => {
     for (const state of ['planned', 'active', 'on_hold', 'closed', 'cancelled'] as const) {
       expect(mayRecordOnProject(projectDetail({ state, team: [BOB] }), BOB.id), state).toBe(true)
     }
+  })
+})
+
+describe('mayRecordOnProject reads project.onProject (teams AC-5.1, AC-5.4, D4)', () => {
+  it('is true for a person on the project only through a team: they are in onProject, not in team', () => {
+    const project = projectDetail({ projectManager: ADA, team: [], onProject: [ADA, CARA], onProjectComplete: true })
+    expect(mayRecordOnProject(project, CARA.id)).toBe(true)
+  })
+
+  it('follows the server: a listed member the answer leaves out is not offered', () => {
+    const project = projectDetail({ projectManager: ADA, team: [BOB], onProject: [ADA], onProjectComplete: true })
+    expect(mayRecordOnProject(project, BOB.id)).toBe(false)
+  })
+
+  it('while the teams are not loaded, onProject is the known part: the manager and the listed people still record', () => {
+    const project = projectDetail({ projectManager: ADA, team: [BOB], onProject: [ADA, BOB], onProjectComplete: false })
+    expect(mayRecordOnProject(project, ADA.id)).toBe(true)
+    expect(mayRecordOnProject(project, BOB.id)).toBe(true)
+    expect(mayRecordOnProject(project, CARA.id)).toBe(false)
+  })
+
+  it('R6: against a projects-api without onProject it falls back to the manager and the listed team', () => {
+    const project = projectDetail({ projectManager: ADA, team: [BOB] })
+    expect('onProject' in project).toBe(false)
+    expect(peopleOnProject(project).map((person) => person.id)).toEqual([ADA.id, BOB.id])
+    expect(mayRecordOnProject(project, ADA.id)).toBe(true)
+    expect(mayRecordOnProject(project, BOB.id)).toBe(true)
+    expect(mayRecordOnProject(project, CARA.id)).toBe(false)
+  })
+
+  it('the fallback leaves out an absent manager and counts each person once', () => {
+    const project = projectDetail({ projectManager: null, team: [BOB, BOB] })
+    expect(peopleOnProject(project).map((person) => person.id)).toEqual([BOB.id])
+  })
+
+  it('an empty onProject is an answer, not an absence: nobody is on the project', () => {
+    const project = projectDetail({ projectManager: ADA, team: [BOB], onProject: [] })
+    expect(mayRecordOnProject(project, ADA.id)).toBe(false)
   })
 })
 

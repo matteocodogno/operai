@@ -44,6 +44,7 @@ async function renderNavAt(path: string, props: SectionNavProps = ADMIN) {
     path: '/departments',
     component: () => <p>departments</p>,
   })
+  const teamsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/teams', component: () => <p>teams</p> })
   const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: '/users', component: () => <p>users</p> })
   const auditRoute = createRoute({ getParentRoute: () => rootRoute, path: '/audit', component: () => <p>audit</p> })
   const legalEntitiesRoute = createRoute({
@@ -52,7 +53,7 @@ async function renderNavAt(path: string, props: SectionNavProps = ADMIN) {
     validateSearch: (raw: Record<string, unknown>) => raw,
     component: () => <p>legal entities</p>,
   })
-  const routeTree = rootRoute.addChildren([rolesRoute, departmentsRoute, usersRoute, auditRoute, legalEntitiesRoute])
+  const routeTree = rootRoute.addChildren([rolesRoute, departmentsRoute, teamsRoute, usersRoute, auditRoute, legalEntitiesRoute])
   const router = createRouter({ routeTree })
   const utils = render(<RouterProvider router={router} />)
   await screen.findAllByRole('link')
@@ -66,13 +67,26 @@ describe('SectionNav structure', () => {
     expect(screen.getByRole('navigation', { name: 'Admin sections' })).not.toBeNull()
   })
 
-  it('renders the four sections, in IA order, as real links (not buttons/divs)', async () => {
+  it('renders the five sections, in IA order, as real links (not buttons/divs)', async () => {
     await renderNavAt('/roles')
 
     const links = screen.getAllByRole('link')
-    expect(links.map((link) => link.textContent)).toEqual(['Roles', 'Departments', 'Users', 'Audit'])
+    expect(links.map((link) => link.textContent)).toEqual(['Roles', 'Departments', 'Teams', 'Users', 'Audit'])
     links.forEach((link) => expect(link.tagName).toBe('A'))
   })
+})
+
+describe('SectionNav Teams (specs/20261126-teams AC-3.1)', () => {
+  it('puts Teams between Departments and Users and marks it active on its page', async () => {
+    await renderNavAt('/teams')
+
+    const teams = screen.getByRole('link', { name: 'Teams' })
+    expect(teams.getAttribute('aria-current')).toBe('page')
+    expect(teams.getAttribute('href')).toBe('/teams')
+    expect(screen.getByRole('link', { name: 'Departments' }).closest('li')?.nextElementSibling).toBe(teams.closest('li'))
+    expect(teams.closest('li')?.nextElementSibling).toBe(screen.getByRole('link', { name: 'Users' }).closest('li'))
+  })
+
 })
 
 describe('SectionNav by capability', () => {
@@ -82,6 +96,7 @@ describe('SectionNav by capability', () => {
     expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
       'Roles',
       'Departments',
+      'Teams',
       'Users',
       'Legal entities',
       'Audit',
@@ -91,6 +106,7 @@ describe('SectionNav by capability', () => {
 
   it('lists only Legal entities for a manager-only person: the other sections are absent, not disabled', async () => {
     await renderNavAt('/legal-entities', { showAdmin: false, legalEntities: 'shown' })
+    expect(screen.queryByRole('link', { name: 'Teams' })).toBeNull()
 
     expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual(['Legal entities'])
     expect(screen.getByRole('navigation', { name: 'Admin sections' })).not.toBeNull()
@@ -101,7 +117,7 @@ describe('SectionNav by capability', () => {
   it('holds the place of a section that is still resolving with a silent skeleton tab, no link', async () => {
     await renderNavAt('/roles', { showAdmin: true, legalEntities: 'resolving' })
 
-    expect(screen.getAllByRole('link')).toHaveLength(4)
+    expect(screen.getAllByRole('link')).toHaveLength(5)
     expect(screen.queryByRole('link', { name: 'Legal entities' })).toBeNull()
     expect(document.querySelectorAll('.skeleton[aria-hidden="true"]')).toHaveLength(1)
   })

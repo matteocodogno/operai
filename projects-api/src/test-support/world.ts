@@ -23,6 +23,8 @@ const { app } = await import("../index");
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { __resetIdentityCacheForTests } = await import("../lib/identities");
+const { advanceTeamsClockForTests, resetTeamReaderForTests } = await import("../lib/teams");
+const { advanceTeamLimitersForTests, resetTeamLimiters } = await import("../lib/rateLimiter");
 
 export { app, db };
 
@@ -404,9 +406,161 @@ function fakeCrmContacts(url: URL, authorization: string): Response {
   return Response.json({ items, truncated: false });
 }
 
+// ─── auth GET /system/teams (specs/20261126-teams T11) ─────────────────────────────────────────────────────────────
+
+/** A member of a fake team. `appAccess` left out follows `appAccess.projects` (the people who hold Projects access). */
+export interface FakeTeamMember {
+  id: string;
+  name?: string;
+  /** Default true. A deactivated member is reported with `name: null` and `appAccess: false`, as auth does. */
+  active?: boolean;
+  appAccess?: boolean;
+}
+
+/** A team as the fake auth knows it. Tests edit `teamsAuth.teams` (or the object `makeTeam` returned) in place. */
+export interface FakeTeam {
+  id: string;
+  name: string;
+  archived: boolean;
+  members: FakeTeamMember[];
+}
+
+/** auth's cap on the options answer; the fake returns at most this many with `truncated` beyond. */
+export const TEAMS_OPTIONS_LIMIT = 50;
+/** auth's cap on `ids`; the fake refuses more with a `400`, as the real route does. */
+export const TEAMS_IDS_LIMIT = 50;
+
+/**
+ * A fake auth `GET /system/teams` (plan § API contracts), for the service JWT only (`SERVICE_JWT`, anything else is a
+ * `401`). `ids` mode: the teams in request order, an unknown id omitted, members by name with deactivated ones last
+ * (`name: null`, `appAccess: false`). Options mode (`state=active[&q=]`): active teams, names only; with `q` a literal,
+ * case-insensitive substring match ranked exact name, then prefix, then the rest (each by name then id); at most 50 and
+ * `truncated` beyond. Anything else is a `400`.
+ *
+ * Settable: `down` (`503`), `status` (any other failure, e.g. `429`), `body` (a raw replacement of a `200`),
+ * `failNext` (the next N requests answer `503`, then it recovers) and `unauthorizedNext` (the next N answer `401`, the
+ * way a cached service token that lacks the scope does). Counted: `calls`, `idsCalls`, `optionsCalls`, and every request
+ * in `requests` (its mode, `ids` or `q`, and the Authorization header it carried). `resetWorld()` puts all of it back.
+ */
+export const teamsAuth = {
+  teams: new Map<string, FakeTeam>(),
+  down: false,
+  status: 200,
+  body: undefined as unknown,
+  failNext: 0,
+  unauthorizedNext: 0,
+  /** While set, `GET /system/teams` holds its answer until it resolves (specs/20261126-teams D16: a slow auth, not a failing one). */
+  hold: null as Promise<void> | null,
+  /** Every `GET /system/teams` answers this many ms late (D16). */
+  delayMs: 0,
+  calls: 0,
+  idsCalls: 0,
+  optionsCalls: 0,
+  requests: [] as { mode: "ids" | "options"; ids: string[]; q: string | null; authorization: string }[],
+};
+
+let teamSeq = 0;
+/** Registers a team with the fake auth (`teamsAuth.teams`) and returns it: active, named `Team N`, no members. */
+export function makeTeam(over: Partial<FakeTeam> = {}): FakeTeam {
+  teamSeq++;
+  const team: FakeTeam = { id: `team-${teamSeq}`, name: `Team ${teamSeq}`, archived: false, members: [], ...over };
+  teamsAuth.teams.set(team.id, team);
+  return team;
+}
+
+/** Attaches a team to a project, straight in the database (the route that does it is tested in its own file). */
+export async function attachTeam(projectId: string, teamId: string): Promise<void> {
+  await db.attachedTeam.create({ data: { projectId, teamId } });
+}
+
+/** Lets time pass for everything that counts it: the team cache's clock and the team windows' (10 min, 30 s, 60 s…). */
+export function advanceTime(ms: number): void {
+  advanceTeamsClockForTests(ms);
+  advanceTeamLimitersForTests(ms);
+}
+
+const strictTeamIds = /^[A-Za-z0-9_-]{1,64}$/;
+
+function fakeAuthTeams(url: URL, authorization: string): Response {
+  teamsAuth.calls++;
+  const idsParam = url.searchParams.get("ids");
+  const state = url.searchParams.get("state");
+  const q = url.searchParams.get("q");
+  teamsAuth.requests.push({ mode: idsParam !== null ? "ids" : "options", ids: idsParam?.split(",") ?? [], q, authorization });
+  if (idsParam !== null) teamsAuth.idsCalls++;
+  else teamsAuth.optionsCalls++;
+  if (teamsAuth.unauthorizedNext > 0) {
+    teamsAuth.unauthorizedNext--;
+    return Response.json({ status: 401 }, { status: 401 });
+  }
+  if (authorization !== `Bearer ${SERVICE_JWT}`) return Response.json({ status: 401 }, { status: 401 });
+  if (teamsAuth.failNext > 0) {
+    teamsAuth.failNext--;
+    return new Response("down", { status: 503 });
+  }
+  if (teamsAuth.down) return new Response("down", { status: 503 });
+  if (teamsAuth.status !== 200) return Response.json({ status: teamsAuth.status }, { status: teamsAuth.status });
+  if (teamsAuth.body !== undefined) return Response.json(teamsAuth.body);
+
+  const bad = () => Response.json({ status: 400, code: "validation_failed" }, { status: 400 });
+  if ((idsParam === null) === (state === null)) return bad();
+  const known = new Set(["ids", "state", "q"]);
+  if ([...url.searchParams.keys()].some((key) => !known.has(key))) return bad();
+
+  if (idsParam !== null) {
+    if (q !== null) return bad();
+    const ids = idsParam.split(",");
+    if (ids.length > TEAMS_IDS_LIMIT || new Set(ids).size !== ids.length || ids.some((id) => !strictTeamIds.test(id))) return bad();
+    const items = ids.flatMap((id) => {
+      const team = teamsAuth.teams.get(id);
+      if (!team) return [];
+      const members = team.members
+        .map((member) => {
+          const active = member.active !== false;
+          return {
+            id: member.id,
+            name: active ? (member.name ?? `Name of ${member.id}`) : null,
+            active,
+            appAccess: active && (member.appAccess ?? appAccess.projects.has(member.id)),
+          };
+        })
+        .sort((a, b) => Number(b.active) - Number(a.active) || (a.name ?? "").localeCompare(b.name ?? "") || a.id.localeCompare(b.id));
+      return [{ id: team.id, name: team.name, archived: team.archived, members }];
+    });
+    return Response.json({ items });
+  }
+
+  if (state !== "active") return bad();
+  const text = q === null ? null : q.trim();
+  if (q !== null && (text === "" || text!.length > 80 || q.length > 200)) return bad();
+  const rank = (name: string): number => {
+    const lower = name.toLowerCase();
+    return text === null ? 0 : lower === text.toLowerCase() ? 0 : lower.startsWith(text.toLowerCase()) ? 1 : 2;
+  };
+  const matching = [...teamsAuth.teams.values()]
+    .filter((team) => !team.archived && (text === null || team.name.toLowerCase().includes(text.toLowerCase())))
+    .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return Response.json({
+    items: matching.slice(0, TEAMS_OPTIONS_LIMIT).map(({ id, name }) => ({ id, name })),
+    truncated: matching.length > TEAMS_OPTIONS_LIMIT,
+  });
+}
+
 const realFetch = globalThis.fetch;
 spyOn(globalThis, "fetch").mockImplementation((async (url: unknown, init?: RequestInit) => {
   const href = String(url);
+  if (href.startsWith(`${TEST_ISSUER}/system/teams`)) {
+    const authorization = new Headers(init?.headers).get("Authorization") ?? "";
+    const response = fakeAuthTeams(new URL(href), authorization);
+    if (teamsAuth.hold !== null || teamsAuth.delayMs > 0) {
+      const wait = teamsAuth.hold ?? new Promise<void>((done) => setTimeout(done, teamsAuth.delayMs));
+      await new Promise<void>((resolve, reject) => {
+        void wait.then(resolve);
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+    }
+    return response;
+  }
   if (href.endsWith("/authz/app-access-check")) {
     if (identities.down) return new Response("down", { status: 503 });
     const { appId, userId } = JSON.parse(String(init?.body)) as { appId: string; userId: string };
@@ -537,6 +691,7 @@ export async function call(method: string, path: string, options: CallOptions = 
 
 /** Puts the world back to its start: the tables (children first), caches, switches and fakes. */
 export async function resetWorld(): Promise<void> {
+  await db.attachedTeam.deleteMany();
   await db.projectTermsPosition.deleteMany();
   await db.projectTerms.deleteMany();
   await db.purchaseOrder.deleteMany();
@@ -572,4 +727,19 @@ export async function resetWorld(): Promise<void> {
   estimai.down = false;
   estimai.calls = 0;
   estimai.lastAuthorization = "";
+  teamsAuth.teams = new Map();
+  teamsAuth.down = false;
+  teamsAuth.status = 200;
+  teamsAuth.body = undefined;
+  teamsAuth.failNext = 0;
+  teamsAuth.unauthorizedNext = 0;
+  teamsAuth.hold = null;
+  teamsAuth.delayMs = 0;
+  teamsAuth.calls = 0;
+  teamsAuth.idsCalls = 0;
+  teamsAuth.optionsCalls = 0;
+  teamsAuth.requests = [];
+  // the team cache, its clock, and every team window (the attach search's and both page-read windows)
+  resetTeamReaderForTests();
+  resetTeamLimiters();
 }

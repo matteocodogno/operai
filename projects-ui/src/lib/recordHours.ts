@@ -10,7 +10,7 @@
  */
 import type { ExtensionProps } from 'shell/extensions'
 import type { MyTask } from './activitiesApi'
-import type { Project } from './types'
+import type { Person, Project } from './types'
 
 /** The props the shell's `hours.recordHours` extension takes: plain strings, nothing comes back. */
 export type RecordHoursProps = ExtensionProps['hours.recordHours']
@@ -22,13 +22,28 @@ export type RecordHoursProps = ExtensionProps['hours.recordHours']
 export const MY_HOURS_HREF = '/hours'
 
 /**
- * Whether the project page offers Record hours (AC-1.1, AC-1.2): the project's manager and the members of its
- * team. Anyone else who can read the project does not (AC-1.2); `false` too while the session has not given the
- * person's id yet (`me` is `null`) and for a project that awaits its manager (`projectManager` is `null`) — an
- * absent id never matches a present one. The project's state does not matter (A5).
+ * Who is on the project: the server's `onProject` (the project manager, the listed people and the counted members of
+ * the attached teams, each once), never a rule of the browser's own (specs/20261126-teams D4, AC-4.4). The browser
+ * keeps ONE fallback, for a projects-api that predates teams and sends no `onProject`: the manager and the listed
+ * team, each once (R6, test-pinned). An empty `onProject` is an answer ("nobody"), not an absence.
  */
-export const mayRecordOnProject = (project: Project, me: string | null): boolean =>
-  me !== null && (project.projectManager?.id === me || project.team.some((member) => member.id === me))
+export const peopleOnProject = (project: Pick<Project, 'projectManager' | 'team' | 'onProject'>): Person[] =>
+  (project.onProject ?? [project.projectManager, ...project.team])
+    .filter((person): person is Person => person !== null)
+    .filter((person, index, all) => all.findIndex((other) => other.id === person.id) === index)
+
+/**
+ * Whether the project page offers Record hours (AC-1.1, AC-1.2, teams AC-5.1): the people `onProject` names — the
+ * project's manager, its listed members and the members of its attached teams. Anyone else who can read the project
+ * does not (AC-1.2); `false` too while the session has not given the person's id yet (`me` is `null`) and for a
+ * project that awaits its manager — an absent id never matches a present one. While a team's members could not be
+ * loaded the answer holds the known part only, so a person on the project only through such a team is not offered it
+ * (a convenience: hours-api decides, and My hours still records). The project's state does not matter (A5).
+ */
+export const mayRecordOnProject = (
+  project: Pick<Project, 'projectManager' | 'team' | 'onProject'>,
+  me: string | null,
+): boolean => me !== null && peopleOnProject(project).some((person) => person.id === me)
 
 /**
  * The props of the widget, built from the ONE object the host holds, never assembled at the call site, because the

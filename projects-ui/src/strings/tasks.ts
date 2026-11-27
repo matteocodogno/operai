@@ -89,6 +89,7 @@ const en = {
     assignee: 'Assignee',
     assigneeEmpty: 'Me (the author)',
     assigneeHint: 'Left empty, the task is assigned to you.',
+    membersIncomplete: 'Some team members could not be loaded, so this list may be missing people.',
     assigneeDeparted: (name: string) => `${name} (no longer on the project)`,
     blockedBy: (count: number, max: number) => `Blocked by (${count} of ${max} selected)`,
     blockedByDone: (title: string) => `${title} (done)`,
@@ -110,7 +111,7 @@ const en = {
     busy: 'Deleting…',
   },
   errors: {
-    assigneeNotOnProject: 'Choose the project manager or a team member.',
+    assigneeNotOnProject: 'Choose someone who is on this project.',
     hostReadOnly: 'This project is closed or cancelled; its tasks can no longer be changed.',
     forbiddenDialog: 'You are not allowed to change this project’s tasks.',
     forbiddenRow: 'You can no longer change this task.',
@@ -283,6 +284,8 @@ const it: typeof en = {
     assignee: 'Assegnata a',
     assigneeEmpty: 'Me (l’autore)',
     assigneeHint: 'Se lasci vuoto, l’attività è assegnata a te.',
+    membersIncomplete:
+      'Non è stato possibile caricare alcuni membri dei team, quindi l’elenco potrebbe non includere tutte le persone.',
     assigneeDeparted: (name: string) => `${name} (non più nel progetto)`,
     blockedBy: (count: number, max: number) => `Bloccata da (${count} di ${max} selezionate)`,
     blockedByDone: (title: string) => `${title} (completata)`,
@@ -304,7 +307,7 @@ const it: typeof en = {
     busy: 'Eliminazione…',
   },
   errors: {
-    assigneeNotOnProject: 'Scegli il responsabile di progetto o un membro del team.',
+    assigneeNotOnProject: 'Scegli una persona che fa parte del progetto.',
     hostReadOnly: 'Questo progetto è chiuso o annullato; le sue attività non si possono più modificare.',
     forbiddenDialog: 'Non hai il permesso di modificare le attività di questo progetto.',
     forbiddenRow: 'Non puoi più modificare questa attività.',

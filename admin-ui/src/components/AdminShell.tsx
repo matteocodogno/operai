@@ -82,7 +82,7 @@ function useManageable() {
 
 type Area = 'index' | 'admin' | 'legal-entities' | 'other'
 
-const ADMIN_SEGMENTS: ReadonlySet<string> = new Set(['roles', 'departments', 'users', 'audit'])
+const ADMIN_SEGMENTS: ReadonlySet<string> = new Set(['roles', 'departments', 'teams', 'users', 'audit'])
 
 /** Which section the current match belongs to, by route id (independent of the router's basepath). */
 const areaOf = (routeId: string): Area => {

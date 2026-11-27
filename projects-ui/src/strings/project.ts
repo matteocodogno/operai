@@ -72,6 +72,7 @@ const en = {
     state: (label: string) => `The project is now ${label}.`,
     details: 'Project saved.',
     team: 'Team saved.',
+    teams: 'Teams saved.',
     projectManager: 'Project manager picked.',
   },
   errors: {
@@ -97,8 +98,78 @@ const en = {
   },
   team: {
     title: 'Team',
-    edit: 'Edit team',
-    empty: 'No team members yet.',
+    edit: 'Edit people',
+    empty: 'No people listed yet.',
+    people: { title: 'People', label: 'People listed on this project' },
+    teams: {
+      title: 'Teams',
+      edit: 'Edit teams',
+      empty: 'No teams attached.',
+      listLabel: 'Attached teams',
+      unnamed: 'Team could not be loaded',
+      archived: 'Archived',
+      archivedNote: 'Archived: it stays on this project until it is removed.',
+      counted: (n: number) => (n === 1 ? '1 person counts on this project' : `${n} people count on this project`),
+      membersLabel: (name: string) => `Members of ${name}`,
+      membersUnavailable: 'Members could not be loaded',
+      noMembers: 'This team has no members.',
+      deactivated: 'Deactivated',
+      noAccess: 'No access to Projects',
+      noAccessLegend:
+        'People marked “No access to Projects” do not count as on this project until an administrator gives them access.',
+      showAll: (n: number) => `Show all ${n} people`,
+      showFewer: 'Show fewer',
+      unavailable: {
+        title: 'Some teams could not be loaded',
+        body: 'Their members are not shown. People who are on this project only through a team may be missing from the lists of people, such as the task assignee.',
+      },
+      // AC-5.6, plan D15: shown instead of `unavailable` when teamsStatus is "rate_limited".
+      rateLimited: {
+        title: 'Too many requests',
+        lead: 'You made too many requests, so teams and their members are not shown for now.',
+        retryIn: (minutes: number) => (minutes === 1 ? 'Try again in a minute.' : `Try again in ${minutes} minutes.`),
+        retryLater: 'Try again later.',
+        consequences:
+          'People who are on this project only through a team may be missing from lists of people, such as the task assignee, and may not be offered Record hours on this page. You can still record hours from My hours.',
+        stillLimited: 'Checked again. Teams are still not shown.',
+      },
+      dialog: {
+        title: 'Edit teams',
+        description:
+          'Everyone in an attached team who has access to Projects counts as part of this project: they can record hours, be given tasks and read the project’s linked meetings. This follows the team as it changes.',
+        add: 'Attach a team',
+        addHint: (n: number, max: number) =>
+          `${n} of ${max} teams. Only active teams can be attached; an administrator creates teams in Admin.`,
+        narrowHint: 'Type more of the name to narrow the list.',
+        limitHint: (max: number) => `A project can have at most ${max} teams. Remove one to attach another.`,
+        limitReached: (n: number, max: number) => `${n} of ${max} teams attached`,
+        attached: 'Attached teams',
+        none: 'No teams attached.',
+        unnamed: 'Team that could not be loaded',
+        removeHint:
+          'Removing a team removes its members from this project, unless they are also listed or in another attached team.',
+        removeButton: 'Remove',
+        remove: (name: string) => `Remove ${name}`,
+        removeUnnamed: (n: number) => `Remove team ${n} that could not be loaded`,
+        search: {
+          searching: 'Searching teams…',
+          noMatch: 'No active team matches, or it is already attached.',
+          forbidden: 'You may not attach teams.',
+          unavailable: 'Teams could not be searched. Nothing was changed. Try again.',
+          count: (n: number) => (n === 1 ? '1 team found' : `${n} teams found`),
+        },
+        submit: 'Save teams',
+        busy: 'Saving…',
+        errors: {
+          team_archived: (names: string) =>
+            `These teams were archived and can no longer be attached: ${names}. Remove them to save.`,
+          team_not_found: 'A team you chose no longer exists. Close this dialog and try again.',
+          teams_unavailable: 'Teams could not be loaded right now. Nothing was changed. Try again in a moment.',
+          // Followed by `rateLimited.retryIn` or `retryLater`: the 429 of PUT …/teams, the one 429 of a project write.
+          rate_limited: 'Too many requests, so nothing was changed.',
+        },
+      },
+    },
     dialog: {
       title: 'Edit team',
       add: 'Add a team member',
@@ -193,6 +264,7 @@ const it: typeof en = {
     state: (label: string) => `Il progetto è ora: ${label}.`,
     details: 'Progetto salvato.',
     team: 'Team salvato.',
+    teams: 'Team salvati.',
     projectManager: 'Project manager scelto.',
   },
   errors: {
@@ -220,8 +292,79 @@ const it: typeof en = {
   },
   team: {
     title: 'Team',
-    edit: 'Modifica team',
-    empty: 'Ancora nessun membro nel team.',
+    edit: 'Modifica persone',
+    empty: 'Ancora nessuna persona in elenco.',
+    people: { title: 'Persone', label: 'Persone elencate in questo progetto' },
+    teams: {
+      title: 'Team',
+      edit: 'Modifica team',
+      empty: 'Nessun team collegato.',
+      listLabel: 'Team collegati',
+      unnamed: 'Impossibile caricare il team',
+      archived: 'Archiviato',
+      archivedNote: 'Archiviato: resta su questo progetto finché non viene rimosso.',
+      counted: (n: number) =>
+        n === 1 ? '1 persona conta su questo progetto' : `${n} persone contano su questo progetto`,
+      membersLabel: (name: string) => `Membri di ${name}`,
+      membersUnavailable: 'Impossibile caricare i membri',
+      noMembers: 'Questo team non ha membri.',
+      deactivated: 'Disattivato',
+      noAccess: 'Nessun accesso a Progetti',
+      noAccessLegend:
+        'Le persone con “Nessun accesso a Progetti” non contano come persone del progetto finché un amministratore non dà loro accesso.',
+      showAll: (n: number) => `Mostra tutte le ${n} persone`,
+      showFewer: 'Mostra meno',
+      unavailable: {
+        title: 'Impossibile caricare alcuni team',
+        body: 'I loro membri non vengono mostrati. Le persone che sono sul progetto solo tramite un team potrebbero mancare negli elenchi di persone, come l’assegnatario di un’attività.',
+      },
+      rateLimited: {
+        title: 'Troppe richieste',
+        lead: 'Hai fatto troppe richieste, quindi per ora i team e i loro membri non vengono mostrati.',
+        retryIn: (minutes: number) => (minutes === 1 ? 'Riprova tra un minuto.' : `Riprova tra ${minutes} minuti.`),
+        retryLater: 'Riprova più tardi.',
+        consequences:
+          'Le persone che sono sul progetto solo tramite un team potrebbero mancare negli elenchi di persone, come l’assegnatario di un’attività, e potrebbe non essere offerto loro Registra ore in questa pagina. Si possono comunque registrare le ore da Le mie ore.',
+        stillLimited: 'Controllato di nuovo. I team non vengono ancora mostrati.',
+      },
+      dialog: {
+        title: 'Modifica team',
+        description:
+          'Chi fa parte di un team collegato e ha accesso a Progetti conta come parte di questo progetto: può registrare ore, ricevere attività e leggere i meeting collegati al progetto. Segue il team quando cambia.',
+        add: 'Collega un team',
+        addHint: (n: number, max: number) =>
+          `${n} team su ${max}. Si possono collegare solo team attivi; un amministratore crea i team in Amministrazione.`,
+        narrowHint: 'Scrivi altre lettere del nome per restringere l’elenco.',
+        limitHint: (max: number) =>
+          `Un progetto può avere al massimo ${max} team. Rimuovine uno per collegarne un altro.`,
+        limitReached: (n: number, max: number) => `${n} team su ${max} collegati`,
+        attached: 'Team collegati',
+        none: 'Nessun team collegato.',
+        unnamed: 'Team che non è stato possibile caricare',
+        removeHint:
+          'Rimuovere un team toglie i suoi membri da questo progetto, a meno che siano anche elencati o in un altro team collegato.',
+        removeButton: 'Rimuovi',
+        remove: (name: string) => `Rimuovi ${name}`,
+        removeUnnamed: (n: number) => `Rimuovi il team ${n} che non è stato possibile caricare`,
+        search: {
+          searching: 'Ricerca dei team…',
+          noMatch: 'Nessun team attivo corrisponde, oppure è già collegato.',
+          forbidden: 'Non è consentito collegare team.',
+          unavailable: 'Impossibile cercare i team. Non è stato modificato nulla. Riprova.',
+          count: (n: number) => (n === 1 ? '1 team trovato' : `${n} team trovati`),
+        },
+        submit: 'Salva team',
+        busy: 'Salvataggio…',
+        errors: {
+          team_archived: (names: string) =>
+            `Questi team sono stati archiviati e non possono più essere collegati: ${names}. Rimuovili per salvare.`,
+          team_not_found: 'Un team scelto non esiste più. Chiudi questa finestra e riprova.',
+          teams_unavailable:
+            'Al momento non è possibile caricare i team. Non è stato modificato nulla. Riprova tra poco.',
+          rate_limited: 'Troppe richieste: non è stato modificato nulla.',
+        },
+      },
+    },
     dialog: {
       title: 'Modifica team',
       add: 'Aggiungi un membro',

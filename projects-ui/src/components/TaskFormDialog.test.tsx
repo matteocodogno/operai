@@ -25,6 +25,7 @@ vi.mock('shell/session', () => ({
 
 import TaskFormDialog from './TaskFormDialog'
 import type { ProjectTask } from '../lib/activitiesApi'
+import type { Project } from '../lib/types'
 
 const BOB = { id: 'u-bob', name: 'Bob Builder', deleted: false }
 const CARA = { id: 'u-cara', name: 'Cara Coder', deleted: false }
@@ -53,7 +54,14 @@ const renderDialog = (
     team = [BOB],
     currentUserId = 'u-ada',
     awaitingManager = false,
-  }: { task?: ProjectTask; team?: (typeof BOB)[]; currentUserId?: string; awaitingManager?: boolean } = {},
+    project: projectOver = {},
+  }: {
+    task?: ProjectTask
+    team?: (typeof BOB)[]
+    currentUserId?: string
+    awaitingManager?: boolean
+    project?: Partial<Project>
+  } = {},
 ) => {
   apiFetch.mockImplementation(
     fakeApi({
@@ -63,7 +71,7 @@ const renderDialog = (
       ...routes,
     }),
   )
-  const project = projectDetail({ team, ...(awaitingManager ? { projectManager: null } : {}) })
+  const project = projectDetail({ team, ...(awaitingManager ? { projectManager: null } : {}), ...projectOver })
   render(
     <TaskFormDialog
       project={project}
@@ -158,7 +166,11 @@ describe('adding a task (AC-3.1)', () => {
   it('offers only the team while a project from a deal awaits its project manager (specs/20261103-projects-handoff D42)', () => {
     renderDialog({}, { team: [BOB, CARA], awaitingManager: true })
     const select = screen.getByLabelText('Assignee') as HTMLSelectElement
-    expect([...select.options].map((option) => option.textContent)).toEqual(['Me (the author)', 'Bob Builder', 'Cara Coder'])
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      'Me (the author)',
+      'Bob Builder',
+      'Cara Coder',
+    ])
   })
 
   it('defaults the assignee to the empty option when the signed-in user is neither manager nor member, and omits it', async () => {
@@ -201,11 +213,22 @@ describe('adding a task (AC-3.1)', () => {
       'POST /activities': () => ({ status: 201, body: projectTask('t-new', { subject: 'Plan' }) }),
       'POST /activities/t-new/files': () => ({
         status: 201,
-        body: { fileId: 'f-1', upload: { url: 'https://bucket.test/activities', fields: { key: 'activities/t-new/f-1' } } },
+        body: {
+          fileId: 'f-1',
+          upload: { url: 'https://bucket.test/activities', fields: { key: 'activities/t-new/f-1' } },
+        },
       }),
       'POST /activities/t-new/files/f-1/confirm': () => ({
         status: 200,
-        body: { id: 'f-1', kind: 'attachment', fileName: 'spec.pdf', contentType: 'application/pdf', sizeBytes: 3, uploadedBy: personRef('u-ada', 'Ada Lovelace'), createdAt: '2026-11-13T10:00:00Z' },
+        body: {
+          id: 'f-1',
+          kind: 'attachment',
+          fileName: 'spec.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 3,
+          uploadedBy: personRef('u-ada', 'Ada Lovelace'),
+          createdAt: '2026-11-13T10:00:00Z',
+        },
       }),
     })
     type('Title', 'Plan')
@@ -223,7 +246,12 @@ describe('adding a task (AC-3.1)', () => {
       'POST /activities/t-new/files',
       'POST /activities/t-new/files/f-1/confirm',
     ])
-    expect(writes()[1]!.body).toEqual({ kind: 'attachment', fileName: 'spec.pdf', contentType: 'application/pdf', sizeBytes: 3 })
+    expect(writes()[1]!.body).toEqual({
+      kind: 'attachment',
+      fileName: 'spec.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 3,
+    })
     expect(bucket).toHaveBeenCalledWith('https://bucket.test/activities', expect.objectContaining({ method: 'POST' }))
     vi.unstubAllGlobals()
   })
@@ -404,6 +432,73 @@ describe('blockers (AC-4.1)', () => {
   })
 })
 
+describe('the assignee list follows project.onProject (AC-4.8 of the teams spec: AC-5.2, AC-5.4, design S9, G10)', () => {
+  const ADA_P = { id: 'u-ada', name: 'Ada Lovelace', deleted: false }
+  const DAN_GONE = { id: 'u-dan', name: 'Dan Dev', deleted: true }
+  const optionLabels = () =>
+    [...(screen.getByLabelText('Assignee', { exact: false }) as HTMLSelectElement).options].map((o) => o.textContent)
+
+  it('offers the people of onProject, a person on the project only through a team included, and not a deleted one', () => {
+    // BOB is listed in `team`, but the server's answer is the authority: onProject does not hold him here.
+    renderDialog({}, { team: [BOB], project: { onProject: [ADA_P, CARA, DAN_GONE], onProjectComplete: true } })
+    expect(optionLabels()).toEqual(['Me (the author)', 'Ada Lovelace (You)', 'Cara Coder'])
+  })
+
+  it('says nothing about missing people while the list is complete', () => {
+    renderDialog({}, { project: { onProject: [ADA_P, CARA], onProjectComplete: true } })
+    expect(screen.queryByText(/could not be loaded/)).toBeNull()
+  })
+
+  it('says the list may be missing people when the teams could not be loaded (onProjectComplete false)', () => {
+    renderDialog({}, { project: { onProject: [ADA_P], onProjectComplete: false } })
+    expect(screen.getByText(/Some team members could not be loaded, so this list may be missing people\./)).toBeTruthy()
+    // The note joins the existing hint, it does not replace it.
+    expect(screen.getByText(/Left empty, the task is assigned to you\./)).toBeTruthy()
+  })
+
+  it('also says it when editing, where the usual hint is not shown', () => {
+    const task = projectTask('t1', {}, { assignee: personRef('u-ada', 'Ada Lovelace') }) as unknown as ProjectTask
+    renderDialog({}, { task, project: { onProject: [ADA_P], onProjectComplete: false } })
+    expect(screen.getByText('Some team members could not be loaded, so this list may be missing people.')).toBeTruthy()
+    expect(screen.queryByText(/Left empty/)).toBeNull()
+  })
+
+  it('G10: a task already given to a team-only person keeps them selected, unmarked, and resends them unchanged while the teams are not loaded', async () => {
+    const task = projectTask(
+      't1',
+      { subject: 'Send offer' },
+      { assignee: personRef('u-cara', 'Cara Coder') },
+    ) as unknown as ProjectTask
+    renderDialog(
+      { 'PATCH /activities/t1': () => ({ status: 200, body: task }) },
+      { task, project: { onProject: [ADA_P], onProjectComplete: false } },
+    )
+    const select = screen.getByLabelText('Assignee', { exact: false }) as HTMLSelectElement
+    expect(select.value).toBe('u-cara')
+    // Not "no longer on the project": that is not known while the teams are not loaded.
+    expect(select.selectedOptions[0]!.textContent).toBe('Cara Coder')
+
+    type('Title', 'Send offer today')
+    submit('Save')
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(writes()[0]!.body).toMatchObject({ assigneeUserId: 'u-cara' })
+  })
+
+  it('keeps the "no longer on the project" mark when the list is complete and the person is not in it', () => {
+    const task = projectTask('t1', {}, { assignee: personRef('u-cara', 'Cara Coder') }) as unknown as ProjectTask
+    renderDialog({}, { task, project: { onProject: [ADA_P], onProjectComplete: true } })
+    const select = screen.getByLabelText('Assignee', { exact: false }) as HTMLSelectElement
+    expect(select.selectedOptions[0]!.textContent).toBe('Cara Coder (no longer on the project)')
+  })
+
+  it('R6: against a projects-api without onProject it falls back to the project manager and the listed team', () => {
+    renderDialog({}, { team: [BOB, CARA] })
+    expect(optionLabels()).toEqual(['Me (the author)', 'Ada Lovelace (You)', 'Bob Builder', 'Cara Coder'])
+    expect(screen.queryByText(/could not be loaded/)).toBeNull()
+  })
+})
+
 describe('participants (AC-5.1)', () => {
   it('adds people picked from the directory as removable chips and sends their ids', async () => {
     renderDialog()
@@ -449,7 +544,7 @@ describe('refusals keep what was typed and land where they belong', () => {
 
     submit()
 
-    expect(await screen.findByText('Choose the project manager or a team member.')).toBeTruthy()
+    expect(await screen.findByText('Choose someone who is on this project.')).toBeTruthy()
     expect((screen.getByLabelText('Title', { exact: false }) as HTMLInputElement).value).toBe('Send the offer')
     expect(onSaved).not.toHaveBeenCalled()
   })

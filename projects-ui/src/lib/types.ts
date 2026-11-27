@@ -149,6 +149,35 @@ export type Terms =
   | TermsOf<'maintenance' | 'saas', SlaAndHoursTermsView>
   | TermsOf<'t_and_m', TAndMTermsView>
 
+/**
+ * One member of an attached team as the page shows it (specs/20261126-teams D10): `name` is `null` for a
+ * deactivated member (`deleted`), `projectsAccess` is "holds access to Projects" (AC-4.7).
+ */
+export type TeamMemberView = { id: string; name: string | null; deleted: boolean; projectsAccess: boolean }
+
+/**
+ * A team attached to a project. Projects keep no copy of a name or a member (AC-1.3): `name` and `archived` are
+ * `null` together when the team could not be read, `members` is `null` when they "could not be loaded" (AC-5.4).
+ */
+export type AttachedTeamView = {
+  id: string
+  name: string | null
+  archived: boolean | null
+  members: TeamMemberView[] | null
+}
+
+/** Why the page's team read did not complete (plan D15): a closed enum, so a value the UI does not know reads as `unavailable`. */
+export type TeamsStatus = 'complete' | 'unavailable' | 'rate_limited'
+
+/**
+ * One row of `GET /attached-teams`: a team attached to at least one project. `name` and `archived` are `null` for a team
+ * auth could not describe (fail soft: the filter still reaches its projects).
+ */
+export type TeamFilterOption = { id: string; name: string | null; archived: boolean | null }
+
+/** One row of `GET /attachable-teams?q=`: an active team that can be attached. */
+export type AttachableTeam = { id: string; name: string }
+
 export type Project = {
   id: string
   name: string
@@ -162,6 +191,20 @@ export type Project = {
   projectManager: Person | null
   awaitingProjectManager: boolean
   team: Person[]
+  /**
+   * The five team fields (specs/20261126-teams, plan § API contracts): every answer that carries a project sets
+   * them together. Optional only so that a projects-api that predates teams reads as "no teams" and never
+   * throws (the UI ships after the API); the card fails toward "could not be loaded", never toward silence.
+   */
+  /** The attached teams, in attach order. */
+  teams?: AttachedTeamView[]
+  /** Who is on the project: manager, listed people and counted team members, each once; the known part when incomplete. */
+  onProject?: Person[]
+  /** False when an attached team's members could not be loaded. */
+  onProjectComplete?: boolean
+  teamsStatus?: TeamsStatus | null
+  /** Whole seconds until the person's own limit lets the page read teams again (1..600); set with `rate_limited`. */
+  teamsRetryAfterSeconds?: number | null
   /** `null` on a hand-made project, which never has one (AC-5.2). */
   purchaseOrder: PurchaseOrder | null
   /** Always there with a purchase order; optional on a hand-made project (AC-5.3). */

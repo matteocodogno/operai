@@ -65,11 +65,12 @@ const seedProject = (id: string, type: string, companyId: string | null) =>
    VALUES ('${id}', 'P ${id}', '${type}', 'welld_ch', ${companyId === null ? "NULL" : `'${companyId}'`}, 'user-1', 'user-1', now())`;
 
 describe("the migrations directory", () => {
-  it("holds specs/20261103-projects's init as shipped, then purchase_order, then the tender link (2026-11-24, US-10)", () => {
-    expect(MIGRATION_DIRS).toHaveLength(3);
+  it("holds specs/20261103-projects's init as shipped, then purchase_order, the tender link (2026-11-24, US-10) and the attached teams (specs/20261126-teams)", () => {
+    expect(MIGRATION_DIRS).toHaveLength(4);
     expect(MIGRATION_DIRS[0]).toBe("20261103163000_init");
     expect(MIGRATION_DIRS[1]).toMatch(/^\d{14}_purchase_order$/);
     expect(MIGRATION_DIRS[2]).toBe("20261124160000_project_tender_deal");
+    expect(MIGRATION_DIRS[3]).toBe("20261126120000_attached_team");
   });
 });
 

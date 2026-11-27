@@ -139,6 +139,20 @@ export default function ProjectDetailPage() {
     setActionError(null)
     getProject(id).then(resource.replace, () => resource.retry())
   }
+  // The Retry of a Teams banner (design S6, G8): `resource.retry` would show the loading state and unmount the Team
+  // card, losing the focus Retry holds and its "checked again" line, so the project is read again IN PLACE, as
+  // `recordChanged` does. A read that fails outright is the page's own load failure (through `retry`).
+  const reloadInPlace = (): Promise<Project | null> =>
+    getProject(id).then(
+      (next) => {
+        resource.replace(next)
+        return next
+      },
+      () => {
+        resource.retry()
+        return null
+      },
+    )
   const company = companyFact(project)
   // The deal behind this project, when it is no longer won in the CRM: read live, nothing is changed by it (AC-2.3).
   const po = project.purchaseOrder
@@ -264,8 +278,9 @@ export default function ProjectDetailPage() {
           project={project}
           currentUserId={currentUserId}
           canManage={canManage}
-          onSaved={(next) => changed(next, t.saved.team)}
+          onSaved={changed}
           onStale={() => setStale(true)}
+          onReloadTeams={reloadInPlace}
         />
         <TasksCard project={project} canManage={canManage} currentUserId={currentUserId} />
         <MeetingsSection projectId={project.id} />

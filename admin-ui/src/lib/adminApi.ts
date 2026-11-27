@@ -95,6 +95,39 @@ export type PermissionRuleInput = PermissionRule
 /** `entity` attribute values — Screen C2's select (design.md F4). */
 export type UserEntity = 'welld_ch' | 'welld_it'
 
+// --- Teams (specs/20261126-teams) ----------------------------------------------
+
+/** One row of `GET /admin/teams` (archived teams included). */
+export type TeamSummary = {
+  id: string
+  name: string
+  description: string | null
+  archived: boolean
+  activeMemberCount: number
+  /** The row's version: sent back as `baseVersion` by every write of the team's own fields. */
+  version: number
+}
+
+export type TeamMemberAdmin = {
+  id: string
+  name: string
+  email: string
+  deactivated: boolean
+  addedAt: string
+}
+
+/** `POST /admin/teams` answers it (201), as does `GET /admin/teams/:id`. */
+export type TeamDetail = TeamSummary & {
+  createdAt: string
+  updatedAt: string
+  members: TeamMemberAdmin[]
+}
+
+export type TeamCreateInput = {
+  name: string
+  description?: string
+}
+
 // --- Roles -------------------------------------------------------------------
 
 export type Role = {
@@ -300,6 +333,10 @@ export type ApiProblem = {
   code?: string
   /** Sent with `code: "domain_not_allowed"` so the UI can render the list in its own language. */
   allowedDomains?: string[]
+  /** Sent with `code: "team_name_taken"`: the clashing team's name as stored (specs/20261126-teams, plan D14). */
+  existingName?: string
+  /** Sent with `code: "version_conflict"`: the version the row is at now. */
+  currentVersion?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +362,8 @@ export class ApiError extends Error {
   readonly instance: string | undefined
   readonly code: string | undefined
   readonly allowedDomains: string[] | undefined
+  readonly existingName: string | undefined
+  readonly currentVersion: number | undefined
 
   constructor(problem: ApiProblem) {
     super(problem.title)
@@ -335,6 +374,8 @@ export class ApiError extends Error {
     this.instance = problem.instance
     this.code = problem.code
     this.allowedDomains = problem.allowedDomains
+    this.existingName = problem.existingName
+    this.currentVersion = problem.currentVersion
   }
 }
 
@@ -379,6 +420,12 @@ const throwFromResponse = async (response: Response): Promise<never> => {
       allowedDomains:
         Array.isArray(body.allowedDomains) && body.allowedDomains.every((d) => typeof d === 'string')
           ? body.allowedDomains
+          : undefined,
+      // Only the two members the teams routes add, and only in their declared type.
+      existingName: typeof body.existingName === 'string' && body.existingName !== '' ? body.existingName : undefined,
+      currentVersion:
+        typeof body.currentVersion === 'number' && Number.isInteger(body.currentVersion)
+          ? body.currentVersion
           : undefined,
     }
   } catch {
@@ -534,6 +581,73 @@ export const putDepartmentRoles = async (id: string, roleIds: string[]): Promise
  */
 export const putDepartmentMembers = async (id: string, userIds: string[]): Promise<DepartmentDetail> =>
   sendJson<DepartmentDetail>(`/admin/departments/${encodeURIComponent(id)}/members`, 'PUT', { userIds })
+
+// ---------------------------------------------------------------------------
+// Admin — teams (specs/20261126-teams; a team grants nothing and is never deleted)
+// ---------------------------------------------------------------------------
+
+/** GET /admin/teams — every team, archived included, in name order. Throws ApiError on 403 or 401. */
+export const listTeams = async (): Promise<TeamSummary[]> =>
+  (await getJson<{ items: TeamSummary[] }>('/admin/teams')).items
+
+/**
+ * POST /admin/teams
+ * Creates a team. Returns the created team with no members (201).
+ * Throws ApiError on 409 `team_name_taken` (with `existingName`), 400, 403, or 401.
+ */
+export const createTeam = async (body: TeamCreateInput): Promise<TeamDetail> =>
+  sendJson<TeamDetail>('/admin/teams', 'POST', body)
+
+/**
+ * The name of the team an error says already has the typed name, or null when the error is anything else. A 409
+ * `team_name_taken` WITHOUT a string `existingName` (a skewed deploy, a contract bug) is null too: the caller then
+ * shows its generic failure instead of a clash that names nobody (plan UI surface, design G1). Never reads `detail`.
+ */
+export const teamNameClash = (error: unknown): string | null =>
+  error instanceof ApiError && error.status === 409 && error.code === 'team_name_taken'
+    ? (error.existingName ?? null)
+    : null
+
+/** GET /admin/teams/:id — the team with its members, deactivated ones included. Throws ApiError on 404 `team_not_found`, 403, 401. */
+export const getTeam = async (id: string): Promise<TeamDetail> =>
+  getJson<TeamDetail>(`/admin/teams/${encodeURIComponent(id)}`)
+
+/** PATCH body: the version the form was read at, and only the fields that changed (`description: null` clears it). */
+export type TeamPatchInput = {
+  baseVersion: number
+  name?: string
+  description?: string | null
+}
+
+/**
+ * PATCH /admin/teams/:id
+ * Throws ApiError on 400, 404, 409 `version_conflict` (stale `baseVersion`), 409 `team_name_taken` (with `existingName`).
+ */
+export const patchTeam = async (id: string, body: TeamPatchInput): Promise<TeamDetail> =>
+  sendJson<TeamDetail>(`/admin/teams/${encodeURIComponent(id)}`, 'PATCH', body)
+
+/** POST /admin/teams/:id/archive — the team's own fields are versioned: 409 `version_conflict` when `baseVersion` is old. */
+export const archiveTeam = async (id: string, baseVersion: number): Promise<TeamDetail> =>
+  sendJson<TeamDetail>(`/admin/teams/${encodeURIComponent(id)}/archive`, 'POST', { baseVersion })
+
+/** POST /admin/teams/:id/restore — same shape as archive. */
+export const restoreTeam = async (id: string, baseVersion: number): Promise<TeamDetail> =>
+  sendJson<TeamDetail>(`/admin/teams/${encodeURIComponent(id)}/restore`, 'POST', { baseVersion })
+
+/**
+ * POST /admin/teams/:id/members — adding a member is a set operation: no version, the whole detail comes back.
+ * Throws ApiError on 404, 422 `user_not_active`, 422 `team_full`.
+ */
+export const addTeamMember = async (id: string, userId: string): Promise<TeamDetail> =>
+  sendJson<TeamDetail>(`/admin/teams/${encodeURIComponent(id)}/members`, 'POST', { userId })
+
+/** DELETE /admin/teams/:id/members/:userId — a person who is not a member is a no-op; the whole detail comes back. */
+export const removeTeamMember = async (id: string, userId: string): Promise<TeamDetail> =>
+  deleteJson<TeamDetail>(`/admin/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`)
+
+/** True for a 409 `version_conflict`: the team changed since it was read. Never reads `detail`. */
+export const isVersionConflict = (error: unknown): boolean =>
+  error instanceof ApiError && error.status === 409 && error.code === 'version_conflict'
 
 // ---------------------------------------------------------------------------
 // Admin — users

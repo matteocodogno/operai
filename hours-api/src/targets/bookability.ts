@@ -67,6 +67,8 @@ async function assertOnProject({ userId, authorization }: Caller, projectId: str
   const project = outcome.items.get(projectId);
   if (project === undefined) throw hostUnavailable();
   if (project.state === "missing") throw targetNotFound();
+  // `null`: the host could not say who is on its attached teams. Neither a yes nor a 403: unavailable (D3, AC-5.4).
+  if (project.assignees === null) throw hostUnavailable();
   if (!project.assignees.includes(userId)) throw notOnProject();
 }
 

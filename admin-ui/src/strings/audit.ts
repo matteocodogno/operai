@@ -2,7 +2,7 @@
 export const en = {
   heading: 'Audit',
   description:
-    'A read-only, reverse-chronological history of every authorization change (roles, departments, and user assignments) and every legal entity change. Nothing here can be edited or deleted.',
+    'A read-only, reverse-chronological history of every authorization change (roles, departments, teams, and user assignments) and every legal entity change. Nothing here can be edited or deleted.',
   loadError: 'Could not load the audit log.',
   empty: {
     title: 'No changes yet',
@@ -30,7 +30,7 @@ export const en = {
 export const it: typeof en = {
   heading: 'Audit',
   description:
-    'Cronologia in sola lettura, dalla più recente, di ogni modifica alle autorizzazioni (ruoli, reparti e assegnazioni degli utenti) e ogni modifica alle società del gruppo. Nulla qui può essere modificato o eliminato.',
+    'Cronologia in sola lettura, dalla più recente, di ogni modifica alle autorizzazioni (ruoli, reparti, team e assegnazioni degli utenti) e ogni modifica alle società del gruppo. Nulla qui può essere modificato o eliminato.',
   loadError: 'Impossibile caricare il registro di audit.',
   empty: {
     title: 'Ancora nessuna modifica',

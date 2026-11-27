@@ -24,6 +24,10 @@ describe("createSystemRateLimits — defaults and counting", () => {
     expect(limits.usersContact.consume("system:a").allowed).toBe(false);
     for (let i = 0; i < 300; i++) expect(limits.legalEntities.consume("system:a").allowed).toBe(true);
     expect(limits.legalEntities.consume("system:a").allowed).toBe(false);
+    for (let i = 0; i < 3000; i++) expect(limits.teams.consume("system:a").allowed).toBe(true);
+    expect(limits.teams.consume("system:a").allowed).toBe(false);
+    for (let i = 0; i < 1500; i++) expect(limits.teamsOptions.consume("system:a").allowed).toBe(true);
+    expect(limits.teamsOptions.consume("system:a").allowed).toBe(false);
     for (let i = 0; i < 20; i++) expect(limits.invalidCredentials.consume("direct").allowed).toBe(true);
     expect(limits.invalidCredentials.consume("direct").allowed).toBe(false);
     expect(limits.windowMs).toBe(600_000);
@@ -41,6 +45,30 @@ describe("createSystemRateLimits — defaults and counting", () => {
     expect(limits.serviceToken.consume("system:crm-api").allowed).toBe(true);
     c.advance(1001);
     expect(limits.legalEntities.consume("system:crm-api").allowed).toBe(true);
+  });
+
+  test("the two teams allowances are separate counters, per service, driven by the injected clock (specs/20261126-teams D11)", () => {
+    const c = clock();
+    const limits = createSystemRateLimits({ now: c.now, config: { teamsLimit: 2, teamsOptionsLimit: 1, windowMs: 1000 } });
+    expect(limits.teams.consume("system:projects-api").allowed).toBe(true);
+    expect(limits.teams.consume("system:projects-api").allowed).toBe(true);
+    expect(limits.teams.consume("system:projects-api").allowed).toBe(false);
+    // a spent `teams` leaves `teamsOptions` alone, and the reverse
+    expect(limits.teamsOptions.consume("system:projects-api").allowed).toBe(true);
+    expect(limits.teamsOptions.consume("system:projects-api").allowed).toBe(false);
+    expect(limits.teams.consume("system:other").allowed).toBe(true);
+    // and neither is the legal-entities counter, nor the token or contact ones
+    expect(limits.legalEntities.consume("system:projects-api").allowed).toBe(true);
+    expect(limits.usersContact.consume("system:projects-api").allowed).toBe(true);
+    expect(limits.serviceToken.consume("system:projects-api").allowed).toBe(true);
+    c.advance(1001);
+    expect(limits.teams.consume("system:projects-api").allowed).toBe(true);
+    expect(limits.teamsOptions.consume("system:projects-api").allowed).toBe(true);
+  });
+
+  test("the allowance constants are pinned: teams 3 000, teamsOptions 1 500 (D11)", async () => {
+    const { TEAMS_SERVICE_LIMIT, TEAMS_OPTIONS_SERVICE_LIMIT } = await import("./systemRateLimits");
+    expect([TEAMS_SERVICE_LIMIT, TEAMS_OPTIONS_SERVICE_LIMIT]).toEqual([3000, 1500]);
   });
 
   test("services are independent of each other and of the invalid count", () => {

@@ -87,7 +87,25 @@ describe("parseServiceClients", () => {
       "legal-entities:read",
       "accounting.reference.read",
       "meetings.hosts.read",
+      "teams:read",
     ]);
+  });
+
+  test("teams:read parses alone or beside other scopes, and a near miss refuses to start (specs/20261126-teams AC-4.1)", () => {
+    const ok = parseServiceClients(
+      raw({
+        "projects-api": { secret: SECRET_A, scope: "teams:read" },
+        "crm-api": { secret: SECRET_B, scope: "notifications.push teams:read" },
+      }),
+    );
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.clients.get("projects-api")?.scopes).toEqual(["teams:read"]);
+      expect(ok.clients.get("crm-api")?.scopes).toEqual(["notifications.push", "teams:read"]);
+    }
+    for (const scope of ["teams:write", "teams.read", "team:read", "teams", "TEAMS:READ", "teams:manage", "teams:read teams:write"]) {
+      expect(parseServiceClients(raw({ "projects-api": { secret: SECRET_A, scope } })).ok).toBe(false);
+    }
   });
 
   test("legal-entities:read parses alone or beside other scopes, and a near miss refuses to start (specs/20261117-legal-entities AC-3.2)", () => {
@@ -292,7 +310,7 @@ describe("parseServiceClients", () => {
     expect(result.clients.get("projects-api")?.scopes).toEqual(["crm.companies.read"]);
   });
 
-  test("the documented projects-api entry is its five read/push scopes and has no emails.send (specs/20261103-projects, 026)", () => {
+  test("the documented projects-api entry is its six read/push scopes (teams:read since specs/20261126-teams) and has no emails.send (specs/20261103-projects, 026)", () => {
     const documented = DOCUMENTED_CLIENT_SCOPES["projects-api"];
     const result = parseServiceClients(raw({ "projects-api": { secret: SECRET_A, scope: documented } }));
     expect(result.ok).toBe(true);
@@ -304,6 +322,7 @@ describe("parseServiceClients", () => {
       "crm.deals.read",
       "estimai.estimates.read",
       "notifications.push",
+      "teams:read",
     ]);
     expect(scopes).not.toContain("emails.send");
   });

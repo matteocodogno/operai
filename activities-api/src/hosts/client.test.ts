@@ -363,6 +363,38 @@ describe("unavailable (AC-8.2): only a 200 is an answer, every defect fails clos
     expect(await resolve(projects(), ALICE, { ids: ["p1"] })).toEqual({ state: "unavailable" });
   });
 
+  it("a team-only person in a projects item's `assignees` is an assignee like any other (specs/20261126-teams AC-5.2)", async () => {
+    hosts.projects.setEntity("p1", { label: "W", href: "/projects/p1", assignees: ["user-pm", "user-team-only", "user-pm"] });
+    const result = ok(await resolve(projects(), ALICE, { ids: ["p1"] }));
+    expect(result.entities.get("p1")).toMatchObject({ state: "open", assignees: ["user-pm", "user-team-only"] });
+  });
+
+  it("`assignees: null` from a projects item is `unavailable`, kept apart from a list and from absent (AC-5.4)", async () => {
+    hosts.projects.mode = {
+      body: {
+        reader: true,
+        items: [{ id: "p1", state: "open", writable: true, label: "W", href: "/projects/p1", may: { write: true, manage: true }, assignees: null }],
+      },
+    };
+    const result = ok(await resolve(projects(), ALICE, { ids: ["p1"] }));
+    expect(result.entities.get("p1")).toMatchObject({ state: "open", label: "W", assignees: "unavailable" });
+  });
+
+  it("one project's `null` does not spoil the others in the same batch", async () => {
+    const item = (id: string, assignees: unknown) => ({
+      id, state: "open", writable: true, label: id, href: `/projects/${id}`, may: { write: true, manage: true }, assignees,
+    });
+    hosts.projects.mode = { body: { reader: true, items: [item("p1", null), item("p2", ["u1"])] } };
+    const result = ok(await resolve(projects(), ALICE, { ids: ["p1", "p2"] }));
+    expect(result.entities.get("p1")).toMatchObject({ assignees: "unavailable" });
+    expect(result.entities.get("p2")).toMatchObject({ assignees: ["u1"] });
+  });
+
+  it("`assignees: null` from a host that does not list them stays null (not unavailable)", async () => {
+    hosts.crm.mode = { body: { reader: true, items: [open("c1", { assignees: null })] } };
+    expect(ok(await resolve(crm(), ALICE, { ids: ["c1"] })).entities.get("c1")).toMatchObject({ assignees: null });
+  });
+
   it("an incomplete answer from a reader: an asked id left unanswered", async () => {
     hosts.crm.mode = { body: { reader: true, items: [open("c1")] } };
     expect(await resolve(crm(), ALICE, { ids: ["c1", "c2"] })).toEqual({ state: "unavailable" });

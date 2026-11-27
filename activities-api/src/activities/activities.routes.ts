@@ -40,7 +40,7 @@ import { announce } from "../lib/notify";
 import type { NotifyActivity, NotifyTarget } from "../lib/notificationCopy";
 import { ProblemError, unprocessable, validationHook } from "../lib/problem";
 import type { ActivityHost, HostApp } from "../hosts/registry";
-import { HostSession, type OpenEntity } from "./access";
+import { HostSession, hostUnavailable, type OpenEntity } from "./access";
 import { authorizationOf, hostOf, ifStillThere, loadFor, type Caller } from "./load";
 import { MAX_BLOCKERS, announceUnblocked, assertBlockers, assertUnblocked, newBlockerRows, replaceBlockers } from "./blockers";
 import { changeRefused, completeRefused, createRefused, hostReadOnly, mayChange, mayComplete, mayCreate } from "./rules";
@@ -205,6 +205,9 @@ const assigneeToCheck = (host: ActivityHost, named: string, current: string | nu
  */
 async function assertAssignable(c: Caller, host: ActivityHost, entity: OpenEntity, assigneeUserId: string): Promise<void> {
   if (host.assignees === "host_list") {
+    // The host could not say who is on the project (its teams were unreadable): unknown is not
+    // nobody, so the assignment is refused, closed, and nothing is written (specs/20261126-teams AC-5.4).
+    if (entity.assignees === "unavailable") throw hostUnavailable();
     if (!entity.assignees?.includes(assigneeUserId)) {
       throw unprocessable(
         "The assignee must be on this project: its manager or a team member",

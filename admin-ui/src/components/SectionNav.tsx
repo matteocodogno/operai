@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { Skeleton, TabNav, tabLinkClassName } from '@operai/ui'
 import { strings } from '../strings'
 
-// The left-anchored admin sections (Roles, Departments, Users). Audit is rendered separately,
+// The left-anchored admin sections (Roles, Departments, Teams, Users). Audit is rendered separately,
 // anchored to the FAR RIGHT (2026-07-21 UX change).
 // `to` paths are relative to admin-ui's own inner router (see ../router.tsx)
 // — TanStack Router prefixes them with the router's `basepath` (`/admin` when
@@ -11,6 +11,7 @@ import { strings } from '../strings'
 const SECTIONS = [
   { to: '/roles', label: strings.nav.roles },
   { to: '/departments', label: strings.nav.departments },
+  { to: '/teams', label: strings.nav.teams },
   { to: '/users', label: strings.nav.users },
 ] as const
 

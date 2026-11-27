@@ -80,16 +80,19 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-const MANAGE_CONTROLS = ['Edit', 'Set end date', 'Edit team', 'Edit details']
+const MANAGE_CONTROLS = ['Edit', 'Set end date', 'Edit people', 'Edit teams', 'Edit details']
 
 describe('a manager sees the controls this page can offer (the check below is not vacuous)', () => {
   it.each([
     ['a project made from a deal', fromDeal],
     ['a hand-made project', handMade],
-  ])('manages the entity of %s: Edit, Set end date, Edit team and Edit details are all there', async (_name, make) => {
-    await render_(make('welld_ch'), scope({ manage: ['welld_ch'] }))
-    for (const name of MANAGE_CONTROLS) expect(screen.queryByRole('button', { name }), name).not.toBeNull()
-  })
+  ])(
+    'manages the entity of %s: Edit, Set end date, Edit people, Edit teams and Edit details are all there',
+    async (_name, make) => {
+      await render_(make('welld_ch'), scope({ manage: ['welld_ch'] }))
+      for (const name of MANAGE_CONTROLS) expect(screen.queryByRole('button', { name }), name).not.toBeNull()
+    },
+  )
 })
 
 describe('a project of an entity the caller does not manage is read-only all the way down (AC-4.4)', () => {

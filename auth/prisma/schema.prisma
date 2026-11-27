@@ -59,6 +59,10 @@ model User {
   // ─── Access requests (specs/20261105-signup-gate, ADR 20261105-access-only-by-invitation-waiting-list) ─────────────────────────────────
   accessRequestsDecided AccessRequest[] @relation("AccessRequestDecider")
 
+  // ─── Teams (specs/20261126-teams) ───────────────────────────────────────────────
+  // A team grants nothing: the permission resolver never reads these rows (AC-2.5).
+  teamMemberships TeamMember[]
+
   @@index([deletedAt])
   @@map("user")
 }
@@ -155,6 +159,35 @@ model Department {
   members         UserDepartment[]
 
   @@map("department")
+}
+
+// A named group of users (specs/20261126-teams). Grants NOTHING: the resolver never reads it (AC-2.5).
+// The case-insensitive unique name index and the shape CHECKs are in the migration's SQL (Prisma cannot express them).
+model Team {
+  id          String    @id @default(cuid())
+  name        String // trimmed, 1..80; unique case-insensitively (index team_name_lower_key)
+  description String? // <= 500; an empty description is stored as NULL
+  archivedAt  DateTime? // null = active; a team is archived, never deleted (AC-1.7)
+  version     Int       @default(1) // name, description and state only
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  members TeamMember[]
+
+  @@map("team")
+}
+
+model TeamMember {
+  teamId        String
+  team          Team     @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade) // users are soft-deleted; Cascade only for hard test cleanup
+  addedByUserId String? // convenience, no FK: the audit row is authoritative (as User.deletedByUserId)
+  addedAt       DateTime @default(now())
+
+  @@id([teamId, userId])
+  @@index([userId])
+  @@map("team_member")
 }
 
 // A grant of one action on one resource, optionally narrowed by conditions

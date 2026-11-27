@@ -109,6 +109,18 @@ describe("resolveProjects", () => {
     expect(await resolveProjects(ALICE, ["p1"])).toEqual({ state: "unavailable" });
   });
 
+  it("answers an open project whose assignees are null as open with `assignees: null`: could not find out, label and href still resolve (AC-5.4)", async () => {
+    hosts.fail("projects.resolve", {
+      body: {
+        reader: true,
+        items: [{ id: "p1", state: "open", writable: true, label: "Atlas", href: "/projects/p1", may: { write: true, manage: true }, assignees: null }],
+      },
+    });
+    const outcome = await resolveProjects(ALICE, ["p1"]);
+    if (outcome.state !== "ok") throw new Error(`expected an answer, got ${outcome.state}`);
+    expect(outcome.items.get("p1")).toEqual({ state: "open", label: "Atlas", href: "/projects/p1", writable: true, assignees: null });
+  });
+
   it.each(["https://evil.example/x", "//evil.example/x", "javascript:alert(1)", "projects/p1", "/a\\b", "/with space", ""])(
     "answers `unavailable` when an href is not a path inside the suite: %p",
     async (href) => {

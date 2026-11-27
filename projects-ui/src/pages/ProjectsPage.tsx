@@ -10,14 +10,21 @@ import { useResource } from '../hooks/useResource'
 import { useScope } from '../hooks/useScope'
 import { PROJECT_STATES, PROJECT_TYPES } from '../lib/domain'
 import { personName } from '../lib/people'
-import { getProjectManagers, listProjects } from '../lib/projectsApi'
-import type { ProjectState, ProjectSummary, ProjectType } from '../lib/types'
+import { getProjectManagers, getTeamFilterOptions, listProjects } from '../lib/projectsApi'
+import type { ProjectState, ProjectSummary, ProjectType, TeamFilterOption } from '../lib/types'
 import { strings } from '../strings'
 
 const PAGE_SIZE = 25
 
 /** The project-manager filter value that asks for the projects awaiting one (AC-4.5): `projectManagerId=none`. */
 const NO_PROJECT_MANAGER = 'none'
+
+/** A team in the filter: its name, marked when archived (a project keeps one, AC-4.2), or the unreadable-team words. */
+const teamOptionText = (team: TeamFilterOption): string => {
+  const t = strings.projects.list
+  if (team.name === null) return t.teamUnreadable
+  return team.archived ? t.teamArchived(team.name) : team.name
+}
 
 /** What the company column says: the client — a `saas` row carries its own company too (D40) — or "Internal" (AC-1.4). */
 function companyText(project: ProjectSummary): string {
@@ -35,14 +42,15 @@ function projectManagerText(project: ProjectSummary, currentUserId: string | nul
 
 /**
  * ProjectsPage — the projects list (US-1, AC-1.1, AC-1.4): filters in a Card
- * (name search, type, state, project manager), a DataTable sorted by the server
+ * (name search, type, state, project manager, team), a DataTable sorted by the server
  * by name, 25 to a page. "New project" opens ProjectFormDialog for a holder of
  * manage projects only (AC-4.4); a created project opens on its own page.
  *
  * The project-manager filter lists the people who manage a project today
  * (`GET /project-managers`, open to every reader) and, always, "None yet" for the projects
  * awaiting one (AC-4.5). It is not the user directory, which only `project:manage` holders
- * may read, so every reader gets the same filter (AC-1.4).
+ * may read, so every reader gets the same filter (AC-1.4). The team filter is fed the same way, by
+ * `GET /attached-teams`: the teams attached to at least one project (specs/20261126-teams AC-4.8).
  */
 export default function ProjectsPage() {
   const t = strings.projects.list
@@ -54,19 +62,23 @@ export default function ProjectsPage() {
   const [type, setType] = useState<ProjectType | ''>('')
   const [state, setState] = useState<ProjectState | ''>('')
   const [projectManagerId, setProjectManagerId] = useState('')
+  const [teamId, setTeamId] = useState('')
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
 
-  const filtered = q.trim() !== '' || type !== '' || state !== '' || projectManagerId !== ''
+  const filtered = q.trim() !== '' || type !== '' || state !== '' || projectManagerId !== '' || teamId !== ''
   const load = useCallback(
-    (signal: AbortSignal) => listProjects({ page, q: q.trim(), type, state, projectManagerId }, { signal }),
-    [page, q, type, state, projectManagerId],
+    (signal: AbortSignal) => listProjects({ page, q: q.trim(), type, state, projectManagerId, teamId }, { signal }),
+    [page, q, type, state, projectManagerId, teamId],
   )
   const projects = useResource(load, {
-    cacheKey: `projects:${JSON.stringify([page, q.trim(), type, state, projectManagerId])}`,
+    cacheKey: `projects:${JSON.stringify([page, q.trim(), type, state, projectManagerId, teamId])}`,
   })
   const loadManagers = useCallback((signal: AbortSignal) => getProjectManagers({ signal }), [])
   const managers = useResource(loadManagers, { cacheKey: 'project-managers' })
+  const loadTeams = useCallback((signal: AbortSignal) => getTeamFilterOptions({ signal }), [])
+  const teams = useResource(loadTeams, { cacheKey: 'attached-teams' })
+  const teamHint = teams.status === 'error' ? t.teamsFailed : teams.data?.items.length === 0 ? t.noTeamsYet : undefined
 
   const columns: DataTableColumn<ProjectSummary>[] = [
     {
@@ -220,6 +232,25 @@ export default function ProjectsPage() {
                   {(managers.data?.items ?? []).map((manager) => (
                     <option key={manager.id} value={manager.id}>
                       {personName(manager, currentUserId)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label={t.team} hint={teamHint} testId="projects-team">
+              {(control) => (
+                <select
+                  {...control}
+                  value={teamId}
+                  onChange={(event) => {
+                    setTeamId(event.target.value)
+                    setPage(1)
+                  }}
+                >
+                  <option value="">{strings.common.any}</option>
+                  {(teams.data?.items ?? []).map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {teamOptionText(team)}
                     </option>
                   ))}
                 </select>

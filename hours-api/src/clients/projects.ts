@@ -26,8 +26,12 @@ export type ResolvedProject =
       /** A path inside the suite (`/projects/<id>`), checked. */
       readonly href: string;
       readonly writable: boolean;
-      /** The project manager and the team: the people who may book time on it. */
-      readonly assignees: readonly string[];
+      /**
+       * The project manager and the team (attached teams' members included): the people who may book time on
+       * it. `null` is "the host could not find out" (a team's members unavailable), never "nobody": the label
+       * still resolves, a booking is refused (specs/20261126-teams D3, AC-5.4).
+       */
+      readonly assignees: readonly string[] | null;
     };
 
 const nonEmpty = z.string().min(1);
@@ -40,8 +44,8 @@ const wireItem = z.discriminatedUnion("state", [
     writable: z.boolean(),
     label: nonEmpty,
     href: z.string(),
-    // The people a task may go to: absent is not "nobody".
-    assignees: z.array(nonEmpty),
+    // The people a task may go to: absent is not "nobody", and neither is null ("unknown", D3); only absent is malformed.
+    assignees: z.array(nonEmpty).nullable(),
   }),
 ]);
 
@@ -53,7 +57,7 @@ const config = (): HostResolve<z.infer<typeof wireItem>, ResolvedProject> => ({
   toResolved(item) {
     if (item.state === "missing") return { state: "missing" };
     if (!isSuitePath(item.href)) return undefined;
-    return { state: "open", label: item.label, href: item.href, writable: item.writable, assignees: [...new Set(item.assignees)] };
+    return { state: "open", label: item.label, href: item.href, writable: item.writable, assignees: item.assignees === null ? null : [...new Set(item.assignees)] };
   },
 });
 

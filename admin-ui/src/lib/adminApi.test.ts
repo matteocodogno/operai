@@ -41,21 +41,30 @@ import {
   createDepartment,
   createInvitation,
   createRole,
+  addTeamMember,
+  archiveTeam,
+  createTeam,
   deleteDepartment,
   deleteRole,
   deleteUser,
   getCatalog,
   getDepartment,
   getRole,
+  getTeam,
   getUser,
   getUserPermissions,
   listAccessRequests,
   listAudit,
   listDepartments,
+  isVersionConflict,
+  listTeams,
   listInvitations,
   listRoles,
   listUsers,
   patchDepartment,
+  patchTeam,
+  removeTeamMember,
+  restoreTeam,
   patchRole,
   patchUser,
   putDepartmentMembers,
@@ -66,6 +75,7 @@ import {
   rejectAccessRequest,
   resendInvitation,
   revokeInvitation,
+  teamNameClash,
 } from './adminApi'
 import type {
   AccessRequestDetail,
@@ -951,6 +961,147 @@ describe('access requests client (specs/20261105-signup-gate T8)', () => {
     expect(err.code).toBe('already_decided')
     vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(404, 'Not Found'))
     await expectApiError(() => rejectAccessRequest('nope'), 404)
+  })
+})
+
+describe('teams (specs/20261126-teams T4)', () => {
+  const summary = {
+    id: 't1',
+    name: 'Backend',
+    description: null,
+    archived: false,
+    activeMemberCount: 2,
+    version: 1,
+  }
+  const detail = { ...summary, createdAt: '2026-11-26T09:00:00.000Z', updatedAt: '2026-11-26T09:00:00.000Z', members: [] }
+
+  it('listTeams issues GET /admin/teams and returns the items, archived included', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse({ items: [summary, { ...summary, id: 't2', archived: true }] }))
+
+    const result = await listTeams()
+
+    expect(lastCall().url).toBe(`${AUTH_URL}/admin/teams`)
+    expect(lastCall().init?.method ?? 'GET').toBe('GET')
+    expect(result.map((team) => team.id)).toEqual(['t1', 't2'])
+  })
+
+  it('createTeam issues POST /admin/teams with the body and returns the 201 detail', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(makeResponse(201, detail))
+
+    const result = await createTeam({ name: 'Backend', description: 'Builds it' })
+
+    const { url, init } = lastCall()
+    expect(url).toBe(`${AUTH_URL}/admin/teams`)
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(init?.body as string)).toEqual({ name: 'Backend', description: 'Builds it' })
+    expect(result).toEqual(detail)
+  })
+
+  it('a 409 team_name_taken carries code and existingName on the ApiError', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      makeResponse(409, {
+        type: 'x',
+        title: 'Conflict',
+        status: 409,
+        code: 'team_name_taken',
+        detail: 'English only',
+        existingName: 'BACKEND',
+      }),
+    )
+    const err = await expectApiError(() => createTeam({ name: 'backend' }), 409)
+    expect(err.code).toBe('team_name_taken')
+    expect(err.existingName).toBe('BACKEND')
+  })
+
+  it('a 409 without a string existingName leaves it undefined, and currentVersion is read only as an integer', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      makeResponse(409, { title: 'Conflict', status: 409, code: 'team_name_taken', existingName: 7, currentVersion: '3' }),
+    )
+    const err = await expectApiError(() => createTeam({ name: 'x' }), 409)
+    expect(err.existingName).toBeUndefined()
+    expect(err.currentVersion).toBeUndefined()
+
+    vi.mocked(apiFetch).mockResolvedValueOnce(makeResponse(409, { title: 'Conflict', status: 409, code: 'version_conflict', currentVersion: 4 }))
+    const stale = await expectApiError(() => createTeam({ name: 'x' }), 409)
+    expect(stale.currentVersion).toBe(4)
+  })
+
+  it('teamNameClash returns the existing name only for a 409 team_name_taken that carries one', () => {
+    const problem = { type: 't', title: 'Conflict', status: 409, code: 'team_name_taken', existingName: 'Backend' }
+    expect(teamNameClash(new ApiError(problem))).toBe('Backend')
+    expect(teamNameClash(new ApiError({ ...problem, existingName: undefined }))).toBeNull()
+    expect(teamNameClash(new ApiError({ ...problem, code: 'version_conflict' }))).toBeNull()
+    expect(teamNameClash(new ApiError({ ...problem, status: 400 }))).toBeNull()
+    expect(teamNameClash(new TypeError('network'))).toBeNull()
+  })
+
+  it('getTeam, patchTeam, archiveTeam, restoreTeam: method, URL and body (baseVersion in the body)', async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce(okResponse(detail))
+      .mockResolvedValueOnce(okResponse(detail))
+      .mockResolvedValueOnce(okResponse(detail))
+      .mockResolvedValueOnce(okResponse(detail))
+
+    await getTeam('t/1')
+    expect(lastCall().url).toBe(`${AUTH_URL}/admin/teams/${encodeURIComponent('t/1')}`)
+    expect(lastCall().init?.method ?? 'GET').toBe('GET')
+
+    await patchTeam('t1', { baseVersion: 3, name: 'Core', description: null })
+    expect(lastCall().url).toBe(`${AUTH_URL}/admin/teams/t1`)
+    expect(lastCall().init?.method).toBe('PATCH')
+    expect(JSON.parse(lastCall().init?.body as string)).toEqual({ baseVersion: 3, name: 'Core', description: null })
+
+    await archiveTeam('t1', 4)
+    expect(lastCall().url).toBe(`${AUTH_URL}/admin/teams/t1/archive`)
+    expect(lastCall().init?.method).toBe('POST')
+    expect(JSON.parse(lastCall().init?.body as string)).toEqual({ baseVersion: 4 })
+
+    await restoreTeam('t1', 5)
+    expect(lastCall().url).toBe(`${AUTH_URL}/admin/teams/t1/restore`)
+    expect(JSON.parse(lastCall().init?.body as string)).toEqual({ baseVersion: 5 })
+  })
+
+  it('addTeamMember POSTs { userId }; removeTeamMember DELETEs the member and both return the team detail', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(detail)).mockResolvedValueOnce(okResponse(detail))
+
+    const added = await addTeamMember('t1', 'u/1')
+    expect(lastCall().url).toBe(`${AUTH_URL}/admin/teams/t1/members`)
+    expect(lastCall().init?.method).toBe('POST')
+    expect(JSON.parse(lastCall().init?.body as string)).toEqual({ userId: 'u/1' })
+    expect(added).toEqual(detail)
+
+    const removed = await removeTeamMember('t1', 'u/1')
+    expect(lastCall().url).toBe(`${AUTH_URL}/admin/teams/t1/members/${encodeURIComponent('u/1')}`)
+    expect(lastCall().init?.method).toBe('DELETE')
+    expect(removed).toEqual(detail)
+  })
+
+  it('the member refusals keep their code on the ApiError (422 user_not_active, team_full) and a 404 stays a 404', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      makeResponse(422, { title: 'Unprocessable', status: 422, code: 'user_not_active' }),
+    )
+    expect((await expectApiError(() => addTeamMember('t1', 'u1'), 422)).code).toBe('user_not_active')
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      makeResponse(422, { title: 'Unprocessable', status: 422, code: 'team_full' }),
+    )
+    expect((await expectApiError(() => addTeamMember('t1', 'u1'), 422)).code).toBe('team_full')
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      makeResponse(404, { title: 'Not Found', status: 404, code: 'team_not_found' }),
+    )
+    expect((await expectApiError(() => getTeam('nope'), 404)).code).toBe('team_not_found')
+  })
+
+  it('isVersionConflict is true only for a 409 version_conflict', () => {
+    const problem = { type: 't', title: 'Conflict', status: 409, code: 'version_conflict', currentVersion: 4 }
+    expect(isVersionConflict(new ApiError(problem))).toBe(true)
+    expect(isVersionConflict(new ApiError({ ...problem, code: 'team_name_taken' }))).toBe(false)
+    expect(isVersionConflict(new ApiError({ ...problem, status: 400 }))).toBe(false)
+    expect(isVersionConflict(new TypeError('network'))).toBe(false)
+  })
+
+  it('a 403 is an ApiError', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(403, 'Forbidden'))
+    await expectApiError(() => listTeams(), 403)
   })
 })
 

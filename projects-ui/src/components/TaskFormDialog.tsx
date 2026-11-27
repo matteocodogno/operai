@@ -13,6 +13,7 @@ import type { ProjectTask } from '../lib/activitiesApi'
 import { ApiError } from '../lib/api'
 import { codeOf, fieldErrorOf, taskErrorMessage } from '../lib/errors'
 import { personName } from '../lib/people'
+import { peopleOnProject } from '../lib/recordHours'
 import type { Person, Project } from '../lib/types'
 import { first, hasErrors, maxLength, required } from '../lib/validate'
 import type { Errors } from '../lib/validate'
@@ -32,6 +33,8 @@ import { strings } from '../strings'
 import PersonPicker from './PersonPicker'
 import type { PersonChoice } from './PersonPicker'
 import { refName } from './TaskModel'
+
+type ProjectPeople = Pick<Project, 'projectManager' | 'team' | 'onProject'>
 
 type FieldName = 'subject' | 'description' | 'dueDate' | 'assignee' | 'blockedByIds' | 'participants'
 
@@ -55,14 +58,11 @@ const SERVER_FIELDS: Record<string, FieldName> = {
 }
 
 /**
- * The project manager and the team, without repeats: who a task can be assigned to (AC-3.1). A
- * project from a deal has no project manager until its ops-manager picks one (specs/20261103-projects-handoff D42): then
- * only the team.
+ * Who a task can be assigned to (AC-3.1, teams AC-5.2): the people `onProject` names, minus the deactivated. A project
+ * from a deal has no project manager until its ops-manager picks one (specs/20261103-projects-handoff D42): then
+ * only the others.
  */
-const assignable = (project: Pick<Project, 'projectManager' | 'team'>): Person[] =>
-  [project.projectManager, ...project.team]
-    .filter((person): person is Person => person !== null)
-    .filter((person, index, all) => !person.deleted && all.findIndex((other) => other.id === person.id) === index)
+const assignable = (project: ProjectPeople): Person[] => peopleOnProject(project).filter((person) => !person.deleted)
 
 /**
  * TaskFormDialog — add a task to a project, or edit one (F2, F3, F6). Title is
@@ -72,7 +72,10 @@ const assignable = (project: Pick<Project, 'projectManager' | 'team'>): Person[]
  * a task (AC-3.6): there is no type to choose.
  *
  * An assignee who left the team stays selected and is resent unchanged, which
- * the server accepts (AC-3.7); once someone else is picked they leave the list.
+ * the server accepts (AC-3.7, teams AC-5.2); once someone else is picked they leave the list. While the
+ * teams could not be loaded (`onProjectComplete` false) the list holds the known part and says so; a
+ * current assignee it does not hold is then only "not listed", never "no longer on the project", because
+ * that is not known (design G10).
  * Refusals stay inline, name the field when the server did, and keep every
  * typed value (dialog rules).
  */
@@ -84,7 +87,7 @@ export default function TaskFormDialog({
   onCancel,
   onHostReadOnly,
 }: {
-  project: Pick<Project, 'id' | 'projectManager' | 'team'>
+  project: Pick<Project, 'id' | 'projectManager' | 'team' | 'onProject' | 'onProjectComplete'>
   task?: ProjectTask
   currentUserId: string | null
   /** The task was saved: `message` is the confirmation for the card to announce. */
@@ -128,6 +131,10 @@ export default function TaskFormDialog({
     currentAssignee !== null && assignee === currentAssignee.id && !people.some((p) => p.id === currentAssignee.id)
   // A task that has an assignee has no "empty" choice: leaving it as it is means keeping them.
   const emptyChoice = task === undefined || currentAssignee === null
+  const incomplete = project.onProjectComplete === false
+  const assigneeHint = [task === undefined ? t.assigneeHint : null, incomplete ? t.membersIncomplete : null]
+    .filter((line): line is string => line !== null)
+    .join(' ')
 
   // The project's open tasks except this one, plus any current blocker already done or past the first 100.
   const openItems = (openTasks.data?.items ?? []).filter((candidate) => candidate.id !== task?.id)
@@ -235,7 +242,7 @@ export default function TaskFormDialog({
         </Field>
         <Field
           label={t.assignee}
-          hint={task === undefined ? t.assigneeHint : undefined}
+          hint={assigneeHint === '' ? undefined : assigneeHint}
           error={errors.assignee}
           testId="task-form-assignee"
         >
@@ -249,7 +256,9 @@ export default function TaskFormDialog({
               ))}
               {departed && currentAssignee && (
                 <option value={currentAssignee.id}>
-                  {t.assigneeDeparted(refName(currentAssignee, currentUserId))}
+                  {incomplete
+                    ? refName(currentAssignee, currentUserId)
+                    : t.assigneeDeparted(refName(currentAssignee, currentUserId))}
                 </option>
               )}
             </select>

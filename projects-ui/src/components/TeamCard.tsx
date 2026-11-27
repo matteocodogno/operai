@@ -6,7 +6,9 @@ import { personName } from '../lib/people'
 import { replaceTeam } from '../lib/projectsApi'
 import type { Person, Project } from '../lib/types'
 import { strings } from '../strings'
+import AttachedTeams from './AttachedTeams'
 import PersonPicker from './PersonPicker'
+import TeamsDialog from './TeamsDialog'
 
 const MAX_MEMBERS = 100
 
@@ -122,9 +124,11 @@ function TeamDialog({
 }
 
 /**
- * TeamCard — the people on the project (AC-1.5, AC-1.6). Names are live: the API
- * resolves them on every read, so a renamed or deleted user shows as they are
- * now. A holder of manage projects for the project's entity edits the team.
+ * TeamCard — who is on the project (AC-1.3, AC-1.5, AC-1.6, AC-4.1; specs/20261126-teams design S6). Two sections
+ * under one "Team" heading: **People**, the listed team (unchanged), and **Teams**, the attached teams with their
+ * members (`AttachedTeams`). Names are live: the API resolves them on every read, so a renamed team or a deleted
+ * user shows as they are now. A holder of manage projects for the project's entity edits each list; the two dialogs
+ * are siblings of the card, never inside a form (ADR 20261118).
  */
 export default function TeamCard({
   project,
@@ -132,49 +136,82 @@ export default function TeamCard({
   canManage,
   onSaved,
   onStale,
+  onReloadTeams,
 }: {
   project: Project
   currentUserId: string | null
   canManage: boolean
-  onSaved: (next: Project) => void
+  /** A save made the project `next`; `message` is what the page confirms ("Team saved." or "Teams saved."). */
+  onSaved: (next: Project, message: string) => void
   onStale: () => void
+  /** Retry of a banner: reloads the project in place and resolves with it, or `null` when the page took the failure over. */
+  onReloadTeams: () => Promise<Project | null>
 }) {
   const t = strings.project.team
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState<'people' | 'teams' | null>(null)
+  const close = () => setEditing(null)
   return (
     <>
-      <Card
-        title={t.title}
-        data-testid="project-team"
-        action={
-          canManage && (
-            <Button size="sm" aria-haspopup="dialog" onClick={() => setEditing(true)} data-testid="project-team-edit">
-              {t.edit}
-            </Button>
-          )
-        }
-      >
-        {project.team.length === 0 ? (
-          <p className="text-sm text-soft">{t.empty}</p>
-        ) : (
-          <ul className="flex flex-col gap-1 text-sm text-text">
-            {project.team.map((person) => (
-              <li key={person.id}>{personName(person, currentUserId)}</li>
-            ))}
-          </ul>
-        )}
+      <Card title={t.title} data-testid="project-team">
+        <div className="flex flex-col gap-4">
+          <div data-testid="project-team-people" className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <h4 className="text-sm font-medium text-text">{t.people.title}</h4>
+              {canManage && (
+                <Button
+                  size="sm"
+                  aria-haspopup="dialog"
+                  onClick={() => setEditing('people')}
+                  data-testid="project-team-edit"
+                >
+                  {t.edit}
+                </Button>
+              )}
+            </div>
+            {project.team.length === 0 ? (
+              <p className="text-sm text-soft">{t.empty}</p>
+            ) : (
+              <ul aria-label={t.people.label} className="flex flex-col gap-1 text-sm text-text">
+                {project.team.map((person) => (
+                  <li key={person.id}>{personName(person, currentUserId)}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <AttachedTeams
+            project={project}
+            currentUserId={currentUserId}
+            canManage={canManage}
+            onEdit={() => setEditing('teams')}
+            onReload={onReloadTeams}
+          />
+        </div>
       </Card>
-      {editing && (
+      {editing === 'people' && (
         <TeamDialog
           project={project}
           currentUserId={currentUserId}
-          onCancel={() => setEditing(false)}
+          onCancel={close}
           onSaved={(next) => {
-            setEditing(false)
-            onSaved(next)
+            close()
+            onSaved(next, strings.project.saved.team)
           }}
           onStale={() => {
-            setEditing(false)
+            close()
+            onStale()
+          }}
+        />
+      )}
+      {editing === 'teams' && (
+        <TeamsDialog
+          project={project}
+          onCancel={close}
+          onSaved={(next) => {
+            close()
+            onSaved(next, strings.project.saved.teams)
+          }}
+          onStale={() => {
+            close()
             onStale()
           }}
         />

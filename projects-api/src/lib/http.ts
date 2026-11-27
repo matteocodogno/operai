@@ -119,8 +119,15 @@ export const PersonSchema = z.object({
   deleted: z.boolean(),
 });
 
-/** Ids are text (cuids), never uuids: 1–64 characters (tasks.md, "Ids are text"). */
-export const IdSchema = z.string().min(1).max(64);
+/**
+ * Ids are text (cuids), never uuids: 1–64 characters (tasks.md, "Ids are text"). A NUL is refused here: Postgres text cannot
+ * hold U+0000, so one that reached a query would be a 500 instead of a validation failure (specs/20261126-teams, QE D1).
+ */
+export const IdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .refine((value) => !value.includes("\u0000"), "Must not contain a NUL character");
 
 export const IdParams = z.object({ id: IdSchema });
 

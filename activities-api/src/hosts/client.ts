@@ -62,7 +62,8 @@ const wireItem = z.discriminatedUnion("state", [
     label: nonEmpty,
     href: z.string(),
     may: mayFlags,
-    assignees: z.array(nonEmpty).optional(),
+    /** `null`: the host could not find out who is on the project (specs/20261126-teams AC-5.4); absent stays malformed. */
+    assignees: z.array(nonEmpty).nullable().optional(),
   }),
 ]);
 const wireRelated = z.object({
@@ -151,11 +152,13 @@ async function resolveCall(host: ActivityHost, authorization: string, call: Call
       continue;
     }
     if (!isSuitePath(item.href)) return fail("malformed");
-    let assignees: readonly string[] | null = null;
+    let assignees: readonly string[] | "unavailable" | null = null;
     if (host.assignees === "host_list") {
       // The host that lists the people a task may go to must state them: absent is not "nobody".
       if (item.assignees === undefined) return fail("malformed");
-      assignees = [...new Set(item.assignees)];
+      // `null` is the host saying "could not find out" (teams unreadable): only an assignment needs
+      // the list, so it is kept per item and neither fails this answer nor becomes an empty list.
+      assignees = item.assignees === null ? "unavailable" : [...new Set(item.assignees)];
     }
     entities.set(item.id, {
       state: "open",

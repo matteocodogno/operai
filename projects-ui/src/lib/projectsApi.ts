@@ -19,6 +19,7 @@
 import { getAuthBaseUrl } from 'shell/session'
 import { getJson, query, requestJson, sendJson } from './api'
 import type {
+  AttachableTeam,
   CompanyChoice,
   ContactChoice,
   DealProjectType,
@@ -34,6 +35,7 @@ import type {
   PurchaseOrder,
   QueueList,
   Scope,
+  TeamFilterOption,
   Terms,
   TermsInput,
   TermsPatch,
@@ -64,6 +66,8 @@ export type ProjectListQuery = {
   state?: ProjectState | ''
   /** A person's id, or `none` for the projects awaiting a project manager (AC-4.5). */
   projectManagerId?: string
+  /** A team attached to the project (specs/20261126-teams AC-4.8). */
+  teamId?: string
 }
 
 /** A hand-made project (AC-5.1 – AC-5.3): any type, never a purchase order; `terms` are optional as a whole. */
@@ -86,6 +90,12 @@ export const listProjects = (params: ProjectListQuery, init?: Init) =>
   getJson<Page<ProjectSummary>>(`/projects${query(params)}`, init)
 /** The distinct project managers of all projects, by name: feeds the list's filter for every reader (AC-1.4). */
 export const getProjectManagers = (init?: Init) => getJson<{ items: Person[] }>('/project-managers', init)
+/**
+ * The distinct teams attached to at least one project, by name, archived ones included, an unreadable one last: feeds
+ * the list's Team filter for every reader (AC-4.8). Named for what it feeds: the D38 guard rejects any call whose name
+ * says it attaches.
+ */
+export const getTeamFilterOptions = (init?: Init) => getJson<{ items: TeamFilterOption[] }>('/attached-teams', init)
 export const getProject = (id: string, init?: Init) => getJson<Project>(projectPath(id), init)
 export const createProject = (input: CreateProjectInput) => sendJson<Project>('/projects', 'POST', input)
 export const updateProject = (id: string, version: number, input: UpdateProjectInput) =>
@@ -94,6 +104,26 @@ export const transitionProject = (id: string, version: number, to: ProjectState)
   sendJson<Project>(`${projectPath(id)}/transitions`, 'POST', { to }, version)
 export const replaceTeam = (id: string, version: number, memberIds: string[]) =>
   sendJson<Project>(`${projectPath(id)}/team`, 'PUT', { memberIds }, version)
+
+// ─── Teams attached to a project (specs/20261126-teams, plan § API contracts "projects-api (step 2)") ──────────────────
+
+/**
+ * Replaces the whole set of attached teams (AC-4.1; at most 10), with the project's version as If-Match. Only the
+ * teams being added are judged: 422 `team_not_found` / `team_archived` (both with `teamIds`), 503 `teams_unavailable`,
+ * 429 `rate_limited` (with `retryAfterSeconds` in the body, the browser cannot read `Retry-After`); an unchanged or
+ * only-removing save never meets the last two. The answer is the project with its new teams.
+ */
+export const replaceTeams = (id: string, version: number, teamIds: string[]) =>
+  sendJson<Project>(`${projectPath(id)}/teams`, 'PUT', { teamIds }, version)
+
+/**
+ * The attach picker's server-side search (D13): active teams by a case-insensitive part of the name, the exact name
+ * first, at most 50 (`truncated` when more matched). `q` is the trimmed text (at most 80 characters, which the
+ * caller checks); empty lists the first active teams. Needs `project:manage` for any entity: 403 otherwise.
+ * (Named without "attach": `api.test.ts` keeps this client free of any call that attaches a DEAL to a project, D38.)
+ */
+export const searchActiveTeams = (q: string, init?: Init) =>
+  getJson<{ items: AttachableTeam[]; truncated: boolean }>(`/attachable-teams${query({ q })}`, init)
 
 // ─── Terms (0..1 per project: a PO project always has them, a hand-made one may) ───
 

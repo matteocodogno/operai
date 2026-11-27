@@ -405,7 +405,7 @@ describe('editing the name and the project manager (AC-1.6, AC-1.7)', () => {
 
 describe('the team (AC-1.5, AC-1.6)', () => {
   const openTeam = async () => {
-    fireEvent.click(screen.getByRole('button', { name: 'Edit team' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit people' }))
     return screen.findByRole('dialog', { name: 'Edit team' })
   }
   const addPerson = async (dialog: HTMLElement, name: RegExp) => {
@@ -413,12 +413,12 @@ describe('the team (AC-1.5, AC-1.6)', () => {
     fireEvent.click(await within(dialog).findByRole('option', { name }))
   }
 
-  it('lists the members, and offers "Edit team" to a manager only', async () => {
+  it('lists the members, and offers "Edit people" to a manager only', async () => {
     await renderProject(projectDetail({ team: [BOB_PERSON] }))
-    expect(within(screen.getByTestId('project-team')).getByRole('button', { name: 'Edit team' })).not.toBeNull()
+    expect(within(screen.getByTestId('project-team')).getByRole('button', { name: 'Edit people' })).not.toBeNull()
     cleanup()
     await renderProject(projectDetail({ team: [BOB_PERSON] }), {}, scope())
-    expect(screen.queryByRole('button', { name: 'Edit team' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Edit people' })).toBeNull()
     expect(screen.getByTestId('project-team').textContent).toContain('Bob Builder')
   })
 
@@ -457,7 +457,7 @@ describe('the team (AC-1.5, AC-1.6)', () => {
     fireEvent.click(within(dialog).getByTestId('project-team-submit'))
     await waitFor(() => expect(writes().length).toBe(1))
     expect(writes()[0]!.body).toEqual({ memberIds: [] })
-    expect(await screen.findByText('No team members yet.')).not.toBeNull()
+    expect(await screen.findByText('No people listed yet.')).not.toBeNull()
   })
 
   it('there is nothing to save until the team changes', async () => {
@@ -1051,9 +1051,13 @@ describe('a project taken from a public tender (US-10)', () => {
     projectManager: BOB_PERSON,
     tenderDealId: 'deal-t1',
     purchaseOrder: null,
-    terms: termsOf('t_and_m', { positions: [{ profile: 'Backend developer', plannedManDays: 30 }] }, {
-      startDate: '2027-01-01',
-    }),
+    terms: termsOf(
+      't_and_m',
+      { positions: [{ profile: 'Backend developer', plannedManDays: 30 }] },
+      {
+        startDate: '2027-01-01',
+      },
+    ),
     startDate: '2027-01-01',
   })
 
@@ -1078,5 +1082,104 @@ describe('a project taken from a public tender (US-10)', () => {
     await renderProject(projectDetail({ id: 'p-old' }))
     expect(screen.queryByTestId('project-from-tender')).toBeNull()
     expect(within(screen.getByTestId('project-facts')).queryByText('Origin')).toBeNull()
+  })
+})
+
+describe('the attached teams (specs/20261126-teams AC-1.3, AC-4.1, AC-5.4, AC-5.6)', () => {
+  const BACKEND_TEAM = {
+    id: 't-back',
+    name: 'Backend',
+    archived: false,
+    members: [{ id: 'u-eve', name: 'Eve Engineer', deleted: false, projectsAccess: true }],
+  }
+  const withTeams = (over: Partial<Project> = {}): Project =>
+    projectDetail({
+      teams: [BACKEND_TEAM],
+      onProject: [ADA, { id: 'u-eve', name: 'Eve Engineer', deleted: false }],
+      onProjectComplete: true,
+      teamsStatus: 'complete',
+      teamsRetryAfterSeconds: null,
+      ...over,
+    })
+  const limitedView = (seconds: number): Project =>
+    withTeams({
+      teams: [{ id: 't-back', name: null, archived: null, members: null }],
+      onProject: [ADA],
+      onProjectComplete: false,
+      teamsStatus: 'rate_limited',
+      teamsRetryAfterSeconds: seconds,
+    })
+
+  it('shows the live team names and members on the Team card', async () => {
+    await renderProject(withTeams())
+    const card = screen.getByTestId('project-team')
+    expect(within(card).getByTestId('project-attached-team-name-t-back').textContent).toBe('Backend')
+    expect(within(card).getByText('Eve Engineer')).not.toBeNull()
+  })
+
+  it('saves the attached teams with the project’s version and confirms "Teams saved."', async () => {
+    const next = withTeams({ version: 4, teams: [] })
+    await renderProject(withTeams({ version: 3 }), { 'PUT /projects/p1/teams': () => ({ status: 200, body: next }) })
+    fireEvent.click(screen.getByTestId('project-attached-teams-edit'))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit teams' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove Backend' }))
+    fireEvent.click(within(dialog).getByTestId('project-attached-teams-dialog-submit'))
+    expect((await screen.findByTestId('projects-saved')).textContent).toContain('Teams saved.')
+    expect(writes()).toEqual([{ method: 'PUT', path: '/projects/p1/teams', ifMatch: '"3"', body: { teamIds: [] } }])
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByText('No teams attached.')).not.toBeNull()
+  })
+
+  it('asks the person to reload when the teams were saved on a stale version (409)', async () => {
+    await renderProject(withTeams(), { 'PUT /projects/p1/teams': () => problem(409, 'version_conflict') })
+    fireEvent.click(screen.getByTestId('project-attached-teams-edit'))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit teams' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove Backend' }))
+    fireEvent.click(within(dialog).getByTestId('project-attached-teams-dialog-submit'))
+    expect(await screen.findByTestId('projects-stale-write')).not.toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('retries a "Too many requests" page IN PLACE: no loading state, the card stays mounted and Retry keeps its focus (G8)', async () => {
+    let reads = 0
+    await renderProject(limitedView(400), {
+      'GET /projects/p1': () => ({ status: 200, body: ++reads === 1 ? limitedView(400) : limitedView(100) }),
+    })
+    const card = screen.getByTestId('project-team')
+    const retry = screen.getByTestId('project-attached-teams-rate-limited-retry')
+    retry.focus()
+    fireEvent.click(retry)
+    await waitFor(() =>
+      expect(screen.getByTestId('project-attached-teams-retry-status').textContent).toBe(
+        'Checked again. Teams are still not shown.',
+      ),
+    )
+    expect(screen.queryByTestId('projects-loading')).toBeNull()
+    expect(screen.getByTestId('project-team')).toBe(card)
+    expect(screen.getByTestId('project-attached-teams-rate-limited-retry')).toBe(retry)
+    expect(document.activeElement).toBe(retry)
+    expect(screen.getByTestId('project-attached-teams-rate-limited').textContent).toContain('2 minutes')
+  })
+
+  it('shows the teams again once the reload is admitted, and moves the focus to the Teams heading', async () => {
+    let reads = 0
+    await renderProject(limitedView(60), {
+      'GET /projects/p1': () => ({ status: 200, body: ++reads === 1 ? limitedView(60) : withTeams() }),
+    })
+    const retry = screen.getByTestId('project-attached-teams-rate-limited-retry')
+    retry.focus()
+    fireEvent.click(retry)
+    await waitFor(() => expect(screen.queryByTestId('project-attached-teams-rate-limited')).toBeNull())
+    expect(screen.getByTestId('project-attached-team-name-t-back').textContent).toBe('Backend')
+    expect(document.activeElement).toBe(screen.getByTestId('project-attached-teams-heading'))
+  })
+
+  it('leaves a reload that fails outright to the page’s own load failure', async () => {
+    let reads = 0
+    await renderProject(limitedView(60), {
+      'GET /projects/p1': () => (++reads === 1 ? { status: 200, body: limitedView(60) } : problem(500)),
+    })
+    fireEvent.click(screen.getByTestId('project-attached-teams-rate-limited-retry'))
+    expect(await screen.findByTestId('projects-load-error')).not.toBeNull()
   })
 })

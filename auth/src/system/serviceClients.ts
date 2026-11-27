@@ -74,6 +74,10 @@ import { createHash, timingSafeEqual } from "node:crypto";
  *   through meetings-api's `GET /system/meetings/hosts` (specs/20261112-time-tracking, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Only hours-api
  *   holds it; meetings-api's sub allowlist names `system:hours-api`. It answers `{id, host}` and
  *   nothing else — no title, participant or duration.
+ * - `teams:read`: read teams (their members, and whether each holds the app's access) and the active teams' names
+ *   through auth's own `GET /system/teams` (specs/20261126-teams, AC-4.1, AC-4.7; auth verifies it itself, then
+ *   checks the `sub` against its code binding `TEAM_READERS`, so holding the scope alone is not enough). Colon form,
+ *   like `legal-entities:read`: a suite resource hosted by auth carries no service prefix. Only projects-api holds it.
  */
 export const KNOWN_SERVICE_SCOPES = [
   "notifications.push",
@@ -92,6 +96,7 @@ export const KNOWN_SERVICE_SCOPES = [
   "legal-entities:read",
   "accounting.reference.read",
   "meetings.hosts.read",
+  "teams:read",
 ] as const;
 
 /**
@@ -104,7 +109,8 @@ export const KNOWN_SERVICE_SCOPES = [
  * - `projects-api` (specs/20261103-projects, 026): reads CRM companies, won deals and a PO's
  *   referent contacts, an estimate's man-days, and pushes the ops-manager's
  *   notification; it sends no email, so no `emails.send` (ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired one scope per
- *   capability; env-doctor's manifest holds the same five).
+ *   capability; env-doctor's manifest holds the same five). Since specs/20261126-teams it also holds `teams:read`
+ *   (six): grant it only after the auth that knows the scope is live, or auth stops at startup (T10 runbook).
  * - `crm-api` (specs/20261103-projects-handoff, specs/20261110-activities, specs/20261117-legal-entities): its notify
  *   and deal-link scopes, the purchase orders of its deals (`projects.purchase-orders.read`), `activities.write`
  *   the issuer's details (`legal-entities:read`) and the rendering of a document's pages (`letterhead:render`,
@@ -121,7 +127,8 @@ export const KNOWN_SERVICE_SCOPES = [
  */
 export const DOCUMENTED_CLIENT_SCOPES = {
   "meetings-api": "notifications.push host-notices.send",
-  "projects-api": "crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push",
+  "projects-api":
+    "crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push teams:read",
   "crm-api":
     "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read legal-entities:read letterhead:render",
   "activities-api": "notifications.push emails.send",

@@ -1,0 +1,338 @@
+{
+  "schema": "wellforge-run/v3",
+  "run_id": "2026-11-26T09-00-00Z-orchestrate-20261126-teams",
+  "command": "orchestrate",
+  "feature": "20261126-teams",
+  "rigor": "production",
+  "plugin_version": "2.66.0",
+  "started": "2026-11-26T09:00:00Z",
+  "finished": "2026-11-27T10:45:00Z",
+  "reconstructed": true,
+  "reconstruction_note": "Written by the orchestrator at the end of the run from git history (aa3580c7..HEAD, excluding the user's unrelated 08758806), the agents' hand-back reports and decisions.md; the start time is approximate (the spec stages ran before the first commit). Written before the close, as the done gate reads verdicts from the trace.",
+  "agents": [
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "note": "spec, 30 ACs; open questions O8 etc. answered by the user; gate 1 approved 2026-11-26"
+    },
+    {
+      "agent": "scout",
+      "outcome": "completed",
+      "note": "map of auth/admin, projects-api, hosts, hours/activities consumers passed to the architect as leads"
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "note": "plan; gate 2 approved; amendments D13 (existingName + q), D14, D15 (per-person 120 / service 2 400 page reads)"
+    },
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "note": "AC-5.4 amended (names when readable); AC-5.6 added (R11), gate 1 re-opened and re-approved: 30 -> 31 ACs"
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "note": "3 ADRs: teams live in auth; host says unknown (amends 20261110); auth admin writes carry baseVersion"
+    },
+    {
+      "agent": "designer",
+      "outcome": "completed",
+      "note": "design.md: Admin Teams list/detail/dialogs, projects Team card, Edit teams dialog, Team filter, states"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T1",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T7",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T8",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T2",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T3",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T11",
+      "outcome": "completed",
+      "isolation": "worktree",
+      "note": "plan SQL chr(0) CHECK failed in Postgres; dropped; plan fixed later (ecc75310)"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T13",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T4",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T12",
+      "outcome": "completed",
+      "isolation": "worktree",
+      "note": "ran db:deploy on the DEV projects DB by mistake (data intact, kept)"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T14",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "backend-dev",
+      "task": "T9",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "devops",
+      "task": "T10",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T5",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T15",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T16",
+      "outcome": "completed",
+      "isolation": "worktree"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T6",
+      "outcome": "completed",
+      "isolation": "main",
+      "note": "admin-teams e2e 3/3"
+    },
+    {
+      "agent": "frontend-dev",
+      "task": "T17",
+      "outcome": "completed",
+      "isolation": "main",
+      "note": "projects-teams e2e; first run blocked by env fault, re-run 6/6"
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "note": "drift: chr(0) CHECK aligned with migration"
+    },
+    {
+      "agent": "devops",
+      "task": "T18",
+      "outcome": "completed",
+      "isolation": "main",
+      "note": "AGENTS.md; gates green except two red gates outside the feature"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "PASS",
+      "note": "0 crit/high/med, 2 low (NUL -> 500), 5 info; specs/20261126-teams/security-review.md"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "FAIL",
+      "note": "round 0: D1 NUL -> 500 (code); 31/31 ACs evidenced; 14 exploratory e2e"
+    },
+    {
+      "agent": "backend-dev",
+      "outcome": "completed",
+      "note": "fix round 1: D1 (05d2981b, ed8e160b)"
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "note": "plan NUL rule + instance wording (ad5a4f5a, 95d92e80)"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "PASS",
+      "note": "round 1 at 95d92e80 (626452fe); D2 = same class on pre-existing routes, not gating"
+    },
+    {
+      "agent": "evaluator",
+      "outcome": "FAIL",
+      "note": "76.5/100: product dims 4/5, trajectory 2 (no run trace, OWASP artifact not committed) \u2014 both fixed by the orchestrator"
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "note": "plan D16 (host path waits at most 800 ms, margin 1 000 ms inside callers' 2 s); figures confirmed by the user; R13 logged"
+    },
+    {
+      "agent": "frontend-dev",
+      "outcome": "completed",
+      "note": "fix round 2: one Italian register in the teams copy (2ea04944)"
+    },
+    {
+      "agent": "backend-dev",
+      "outcome": "completed",
+      "note": "fix round 2: D16 (242c700b), cross-package deadline test"
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "note": "host-says-unknown ADR amended for D16 (68c59172)"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "PASS",
+      "note": "round 2 at 68c59172 (b8293f48); 8 mutations each seen red"
+    },
+    {
+      "agent": "evaluator",
+      "outcome": "PASS",
+      "note": "round 2: 82.6/100 (99183a06)"
+    },
+    {
+      "agent": "designer",
+      "outcome": "completed",
+      "note": "design.md copy register and badge note synced to what shipped"
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "note": "host-says-unknown ADR Evidence lists the implemented tests"
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "backend-dev",
+      "artifact": "spec.md",
+      "summary": "AC-5.4 wording: names when readable, else 'could not be loaded'",
+      "resolved": true
+    },
+    {
+      "agent": "architect",
+      "artifact": "plan.md",
+      "summary": "409 team_name_taken carries existingName; options-mode q search (D13)",
+      "resolved": true
+    },
+    {
+      "agent": "architect",
+      "artifact": "spec.md",
+      "summary": "R11 page-read limit became AC-5.6, gate 1 re-opened (30 -> 31 ACs), plan D15",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev",
+      "artifact": "plan.md",
+      "summary": "chr(0) CHECK not valid in Postgres (T11)",
+      "resolved": true
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "plan.md",
+      "summary": "plan assumed IdSchema refused NUL (QE D1)",
+      "resolved": true
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "plan.md",
+      "summary": "team read budget 5 s inside callers' 2 s resolve deadline; plan D16 + ADR amendment",
+      "resolved": true
+    }
+  ],
+  "worktree": {
+    "mode": "worktree",
+    "note": "parallel batches with per-agent test DBs (projects_t12_test, projects_t13_test, hours_test); tests under env -i; checkboxes reconciled centrally"
+  },
+  "collision_events": [],
+  "env_faults": [
+    {
+      "agent": "orchestrator",
+      "class": "database",
+      "detail": "dev auth, projects, activities DBs behind main; dev hours DB missing",
+      "resolved_by": "migrations applied / DB created with the user's approval"
+    },
+    {
+      "agent": "orchestrator",
+      "class": "secret env",
+      "detail": "accounting-api deps missing and env unset; hours-api env file missing and pointing at a wrong DB user",
+      "resolved_by": "bun install by the orchestrator; env files completed by the user"
+    },
+    {
+      "agent": "orchestrator",
+      "class": "service client",
+      "detail": "local auth SERVICE_CLIENTS lacked teams:read for projects-api",
+      "resolved_by": "added by the user"
+    },
+    {
+      "agent": "frontend-dev",
+      "class": "e2e global setup",
+      "detail": "accounting seed, refund release and legal-entities setup fail on the dev stack (legal-entity.manage missing from the dev catalog)",
+      "resolved_by": "skipped with E2E_SKIP_* for teams specs, which read none of them; open for the owner"
+    },
+    {
+      "agent": "backend-dev",
+      "class": "database",
+      "detail": "T12 applied db:deploy to the DEV projects DB",
+      "resolved_by": "data intact (134 projects); left in place"
+    }
+  ],
+  "fix_rounds": {
+    "used": 2,
+    "cap": 2,
+    "extensions": [],
+    "note": "round 1: QE D1; round 2: eval round 1 findings (trace/security artifact, D16, Italian register), approved by the user"
+  },
+  "security": {
+    "dispatched": true,
+    "matched_rules": [
+      "auth",
+      "auth/**"
+    ],
+    "artifact": "specs/20261126-teams/security-review.md"
+  },
+  "verdicts": {
+    "qe": "PASS",
+    "security": "PASS",
+    "eval": "PASS"
+  },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null,
+  "open_items": [
+    "QE D2: NUL -> 500 on pre-existing routes (separate bugfix)",
+    "plan R12: per-process limiters, projects-api one replica",
+    "plan R13: cold permission check 5 s; hours->activities chained 2 s",
+    "red gates outside the feature: env-doctor push.test.ts; hours-api env.test.ts (08758806)",
+    "e2e global setup on the dev stack: accounting seed, legal-entity.manage missing from the dev catalog"
+  ]
+}

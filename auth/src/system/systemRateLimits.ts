@@ -13,6 +13,12 @@
  *                    JWT `sub`                      (600 per window)
  *   legalEntities    a VALID legal-entity read credential (`legal-entities:read`), keyed by the verified `sub`
  *                    (300 per window; a fixed default, no env variable: specs/20261117-legal-entities, T6, AC-3.2)
+ *   teams            a VALID teams-read credential (`teams:read`, bound to its reader by `TEAM_READERS`) asking by
+ *                    `ids`, keyed by the verified `sub` (3 000 per window: members and access bits that decisions
+ *                    and the project view read; specs/20261126-teams D11)
+ *   teamsOptions     the same credential asking the options mode (`state=active`, with or without `q`), keyed by the
+ *                    verified `sub` (1 500 per window): its own count, so a search driven by what a person types
+ *                    cannot spend the budget the decisions depend on (D11, D13)
  *   invalidCredentials  an INVALID credential of any of these endpoints, keyed by
  *                    the source address — the only key available before there
  *                    is an identity. ONE counter shared by all routes (20 per
@@ -46,6 +52,15 @@ export const INVALID_MAX_KEYS = 50_000;
 /** Legal-entity reads per calling service per window: a consumer caches 30 s, so ~20 per 10 min is the steady rate. */
 export const LEGAL_ENTITIES_SERVICE_LIMIT = 300;
 
+/**
+ * Team reads by id per calling service per window (specs/20261126-teams D11): the cached host path is ~20 per
+ * window and every project page view or write costs one fresh call, so 3 000 leaves ten times the headroom.
+ */
+export const TEAMS_SERVICE_LIMIT = 3000;
+
+/** Options-mode (attach search) reads per calling service per window (D11): a handful per attach session. */
+export const TEAMS_OPTIONS_SERVICE_LIMIT = 1500;
+
 export interface SystemRateLimitConfig {
   /** Service tokens per calling service per window (AC-7.1). */
   serviceTokenLimit: number;
@@ -53,19 +68,25 @@ export interface SystemRateLimitConfig {
   usersContactLimit: number;
   /** Legal-entity reads per calling service per window (specs/20261117-legal-entities AC-3.2). */
   legalEntitiesLimit: number;
+  /** Team reads by id per calling service per window (specs/20261126-teams D11). */
+  teamsLimit: number;
+  /** Team options-mode reads per calling service per window (specs/20261126-teams D11). */
+  teamsOptionsLimit: number;
   /** Invalid-credential requests per source address per window, all routes together (AC-7.5). */
   invalidLimit: number;
   /** The one window of all four limiters, and the source of `Retry-After`. */
   windowMs: number;
 }
 
-export type SystemRoute = "service-token" | "users/contact" | "legal-entities";
+export type SystemRoute = "service-token" | "users/contact" | "legal-entities" | "teams";
 
 export interface SystemRateLimits {
   invalidCredentials: RateLimiter;
   serviceToken: RateLimiter;
   usersContact: RateLimiter;
   legalEntities: RateLimiter;
+  teams: RateLimiter;
+  teamsOptions: RateLimiter;
   windowMs: number;
   /** The ONLY 429 of the /system routes. */
   tooManyRequests(c: Context): Response;
@@ -84,6 +105,8 @@ export function createSystemRateLimits(
     serviceTokenLimit: env.SERVICE_TOKEN_SERVICE_LIMIT,
     usersContactLimit: env.USERS_CONTACT_SERVICE_LIMIT,
     legalEntitiesLimit: LEGAL_ENTITIES_SERVICE_LIMIT,
+    teamsLimit: TEAMS_SERVICE_LIMIT,
+    teamsOptionsLimit: TEAMS_OPTIONS_SERVICE_LIMIT,
     invalidLimit: env.SYSTEM_INVALID_CREDENTIAL_LIMIT,
     windowMs: env.SYSTEM_RATE_WINDOW_MS,
     ...options.config,
@@ -109,6 +132,8 @@ export function createSystemRateLimits(
     serviceToken: create(config.serviceTokenLimit),
     usersContact: create(config.usersContactLimit),
     legalEntities: create(config.legalEntitiesLimit),
+    teams: create(config.teamsLimit),
+    teamsOptions: create(config.teamsOptionsLimit),
     windowMs,
 
     tooManyRequests(c) {

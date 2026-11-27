@@ -36,6 +36,7 @@ const renderPage = async (routes: Record<string, FakeHandler>, callerScope: Scop
     fakeApi({
       'GET /authz/users/directory': directory(),
       'GET /project-managers': () => ({ status: 200, body: { items: [] } }),
+      'GET /attached-teams': () => ({ status: 200, body: { items: [] } }),
       ...routes,
     }),
   )
@@ -231,6 +232,95 @@ describe('ProjectsPage list (AC-1.4)', () => {
     expect(await screen.findByText('The project managers could not be loaded.')).not.toBeNull()
     // Only the fixed choices: "Any" and "None yet".
     expect(within(screen.getByLabelText('Project manager')).getAllByRole('option').length).toBe(2)
+  })
+})
+
+describe('ProjectsPage team filter (teams AC-4.8, AC-4.9, design S8)', () => {
+  const TEAMS = [
+    { id: 'tm-platform', name: 'Platform', archived: false },
+    { id: 'tm-old', name: 'Backend', archived: true },
+    { id: 'tm-lost', name: null, archived: null },
+  ]
+  const attached =
+    (items: unknown[] = TEAMS): FakeHandler =>
+    () => ({ status: 200, body: { items } })
+  const teamOptions = () =>
+    within(screen.getByLabelText('Team'))
+      .getAllByRole('option')
+      .map((option) => option.textContent)
+
+  it('lists the teams attached to a project, an archived one and an unreadable one marked, after "Any"', async () => {
+    await renderPage({
+      'GET /attached-teams': attached(),
+      'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }),
+    })
+    await waitFor(() => expect(within(screen.getByLabelText('Team')).getAllByRole('option').length).toBe(4))
+    expect(teamOptions()).toEqual(['Any', 'Platform', 'Backend (archived)', 'Team that could not be loaded'])
+  })
+
+  it('sends teamId, back to page 1, and drops it again on "Any"', async () => {
+    await renderPage({
+      'GET /attached-teams': attached(),
+      'GET /projects': () => ({ status: 200, body: page([projectSummary()], 60) }),
+    })
+    await screen.findByTestId('projects-table')
+    fireEvent.click(screen.getByRole('button', { name: /next/i }))
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '2' }))
+    await waitFor(() => expect(within(screen.getByLabelText('Team')).getAllByRole('option').length).toBe(4))
+
+    fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'tm-old' } })
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1', teamId: 'tm-old' }))
+    fireEvent.change(screen.getByLabelText('Team'), { target: { value: '' } })
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1' }))
+  })
+
+  it('a filter that matches nothing says so, with the existing words', async () => {
+    await renderPage({
+      'GET /attached-teams': attached(),
+      'GET /projects': (url) =>
+        url.searchParams.has('teamId')
+          ? { status: 200, body: page([]) }
+          : { status: 200, body: page([projectSummary()]) },
+    })
+    await screen.findByTestId('projects-table')
+    await waitFor(() => expect(within(screen.getByLabelText('Team')).getAllByRole('option').length).toBe(4))
+    fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'tm-platform' } })
+    expect(await screen.findByText('No projects match these filters')).not.toBeNull()
+  })
+
+  it('says no team is attached yet when none is, and offers only "Any"', async () => {
+    await renderPage({
+      'GET /attached-teams': attached([]),
+      'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }),
+    })
+    expect(await screen.findByText('No team is attached to a project yet.')).not.toBeNull()
+    expect(teamOptions()).toEqual(['Any'])
+  })
+
+  it('still lists, and says the teams could not be loaded, when they cannot be', async () => {
+    await renderPage({
+      'GET /attached-teams': () => problem(503, undefined, {}, 'boom'),
+      'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }),
+    })
+    expect(await screen.findByTestId('projects-table')).not.toBeNull()
+    expect(await screen.findByText('The teams could not be loaded.')).not.toBeNull()
+    expect(teamOptions()).toEqual(['Any'])
+  })
+
+  it('AC-4.9: the project-manager filter offers people only, whatever teams are attached', async () => {
+    await renderPage({
+      'GET /attached-teams': attached(),
+      'GET /project-managers': () => ({ status: 200, body: { items: [ADA] } }),
+      'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }),
+    })
+    const select = await screen.findByLabelText('Project manager')
+    await waitFor(() => expect(within(select).getAllByRole('option').length).toBe(3))
+    await waitFor(() => expect(within(screen.getByLabelText('Team')).getAllByRole('option').length).toBe(4))
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Any', 'None yet', 'Ada Lovelace (You)'])
   })
 })
 

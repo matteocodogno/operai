@@ -130,6 +130,8 @@ describe('router structure', () => {
         '/audit',
         '/departments',
         '/departments/$id',
+        '/teams',
+        '/teams/$id',
         '/legal-entities',
         '/roles',
         '/roles/$id',
@@ -139,7 +141,7 @@ describe('router structure', () => {
         '/users/invitations',
       ].sort(),
     )
-    expect(routeTree.children).toHaveLength(11)
+    expect(routeTree.children).toHaveLength(13)
   })
 
   it('has no `_authed` (or other guard) layout route in the tree — mirrors estimai-ui/T13, AC-2.3', async () => {
@@ -156,10 +158,11 @@ describe('router structure', () => {
 // Navigation — the four sections route client-side (this task's done-when)
 // ---------------------------------------------------------------------------
 
-describe('the four sections route client-side', () => {
+describe('the admin sections route client-side', () => {
   it.each([
     ['/roles', 'admin-roles-page', 'Roles'],
     ['/departments', 'admin-departments-page', 'Departments'],
+    ['/teams', 'admin-teams-page', 'Teams'],
     ['/users', 'admin-users-page', 'Users'],
     ['/audit', 'admin-audit-page', 'Audit'],
   ] as const)('visiting %s renders its section (%s) and marks its nav link active', async (path, testId, label) => {
@@ -179,10 +182,10 @@ describe('the four sections route client-side', () => {
     const activeLink = within(sectionNav).getByRole('link', { name: label })
     expect(activeLink.getAttribute('aria-current')).toBe('page')
 
-    // The other three sections' links are present but not active.
+    // The other four sections' links are present but not active.
     const allLinks = within(sectionNav).getAllByRole('link')
     const inactiveLinks = allLinks.filter((link) => link !== activeLink)
-    expect(inactiveLinks).toHaveLength(3)
+    expect(inactiveLinks).toHaveLength(4)
     inactiveLinks.forEach((link) => expect(link.getAttribute('aria-current')).toBeNull())
   })
 
@@ -229,7 +232,7 @@ describe('the four sections route client-side', () => {
     expect(await screen.findByTestId('admin-not-found-page')).not.toBeNull()
     // Chrome (nav) is not replaced by the not-found fallback.
     expect(screen.getByRole('navigation', { name: 'Admin sections' })).not.toBeNull()
-    expect(screen.getAllByRole('link')).toHaveLength(4)
+    expect(screen.getAllByRole('link')).toHaveLength(5)
   })
 })
 
@@ -243,7 +246,7 @@ describe('sections by capability', () => {
 
     await screen.findByTestId('admin-roles-page')
     await waitFor(() => expect(getManageable).toHaveBeenCalled())
-    expect(sectionLinks()).toEqual(['Roles', 'Departments', 'Users', 'Audit'])
+    expect(sectionLinks()).toEqual(['Roles', 'Departments', 'Teams', 'Users', 'Audit'])
   })
 
   it('an administrator without the grant is sent from /legal-entities to the first section they may use', async () => {
@@ -258,7 +261,7 @@ describe('sections by capability', () => {
     vi.mocked(getManageable).mockResolvedValue(['welld_it', 'welld_ch'])
     await renderAppAt('/roles')
 
-    await waitFor(() => expect(sectionLinks()).toEqual(['Roles', 'Departments', 'Users', 'Legal entities', 'Audit']))
+    await waitFor(() => expect(sectionLinks()).toEqual(['Roles', 'Departments', 'Teams', 'Users', 'Legal entities', 'Audit']))
     expect(screen.getByTestId('admin-roles-page')).not.toBeNull()
   })
 
@@ -267,7 +270,7 @@ describe('sections by capability', () => {
     await renderAppAt('/roles')
 
     expect(await screen.findByTestId('admin-roles-page')).not.toBeNull()
-    expect(sectionLinks()).toEqual(['Roles', 'Departments', 'Users', 'Audit'])
+    expect(sectionLinks()).toEqual(['Roles', 'Departments', 'Teams', 'Users', 'Audit'])
     expect(screen.queryByText('Loading…')).toBeNull() // the nav skeleton is silent; Roles has its own state
     manageable.resolve(['welld_ch'])
     await waitFor(() => expect(sectionLinks()).toContain('Legal entities'))
@@ -339,7 +342,7 @@ describe('sections by capability', () => {
 
     expect(await screen.findByTestId('admin-roles-page')).not.toBeNull()
     await waitFor(() => expect(getManageable).toHaveBeenCalled())
-    expect(sectionLinks()).toEqual(['Roles', 'Departments', 'Users', 'Audit'])
+    expect(sectionLinks()).toEqual(['Roles', 'Departments', 'Teams', 'Users', 'Audit'])
 
     cleanup()
     await renderAppAt('/legal-entities')
@@ -396,6 +399,51 @@ describe('sections by capability', () => {
     expect(await screen.findByText('Loading…')).not.toBeNull()
     expect(window.location.pathname).toBe('/roles')
     expect(screen.queryByTestId('admin-roles-page')).toBeNull()
+  })
+
+  describe('Teams (specs/20261126-teams T4, AC-3.1)', () => {
+    it('an administrator reaches /teams, with Teams in the nav', async () => {
+      await renderAppAt('/teams')
+
+      expect(await screen.findByTestId('admin-teams-page')).not.toBeNull()
+      await waitFor(() => expect(getManageable).toHaveBeenCalled())
+      expect(sectionLinks()).toContain('Teams')
+    })
+
+    it.each(['/teams', '/teams/t-1'])(
+      'a legal-entity manager who is not an administrator is redirected from %s to /legal-entities, and sees no Teams tab',
+      async (path) => {
+        await signInWith(ENTITY_MANAGE)
+        vi.mocked(getManageable).mockResolvedValue(['welld_ch'])
+        await renderAppAt(path)
+
+        expect(await screen.findByTestId('admin-legal-entities-page')).not.toBeNull()
+        expect(window.location.pathname).toBe('/legal-entities')
+        expect(screen.queryByTestId('admin-teams-page')).toBeNull()
+        expect(sectionLinks()).toEqual(['Legal entities'])
+      },
+    )
+
+    it('a person with neither capability gets the permission-denied state on /teams, and no Teams page or tab', async () => {
+      await signInWith(ENTITY_MANAGE)
+      vi.mocked(getManageable).mockResolvedValue([])
+      await renderAppAt('/teams')
+
+      expect(await screen.findByTestId('permission-denied')).not.toBeNull()
+      expect(window.location.pathname).toBe('/teams')
+      expect(screen.queryByTestId('admin-teams-page')).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Teams' })).toBeNull()
+    })
+
+    it('does not render the page before manageable has answered for a person who is not an administrator', async () => {
+      await signInWith(ENTITY_MANAGE)
+      const manageable = pendingManageable()
+      await renderAppAt('/teams')
+
+      expect(screen.queryByTestId('admin-teams-page')).toBeNull()
+      manageable.resolve(['welld_it'])
+      expect(await screen.findByTestId('admin-legal-entities-page')).not.toBeNull()
+    })
   })
 
   it('the section nav wraps', async () => {

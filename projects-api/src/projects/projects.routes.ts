@@ -40,6 +40,7 @@ import { notFound, validationHook } from "../lib/problem";
 import { referentRouter } from "../purchase-orders/referent.routes";
 import { dealRefs, loadReferent, noStore, purchaseOrderView, type ViewContext } from "../purchase-orders/view";
 import { toTermsView } from "../terms/terms";
+import { readTeamsForView, teamFields, type TeamsOutcome } from "./teamView";
 import { assertCompanyFits, creationTerms, projectCreateData, termsCreate } from "./create";
 import {
   AWAITING_PROJECT_MANAGER,
@@ -61,6 +62,7 @@ import {
 
 export const projectInclude = {
   members: { orderBy: [{ addedAt: "asc" }, { userId: "asc" }] },
+  attachedTeams: { orderBy: [{ attachedAt: "asc" }, { teamId: "asc" }] },
   terms: { include: { positions: { orderBy: { position: "asc" } } } },
   purchaseOrder: true,
 } satisfies Prisma.ProjectInclude;
@@ -92,17 +94,26 @@ export const updateProjectIfVersion = (
  * the dates of the terms. A project awaits its project manager when it has a purchase order and no
  * project manager yet (specs/20261103-projects-handoff D42).
  */
-export async function toProjectView(c: ViewContext, row: ProjectRow) {
+export async function toProjectView(
+  c: ViewContext & { get(key: "userId"): string },
+  row: ProjectRow,
+  /** The outcome of a team read the caller already made (`PUT …/teams` reads once); absent: the view reads (D15). */
+  teamsRead?: TeamsOutcome | null,
+) {
   const order = row.purchaseOrder;
   // The view can carry the referent's personal data (specs/20261103-projects-handoff D49): no browser or proxy may keep it (T18 M5).
   noStore(c);
-  const [people, company, deal, referent] = await Promise.all([
+  const [people, company, deal, referent, teams] = await Promise.all([
     loadPeople(c, [row.projectManagerId, order?.opsManagerId, ...row.members.map((member) => member.userId)]),
     companyRefs([row.companyId]),
     // The deal behind the purchase order, live: `won: false` is the AC-2.3 notice.
     dealRefs([order?.dealId]),
     // The referent, live, with one `ids` call and only when one is set (AC-3.8 – AC-3.10, T18 L7).
     loadReferent(order?.referentContactId, row.companyId),
+    // The attached teams, fresh and only when one is attached, within the person's and the service's windows (D15).
+    teamsRead !== undefined
+      ? Promise.resolve(teamsRead)
+      : readTeamsForView(c.get("userId"), row.attachedTeams.map((attached) => attached.teamId)),
   ]);
   return {
     id: row.id,
@@ -115,6 +126,7 @@ export async function toProjectView(c: ViewContext, row: ProjectRow) {
     projectManager: people.maybe(row.projectManagerId),
     awaitingProjectManager: isAwaitingProjectManager(row),
     team: row.members.map((member) => people.person(member.userId)),
+    ...teamFields(row, teams, people.person),
     purchaseOrder: order === null ? null : purchaseOrderView(order, deal, people.person, referent),
     tenderDealId: row.tenderDealId,
     terms: row.terms === null ? null : toTermsView(row.terms),
@@ -249,11 +261,12 @@ projectsRouter.openapi(getProjectRoute, async (c) => {
 });
 
 projectsRouter.openapi(listProjectsRoute, async (c) => {
-  const { page, q, type, state, projectManagerId } = c.req.valid("query");
+  const { page, q, type, state, projectManagerId, teamId } = c.req.valid("query");
   const where: Prisma.ProjectWhereInput = {
     ...(q?.trim() ? { name: { contains: q.trim(), mode: "insensitive" } } : {}),
     ...(type ? { type } : {}),
     ...(state ? { state } : {}),
+    ...(teamId ? { attachedTeams: { some: { teamId } } } : {}),
     ...(projectManagerId === NO_PROJECT_MANAGER ? AWAITING_PROJECT_MANAGER : projectManagerId ? { projectManagerId } : {}),
   };
   const [total, rows] = await Promise.all([

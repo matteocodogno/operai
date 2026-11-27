@@ -52,6 +52,23 @@ describe("assertBookable on a project (AC-2.2, AC-2.10, AC-2.11)", () => {
     expect(await answer(await aliceCaller(), onProject("p-closed"))).toBe("yes");
   });
 
+  it("says yes to a person who is in `assignees` only through an attached team: the list is what the host resolved (AC-5.1)", async () => {
+    // projects-api folds a team's members into `assignees`; hours-api sees ids, never teams.
+    hosts.projects.setProject("p-team", { label: "Apollo", assignees: [BOB, ALICE] });
+    expect(await answer(await aliceCaller(), onProject("p-team"))).toBe("yes");
+  });
+
+  it("says 503 host_unavailable when the host answers `assignees: null` (team members unknown), to anyone, never 403 (AC-5.4)", async () => {
+    hosts.fail("projects.resolve", {
+      body: {
+        reader: true,
+        items: [{ id: "p1", state: "open", writable: true, label: "Apollo", href: "/projects/p1", may: { write: true, manage: true }, assignees: null }],
+      },
+    });
+    expect(await answer(await aliceCaller(), onProject("p1"))).toEqual(UNAVAILABLE);
+    expect(await answer({ ...(await aliceCaller()), userId: BOB }, onProject("p1"))).toEqual(UNAVAILABLE);
+  });
+
   it("decides by the caller's user id and asks with the caller's token: the two are not the same input", async () => {
     hosts.projects.setProject("p1", { label: "Apollo", assignees: [BOB] });
     const asAlice = await aliceCaller();

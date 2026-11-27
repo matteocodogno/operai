@@ -268,12 +268,13 @@ export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
   // the won deals of the to-start queue (`crm.deals.read`, ADR 20261104-projects-handoff-live-reads-between-crm-and-projects-over-service-credentials), the contacts of a deal's company
   // for the referent (`crm.contacts.read`, held by this client only), a deal's estimate man-days from
   // estimai-api (`estimai.estimates.read`, ADR 20261104-estimai-api-first-system-route-estimate-man-days-for-a-service-credential) and, after a take, a push to the PO's ops-manager
-  // through notify-api (`notifications.push`, T22/T25). Exactly these five. The group is optional
-  // locally and required in production (PRODUCTION_REQUIRED_KEYS).
+  // through notify-api (`notifications.push`, T22/T25). specs/20261126-teams (T10, AC-4.1, AC-4.7): it also reads the teams attached to a project, with their members and
+  // app access, from auth's `GET /system/teams` as itself (`teams:read`; no new variable, it reuses AUTH_BASE_URL and its own SERVICE_CLIENT_*). Exactly these six. The group
+  // is optional locally and required in production (PRODUCTION_REQUIRED_KEYS).
   {
     ...LINK_BASE,
     caller: "projects-api",
-    requiredScopes: ["crm.companies.read", "crm.deals.read", "crm.contacts.read", "estimai.estimates.read", "notifications.push"],
+    requiredScopes: ["crm.companies.read", "crm.deals.read", "crm.contacts.read", "estimai.estimates.read", "notifications.push", "teams:read"],
   },
   // specs/20261110-activities: activities-api pushes task notifications to notify-api, some with an email notice
   // (AC-6.1/6.3, ADR 20261101-notify-api-resolves-email-notice-address-from-auth), so BOTH scopes: without emails.send notify-api refuses every email notice

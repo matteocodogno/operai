@@ -20,7 +20,7 @@ export default function TasksCard({
   canManage,
   currentUserId,
 }: {
-  project: Pick<Project, 'id' | 'state' | 'projectManager' | 'team'>
+  project: Pick<Project, 'id' | 'state' | 'projectManager' | 'team' | 'onProject' | 'onProjectComplete'>
   canManage: boolean
   currentUserId: string | null
 }) {

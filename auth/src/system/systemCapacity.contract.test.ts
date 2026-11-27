@@ -15,6 +15,8 @@
  *   - `system:crm-api` and `system:letterhead-api` read the legal entities 60 times each, list and entity mixed
  *     (a consumer caches 30 s, so the steady rate is ~20 per 10 minutes: this is three times that;
  *     specs/20261117-legal-entities T6, AC-3.2),
+ *   - `system:projects-api` reads teams 150 times by id and 60 times in the options mode (its steady rate is a few
+ *     hundred and ~20 per 10 minutes; specs/20261126-teams, D11: allowances of 3 000 and 1 500 on separate counters),
  *   - 15 requests with invalid credentials arrive from the one shared address,
  *
  * and not one of them may be refused. A new limit that is keyed by a value the suite shares, or a
@@ -34,7 +36,9 @@ const { env } = await import("../lib/env");
 const { createServiceTokenRouter } = await import("./serviceToken.routes");
 const { createUserContactRouter } = await import("./userContact.routes");
 const { createSystemLegalEntitiesRouter } = await import("../legalEntities/system.routes");
-const { createSystemRateLimits, LEGAL_ENTITIES_SERVICE_LIMIT } = await import("./systemRateLimits");
+const { createSystemTeamsRouter } = await import("../teams/system.routes");
+const { createSystemRateLimits, LEGAL_ENTITIES_SERVICE_LIMIT, TEAMS_SERVICE_LIMIT, TEAMS_OPTIONS_SERVICE_LIMIT } =
+  await import("./systemRateLimits");
 
 const { publicKey, privateKey } = await generateKeyPair("RS256");
 const KID = "capacity-kid";
@@ -74,7 +78,9 @@ const scopesOf = (id: string) =>
         ? ["meetings.hosts.read"]
         : id === "crm-api"
           ? ["notifications.push", "emails.send", "legal-entities:read"]
-          : ["notifications.push", "emails.send"];
+          : id === "projects-api"
+            ? ["notifications.push", "emails.send", "teams:read"]
+            : ["notifications.push", "emails.send"];
 
 const SERVICE_AUDIENCE = "operai-service-capacity-test";
 const RUN_ID = crypto.randomUUID().slice(0, 8);
@@ -101,15 +107,18 @@ describe("suite capacity (AC-7.7) — the D-1 traffic shape, production defaults
       env.SYSTEM_INVALID_CREDENTIAL_LIMIT,
       env.SYSTEM_RATE_WINDOW_MS,
       LEGAL_ENTITIES_SERVICE_LIMIT,
-    ]).toEqual([300, 600, 20, 600_000, 300]);
+      TEAMS_SERVICE_LIMIT,
+      TEAMS_OPTIONS_SERVICE_LIMIT,
+    ]).toEqual([300, 600, 20, 600_000, 300, 3000, 1500]);
   });
 
-  test("10 clients x 30 mints + 220 lookups + 120 legal-entity reads + 15 invalid requests from one address: zero 429", async () => {
+  test("10 clients x 30 mints + 220 lookups + 120 legal-entity reads + 210 team reads + 15 invalid requests from one address: zero 429", async () => {
     const limits = createSystemRateLimits();
     const tokenRouter = createServiceTokenRouter({ signJwt, limits });
     const contactRouter = createUserContactRouter({ getJwks: async () => jwks, limits });
     // Reads through `db`: the registry may hold no row here (version 0 answers) - the traffic is what is under test.
     const registryRouter = createSystemLegalEntitiesRouter({ getJwks: async () => jwks, limits });
+    const teamsRouter = createSystemTeamsRouter({ getJwks: async () => jwks, limits });
 
     const mint = (clientId: string, clientSecret = SECRET) =>
       tokenRouter.request("/system/service-token", {
@@ -145,8 +154,12 @@ describe("suite capacity (AC-7.7) — the D-1 traffic shape, production defaults
     const registryTokens = [await tokenOf("crm-api"), await tokenOf("letterhead-api")];
     statuses.push({ what: "mint crm-api", status: 200 }, { what: "mint letterhead-api", status: 200 });
 
+    const teamsToken = await tokenOf("projects-api");
+    statuses.push({ what: "mint projects-api", status: 200 });
+
     let lookups = 0;
     let reads = 0;
+    let teamReads = 0;
     let invalid = 0;
     for (let round = 0; round < 30; round++) {
       // 4 reads a round -> 120 over 30 rounds, 60 for each of the two services, list and entity alternating
@@ -154,6 +167,12 @@ describe("suite capacity (AC-7.7) — the D-1 traffic shape, production defaults
         const path = reads % 2 === 0 ? "/system/legal-entities" : "/system/legal-entities/welld_ch";
         record("read", await read(registryTokens[reads % 4 < 2 ? 0 : 1]!, path));
         reads += 1;
+      }
+      // 7 team reads a round -> 210 over 30 rounds: 150 by id (a project page or a decision) and 60 searches
+      for (let i = 0; i < 7; i++) {
+        const path = teamReads % 7 < 5 ? "/system/teams?ids=capacity-team-1,capacity-team-2" : "/system/teams?state=active&q=cap";
+        record("teams", await teamsRouter.request(path, { headers: { Authorization: `Bearer ${teamsToken}` } }));
+        teamReads += 1;
       }
       for (const clientId of CLIENTS) {
         if (clientId === "notify-api" && round === 0) continue; // minted above
@@ -179,6 +198,7 @@ describe("suite capacity (AC-7.7) — the D-1 traffic shape, production defaults
 
     expect(lookups).toBe(220);
     expect(reads).toBe(120);
+    expect(teamReads).toBe(210);
     expect(invalid).toBe(15);
     const refused = statuses.filter((s) => s.status === 429);
     expect(refused).toEqual([]);
@@ -186,9 +206,9 @@ describe("suite capacity (AC-7.7) — the D-1 traffic shape, production defaults
     for (const s of statuses) {
       if (s.what.startsWith("mint")) expect(s.status).toBe(200);
       else if (s.what === "lookup") expect([200, 404]).toContain(s.status);
-      else if (s.what === "read") expect(s.status).toBe(200);
+      else if (s.what === "read" || s.what === "teams") expect(s.status).toBe(200);
       else expect(s.status).toBe(401);
     }
-    expect(statuses.length).toBe(300 + 2 + 220 + 120 + 15);
+    expect(statuses.length).toBe(300 + 3 + 220 + 120 + 210 + 15);
   });
 });

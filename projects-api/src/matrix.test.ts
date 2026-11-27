@@ -23,7 +23,8 @@
 
 import { beforeEach, describe, expect, it } from "bun:test";
 import { setupTestAuth } from "./test-support/testAuth";
-import { PERSONAS, app, call, crm, db, makeDeal, resetWorld, seedDealProject, type PersonaName } from "./test-support/world";
+import { teamReadPersonLimiter } from "./lib/rateLimiter";
+import { PERSONAS, app, call, crm, db, makeDeal, makeTeam, resetWorld, seedDealProject, teamsAuth, type PersonaName } from "./test-support/world";
 
 beforeEach(async () => {
   await resetWorld();
@@ -210,6 +211,29 @@ const SPECS: Record<string, RouteSpec> = {
       body: { memberIds: ["user-viewer"] },
       ifMatch: 1,
     }),
+  },
+  // Attach teams (specs/20261126-teams T12): a write on the project like the individual team, and the attach picker's
+  // search, which needs `project:manage` for any entity and asks auth (the stub) only after the guard.
+  "PUT /projects/:id/teams": {
+    need: "manage",
+    ok: 200,
+    prepare: async (entity) => ({
+      method: "PUT",
+      path: `/projects/${await withProject(entity)}/teams`,
+      body: { teamIds: [makeTeam({ name: `Team ${entity}` }).id] },
+      ifMatch: 1,
+    }),
+  },
+  // The list's team filter (specs/20261126-teams T14, AC-4.8): any projects:access holder, as /project-managers.
+  "GET /attached-teams": {
+    need: "access",
+    ok: 200,
+    prepare: async (entity) => (await seedProject(entity), { method: "GET", path: "/attached-teams" }),
+  },
+  "GET /attachable-teams": {
+    need: "manage-any",
+    ok: 200,
+    prepare: async () => (makeTeam({ name: "Backend" }), { method: "GET", path: "/attachable-teams?q=back" }),
   },
   "POST /projects/:id/terms": {
     need: "manage",
@@ -402,6 +426,7 @@ async function snapshot(): Promise<string> {
     await db.projectTermsPosition.findMany({ orderBy: { id: "asc" } }),
     await db.purchaseOrder.findMany({ orderBy: { id: "asc" } }),
     await db.projectMember.findMany({ orderBy: [{ projectId: "asc" }, { userId: "asc" }] }),
+    await db.attachedTeam.findMany({ orderBy: [{ projectId: "asc" }, { teamId: "asc" }] }),
   ]);
 }
 
@@ -493,6 +518,11 @@ describe("authorization matrix: every route × persona × entity", () => {
             });
             if (outcome === "ok") {
               expect(res.status).toBe(spec.ok);
+              // Every answer that carries a Project says how far its teams could be read (specs/20261126-teams T12).
+              if (res.json && typeof res.json === "object" && "awaitingProjectManager" in res.json && "terms" in res.json) {
+                expect(["complete", "unavailable", "rate_limited"]).toContain(res.json.teamsStatus);
+                expect(res.json).toHaveProperty("teamsRetryAfterSeconds");
+              }
             } else {
               expect(res.status).toBe(403);
               expect(res.json).toMatchObject({ status: 403, code: outcome });
@@ -628,6 +658,34 @@ describe("authorization matrix: the project-manager pick (AC-4.8, D46, D47, T18 
       expect({ persona, status: res.status, code: res.json.code }).toEqual({ persona, status: 403, code });
     }
     expect(await projectManagerOf(id)).toBe("user-viewer");
+  });
+});
+
+describe("authorization matrix: teams (specs/20261126-teams T12)", () => {
+  it("a refused persona causes no auth call and spends no team window", async () => {
+    const project = await withProject("welld_ch");
+    const team = makeTeam();
+    await db.attachedTeam.create({ data: { projectId: project, teamId: team.id } });
+    for (const persona of PERSONA_NAMES.filter((name) => !GRANTS[name].access || GRANTS[name].manage.length === 0)) {
+      const sub = PERSONAS[persona].sub;
+      const before = teamReadPersonLimiter.peek(sub);
+      const requests = [
+        call("GET", "/attachable-teams?q=back", { as: persona }),
+        call("PUT", `/projects/${project}/teams`, { as: persona, body: { teamIds: [team.id] }, ifMatch: 1 }),
+        ...(GRANTS[persona].access ? [] : [call("GET", `/projects/${project}`, { as: persona })]),
+      ];
+      for (const req of requests) expect((await req).status).toBe(403);
+      expect({ persona, window: teamReadPersonLimiter.peek(sub) }).toEqual({ persona, window: before });
+    }
+    expect(teamsAuth.calls).toBe(0);
+  });
+
+  it("an out-of-scope manager is refused before any team read", async () => {
+    const project = await withProject("welld_it");
+    const res = await call("PUT", `/projects/${project}/teams`, { as: "pmCh", body: { teamIds: [makeTeam().id] }, ifMatch: 1 });
+    expect(res.status).toBe(403);
+    expect(res.json.code).toBe("out_of_scope");
+    expect(teamsAuth.calls).toBe(0);
   });
 });
 

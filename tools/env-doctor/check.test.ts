@@ -859,7 +859,7 @@ describe("env-doctor checker — meetings (specs/20261104-meetings)", () => {
 // and specs/20261103-projects-handoff blocks below.
 const CLIENT_SECRET_PROJECTS = "p".repeat(40);
 const CLIENT_SECRET_CRM = "m".repeat(40);
-const PROJECTS_SCOPES = "crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push";
+const PROJECTS_SCOPES = "crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push teams:read";
 const CRM_SCOPES = "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read letterhead:render legal-entities:read";
 const projectsRegistry = (scope = PROJECTS_SCOPES, crmScope = CRM_SCOPES) =>
   JSON.stringify({
@@ -1127,7 +1127,7 @@ describe("env-doctor checker — the projects hand-off keys (specs/20261103-proj
     const s = projectsSuite();
     s.auth!.SERVICE_CLIENTS = projectsRegistry("crm.companies.read"); // the specs/20261103-projects entry
     const text = errText(checkSuite(s, PROD));
-    for (const scope of ["crm.deals.read", "crm.contacts.read", "estimai.estimates.read", "notifications.push"]) {
+    for (const scope of ["crm.deals.read", "crm.contacts.read", "estimai.estimates.read", "notifications.push", "teams:read"]) {
       expect(text).toContain(`entry "projects-api" lacks the "${scope}" scope`);
     }
     expect(text).not.toContain('entry "projects-api" lacks the "crm.companies.read" scope');

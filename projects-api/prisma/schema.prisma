@@ -78,6 +78,7 @@ model Project {
   updatedAt        DateTime      @updatedAt
 
   members       ProjectMember[]
+  attachedTeams AttachedTeam[]
   terms         ProjectTerms?
   purchaseOrder PurchaseOrder?
 
@@ -98,6 +99,21 @@ model ProjectMember {
   @@id([projectId, userId])
   @@index([userId])
   @@map("project_member")
+}
+
+/// A team (an `auth` team id, opaque) attached to a project (specs/20261126-teams, AC-4.x). No name and no
+/// member: both live in `auth` and are read live (AC-1.3, O6), so there is deliberately no name column.
+/// Limits (10 per project) are enforced by the route under the project's version CAS. Raw SQL in the
+/// migration: CHECK `attached_team_id_shape`.
+model AttachedTeam {
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  teamId     String
+  attachedAt DateTime @default(now())
+
+  @@id([projectId, teamId])
+  @@index([teamId])
+  @@map("project_attached_team")
 }
 
 /// The type-specific delivery terms of a project (specs/20261103-projects AC-2.3 – AC-2.8), 0..1 per project: a

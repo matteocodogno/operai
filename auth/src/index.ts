@@ -17,6 +17,7 @@ import { holdersRouter } from "./authz/holders.routes";
 import { identitiesRouter } from "./authz/identities.routes";
 import { departmentsRouter } from "./admin/departments.routes";
 import { rolesRouter } from "./admin/roles.routes";
+import { teamsRouter } from "./teams/admin.routes";
 import { usersRouter } from "./admin/users.routes";
 import { userAddressRouter } from "./admin/userAddress.routes";
 import { addressRouter } from "./profile/address.routes";
@@ -34,7 +35,13 @@ import { signinRouter } from "./signin/signin.routes";
 import { createServiceTokenRouter, signWithAuth } from "./system/serviceToken.routes";
 import { createUserContactRouter, jwksFromAuth } from "./system/userContact.routes";
 import { createSelfServiceTokenProvider } from "./system/selfServiceToken";
-import { createSystemRateLimits, LEGAL_ENTITIES_SERVICE_LIMIT } from "./system/systemRateLimits";
+import {
+  createSystemRateLimits,
+  LEGAL_ENTITIES_SERVICE_LIMIT,
+  TEAMS_OPTIONS_SERVICE_LIMIT,
+  TEAMS_SERVICE_LIMIT,
+} from "./system/systemRateLimits";
+import { createSystemTeamsRouter } from "./teams/system.routes";
 import { setNotifyTokenProvider } from "./lib/notify";
 import { startNoticeDispatcher } from "./legalEntities/notices/dispatcher";
 import { setupOpenAPI } from "./openapi/registry";
@@ -78,6 +85,8 @@ app.route("/", directoryRouter);
 app.route("/", holdersRouter);
 app.route("/", departmentsRouter);
 app.route("/", rolesRouter);
+// Teams (specs/20261126-teams, T2): admin-only named groups of users; they grant nothing and bump no epoch.
+app.route("/", teamsRouter);
 app.route("/", usersRouter);
 app.route("/", userAddressRouter);
 app.route("/", addressRouter);
@@ -100,6 +109,7 @@ const systemLimits = createSystemRateLimits();
 console.log(
   `[system] limits per ${env.SYSTEM_RATE_WINDOW_MS} ms: service-token ${env.SERVICE_TOKEN_SERVICE_LIMIT} per service, ` +
     `users/contact ${env.USERS_CONTACT_SERVICE_LIMIT} per service, legal-entities ${LEGAL_ENTITIES_SERVICE_LIMIT} per service, ` +
+    `teams ${TEAMS_SERVICE_LIMIT} per service (ids) and ${TEAMS_OPTIONS_SERVICE_LIMIT} (options), ` +
     `invalid credentials ${env.SYSTEM_INVALID_CREDENTIAL_LIMIT} per source`,
 );
 console.log(
@@ -111,6 +121,9 @@ app.route("/", createUserContactRouter({ getJwks: jwksFromAuth(auth), limits: sy
 // The service read API of the legal-entity registry (specs/20261117-legal-entities, T6): the same limits object (one
 // shared invalid-credential count); its own key-set cache, so a re-read here never spends the contact route's cooldown.
 app.route("/", createSystemLegalEntitiesRouter({ getJwks: jwksFromAuth(auth), limits: systemLimits }));
+// The service read of teams (specs/20261126-teams, T9): the same limits object again (one shared invalid-credential
+// count, its own two allowances), its own key-set cache. A team grants nothing; projects-api is the one bound reader.
+app.route("/", createSystemTeamsRouter({ getJwks: jwksFromAuth(auth), limits: systemLimits }));
 // `auth`'s own notify credential (specs/20261013-notify-service-credentials T7, ADR 20261013-auth-mints-own-service-credential-in-process): invitation emails
 // authenticate with it. Injected here, not imported by lib/notify.ts, so that
 // module never depends on auth.config (see serviceToken.routes.ts).

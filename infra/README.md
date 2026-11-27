@@ -2242,6 +2242,29 @@ Order matters: `auth` refuses to start when `SERVICE_CLIENTS` names a scope it d
    bun scripts/backfill-estimate-links.ts --apply
    ```
 
+## Teams rollout (specs/20261126-teams, T10; plan § Delivery step 2, risks R5 and R9)
+
+Teams (attached to a project in Projects, managed in Admin) add **one scope and no environment variable**. projects-api reads the attached
+teams, their members and app access from auth's `GET /system/teams` as itself, with the scope `teams:read` (held by `projects-api` only),
+through the variables it already has (`AUTH_BASE_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET`). `tools/env-doctor/manifest.ts` lists it in
+projects-api's `requiredScopes` and the production `auth.env` template carries it in the `projects-api` entry, so `mise run env:doctor` checks that
+the registry holds exactly these six scopes: `crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push teams:read`.
+
+Order matters: `auth` refuses to start when `SERVICE_CLIENTS` names a scope it does not know (R5), so the grant comes **after** the auth that knows it is live.
+
+1. Deploy `auth` carrying `GET /system/teams` and `teams:read` in its known scopes (T9; its migrations and seed run at startup). Read its health.
+2. Only after that deploy is live: add `teams:read` to the **`projects-api` entry only** of auth's production `SERVICE_CLIENTS` (the Railway variable; the template
+   `tools/env-doctor/templates/production/auth.env` already shows the target value, it is not the deployed one). The entry becomes
+   `"scope":"crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push teams:read"`; every other entry unchanged. Never store the
+   secret in the repo: the entry's secret is the Shared Variable `${{shared.PROJECTS_SERVICE_CLIENT_SECRET}}`, as before. Read auth's health after it restarts.
+3. Deploy `projects-api` (migration `attached_team`; no new variable). A projects-api running before step 2 is not broken, it is degraded: every team read is a 401 from
+   auth, so attaching answers 503 `teams_unavailable` and a project's teams show as unavailable, never as empty. A token minted before the grant lacks the scope for up to
+   5 minutes (R9): projects-api drops its token on that 401 and retries once, so no restart is needed.
+4. `mise run env:doctor -- --env production` before, and the shell, admin-ui and projects-ui deploys after (the screens call the new routes).
+
+Rollback of step 2 is removing `teams:read` from the entry again (auth keeps starting; attaching degrades as above). Locally, `auth/.env.example` already shows the
+scope on the `projects-api` entry, so a dev stack can attach teams.
+
 ## CRM offer wizard rollout (specs/20261115-crm-offer-wizard, ADR 20261115-offer-template-format-supersession-per-entity-language, risks R4, R11, R13)
 
 The wizard adds wizard templates, server-held drafts and new routes to `crm-api`, new design tokens

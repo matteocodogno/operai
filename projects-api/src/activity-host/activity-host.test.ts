@@ -2,8 +2,9 @@
  * The activity-host contract projects-api serves to activities-api (specs/20261110-activities T5; AC-3.2, AC-3.5,
  * AC-3.8, AC-8.1, plan.md § Host contract). Runs the ASSEMBLED app against the `*_test` database.
  */
-import { beforeEach, describe, expect, it } from "bun:test";
-import { call, db, resetWorld, seedDealProject, type PersonaName } from "../test-support/world";
+import { beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { teamReadPersonLimiter, teamReadServiceLimiter } from "../lib/rateLimiter";
+import { advanceTime, attachTeam, call, db, makeTeam, resetWorld, seedDealProject, teamsAuth, type PersonaName } from "../test-support/world";
 import type { Prisma } from "../lib/generated/prisma/client";
 
 beforeEach(resetWorld);
@@ -163,5 +164,128 @@ describe("POST /activity-host/v1/resolve", () => {
     const before = JSON.stringify(await db.project.findMany());
     await resolve({ entityType: "project", ids: [project.id] }, "admin");
     expect(JSON.stringify(await db.project.findMany())).toBe(before);
+  });
+});
+
+// ─── Teams (specs/20261126-teams T13: AC-4.4, AC-4.5, AC-5.1, AC-5.2, AC-5.4, AC-5.6) ───────────────────────────────
+
+const assigneesOf = async (id: string, as: PersonaName | null = "viewer") => (await resolveOne(id, as)).items[0]!["assignees"];
+
+describe("POST /activity-host/v1/resolve — attached teams", () => {
+  it("answers assignees as the onProject vector: PM, listed members, then each team's counted members, once each (AC-4.4, AC-5.2)", async () => {
+    const project = await seed();
+    await db.projectMember.create({ data: { projectId: project.id, userId: "user-viewer" } });
+    const team = makeTeam({
+      members: [
+        { id: "user-colleague" },
+        { id: "user-viewer" }, // also listed: once
+        { id: "user-outsider" }, // holds no Projects access: not counted (AC-4.7)
+        { id: "user-sales-it", active: false }, // deactivated: not counted
+      ],
+      archived: true, // an archived team still counts
+    });
+    await attachTeam(project.id, team.id);
+    expect(await assigneesOf(project.id)).toEqual(["user-pm-ch", "user-viewer", "user-colleague"]);
+  });
+
+  it("detaching a team removes a team-only person and keeps a listed one (AC-4.5)", async () => {
+    const project = await seed();
+    await db.projectMember.create({ data: { projectId: project.id, userId: "user-viewer" } });
+    const team = makeTeam({ members: [{ id: "user-viewer" }, { id: "user-colleague" }] });
+    await attachTeam(project.id, team.id);
+    expect(await assigneesOf(project.id)).toEqual(["user-pm-ch", "user-viewer", "user-colleague"]);
+    await db.attachedTeam.deleteMany({ where: { projectId: project.id } });
+    expect(await assigneesOf(project.id)).toEqual(["user-pm-ch", "user-viewer"]);
+  });
+
+  it("reads a team's members live: a removal shows within 60 s through the cache rule (AC-5.1, AC-5.2)", async () => {
+    const project = await seed();
+    const team = makeTeam({ members: [{ id: "user-colleague" }] });
+    await attachTeam(project.id, team.id);
+    expect(await assigneesOf(project.id)).toContain("user-colleague");
+    expect(await assigneesOf(project.id)).toContain("user-colleague");
+    expect(teamsAuth.idsCalls).toBe(1); // the second answer came from the cache
+    team.members = [];
+    advanceTime(31_000);
+    expect(await assigneesOf(project.id)).toEqual(["user-pm-ch"]);
+  });
+
+  it("says null (unknown, never the listed members alone) for a project with teams while auth fails; the rest of the item and the batch stand (AC-5.4, D3)", async () => {
+    const withTeam = await seed({ name: "With" });
+    const without = await seed({ name: "Without" });
+    await db.projectMember.create({ data: { projectId: withTeam.id, userId: "user-viewer" } });
+    await db.projectMember.create({ data: { projectId: without.id, userId: "user-viewer" } });
+    await attachTeam(withTeam.id, makeTeam({ members: [{ id: "user-colleague" }] }).id);
+    teamsAuth.down = true;
+
+    const res = await resolve({ entityType: "project", ids: [withTeam.id, without.id] });
+    expect(res.status).toBe(200);
+    const [a, b] = res.json.items as Array<Record<string, unknown>>;
+    expect(a).toMatchObject({ id: withTeam.id, state: "open", writable: true, label: "With", may: { write: false, manage: false } });
+    expect(a!["assignees"]).toBeNull();
+    expect(b!["assignees"]).toEqual(["user-pm-ch", "user-viewer"]); // no team: never waits on auth
+  });
+
+  it("says null when auth does not know an attached team, and when one of two teams is unavailable (D3)", async () => {
+    const project = await seed();
+    await attachTeam(project.id, "team-unknown-to-auth");
+    expect(await assigneesOf(project.id)).toBeNull();
+
+    const other = await seed({ name: "Two" });
+    await attachTeam(other.id, makeTeam({ members: [{ id: "user-colleague" }] }).id);
+    await attachTeam(other.id, "team-also-unknown");
+    expect(await assigneesOf(other.id)).toBeNull();
+  });
+
+  it("serves a fresh-enough cached team through an outage, and null once it is older than 60 s (D2)", async () => {
+    const project = await seed();
+    await attachTeam(project.id, makeTeam({ members: [{ id: "user-colleague" }] }).id);
+    expect(await assigneesOf(project.id)).toContain("user-colleague");
+    teamsAuth.down = true;
+    advanceTime(45_000);
+    expect(await assigneesOf(project.id)).toContain("user-colleague");
+    advanceTime(20_000);
+    expect(await assigneesOf(project.id)).toBeNull();
+  });
+
+  it("makes no team read for a caller without projects:access, nor for an empty batch (D3 point 5)", async () => {
+    const project = await seed();
+    await attachTeam(project.id, makeTeam({ members: [{ id: "user-colleague" }] }).id);
+    expect((await resolve({ entityType: "project", ids: [project.id] }, "outsider")).json.items).toEqual([
+      { id: project.id, state: "missing" },
+    ]);
+    await resolve({ entityType: "project", ids: [] });
+    expect(teamsAuth.calls).toBe(0);
+  });
+
+  it("reads each distinct team once for a whole batch", async () => {
+    const shared = makeTeam({ members: [{ id: "user-colleague" }] });
+    const a = await seed({ name: "A" });
+    const b = await seed({ name: "B" });
+    await attachTeam(a.id, shared.id);
+    await attachTeam(b.id, shared.id);
+    const res = await resolve({ entityType: "project", ids: [a.id, b.id] });
+    expect(res.status).toBe(200);
+    expect(teamsAuth.idsCalls).toBe(1);
+    expect(teamsAuth.requests[0]!.ids).toEqual([shared.id]);
+  });
+
+  it("never consults the page-read windows, whoever the caller is, even over their limit (AC-5.6)", async () => {
+    const project = await seed();
+    await attachTeam(project.id, makeTeam({ members: [{ id: "user-colleague" }] }).id);
+    for (let i = 0; i < 120; i++) teamReadPersonLimiter.consume("user-viewer");
+    const spies = [
+      spyOn(teamReadPersonLimiter, "peek"),
+      spyOn(teamReadPersonLimiter, "consume"),
+      spyOn(teamReadServiceLimiter, "peek"),
+      spyOn(teamReadServiceLimiter, "consume"),
+    ];
+    try {
+      expect(await assigneesOf(project.id, "viewer")).toContain("user-colleague"); // viewer is over their own limit
+      expect(await assigneesOf(project.id, "colleague")).toContain("user-colleague");
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
   });
 });

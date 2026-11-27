@@ -1,4 +1,4 @@
-import { Badge, StatusBadge } from '@operai/ui'
+import { Badge, Icon, StatusBadge } from '@operai/ui'
 import type { StatusMeaning } from '@operai/ui'
 import type { Entity, ProjectState, ProjectType } from '../lib/types'
 import { strings } from '../strings'
@@ -34,6 +34,35 @@ export function TenderBadge({ testId }: { testId?: string }) {
   return (
     <Badge tone="accent" data-testid={testId}>
       {strings.badges.tender}
+    </Badge>
+  )
+}
+
+/**
+ * An attached team the admins archived, and a team member whose account is deactivated: both `voided` in the suite's
+ * dictionary (as the CRM's archived), through this one map (specs/20261126-teams design, component inventory).
+ */
+export function TeamArchivedBadge({ testId }: { testId?: string }) {
+  return (
+    <StatusBadge status="voided" data-testid={testId}>
+      {strings.project.team.teams.archived}
+    </StatusBadge>
+  )
+}
+
+export function MemberDeactivatedBadge({ testId }: { testId?: string }) {
+  return (
+    <StatusBadge status="voided" data-testid={testId}>
+      {strings.project.team.teams.deactivated}
+    </StatusBadge>
+  )
+}
+
+/** A team member who does not hold access to Projects: attached, but not on the project (AC-4.7). An access level, so a warning badge. */
+export function NoProjectsAccessBadge({ testId }: { testId?: string }) {
+  return (
+    <Badge tone="warning" glyph={<Icon name="lock" />} data-testid={testId}>
+      {strings.project.team.teams.noAccess}
     </Badge>
   )
 }

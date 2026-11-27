@@ -4,6 +4,8 @@ import RolesPage from './pages/RolesPage'
 import RoleEditor from './pages/RoleEditor'
 import DepartmentsPage from './pages/DepartmentsPage'
 import DepartmentDetail from './pages/DepartmentDetail'
+import TeamDetail from './pages/TeamDetail'
+import TeamsPage from './pages/TeamsPage'
 import UsersPage from './pages/UsersPage'
 import UserDetail from './pages/UserDetail'
 import InvitationsPage from './pages/InvitationsPage'
@@ -127,6 +129,20 @@ export function createAppRouter(basepath?: string) {
     component: DepartmentDetail,
   })
 
+  // Teams (specs/20261126-teams T4): groups of people, an Admin object next to departments that grants nothing.
+  const teamsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/teams',
+    component: TeamsPage,
+  })
+
+  // A team's own page (specs/20261126-teams T5): details, archive / restore, members. No delete route (AC-1.7).
+  const teamDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/teams/$id',
+    component: TeamDetail,
+  })
+
   const usersRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/users',
@@ -211,6 +227,8 @@ export function createAppRouter(basepath?: string) {
     roleEditorRoute,
     departmentsRoute,
     departmentDetailRoute,
+    teamsRoute,
+    teamDetailRoute,
     usersRoute,
     userDetailRoute,
     invitationsRoute,

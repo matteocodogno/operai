@@ -226,6 +226,22 @@
   decision (a package threshold, an end date, a deadline, idle hours). _Avoid:_ warning,
   reminder, notification (a notification is how notify-api tells a person).
 
+### Teams (specs/20261126-teams)
+- **Team**: a named group of Operai users managed by administrators in Admin; it grants no
+  permission and may be attached to many projects. Not a **department** (a department confers
+  roles). _Avoid:_ group, squad, crew.
+- **Archived team**: a team withdrawn from new use — no longer offered, kept with its members,
+  restorable, never deleted.
+- **On the project**: the project manager, an individually listed member, or an active member
+  of an attached team who holds Projects access. _Avoid:_ assigned (hours/activities use
+  `assignees` for the same set).
+- **Project team**: the people on a project's Team card — individually listed people plus
+  attached teams. _Avoid:_ staff.
+- **Attached team**: a team a project manager has attached to one project; the project keeps
+  only which team, never its name or members, which are read live from auth.
+- **Counted member**: an active member of an attached team who holds Projects access; the only
+  team members who are **on the project**. _Avoid:_ effective member.
+
 ## Relationships
 - An **Offer draft** belongs to one deal and starts from one **Offer template**; generating
   it creates an offer whose snapshot holds the draft's answers, and removes the draft.
