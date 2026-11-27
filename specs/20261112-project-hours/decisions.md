@@ -193,3 +193,14 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - assumption: the wrong-order rows for the bar skew come from R13 and the class list, not a live run — why: docs task, no stack allowance — where: infra/README.md
 - assumption: no root `pnpm install` — why: `mise run changeset:check` is a plain node script — where: n/a
 - note: the step-3 pipeline was run once, read-only, against the deployed shell: `0` (positive control `bg-ink` matched), as expected before the release — where: n/a
+
+## T25 · quality-engineer · 2026-11-27
+- default: E's baseline is its own test before C, and C reads the bar before and after its 1 h save (C's title names AC-5.28) — why: "the percentage moves and the time elapsed does not" is only observable around C's save; a second Record hours flow would break C's baseline — where: `shell/e2e/project-hours.spec.ts`
+- reinterpretation: F asserts "Over by 0.1 man-days", not the task text's "0.1 man-day" — why: 9 h against 1.0 man-day is exactly 0.1 (1.25 tenths half up to 1); the product writes `${value} man-days`, the singular only for "Less than 0.1 man-day" (AC-5.13) — where: journey F
+- default: the time elapsed and the day counts use `asOf` and `currentPeriod` of the very response the page drew from (`waitForResponse`); the spec's day arithmetic (`dayNumberOf`, `elapsedPercentOracle`) is independent of projects-ui's — where: `hoursOwnersFixtures.ts`, journey E/F
+- default: F is in the same describe and file — why: one `cleanupPeople(runId)` cannot remove personas a later describe needs; the task's command filters on the file name — where: `project-hours.spec.ts`
+- scope: AC-5.27 checked in E (PM and reader see the same signals); AC-5.26's close-and-reload in F, per plan § Test strategy, although T25's refs do not list it — where: journeys E, F
+- default: F's fixed-price project is created through the API (planned → active → closed) and cannot be deleted (no route); `afterAll` deletes its entries and cancels the project when a run stops early (`retireProjectQuietly`) — where: `hoursOwnersFixtures.ts`
+- default: each R13 computed-style read is paired with a read of a class-less copy as a control — why: proves the style comes from the utility — where: journey F
+- note: R13's browser reads ran against the dev stack's shell (vite dev, same `@source`s); a scratch `vite build` of the shell holds the bar's utilities, so plan R13 check (2) would pass for this tree — where: n/a
+- note: the repo's formatter reflowed one pre-existing line in `hoursOwnersFixtures.ts` (`readHoursExport`'s destructure) — where: `hoursOwnersFixtures.ts`
