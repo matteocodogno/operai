@@ -1,5 +1,92 @@
 # QE report — project-hours (specs/20261112-project-hours), rigor production, full mode
 
+## QE pass 2 (after fix round 1)
+
+A fresh agent re-checking the one open defect of pass 1 (D1) against the designer's amendment `9cbf00ad` (design.md only). Scope as briefed: code, tests and docs.
+The local stack was stopped and the databases were being reset, so no server, browser, backend test or e2e was run; none is needed to judge this, because no product
+code changed. Nothing is BLOCKED.
+
+## QE verdict: FAIL   (pass 2; measured at 9cbf00ad, clean tree; this report is committed after it, docs only)
+
+**D1 is resolved**: design.md no longer promises a status, and seven of the eight clauses the amendment writes about the restart are true of the code and pinned by tests.
+The verdict is still FAIL because the eighth, the last sentence of the paragraph the fix added, is false of the code (**D3**, low, docs only): it says My hours' table view
+"cannot restart", and it can, silently, through the same walk as the export. Correcting that one clause makes this a PASS with no code change.
+
+| Check | Threshold | Actual | Result |
+|---|---|---|---|
+| Product code unchanged since pass 1 | empty diff | `git diff --stat 117bdadf HEAD -- ':!specs'` prints nothing; the same against `95c3d470` (where pass 1 measured product code) prints nothing, and `git diff --name-only 95c3d470 HEAD` lists only files under `specs/`. The one commit since `117bdadf` is `9cbf00ad`: `specs/20261112-project-hours/design.md`, +7 −3, nothing else | ✓ |
+| D1: no place in design.md still promises a status for the 409 restart | none | `grep -n -i refresh design.md`: "refreshed" survives only in the amendment note (line 21, quoting the removed sentence) and in the new paragraph (line 313, negating it); the other hits are line 417 and G5 (lines 588-592), both about there being no Refresh action for the card's figures after Record hours, not about this list. F4 (line 77) says "silently (S4)", the Accessibility bullet (line 446) says silent by design with the Entries region's loading line as the only announcement, the Copy section holds no string for it. Every other polite status in the file (loading lines, the grouping banner, HostHours notes) is unrelated to the 409 | ✓ |
+| Amended text consistent with spec.md | no clause the spec contradicts | AC-4.8 asks for the refusal and the kept pages, AC-4.4 for the entries on the project's linked meetings; neither asks for a status on a restart. The amendment's two citations check out: `specs/20261112-time-tracking/plan.md:901-902` ("the list reloads its first page, the export restarts…") and that spec's design.md has no mention of the 409 | ✓ |
+| Amended text consistent with the code | every clause | 7 of 8 hold (table below); the table-view clause does not (D3) | ✗ |
+| Tests pin the described behaviour | green | hours-ui `vitest run` at 9cbf00ad: `useHoursQuery.test.tsx`, `exportPages.test.ts`, `HoursExport.test.tsx`, `MyHoursPage.projectFilter.test.tsx`, `EveryoneHoursPage.projectFilter.test.tsx`: **5 files, 90 passed, 0 failed**; `MyHoursPage.entries.test.tsx`, `MyHoursPage.table.test.tsx`: **2 files, 122 passed, 0 failed** | ✓ |
+| Every other row of pass 1 | stands | not re-run, inputs identical (first row); see "What stands" | ✓ (carried) |
+
+### The amended paragraph, clause by clause (design.md S4 "The linked set changed between two pages", line 313, with F4 line 77 and the Accessibility bullet line 446)
+
+| # | Clause | Evidence | Holds |
+|---|---|---|---|
+| 1 | A 409 `project_meetings_changed` answers a Load more; the list starts over from its first page, silently | `hours-ui/src/lib/useHoursQuery.ts:149-153` (both codes → `reload()`, no state, no message); `useHoursQuery.test.tsx:418` (both codes: calls `[undefined, 'c2', undefined]`, `moreFailed` false, `more` empty; any other 409 stays an ordinary failed Load more); `MyHoursPage.projectFilter.test.tsx:346` (page: first page asked again with no cursor and `projectId=p1`, the new list on screen, no Load more, `queryByRole('alert')` null) | ✓ |
+| 2 | The Entries region shows its ordinary loading state, the skeleton and the polite "Loading your hours…" | `reload` is `loading` in the same render (`useHoursQuery.test.tsx:148`); the loading branch is `MyHoursPage.tsx:731-732` and `EveryoneHoursPage.tsx:447-448` (`VisuallyHidden live` + `SkeletonRows`); pinned for a first load by `MyHoursPage.entries.test.tsx:364`. A composition of three pinned pieces: no single test asserts the line during a restart (O6) | ✓ |
+| 3 | It then answers as any first page does: the new list, the region's error banner with Retry, or the refusal when Meetings cannot say | the same first-page branches (`MyHoursPage.tsx:668-731`, `refusedMeetingsRead`); refusal and error tests of pass 1 are in the 90 above | ✓ |
+| 4 | No Banner, no alert, no "refreshed" status for the restart itself | no such string on this path: the only "refreshed" in hours-ui is `strings/entry.ts:151`, "That entry no longer exists. The list has been refreshed." (an entry deleted elsewhere, another event); the page test above asserts no alert | ✓ |
+| 5 | The export's walk restarts the same way, at most three walks in all, shows nothing for a restart | `exportPages.ts:32` (`EXPORT_ATTEMPTS = 3`) and `:41-51` (`readAllEntries`); `exportPages.test.ts:149` (restart under a project filter, none of the first walk kept) and `:164` (gives up after 3 walks: `2 * EXPORT_ATTEMPTS` requests, rejects with `project_meetings_changed`); `HoursExport.test.tsx:349` (one file downloaded, no alert, `onFilterUnavailable` not called) | ✓ |
+| 6 | Refused three times in a row it fails like any other export failure, with the button's own alert | `readAllEntries` rethrows the 409; `HoursExport.tsx:46-50` takes only `host_unavailable` for the host-filter state, everything else is the button's `failed` alert (`HoursExport.test.tsx:338` pins that for another code). The third-refusal path itself is not pinned at component level (O6) | ✓ |
+| 7 | One code path for both host filters, in My hours' List and in Everyone's hours | `useHoursPages` is used by both pages (`MyHoursPage.tsx:220`, `EveryoneHoursPage.tsx:193`) and both codes go through the one `isCode(...)`; Everyone's has no page-level 409 test, the hook test covers it (O6) | ✓ |
+| 8 | "My hours' table view reads one complete period, has no pages and **cannot restart**" | **false**: see D3 | ✗ |
+
+## Defects (pass 2)
+
+**D1. RESOLVED (verified in this pass).** Root cause, now closed: design S4 was drafted from the deal's pattern with a sentence the deal never had (a polite "refreshed" status);
+T12 implemented the deal's silent restart and recorded the difference as a reinterpretation in `decisions.md`, and design.md was never reconciled. The designer chose the silent
+restart for both host filters and amended design.md only (F4, S4, Accessibility). The text now matches the code, spec.md and the tests, apart from D3 below.
+
+**D3 (new; low; owner: designer; docs only). The amended S4 paragraph says My hours' table view "cannot restart"; it restarts.**
+design.md line 313, last sentence: "My hours' table view reads one complete period, has no pages and cannot restart."
+`MyHoursPage.tsx:87-90` `readTable` calls `readAllEntries(tableFilters)`, and `tableFilters` is `{ ...applied, from, to }` with `applied.projectId` / `applied.dealId`
+(`:202-206`, `:214`): the export's own walk, which already restarts on both codes. So a 409 on a later page of the period (a period with more than one 500-entry page under a host
+filter) starts the walk over, silently, at most three walks in all; refused a third time it ends in the table's own read-failure state with Retry (`tableFailure`,
+`MyHoursPage.tsx:79`, `:556-559`), not in the host-filter refusal (`refusedMeetingsRead` is `host_unavailable` only). What the sentence gets right: the table has no Load more
+and no list to restart from a first page, and its restart shows nothing (one promise, state `loading` throughout). What it gets wrong is the denial: the paragraph's own previous
+sentence says this walk restarts, and the table view is the other caller of that walk.
+Why low: the behaviour is the one the designer decided (silent), nobody would build a status for it, no AC is affected. It still tells the next reader a path does not exist that does.
+Placements, same pattern: S4 line 313 ✗; F4 line 77 ✓ (speaks only of "the list"); Accessibility line 446 ✓; amendment note line 21 ✓ (does not mention the table view); line 361
+"Table view (AC-4.11). Unchanged" ✓ (about `tableGrid`).
+**New since the fix** as a sentence (added in `9cbf00ad`); the code fact it contradicts was there in pass 1, and my pass-1 placement list ("My hours' table view not paged, n/a")
+overlooked it, so QE **missed it earlier** as well.
+Smallest correction, for the designer: replace "and cannot restart" with the true statement, for example "My hours' table view has no Load more; its one complete read goes through the
+export's walk, so it restarts the same way, silently, at most three walks in all, and refused three times it shows its own read-failure state with Retry." No code change. No test
+pins the table's restart (no `MyHoursPage` table test sends a 409; `exportPages.test.ts:149-176` pin the walk); this pass was limited to this file, so none was added: a table-view
+test with a 409 on page 2 would keep the sentence true if the designer wants one.
+
+## Observations (pass 2; not defects, no AC or design clause says otherwise)
+
+- **O6. Composition gaps in the tests, not in the behaviour.** No single test asserts the polite loading line *during* a 409 restart (clause 2 rests on `reload` = `loading` plus the loading branch plus the first-load test), none asserts the
+  export button's alert after the third refusal (clause 6 rests on the rethrow plus the alert test for another code), and Everyone's hours has no page-level 409 test (clause 7 rests on the shared hook). Each link is pinned; the chain is not run as one.
+- **O7. A restart re-reads the list only.** `entries.reload` reloads the entries query; the day totals and the Totals card are keyed on the filters and are not re-read, so after a relink between two pages the Totals card can describe the previous linked set
+  until a filter changes or the page reloads (the deal filter behaves the same). The designer's "nothing is wrong, nothing for the person to do" holds for the list; it is also why a "refreshed" status would have claimed more than the code does.
+  No AC or design clause asks for the Totals to follow; recorded so the decision is made knowing it.
+
+## What stands from pass 1
+
+Every other row of pass 1 stands, because no product code changed since: `git diff --stat 117bdadf HEAD -- ':!specs'` is empty (and so is the same diff against `95c3d470`, the commit pass 1 measured product code at;
+shell was measured at `75947f28`, an ancestor of both). That covers the AC sweep (30/30), the gates (typecheck, lint, build, coverage, `shared:check`, `changeset:check`, audits, secret scan), the e2e results,
+the rendered checks, the performance numbers, the security note, the "Pre-existing red outside scope" list (including the shell audit and `hours-in-place` A) and the residue note. None of them was re-executed in this pass; their inputs are byte-identical.
+Only `design.md` changed, and its Design-states and Accessibility rows are re-read above: the added Accessibility bullet (line 446) matches the code (the loading line is the only announcement), and no state or a11y requirement was removed.
+
+## Blocked (pass 2)
+
+None.
+
+## Self-critique (pass 2)
+
+One pass over this section: the D1 verdict rests on reading the code and on 212 passing tests (90 + 122) at a clean `9cbf00ad`, nothing run live (by instruction), so "the table's restart is silent in the browser" is code reading (one promise, `loading` throughout), not an observed run.
+D3 is small enough that it is fair to ask whether it should block: I counted it because the brief asked for the text to be consistent with the code and pass 1 counted D1, the same class (a design clause that disagrees with the code), as FAIL; the caller may overrule on proportion, and the fix is a clause.
+I did not re-verify pass 1's rows, on the strength of an empty diff; if anything outside `git diff` (a dependency, an environment change) moved since, that is not covered by this pass.
+
+---
+
+## QE pass 1 (original report, unchanged below)
+
 Pass 1 of the feature, a fresh agent, everything listed before anything is fixed.
 
 ## QE verdict: FAIL   (product code measured at 95c3d470; the report is committed after it, docs only)
