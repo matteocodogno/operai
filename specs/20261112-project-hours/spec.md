@@ -38,10 +38,13 @@ while deriving the tasks and D85 accepted by the owner on 2026-11-27)
 > only (AC-1.7, D82); an expired capacity package says so (AC-1.9, D83); and the hours figures of a project or deal page
 > follow a save made with Record hours on that page (AC-2.8, D84).
 >
-> **Amended 2026-11-27 while implementing** (the owner, D85): a known limitation is accepted, not a change of scope. A capacity
-> hour package without an expiry date is compared up to the Zurich day the page was loaded on, so a project page left open across
-> Zurich midnight leaves the hours recorded on the new day out of its consumption figures until it is reloaded (A52, AC-1.3,
-> AC-2.8). No acceptance criterion changes.
+> **Amended 2026-11-27 while implementing** (the owner, D85): a known limitation is accepted, not a change of scope. A project
+> page works out an hour package's current period, and with it whether the package has not started or has expired, on the
+> Zurich day the page was loaded on, and keeps that day until it is reloaded. A page left open across a date therefore keeps
+> showing the old state: a capacity package without an expiry date leaves the hours recorded on the new day out of its figures;
+> a yearly package keeps its old period after its anniversary; a package keeps saying it has not started after its start date;
+> a capacity package shows "Expired" only after a reload (A52, AC-1.1 to AC-1.3, AC-1.9, AC-2.8). The owner first accepted the
+> first case and, the same day, every case with the same cause. No acceptance criterion changes.
 
 ## Problem
 
@@ -187,11 +190,20 @@ includes the meetings with the client and the team. *(Added 2026-11-26, D78.)*
 - A50 The hours recorded on a deal do not count for the project made from it, nor the reverse.
 - A51 Before an hour package's start date no package period is current: the page shows the package with no consumption,
   and hours recorded before the start date count in no period.
-- A52 A capacity package without an expiry date is compared from its start date up to today (AC-1.3), and today is the
-  Europe/Zurich day Projects works out when the project page loads. If that page stays open across Zurich midnight and the
-  person then records hours from it with Record hours (AC-2.8), the hours on the new day are not in the page's consumption
-  figures until the page is reloaded, while the project's total hours (AC-2.1) include them. Nothing is lost and nothing is
-  wrong after a reload. Accepted by the owner on 2026-11-27 as a known limitation, not fixed by this spec (D85).
+- A52 The project page works out an hour package's current period on the Europe/Zurich day on which Projects reads the
+  project, which the page does when it loads; the period, its figures, "not started" and "Expired" all follow from that day.
+  A page left open across a date keeps what was true on the day it was loaded until the page is reloaded, a save made with
+  Record hours (AC-2.8) included. Four cases have this cause: (a) a capacity package without an expiry date, the page open
+  across Zurich midnight: the hours recorded on the new day are not in the block's figures (AC-1.3), so the hours used are
+  too low and the hours left too high (or the excess too low), the one case where a figure is too low with no date on screen
+  to show it, because the block shows the start date and no end date; (b) a yearly package's anniversary passes: the block
+  keeps showing the old period and its figures, and hours recorded in the new period do not move it (AC-1.1, AC-1.2, AC-2.8);
+  (c) a package's start date arrives: the block keeps saying the package has not started, with no figures (A51, AC-2.8);
+  (d) a capacity package's expiry date passes: the "Expired" mark appears only after a reload (AC-1.9), the figures stay
+  right. In (b) to (d) the block shows a date that has already passed (the period's end, the start date, the expiry). The
+  project's total hours (AC-2.1) do not depend on that day and are not affected; nothing is lost or wrong after a reload.
+  Accepted by the owner on 2026-11-27 as a known limitation, not fixed by this spec: first case (a), then, the same day, every
+  case with this cause ("it is negligible, refreshing the page is enough", D85).
 
 ## Open questions
 

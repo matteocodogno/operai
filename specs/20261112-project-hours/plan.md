@@ -26,12 +26,15 @@ wired in `toProjectView`, while § API contracts puts it on every response carry
 (`termsView` / `toTermsView`, `projects-api/src/terms/terms.ts`), which `toProjectView` and the terms routes both call;
 the projects-api row (b) and the AC-1.1 test row now say so, with file:line references to T3's `be99186a`. No route,
 API, decision or ADR change: the contract is unchanged and the tests the row names exist since T3.
-Amended a fifth time 2026-11-27 (the owner's decision of 2026-11-27, ledger D85, spec A52, on a limitation T16 reported,
-`decisions.md` § T16): Risk R8 added — a project page left open across Europe/Zurich midnight leaves the hours recorded
-on the new day out of the consumption block of a capacity package without an expiry until it is reloaded; accepted and
-documented, with re-reading the project on a Record hours save named as the way out. The "asks the summary once" bullet
-(under § Refreshing after Record hours) and the AC-2.8 test row point at it. No route, API, test or ADR change, and no
-D-P decision changes: the window stays the server's `currentPeriod` (D-P3).
+Amended a fifth time 2026-11-27 (the owner's decisions of 2026-11-27, ledger D85, spec A52, on a limitation T16 reported,
+`decisions.md` § T16, widened the same day to three further cases of the same cause): Risk R8 added — a package's period
+is worked out for the Europe/Zurich day the project page read the project on, so a page left open across midnight keeps,
+until it reads the project again (a reload, or a write of its own), a capacity package without an expiry counted up to
+that day (the hours dated on the new day out of the consumption block), a yearly package on the period that has ended, a
+package "not started" once its start date has come, and an expired capacity package without its "Expired" mark; accepted
+and documented, with re-reading the project on a Record hours save named as the way out for all four. The "asks the
+summary once" bullet (under § Refreshing after Record hours) and the AC-1.1, AC-1.9 and AC-2.8 test rows point at it. No
+route, API, test or ADR change, and no D-P decision changes: the window stays the server's `currentPeriod` (D-P3).
 
 ## Architecture
 
@@ -130,7 +133,8 @@ the shell (`getHoursApiBaseUrl`, `VITE_HOURS_API_URL` is the shell's), which `ap
 - The consumption block asks the summary **once**: with `windowFrom`/`windowTo` when the package has a current period,
   without otherwise. A failed summary shows the block's "Consumption is unavailable" state while the widget below it and the
   rest of the page stay (AC-2.6, AC-4.9). The window is `currentPeriod` as read with the page, and a re-read asks the same
-  one: for a capacity package without an expiry it ends on the day of that read (Risk R8).
+  one: the period, its end, whether the package has started and whether it has ended are those of the Europe/Zurich day of
+  that read until the page reads the project again (Risk R8).
 - This is arithmetic over two complete answers (a sold figure and a server total), not a sum over pages: ADR
   20261116-week-view-sums-a-complete-read-in-the-browser is not engaged.
 
@@ -323,10 +327,10 @@ e2e in `shell/e2e/project-hours.spec.ts` (new) through the shell.
 
 | AC | Level | Test |
 |---|---|---|
-| AC-1.1 | unit + integration + component + e2e | projects-api `packagePeriod` vectors; projects-api GET project and the `POST`/`PATCH /projects/{id}/terms` answers carry `currentPeriod`; hours-api summary `windowMinutes` counts only days in the window; projects-ui `consumptionOf` (hours left; once exceeded "over by" the absolute figure, never a negative) and `ConsumptionBlock` inside the Hours card; e2e: a project with a yearly package and entries shows used / left without opening the breakdown |
+| AC-1.1 | unit + integration + component + e2e | projects-api `packagePeriod` vectors; projects-api GET project and the `POST`/`PATCH /projects/{id}/terms` answers carry `currentPeriod`; hours-api summary `windowMinutes` counts only days in the window; projects-ui `consumptionOf` (hours left; once exceeded "over by" the absolute figure, never a negative) and `ConsumptionBlock` inside the Hours card; e2e: a project with a yearly package and entries shows used / left without opening the breakdown; not met by a page open across a yearly anniversary, which keeps the period it was read in (Risk R8, accepted) |
 | AC-1.2 | unit + integration | `packagePeriod` yearly: period *k* boundaries, 29 Feb; summary over period 2 excludes period 1's entries |
 | AC-1.3 | unit | `packagePeriod` capacity: with expiry, without (to = today), after expiry (stays), before start (`null`) |
-| AC-1.9 | unit + component | `packagePeriod` capacity past its expiry → `ended: true`; yearly and unexpired → `false`; `ConsumptionBlock` shows the "Expired" `StatusBadge` only when `ended` |
+| AC-1.9 | unit + component | `packagePeriod` capacity past its expiry → `ended: true`; yearly and unexpired → `false`; `ConsumptionBlock` shows the "Expired" `StatusBadge` only when `ended`; a page open across the expiry shows it only once it reads the project again (Risk R8, accepted) |
 | AC-1.4 | unit + component | `consumptionOf` fixed price with and without `estimatedManDays`; `ConsumptionBlock` leaves the estimate out when null |
 | AC-1.5 | unit | `consumptionOf` T&M: Σ planned man-days vs used, no per-position figure |
 | AC-1.6 | unit | man-day vectors in integer arithmetic: 480 min → 1.0; 30 min → 0.1 (0.0625); 24 min → 0.1 (0.05, half up); 23 min → 0.0; 3 600 min → 7.5; shown with `formatNumber` at one decimal |
@@ -339,7 +343,7 @@ e2e in `shell/e2e/project-hours.spec.ts` (new) through the shell.
 | AC-2.5 | integration | reader neither manager nor owner → `byPerson: null`; holder of `time-entry:read-all` → present; auth down → `null` + `"authz"` |
 | AC-2.6 | component | projects-ui and crm-ui: `HostExtension` failure → the slot's "Hours unavailable" fallback inside the Hours card, page renders; `HostHours` 503 → its error state; `ConsumptionBlock` 503 → its error state; the two failures independent (block fails / widget loads, widget fails / block loads, both fail: two banners, each with its Retry) |
 | AC-2.7 | integration | projects-api resolve: `projectManagerId: null` while awaiting; hours-api: caller = PO ops-manager → `byPerson: null`, holder → present |
-| AC-2.8 | unit + component + e2e | `timeEntryRecordedEvent` guard; `RecordHours` dispatches exactly once after a successful save and never after a refused one; `HostHours` and `ConsumptionBlock` re-read on an event naming their target and ignore another target or a malformed `detail`; a burst gives one re-read; e2e: record 1 h from the project page, the card's figures grow by 1 h without a reload; not met by the block of a capacity package without an expiry on a page open across Zurich midnight (Risk R8, accepted) |
+| AC-2.8 | unit + component + e2e | `timeEntryRecordedEvent` guard; `RecordHours` dispatches exactly once after a successful save and never after a refused one; `HostHours` and `ConsumptionBlock` re-read on an event naming their target and ignore another target or a malformed `detail`; a burst gives one re-read; e2e: record 1 h from the project page, the card's figures grow by 1 h without a reload; not met by the block on a page open across Zurich midnight for a capacity package without an expiry, a yearly package's anniversary or a package's start date (Risk R8 (a)–(c), accepted) |
 | AC-3.1 | integration | `matrix.test.ts` inventory: the only new hours-api route is a `GET`; no write route added in any service |
 | AC-3.2 | unit | `catalogGaps` parity + no-hardcoded-copy scans in hours-ui, projects-ui, crm-ui; formatters only (`formatDuration`, `formatNumber`, `formatDate`) |
 | AC-4.1 | integration | entry on a project-linked meeting by a participant not on the team counts in the project's summary |
@@ -397,20 +401,35 @@ invalid prop set; `openapi.contract.test.ts` for the new route.
   `packagePeriod` lives in projects-api now; the man-day rule is one line, recorded here for that spec.
 - **R7 Per-person hours of people outside the team** (A49) reach the project manager. Accepted by the owner (A49); part of
   the labour-law sign-off O3 of specs/20261112-time-tracking (hours visible to someone other than the person).
-- **R8 A page open across Zurich midnight under-counts the hours used of a capacity package without an expiry** —
-  projects-api derives `currentPeriod` when the project is read, so that package's `to` is the Zurich day of the read
-  (`packagePeriod`, § Consumption), and projects-ui's `summaryRequestOf` (`projects-ui/src/lib/consumption.ts:107-118`,
-  T15) sends it as `windowTo`, which the summary takes only together with `windowFrom` (§ API contracts). Every later
-  read on that page — after a Record hours save (AC-2.8) or a Retry — asks the same window, so hours recorded on the new
-  day stay out of the consumption block until the page is reloaded: used too low, so left too high or "Over by" too
-  low, while the `hours.hostHours` panel's total in the same card, read without a window, includes them. AC-1.3's "up
-  to today" is the day of the read, and AC-2.8 holds for the panel, not for the block, in this case. Accepted and
-  documented by the owner's decision of 2026-11-27 (D85, A52). Rejected: computing the Zurich day in the browser for
-  that window (the day is the server's to decide, D-P3); letting `GET /time-entries/summary` take `windowFrom` alone (a
-  contract and hours-api change for a rare case); re-reading the project on every `operai:time-entry-recorded` naming
-  it, so `currentPeriod` refreshes (one more projects-api read per save, more than the case is worth for now) — **the
-  way out if the limitation ever matters**, a projects-ui change with no API change. Signal: a report of the block and
-  the panel's total disagreeing on a page not reloaded since before midnight; a reload corrects it.
+- **R8 A project page open across Zurich midnight keeps the package period of the day it read the project on** —
+  projects-api derives `currentPeriod` (`from`, `to`, `ended`, or `null` before the start) for the Europe/Zurich day of the
+  read (`packagePeriod`, `projects-api/src/terms/packagePeriod.ts:68-87`, § Consumption); projects-ui draws the
+  consumption block from it and sends it as the summary's window (`summaryRequestOf`,
+  `projects-ui/src/lib/consumption.ts:107-118`, T15; the summary takes `windowTo` only together with `windowFrom`, § API
+  contracts), and every later read of the block — after a Record hours save (AC-2.8) or a Retry — asks the same window.
+  Only a new read of the project moves it: a reload, or a write on the page that answers with the project or reads it
+  again (details, team, state, terms, purchase order; `projects-ui/src/pages/ProjectDetailPage.tsx:130-142`). One cause,
+  four cases: (a) **a capacity package without an expiry** is counted up to the day of the read, so hours dated later stay
+  out of the block — used too low, so left too high or "Over by" too low — while the `hours.hostHours` panel's total in
+  the same card, read without a window, includes them (AC-1.3, AC-2.8); (b) **a yearly package's anniversary** passing
+  leaves the block on the period that has ended, and a save dated in the new period does not move it (AC-1.1, AC-1.2,
+  AC-2.8); (c) **a package's start date** arriving leaves the block saying the package has not started, and the block asks
+  no summary then, so a save has nothing to re-read (A51, AC-2.8); (d) **a capacity package's expiry** passing shows the
+  "Expired" mark only once the page reads the project again, its figures right all along, since the window is `[start,
+  expiry]` before and after (AC-1.9). Only (a) is an under-count, and only (a) has no date on screen to show it: the block
+  says "From <start>, no expiry", while (b)–(d) show the period's end, the start date or the expiry, which a reader can
+  set against the day. Until the project is read again, AC-1.1's current period, AC-1.3's "today", A51's start and
+  AC-1.9's expiry are judged on the day of the read, and AC-2.8 holds for the panel, not for the block, in (a)–(c).
+  Accepted and documented by the owner's decisions of 2026-11-27 (D85, A52). Rejected: computing the Zurich day, and with
+  it the period, in the browser (the day and the period are the server's to decide, D-P3; it would take a second
+  `packagePeriod`); letting `GET /time-entries/summary` take `windowFrom` alone (a contract and hours-api change for a rare
+  case, and it would mend (a) only); re-reading the project on every `operai:time-entry-recorded` naming it, so
+  `currentPeriod` refreshes (one more projects-api read per save, more than the cases are worth for now) — **the way out
+  if the limitation ever matters**: it mends all four at the next save on the page, as the re-read after a terms write
+  does today (`ProjectDetailPage.tsx:137-142`), a projects-ui change with no API change; a page where nothing is saved
+  still keeps the day of its read until it reads the project again. Signal: on a page not reloaded since before a Zurich
+  midnight, a Record hours save that moves the panel's total and not the block (a)–(c), or a date on the block that the
+  day has reached or passed with nothing changed in the block (b)–(d); a reload corrects each.
 
 ## Security
 

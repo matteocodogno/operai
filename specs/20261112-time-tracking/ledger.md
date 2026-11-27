@@ -185,15 +185,26 @@ Decided during /wellforge:tasks of specs/20261112-project-hours (2026-11-26, the
 
 Decided by the owner while implementing specs/20261112-project-hours (2026-11-27; a known limitation accepted, not a scope
 change: no acceptance criterion changes and the spec's status and approval stand):
-- D85 A capacity hour package without an expiry date is compared from its start date up to the Europe/Zurich day projects-api
-  works out when the project page loads (AC-1.3; the period's end is that day, `projects-api/src/terms/packagePeriod.ts`).
-  A page left open across Zurich midnight therefore leaves the hours dated the new day out of its consumption figures, even
-  after a save made with Record hours (AC-2.8, D84), until the page is reloaded; the project's total hours (AC-2.1) are not
-  read through that window and include them; nothing is lost or wrong after a reload. ACCEPTED as a known limitation (A52 of
-  the spec) — owner, choice "A" of four, 2026-11-27, for specs/20261112-project-hours. The implementer had recorded the case
-  as drift (specs/20261112-project-hours/decisions.md, T16). Rejected: computing the day in the browser (the Zurich day is the
-  server's to decide); letting the summary take an open-ended window (a contract and hours-api change for a rare case);
-  re-reading the project on every save (rejected for now, as more than the case is worth)
+- D85 The project page's "today" is the Europe/Zurich day projects-api works out when it reads the project, which the page
+  does when it loads (`projects-api/src/terms/packagePeriod.ts`); an hour package's current period, its figures, whether it
+  has not started and whether it has expired are all derived from it. A page left open across a date therefore keeps what was
+  true on the day it was loaded, even after a save made with Record hours (AC-2.8, D84), until the page is reloaded (reading
+  the project again moves it, and a reload always does; so does a save of the project's terms or purchase order on that page,
+  `projects-ui/src/pages/ProjectDetailPage.tsx` `recordChanged`). The project's total hours (AC-2.1) are not read through that
+  day and are not affected by it; nothing is lost or wrong after a reload. ACCEPTED as one known limitation (A52 of the
+  spec), in four cases with the same cause: (a) a capacity package without an expiry date, the page open across Zurich
+  midnight: the hours dated the new day are left out of its consumption figures (AC-1.3), so the hours used are too low and
+  the hours left too high (or "Over by" too low) — the one case where a figure is too low with no date on screen to show it,
+  because the block then shows the start date and "no expiry" and no end date; (b) a yearly package's anniversary passes: the
+  block keeps showing the old period and its figures, and hours recorded in the new period do not move it (AC-1.1, AC-1.2,
+  AC-2.8); (c) a package's start date arrives: the block keeps saying the package has not started, with no figures (A51,
+  AC-2.8); (d) a capacity package's expiry date passes: the "Expired" mark appears only after a reload (AC-1.9), the figures
+  stay right. In (b) to (d) the block shows a date that has already passed (the period's end, the start date, the expiry).
+  Owner, 2026-11-27: first (a) alone, choice "A" of four, for specs/20261112-project-hours — the implementer had recorded it
+  as drift (specs/20261112-project-hours/decisions.md, T16); then, the same day, WIDENED to (b), (c) and (d), every case with
+  the same cause: "it is negligible, refreshing the page is enough". Rejected: computing the day in the browser (the Zurich
+  day is the server's to decide); letting the summary take an open-ended window (a contract and hours-api change for a rare
+  case); re-reading the project on every save (rejected for now, as more than the case is worth)
 
 Found while re-opening specs/20261112-project-hours (read from the repo, not asked):
 - F14 A meeting has at most one host, a CRM deal or (since 2026-11-23) a project; a meeting started from a project task is
