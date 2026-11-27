@@ -1035,6 +1035,123 @@ describe('one complete read (plan Decision 1)', () => {
   })
 })
 
+/**
+ * The table's one read is the export's walk (`readAllEntries`), so a project filter's 409 `project_meetings_changed` on a later page
+ * starts it over, as it does the export's and, with Load more, the List's (specs/20261112-project-hours AC-4.4; design S4 "The linked
+ * set changed between two pages", amended 2026-11-27 for QE D3, and its Accessibility bullet): silently, at most three walks in all,
+ * and refused three times in a row the card's own read-failure state with Retry (a 409 is not the refusal of 503 `host_unavailable`).
+ */
+describe('the linked meetings changed between two pages of the period’s read (409 `project_meetings_changed`, AC-4.4)', () => {
+  const projectEntry = (minutes: number, day: string) => entry(day, minutes, projectOn('p1', 'Project Alpha'))
+  const underProject = (url: URL) => url.searchParams.get('projectId') === 'p1'
+  /** The cursor each read under the project filter carried, in the order they were asked: no cursor is a first page. */
+  const projectCursors = () =>
+    entriesCalls()
+      .filter((request) => request.query['projectId'] === 'p1')
+      .map((request) => request.query['cursor'])
+  const changed = (): FakeAnswer => ({ status: 409, body: problem(409, 'project_meetings_changed') })
+
+  it.each<[string, string, string]>([
+    ['week', '/hours', w.week.loading],
+    ['month', '/hours?view=month&month=2026-11', w.month.loading],
+  ])(
+    'starts the %s’s read over from its first page, silently: the card stays in its one loading state, then shows the new period',
+    async (_kind, path, loading) => {
+      const laterPage = deferred<FakeAnswer>() // the first walk's second page, the 409, held until the test lets it come
+      const restart = deferred<FakeAnswer>() // the second walk's first page, held so that the restart can be looked at
+      let firstPages = 0
+      useApi({
+        'GET /time-entries': (url, init, params) => {
+          if (!underProject(url)) return entriesInRange(ENTRIES)(url, init, params)
+          if (url.searchParams.has('cursor')) return laterPage.promise
+          firstPages += 1
+          return firstPages === 1
+            ? { status: 200, body: entriesPage([projectEntry(240, '2026-11-09')], { nextCursor: 'c1' }) }
+            : restart.promise
+        },
+      })
+      await renderPage(path)
+      await screen.findByTestId('hours-table-table')
+      await pickProject()
+
+      // The first walk has its first page and waits for the second: the card is loading and its one polite line says so.
+      await waitFor(() => expect(projectCursors()).toEqual([undefined, 'c1']))
+      const live = screen.getByTestId('hours-table-live')
+      expect(live.textContent).toBe(loading)
+      expect(screen.getByTestId('hours-table-skeleton')).not.toBeNull()
+      const touched: MutationRecord[] = []
+      const changes = new MutationObserver((records) => touched.push(...records))
+      changes.observe(live, { childList: true, characterData: true, subtree: true })
+
+      laterPage.resolve(changed())
+
+      // The walk starts over from its first page (no cursor) ...
+      await waitFor(() => expect(projectCursors()).toEqual([undefined, 'c1', undefined]))
+      // ... and nothing says so: the same loading card, the same line (its text is not touched), no alert, no error, no refusal,
+      // and nothing of the page the first walk had read.
+      expect(screen.getByTestId('hours-table-skeleton')).not.toBeNull()
+      expect(screen.queryByTestId('hours-table-table')).toBeNull()
+      expect(screen.queryByTestId('hours-table-error')).toBeNull()
+      expect(screen.queryByTestId('hours-project-filter-unavailable')).toBeNull()
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.getByTestId('hours-table-live')).toBe(live)
+      expect(live.textContent).toBe(loading)
+      touched.push(...changes.takeRecords())
+      expect(touched).toHaveLength(0)
+
+      restart.resolve({ status: 200, body: entriesPage([projectEntry(150, '2026-11-10')]) })
+
+      const grid = await screen.findByTestId('hours-table-table')
+      // One consistent reading: the second walk's 2 h 30 alone, none of the first walk's 4 h.
+      expect(within(rowOf('project:p1')).getAllByText('2 h 30')).toHaveLength(2)
+      expect(within(grid).queryByText('4 h')).toBeNull()
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(projectCursors()).toEqual([undefined, 'c1', undefined])
+      // The observer could see: the line changed once the period had arrived, and not before.
+      touched.push(...changes.takeRecords())
+      expect(touched.length).toBeGreaterThan(0)
+      expect(live.textContent).toContain('2 hours, 30 minutes')
+      changes.disconnect()
+    },
+  )
+
+  it('refused three times in a row it is the card’s own read-failure state with Retry, not the host-filter refusal, and Retry reads the period again', async () => {
+    let healthy = false
+    useApi({
+      'GET /time-entries': (url, init, params) => {
+        if (!underProject(url)) return entriesInRange(ENTRIES)(url, init, params)
+        if (healthy) return { status: 200, body: entriesPage([projectEntry(150, '2026-11-10')]) }
+        return url.searchParams.has('cursor')
+          ? changed()
+          : { status: 200, body: entriesPage([projectEntry(240, '2026-11-09')], { nextCursor: 'c1' }) }
+      },
+    })
+    await renderPage('/hours')
+    await screen.findByTestId('hours-table-table')
+    await pickProject()
+
+    const error = await screen.findByTestId('hours-table-error')
+    // Three walks in all (design S4: "at most three walks"), each asked from its first page and refused on its second; no fourth.
+    expect(projectCursors()).toEqual([undefined, 'c1', undefined, 'c1', undefined, 'c1'])
+    expect(within(error).getByText(strings.entries.error.title)).not.toBeNull()
+    expect(within(error).getByText(strings.entries.error.body)).not.toBeNull()
+    expect(screen.queryByTestId('hours-project-filter-unavailable')).toBeNull()
+    expect(screen.queryByTestId('hours-table-skeleton')).toBeNull()
+    expect(screen.queryByTestId('hours-table-table')).toBeNull()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(screen.getByTestId('hours-table-toolbar')).not.toBeNull()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(projectCursors()).toHaveLength(6)
+
+    healthy = true
+    await userEvent.click(screen.getByTestId('hours-table-error-retry'))
+
+    await screen.findByTestId('hours-table-table')
+    expect(projectCursors()).toHaveLength(7)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
 describe('the notes about names (AC-4.7, AC-4.10, as the List has them)', () => {
   it('names the sources the walk could not ask, once, in one polite note', async () => {
     useApi({
