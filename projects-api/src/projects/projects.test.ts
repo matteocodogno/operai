@@ -5,7 +5,8 @@
  * AC-4.5, AC-5.1, AC-5.2). Runs the ASSEMBLED app against the `*_test` database; auth, the identity
  * service and crm-api are the fakes of test-support/world.ts.
  */
-import { beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { __setClockForTests } from "../lib/businessDay";
 import { app, appAccess, bearerFor, call, crm, db, identities, makeContact, makeDeal, resetWorld, seedDealProject, type FakeContact, type PersonaName } from "../test-support/world";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { resetNotifierForTests, setNotifierForTests, type NotifyEvent } from "../lib/notify";
@@ -864,6 +865,139 @@ describe("GET /projects/:id", () => {
         for (const spy of spies) spy.mockRestore();
       }
       for (const line of lines) expect(line).not.toMatch(/Rita|Referent|rita\.referent|Head of purchasing|\+41 00 111/);
+    });
+  });
+});
+
+/**
+ * specs/20261112-project-hours T3 (AC-1.1 – AC-1.3, AC-1.9, plan § Components, API contracts): the terms view's `hourPackage`
+ * carries `currentPeriod { from, to, ended } | null`, derived on read at the Europe/Zurich business day (`packagePeriod`, one
+ * clock per test, never the real one). Nothing else in the view changes.
+ */
+describe("GET /projects/:id — the hour package's current period (specs/20261112-project-hours T3)", () => {
+  afterEach(() => __setClockForTests(null));
+  const at = (instant: string) => __setClockForTests(() => new Date(instant));
+
+  /** A maintenance project with an hour package straight in the database. */
+  const seedPackage = async (pkg: { kind: "capacity" | "yearly"; start: string; expiry?: string | null; hours?: number }) => {
+    const project = await seed({ type: "maintenance" });
+    await seedTerms(project.id, {
+      type: "maintenance",
+      startDate: date(pkg.start),
+      hourPackageHours: pkg.hours ?? 80,
+      hourPackageKind: pkg.kind,
+      hourPackageStart: date(pkg.start),
+      hourPackageExpiry: pkg.expiry ? date(pkg.expiry) : null,
+    });
+    return project;
+  };
+  const hourPackageOf = async (projectId: string) => {
+    const res = await call("GET", `/projects/${projectId}`, { as: "viewer" });
+    expect(res.status).toBe(200);
+    return res.json.terms.terms.hourPackage;
+  };
+
+  it("carries the period holding today for a yearly package, each period standing alone (AC-1.1, AC-1.2)", async () => {
+    const project = await seedPackage({ kind: "yearly", start: "2026-03-15" });
+    at("2026-11-27T12:00:00Z");
+    expect(await hourPackageOf(project.id)).toEqual({
+      hours: 80,
+      kind: "yearly",
+      startDate: "2026-03-15",
+      expiryDate: null,
+      currentPeriod: { from: "2026-03-15", to: "2027-03-14", ended: false },
+    });
+    at("2028-05-01T12:00:00Z"); // period 2: the hours of period 0 and 1 are not carried, the window is this period's
+    expect((await hourPackageOf(project.id)).currentPeriod).toEqual({ from: "2028-03-15", to: "2029-03-14", ended: false });
+  });
+
+  it("cuts the period at the Europe/Zurich day, not the UTC one (AC-1.1)", async () => {
+    const project = await seedPackage({ kind: "yearly", start: "2026-03-15" });
+    // 22:30Z on 14 March 2027 is 23:30 in Zurich: still the 14th, the last day of period 0.
+    at("2027-03-14T22:30:00Z");
+    expect((await hourPackageOf(project.id)).currentPeriod).toEqual({ from: "2026-03-15", to: "2027-03-14", ended: false });
+    // 23:30Z is 00:30 on the 15th in Zurich, though it is still the 14th in UTC: period 1 has begun.
+    at("2027-03-14T23:30:00Z");
+    expect((await hourPackageOf(project.id)).currentPeriod).toEqual({ from: "2027-03-15", to: "2028-03-14", ended: false });
+  });
+
+  it("carries the final window with ended: true once a capacity package's expiry has passed (AC-1.3, AC-1.9)", async () => {
+    const project = await seedPackage({ kind: "capacity", start: "2026-01-01", expiry: "2026-06-30" });
+    at("2026-11-27T12:00:00Z");
+    expect((await hourPackageOf(project.id)).currentPeriod).toEqual({ from: "2026-01-01", to: "2026-06-30", ended: true });
+    at("2026-06-30T12:00:00Z"); // the expiry day itself is still the package's
+    expect((await hourPackageOf(project.id)).currentPeriod).toEqual({ from: "2026-01-01", to: "2026-06-30", ended: false });
+  });
+
+  it("runs an open-ended capacity package from its start up to today (AC-1.3)", async () => {
+    const project = await seedPackage({ kind: "capacity", start: "2026-09-01" });
+    at("2026-11-27T12:00:00Z");
+    expect((await hourPackageOf(project.id)).currentPeriod).toEqual({ from: "2026-09-01", to: "2026-11-27", ended: false });
+  });
+
+  it("is `null`, present, before the package's start date (A51)", async () => {
+    const project = await seedPackage({ kind: "yearly", start: "2026-12-01" });
+    at("2026-11-27T12:00:00Z");
+    const pkg = await hourPackageOf(project.id);
+    expect(pkg).toHaveProperty("currentPeriod", null);
+    expect(pkg).toEqual({ hours: 80, kind: "yearly", startDate: "2026-12-01", expiryDate: null, currentPeriod: null });
+  });
+
+  it("changes nothing else: the package gains one member, an SLA-only or other terms none, and the project view keeps its keys", async () => {
+    const project = await seedPackage({ kind: "capacity", start: "2026-01-01", expiry: "2026-06-30" });
+    at("2026-11-27T12:00:00Z");
+    const res = await call("GET", `/projects/${project.id}`, { as: "viewer" });
+    expect(Object.keys(res.json.terms.terms.hourPackage).sort()).toEqual(["currentPeriod", "expiryDate", "hours", "kind", "startDate"]);
+    expect(Object.keys(res.json.terms).sort()).toEqual(["endDate", "id", "startDate", "terms", "type", "version"]);
+    expect(Object.keys(res.json.terms.terms).sort()).toEqual(["hourPackage", "sla"]);
+    expect(Object.keys(res.json).sort()).toEqual(
+      [
+        "awaitingProjectManager", "company", "createdAt", "endDate", "entity", "id", "name", "projectManager", "purchaseOrder",
+        "startDate", "state", "stateBeforeHold", "team", "tenderDealId", "terms", "type", "updatedAt", "version",
+      ].sort(),
+    );
+
+    const slaOnly = await seed({ type: "maintenance", name: "SLA only" });
+    await seedTerms(slaOnly.id, { type: "maintenance", slaHighDays: 1, slaNormalDays: 3 });
+    expect((await call("GET", `/projects/${slaOnly.id}`, { as: "viewer" })).json.terms.terms).toEqual({
+      sla: { highDays: 1, normalDays: 3 },
+      hourPackage: null, // no package, no period
+    });
+
+    const fixed = await seedDealProject({ type: "fixed_price" });
+    const tAndM = await seedDealProject({ type: "t_and_m", order: { dealId: "deal-seed-2" } });
+    for (const { project: other } of [fixed, tAndM]) {
+      const terms = (await call("GET", `/projects/${other.id}`, { as: "viewer" })).json.terms.terms;
+      expect(JSON.stringify(terms)).not.toContain("currentPeriod");
+    }
+  });
+
+  it("is the same for every reader, and carries no money (AC-1.8)", async () => {
+    const project = await seedPackage({ kind: "yearly", start: "2026-03-15" });
+    at("2026-11-27T12:00:00Z");
+    const seen = await Promise.all(
+      (["viewer", "colleague", "pmCh", "admin"] as const).map(async (persona) => (await call("GET", `/projects/${project.id}`, { as: persona })).json.terms.terms.hourPackage),
+    );
+    for (const pkg of seen) expect(pkg).toEqual(seen[0]);
+    expect(JSON.stringify(seen[0])).not.toMatch(/amount|price|rate|currency|cents/i);
+  });
+
+  it("answers a project made with a package in the same response (POST /projects)", async () => {
+    at("2026-11-27T12:00:00Z");
+    const res = await create({
+      name: "Support",
+      type: "maintenance",
+      entity: "welld_ch",
+      companyId: "co-acme",
+      terms: { startDate: "2026-11-01", terms: { hourPackage: { hours: 40, kind: "yearly", startDate: "2026-11-01" } } },
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.terms.terms.hourPackage).toEqual({
+      hours: 40,
+      kind: "yearly",
+      startDate: "2026-11-01",
+      expiryDate: null,
+      currentPeriod: { from: "2026-11-01", to: "2027-10-31", ended: false },
     });
   });
 });

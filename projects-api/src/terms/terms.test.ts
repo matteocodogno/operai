@@ -5,14 +5,21 @@
  * is not its own fixture). The wire shape is specs/20261103-projects's contract shape, renamed:
  * `{ startDate, endDate?, terms }` in, `{ id, type, startDate, endDate, terms, version }` out.
  */
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { __setClockForTests } from "../lib/businessDay";
 import { call, crm, db, resetWorld, seedDealProject, type PersonaName } from "../test-support/world";
 import type { Prisma } from "../lib/generated/prisma/client";
+import { toTermsView } from "./terms";
 
 beforeEach(async () => {
   await resetWorld();
   crm.companies = [{ id: "co-acme", name: "Acme SA", entity: "welld_ch", archived: false }];
 });
+
+// An hour package's view carries its `currentPeriod`, derived at the business day (specs/20261112-project-hours T3): the
+// tests that read it back set the day they mean, never the real one.
+afterEach(() => __setClockForTests(null));
+const at = (instant: string) => __setClockForTests(() => new Date(instant));
 
 type Type = "t_and_m" | "fixed_price" | "maintenance" | "saas" | "internal";
 
@@ -74,6 +81,7 @@ describe("POST /projects/:id/terms — terms per project type (AC-2.1, AC-2.3 �
   });
 
   it("creates maintenance terms with an SLA and an hour package, and a yearly package without expiry (AC-2.4 – AC-2.6)", async () => {
+    at("2026-12-15T12:00:00Z");
     const project = await seed("maintenance");
     const res = await create(project.id, {
       ...start,
@@ -89,7 +97,13 @@ describe("POST /projects/:id/terms — terms per project type (AC-2.1, AC-2.3 �
       endDate: "2027-11-30",
       terms: {
         sla: { highDays: 1, normalDays: 3 },
-        hourPackage: { hours: 80, kind: "capacity", startDate: "2026-12-01", expiryDate: "2027-06-30" },
+        hourPackage: {
+          hours: 80,
+          kind: "capacity",
+          startDate: "2026-12-01",
+          expiryDate: "2027-06-30",
+          currentPeriod: { from: "2026-12-01", to: "2027-06-30", ended: false }, // every response carrying the terms view carries it
+        },
       },
     });
     const other = await seed("maintenance", { name: "Second" });
@@ -97,7 +111,13 @@ describe("POST /projects/:id/terms — terms per project type (AC-2.1, AC-2.3 �
     expect(yearly.status).toBe(201);
     expect(yearly.json.terms).toEqual({
       sla: null,
-      hourPackage: { hours: 120, kind: "yearly", startDate: "2026-12-01", expiryDate: null },
+      hourPackage: {
+        hours: 120,
+        kind: "yearly",
+        startDate: "2026-12-01",
+        expiryDate: null,
+        currentPeriod: { from: "2026-12-01", to: "2027-11-30", ended: false },
+      },
     });
   });
 
@@ -407,6 +427,7 @@ describe("PATCH /projects/:id/terms — dates and terms (AC-2.1, AC-2.3 – AC-2
   });
 
   it("replaces maintenance terms whole: dropping the SLA clears it, an hour package arrives with its dates (AC-2.4 – AC-2.6)", async () => {
+    at("2027-03-10T12:00:00Z");
     const { project, terms } = await withTerms("maintenance");
     const res = await patch(project.id, {
       terms: { hourPackage: { hours: 200, kind: "capacity", startDate: "2027-01-01", expiryDate: "2027-12-31" } },
@@ -414,7 +435,13 @@ describe("PATCH /projects/:id/terms — dates and terms (AC-2.1, AC-2.3 – AC-2
     expect(res.status).toBe(200);
     expect(res.json.terms).toEqual({
       sla: null,
-      hourPackage: { hours: 200, kind: "capacity", startDate: "2027-01-01", expiryDate: "2027-12-31" },
+      hourPackage: {
+        hours: 200,
+        kind: "capacity",
+        startDate: "2027-01-01",
+        expiryDate: "2027-12-31",
+        currentPeriod: { from: "2027-01-01", to: "2027-12-31", ended: false },
+      },
     });
     expect(await db.projectTerms.findUniqueOrThrow({ where: { id: terms.id } })).toMatchObject({
       slaHighDays: null,
@@ -423,7 +450,13 @@ describe("PATCH /projects/:id/terms — dates and terms (AC-2.1, AC-2.3 – AC-2
     });
     // A yearly package replacing a capacity one leaves no stale expiry behind.
     const yearly = await patch(project.id, { terms: { hourPackage: { hours: 50, kind: "yearly", startDate: "2027-01-01" } } }, "pmCh", 2);
-    expect(yearly.json.terms.hourPackage).toEqual({ hours: 50, kind: "yearly", startDate: "2027-01-01", expiryDate: null });
+    expect(yearly.json.terms.hourPackage).toEqual({
+      hours: 50,
+      kind: "yearly",
+      startDate: "2027-01-01",
+      expiryDate: null,
+      currentPeriod: { from: "2027-01-01", to: "2027-12-31", ended: false },
+    });
   });
 
   it("refuses to strip maintenance terms of both SLA and hours: 422, unchanged (AC-2.4)", async () => {
@@ -770,5 +803,33 @@ describe("no amount anywhere (AC-2.9, D14)", () => {
       expect(keysOf(shown.terms)).toContain("startDate");
       expect(shown.terms.id).toBe(terms.id);
     }
+  });
+});
+
+// ─── The view at a given day ─────────────────────────────────────────────────
+
+describe("toTermsView(row, today) — the period is derived at the day it is given (specs/20261112-project-hours T3)", () => {
+  const row = {
+    id: "t1",
+    type: "maintenance" as const,
+    startDate: new Date("2026-03-15T00:00:00Z"),
+    endDate: null,
+    deadline: null,
+    estimatedManDays: null,
+    maxEffortManDays: null,
+    slaHighDays: null,
+    slaNormalDays: null,
+    hourPackageHours: 80,
+    hourPackageKind: "yearly" as const,
+    hourPackageStart: new Date("2026-03-15T00:00:00Z"),
+    hourPackageExpiry: null,
+    positions: [],
+    version: 1,
+  };
+
+  it("uses the day it is given, whatever the process's clock says, and the business day when given none", () => {
+    at("2026-03-20T12:00:00Z");
+    expect(toTermsView(row, "2028-05-01").terms).toMatchObject({ hourPackage: { currentPeriod: { from: "2028-03-15", to: "2029-03-14" } } });
+    expect(toTermsView(row).terms).toMatchObject({ hourPackage: { currentPeriod: { from: "2026-03-15", to: "2027-03-14" } } });
   });
 });

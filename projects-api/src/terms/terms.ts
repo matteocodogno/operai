@@ -12,6 +12,7 @@
 
 import type { z } from "@hono/zod-openapi";
 import type { Prisma } from "../lib/generated/prisma/client";
+import { businessDay } from "../lib/businessDay";
 import { fromDateOnly, toDateOnly } from "../lib/http";
 import { ProblemError, conflict, unprocessable } from "../lib/problem";
 import type { ProjectType } from "../projects/projects.schemas";
@@ -22,6 +23,7 @@ import {
   type HourPackageSchema,
   type SlaSchema,
 } from "./terms.schemas";
+import { packagePeriod } from "./packagePeriod";
 
 type Sla = z.infer<typeof SlaSchema>;
 type HourPackage = z.infer<typeof HourPackageSchema>;
@@ -160,8 +162,17 @@ export interface TermsRow {
   readonly version: number;
 }
 
-/** The type-specific `terms` of the `Terms` view: the stored terms of the project's type, absent members `null`. */
-export function termsView(row: TermsRow) {
+/** An hour package as the view shows it: what is stored, and the window that is current at `today` (derived, never stored). */
+const hourPackageView = (
+  pkg: { readonly hours: number; readonly kind: "capacity" | "yearly"; readonly startDate: string; readonly expiryDate: string | null },
+  today: string,
+) => ({ ...pkg, currentPeriod: packagePeriod(pkg, today) });
+
+/**
+ * The type-specific `terms` of the `Terms` view: the stored terms of the project's type, absent members `null`. An hour
+ * package carries its `currentPeriod` at `today`, the Europe/Zurich business day (specs/20261112-project-hours T3).
+ */
+export function termsView(row: TermsRow, today: string = businessDay()) {
   switch (row.type) {
     case "fixed_price":
       return {
@@ -179,12 +190,15 @@ export function termsView(row: TermsRow) {
         hourPackage:
           row.hourPackageHours === null || row.hourPackageKind === null || row.hourPackageStart === null
             ? null
-            : {
-                hours: row.hourPackageHours,
-                kind: row.hourPackageKind,
-                startDate: toDateOnly(row.hourPackageStart)!,
-                expiryDate: toDateOnly(row.hourPackageExpiry),
-              },
+            : hourPackageView(
+                {
+                  hours: row.hourPackageHours,
+                  kind: row.hourPackageKind,
+                  startDate: toDateOnly(row.hourPackageStart)!,
+                  expiryDate: toDateOnly(row.hourPackageExpiry),
+                },
+                today,
+              ),
       };
     case "t_and_m":
       return {
@@ -199,13 +213,13 @@ export function termsView(row: TermsRow) {
 }
 
 /** The `Terms` of tasks.md § API contracts: `{ id, type, startDate, endDate, terms, version }`. */
-export function toTermsView(row: TermsRow) {
+export function toTermsView(row: TermsRow, today: string = businessDay()) {
   return {
     id: row.id,
     type: row.type,
     startDate: toDateOnly(row.startDate)!,
     endDate: toDateOnly(row.endDate),
-    terms: termsView(row),
+    terms: termsView(row, today),
     version: row.version,
   };
 }

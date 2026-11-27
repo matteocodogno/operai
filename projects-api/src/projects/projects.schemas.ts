@@ -47,11 +47,19 @@ export type DealRef = z.infer<typeof DealRefSchema>;
 // ─── Terms (output): the type-specific `terms` nested, every member present, `null` when absent ─────────
 
 const SlaView = z.object({ highDays: z.number().int(), normalDays: z.number().int() });
+/**
+ * The window of an hour package that is current today, derived on read at the Europe/Zurich business day, never stored
+ * (specs/20261112-project-hours AC-1.1 – AC-1.3, AC-1.9, `terms/packagePeriod.ts`): both dates inclusive, `ended` true only for
+ * a capacity package past its expiry, whose final window it is (D83). `null` before the package's start date (A51).
+ */
+const PackagePeriodSchema = z.object({ from: z.string(), to: z.string(), ended: z.boolean() });
+
 const HourPackageView = z.object({
   hours: z.number().int(),
   kind: z.enum(["capacity", "yearly"]),
   startDate: z.string(),
   expiryDate: z.string().nullable(),
+  currentPeriod: PackagePeriodSchema.nullable(),
 });
 
 /** By type: fixed price, SLA and hours (maintenance, saas), positions (t_and_m); `{}` for none. */
