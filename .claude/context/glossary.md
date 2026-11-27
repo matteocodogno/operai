@@ -258,8 +258,14 @@
   utilisation.
 - **State** (of a consumption): what the consumption block says about the consumed percentage —
   *on track* (below 80 % of the reference), *close to the limit* (80 % to below 100 %) or *over*
-  (100 % and more), decided on the exact hours, never on the rounded percentage. Not a project's
-  own state (planned, active, on hold, closed, cancelled). _Avoid:_ status, health, RAG.
+  (100 % and more; said as *limit reached* at exactly 100 % and *over the limit* above it),
+  decided on the exact hours, never on the rounded percentage. Not a project's own state
+  (planned, active, on hold, closed, cancelled). _Avoid:_ status, health, RAG.
+- **Excess** (of a consumption): the hours or man-days recorded beyond the **Reference**, always
+  a positive figure headed "Over by" — an hour package's hours over its package in the current
+  period, a fixed price's or time-and-material project's man-days over its max effort or planned
+  man-days (one decimal, "less than 0.1 man-day" rather than 0.0). There is none at exactly the
+  reference. _Avoid:_ overrun, deficit, negative hours left.
 - **Level**: the two degrees of attention a **State** or a **Date signal** can carry — the milder
   (close to the limit; a date that is near) and the graver (over; a date that has passed); on
   track carries none. _Avoid:_ severity, priority.

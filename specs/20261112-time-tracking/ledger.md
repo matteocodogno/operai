@@ -30,7 +30,8 @@ Decision map (parents first; re-drawn after D1, all branches closed):
 - B10 Hours of a meeting linked to a project (specs/20261112-project-hours, re-opened 2026-11-26) — D78; B8b-i per-person
   figure of a project awaiting its project manager — D79
 - B11 Signals on the consumption block (specs/20261112-project-hours, re-opened a second time 2026-11-27) — D86–D94 (D92
-  rounding of the percentage, D93 closed and cancelled projects, D94 the day of a date)
+  rounding of the percentage, D93 closed and cancelled projects, D94 the day of a date); D95–D96 at the plan's gate 2 (D95 the
+  words at exactly 100 %, D96 the readings of US-5)
 
 Decided (the user chose):
 - D1 Purpose: record the time employees spend on company work — development on projects, pre-sales, meetings and more; "consumo di ore" did not mean consumption against what was sold (that is B3) — user, 2026-11-12
@@ -260,6 +261,16 @@ confirming one of its assumptions (A55), before the spec's new approval. Numbere
   calendar, counted in whole days from the page's day (A52, D85); the day itself is "today" and has not passed (0 days away,
   said as today); it has passed from the next day, by 1 day, as a capacity package's expiry date has (AC-1.9, F18). D89 had not
   said; confirmed as written (AC-5.21, AC-5.22) — owner, 2026-11-27
+Decided by the owner on 2026-11-27 at the plan's gate 2, after the spec's new approval, on what the design and the plan raised:
+- D95 (design.md G9) At exactly 100 % of the reference — the hours used equal the reference, nothing left and no excess — the
+  over state is said as the limit being reached ("Limit reached", "Limite raggiunto"); "Over the limit" ("Oltre il limite") only
+  once the hours are above the reference. Same state, same graver level, icon and tone: only the words change (AC-5.9).
+  Rejected: "Over the limit" from exactly 100 % (it says "over" where nothing has been exceeded) — owner, 2026-11-27
+- D96 Readings of US-5 confirmed with the plan at gate 2 (design.md § Readings, G10, G11): an icon follows the level — three
+  shapes for the three states, two for passed and near, a state and a date signal of the same level sharing their level's
+  shape (AC-5.10); the bar's estimate is given in text by the "Estimated man-days" fact, its position on the bar not put in
+  words (AC-5.11); a bar with no state said (an ended capacity package, a closed or cancelled project) is drawn neutral, never
+  in a state's tone (AC-5.25, AC-5.26) — owner, 2026-11-27
 
 Found while re-opening specs/20261112-project-hours (read from the repo, not asked):
 - F14 A meeting has at most one host, a CRM deal or (since 2026-11-23) a project; a meeting started from a project task is

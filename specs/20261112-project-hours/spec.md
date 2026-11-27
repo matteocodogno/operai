@@ -14,7 +14,8 @@ depends-on: 20261103-projects, 20261103-projects-handoff, 20261104-meetings, 202
 Decision ledger: `../20261112-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-meeting-hours and
 specs/20261112-project-alerts; this spec's decisions are D10, D13, D22, D27 and D28, D78–D79 added when it was re-opened, D80 at design, D81–D84
 while deriving the tasks, D85 accepted by the owner on 2026-11-27, D86–D91 added when it was re-opened a second time on 2026-11-27,
-for the signals on the consumption block, and D92–D94, the owner's answers the same day to the questions that re-opening raised)
+for the signals on the consumption block, D92–D94, the owner's answers the same day to the questions that re-opening raised, and
+D95–D96, the owner's answers the same day at gate 2, to the readings the design and the plan raised)
 
 > **Origin.** Split out of specs/20261112-time-tracking on 2026-11-12 (ledger D11, D26). specs/20261112-time-tracking records time
 > entries; this spec puts a project's hours next to what its terms sold — the hour package, the
@@ -75,6 +76,15 @@ for the signals on the consumption block, and D92–D94, the owner's answers the
 > owner did not rule on is recorded as an assumption, not asked: the time elapsed is rounded down as well (AC-5.20, A56).
 > **No open question is left from O5 or O6, and the spec has none.** The acceptance criteria stay at 59 (from 30 before the
 > signals were added).
+>
+> **Amended 2026-11-27 at gate 2** (the owner, D95 and D96; a correction, not new scope: the acceptance criteria stay at 59 and the
+> status stays approved). **D95:** at exactly 100 % of the reference, where nothing has been exceeded, the over state is said as the
+> limit being reached ("Limit reached"), and as over the limit ("Over the limit") only once the hours are above the reference; the
+> state, its level, its icon and its tone do not change, only the words (AC-5.9, and the state term below). **D96** confirms
+> readings of US-5 and changes no criterion: an icon follows the level, three shapes for the three states and two for a date that
+> has passed or is near (AC-5.10); the estimate is given in text by its man-days (AC-1.4), not by its place on the bar (AC-5.11);
+> and a bar with no state said, an ended capacity package or a closed or cancelled project, is drawn neutral, never in a state's
+> tone (AC-5.25, AC-5.26).
 
 ## Problem
 
@@ -109,8 +119,8 @@ project is close to what was sold, over it, or past a date.
   package, all of them for a fixed price and a time-and-material project) as a share of the reference, rounded down to a whole
   number of percent (D88, D92).
 - **state** — what the block says about the consumed percentage: *on track* (below 80 % of the reference), *close to the limit*
-  (from 80 % to below 100 %) or *over* (from 100 %) (D87). Not the project's own state (planned, active, on hold, closed or
-  cancelled).
+  (from 80 % to below 100 %) or *over* (from 100 %; said as *limit reached* at exactly 100 % and *over the limit* above it) (D87,
+  D95). Not the project's own state (planned, active, on hold, closed or cancelled).
 - **date signal** — what the block says about a terms' end date or a fixed price's deadline: that it has *passed*, or that it is
   *near* (30 days or fewer ahead) (D89).
 - **level** — the two degrees of attention a state or a date signal can carry: the milder (close to the limit; a date that is
@@ -250,8 +260,12 @@ decision and act before the client notices. *(Added 2026-11-27, D86–D94.)*
 - AC-5.8 Given hours from 80 % of the reference up to but not including 100 %, then the block says the project is close to the
   limit (D87). For example, 96 h of a 120 h package (exactly 80 %), and 119 h 30 of 120 h (99.58 %, which reads 99 %, with
   30 min left).
-- AC-5.9 Given hours from 100 % of the reference, then the block says the project is over (D87). At exactly 100 % (120 h of a
-  120 h package) it is over with no hours left and no excess; at 120 h 30 (100.42 %, which reads 100 %) it is over by 30 min.
+- AC-5.9 Given hours from 100 % of the reference, then the project is over, the state at the graver level (D87). The block says
+  so in words that follow the exact hours (AC-5.6): at exactly 100 % that the limit is reached ("Limit reached", "Limite
+  raggiunto"), and only above the reference that the project is over the limit ("Over the limit", "Oltre il limite"); it is the
+  same state, at the same level, with the same icon and tone, and only the words differ (D95). For example, at exactly 100 %
+  (120 h of a 120 h package) it says the limit is reached, with no hours left and no excess; at 120 h 30 (100.42 %, which reads
+  100 %) it says the project is over the limit, by 30 min, although the percentage reads 100 %.
 - AC-5.10 Given any state or date signal, then it is said in words and by an icon of its own, so that none is told by colour
   alone (D87).
 - AC-5.11 Given the bar, then everything it shows — the consumed percentage, the state, the time elapsed and the estimate — is
