@@ -24,7 +24,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { SeededSession } from './adminSession'
-import { apiCall, CRM_API_URL } from './activitiesFixtures'
+import { apiCall, CRM_API_URL, PROJECTS_API_URL, type ProjectRow } from './activitiesFixtures'
 import { hoursCall, HOURS_API_URL, minutesOfShort, type ApiResult } from './hoursFixtures'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -67,6 +67,108 @@ export async function createDealOwnedBy(
   }
   return result.body
 }
+
+// ─── Projects: a maintenance project with a yearly hour package (specs/20261112-project-hours T18) ──
+
+/**
+ * A `maintenance` project on `welld_ch` for `companyId`, managed by `projectManagerId` and made, in the same statement, with
+ * terms that carry ONE yearly hour package of `hours` hours from `startDate` (the nested `POST /projects` shape of
+ * projects-api, specs/20261103-projects-handoff AC-5.3). Made by an admin (`project:manage` everywhere); the project manager
+ * is the person hours-api's resolve names as `projectManagerId` and who may record on it.
+ */
+export async function createYearlyPackageProjectViaApi(
+  admin: SeededSession,
+  input: { name: string; companyId: string; projectManagerId: string; hours: number; startDate: string },
+): Promise<ProjectRow> {
+  const result = await apiCall<ProjectRow & Json>(PROJECTS_API_URL, admin, 'POST', '/projects', {
+    name: input.name,
+    type: 'maintenance',
+    entity: 'welld_ch',
+    companyId: input.companyId,
+    projectManagerId: input.projectManagerId,
+    terms: {
+      startDate: input.startDate,
+      terms: { hourPackage: { hours: input.hours, kind: 'yearly', startDate: input.startDate } },
+    },
+  })
+  if (result.status !== 201 && result.status !== 200) {
+    throw new Error(
+      `[hoursOwnersFixtures] POST ${PROJECTS_API_URL}/projects -> ${result.status}: ${JSON.stringify(result.body).slice(0, 400)}`,
+    )
+  }
+  return result.body
+}
+
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+
+/** The first day of the month that is `months` months from the month of `day` (a `YYYY-MM-DD`; negative = earlier). */
+export function firstOfMonthShifted(day: string, months: number): string {
+  const [year, month] = day.split('-').map(Number) as [number, number]
+  const index = year * 12 + (month - 1) + months
+  return `${Math.floor(index / 12)}-${pad2((index % 12) + 1)}-01`
+}
+
+/** `day` moved by `days` calendar days (UTC arithmetic on a date-only string, so no clock or zone is involved). */
+export function addDaysTo(day: string, days: number): string {
+  const date = new Date(`${day}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+/**
+ * The days a yearly package is set up and expected from, worked out HERE from the spec's rule and not read back from
+ * projects-api (AC-1.1, AC-1.2: each 12 months from the start date is a period of its own, the current one is the one holding
+ * today), so the screen is checked against an independent oracle. The package starts on the first day of the month fourteen
+ * months before today's: today is then two months into the SECOND period, so a day of the first period exists that must not
+ * count, and the first day of the current period (on or before today, never in the future) is a day to record on.
+ */
+export function yearlyPackageAround(today: string): {
+  start: string
+  /** A day of the first period: its hours are in the project's total and in no period's figure. */
+  earlierPeriodDay: string
+  /** The current period, both days included. */
+  period: { from: string; to: string }
+} {
+  const start = firstOfMonthShifted(today, -14)
+  return {
+    start,
+    earlierPeriodDay: addDaysTo(start, 9),
+    period: { from: firstOfMonthShifted(start, 12), to: addDaysTo(firstOfMonthShifted(start, 24), -1) },
+  }
+}
+
+// ─── hours-api: a record's summary ──────────────────────────────────────────
+
+/** One group of `GET /time-entries/summary` (`byWorkType`, `byPerson`): the server's own figure, never summed here. */
+export interface SummaryGroup {
+  kind: string
+  key?: string
+  label?: string | null
+  minutes: number
+}
+
+export interface SummaryBody {
+  on: { type: string; id: string }
+  totalMinutes: number
+  windowMinutes: number | null
+  byWorkType: SummaryGroup[]
+  byPerson: SummaryGroup[] | null
+  unavailable: string[]
+}
+
+/** The summary of a project as `session` reads it (out-of-band verification of what the screen shows). */
+export const projectSummaryViaApi = (
+  session: SeededSession,
+  projectId: string,
+  window?: { from: string; to: string },
+): Promise<ApiResult<SummaryBody>> =>
+  hoursCall<SummaryBody>(
+    session,
+    'GET',
+    `/time-entries/summary?projectId=${encodeURIComponent(projectId)}${
+      window ? `&windowFrom=${window.from}&windowTo=${window.to}` : ''
+    }`,
+  )
 
 // ─── The export file ────────────────────────────────────────────────────────
 
