@@ -134,3 +134,14 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - assumption: the wrong-order rows are derived from code behaviour (a 422 on `projectId` is read as unavailable by hours-api's client, owner members absent are read as nobody's, an absent `currentPeriod` reads as nothing to compare) and were not exercised live — why: a docs task with no stack allowance — where: infra/README.md § What a wrong order does
 - default: the changeset carries per-app bullets, the A52/D85 limitation and the operators' deploy order, in the shape of PR #12's changeset — why: plan R2 puts the deploy order in the changeset notes — where: `.changeset/project-hours-card-and-consumption.md`
 - scope: left `.claude/context/glossary.md` and all ADRs untouched — why: not in the touch list, and the two 2026-11-26 ADRs plus both amendment notes were already in AGENTS.md — where: n/a
+
+## T18 · quality-engineer · 2026-11-27
+- default: widened the existing `PersonaPrefix` and its regex with `php` rather than reusing `hip`, so the new spec's people are distinguishable and `cleanupPeople` still removes them by run id — where: `shell/e2e/helpers/hoursFixtures.ts`
+- default: the package starts at the first of the month 14 months before today, so today is in period 2 with a day of period 1 available; "used" then differs from "total" (AC-1.2 in the browser) and a 29-February anniversary is avoided — where: `yearlyPackageAround` in `shell/e2e/helpers/hoursOwnersFixtures.ts`
+- default: the expected period is computed in the spec from the spec's rule, and a first (fifth) test asserts projects-api's `currentPeriod` equals it, so the screen is checked against an independent oracle — where: `hoursOwnersFixtures.ts`, the setup test
+- default: all figures on screen are derived from one `MINUTES` constant, reading the `aria-hidden` short form of each duration — where: `shell/e2e/project-hours.spec.ts`
+- default: the reader (neither PM nor team) creates the linked meeting, so AC-4.1 and A49 are exercised by the same data — where: `project-hours.spec.ts`
+- default: "opening the breakdown makes no request" uses a request listener proven live first, plus a 1 s grace (the suite's `recordHoursSettled` pattern) — where: test B
+- default: AC-2.8's "no reload" is a `window` marker plus re-reading both the block and the panel after the save — where: test C
+- default: setup entries are deleted by id, because a sweep by day from the first period would exceed the list's 366-day cap and leak silently — where: `afterAll`
+- scope: AC-1.9, AC-4.8/4.9, the deal page and the D85 limitation are not in this e2e — why: T18's done-when lists none of them; the plan covers them at component and integration level — where: n/a

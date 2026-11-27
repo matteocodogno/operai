@@ -96,7 +96,7 @@ stack up (`mise run dev`).
   - touch: `crm-ui/src/components/HoursSection*.tsx`, `crm-ui/src/pages/DealDetailPage*.tsx`, `crm-ui/src/strings/deals.ts`, `crm-ui/src/federation/*`
   - done when: `cd crm-ui && pnpm lint && pnpm build && pnpm test` passes: one "Hours" card after Meetings and before the timeline holding `hours.hostHours` with `{ on: 'deal', targetId }`; a failed or missing extension shows the slot's "Hours are unavailable. Reload the page to try again." and the page renders; en/it parity
 
-- [ ] T18: [QE] e2e `shell/e2e/project-hours.spec.ts` — refs: AC-1.1, AC-2.3, AC-2.5, AC-2.8, AC-4.4 — deps: T1, T2, T3, T4, T9, T12, T13, T14, T16, T17
+- [x] T18: [QE] e2e `shell/e2e/project-hours.spec.ts` — refs: AC-1.1, AC-2.3, AC-2.5, AC-2.8, AC-4.4 — deps: T1, T2, T3, T4, T9, T12, T13, T14, T16, T17
   - touch: `shell/e2e/project-hours.spec.ts`, `shell/e2e/helpers/*`
   - done when: `cd shell && pnpm e2e project-hours.spec.ts` passes with the stack up: a project with a yearly package and entries shows used / left without opening the breakdown; its PM opens the breakdown and sees By person, another `projects:access` reader does not; recording 1 h with Record hours on the page grows the card's figures by 1 h without a reload; My hours filtered by the project lists an entry on a meeting linked to it
 
