@@ -1,5 +1,12 @@
 # @operai/shell
 
+## 0.7.3
+
+### Patch Changes
+
+- 4f4d8c1: A drawer slides in from the right and its header lines up with the suite's header; a board's lanes are all as tall as the tallest, so a card can be dropped on any lane after scrolling.
+- 8653331: The e2e legal-entities fixture no longer takes a connection URL for a local one when it carries a `host`, `hostaddr` or `service` parameter (libpq honours them over the URL's own host), and the import it runs now reads the CRM and auth database URLs the check actually looked at, passed after `direnv` has loaded the service's environment, so a value set there cannot replace them.
+
 ## 0.7.2
 
 ### Patch Changes

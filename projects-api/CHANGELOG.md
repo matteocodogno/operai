@@ -1,5 +1,20 @@
 # @operai/projects-api
 
+## 0.6.0
+
+### Minor Changes
+
+- 3e5d1b5: Teams on a project (step 2): `PUT /projects/{id}/teams` replaces the attached teams (at most 10, `If-Match`, `project:manage` for the entity; 422 `team_not_found` / `team_archived` for an added team, 503 `teams_unavailable`, 429 `rate_limited` with `retryAfterSeconds`), and `GET /attachable-teams[?q=]` searches active teams on the server (50 at most, 120 requests per caller per 10 minutes). Every `Project` now carries `teams` (live names and members, kept nowhere in projects-api), `onProject`, `onProjectComplete`, `teamsStatus` and `teamsRetryAfterSeconds`. The page always loads: when the team read fails or the person's own limit (120 page reads per 10 minutes, 2 400 for the service) refuses it, the teams and their members are marked as not loaded. A team gives presence on the project, never the capability to change it.
+
+### Patch Changes
+
+- 8653331: Inner deadlines now fit inside their callers' (specs/20261126-teams R13). The host routes of projects-api and crm-api (`/activity-host/v1/resolve`, `/meeting-host/v1/resolve`) wait at most 500 ms for a permission check they have not cached, then answer the usual 503 `authz_unavailable`; the check is single flight per person, is not aborted, and fills its 30 s cache for the retry. hours-api waits 6 s, not 2 s, for activities-api's lists and the meetings list, which ask a host themselves; activities-api waits at most 800 ms for the names on a list, and meetings-api's list makes no permission call (it never read the answer) and waits at most 800 ms for its creators' names. A name not known in time reads as unknown and is known on the next load. No wire contract changes.
+- 8653331: A U+0000 in any input is a 400, never a 500. Postgres text (and the text inside jsonb) cannot hold it; every backend's global error handler now answers the database's refusal (Postgres 22021 / 22P05, Prisma P2039 / P2010) with a 400 `validation_failed` (hours-api: `invalid_request`) that names no value and none of the database's words, so a route nobody remembered is still not a 500. In auth a guard in front of the whole app refuses a NUL in the path, the query or a JSON body before any route runs (`GET /admin/users?q=%00`, `POST /admin/departments`, roles, invitations, legal entities, …). In projects-api the shared text helpers (`requiredText`, `optionalText`, a new `searchText`) refuse it, which covers `GET /projects?q=`, a project's name, a T&M position's profile, the Bexio order id and `GET /system/purchase-orders?dealIds=`.
+- 8653331: The safety net that answers 400 when Postgres refuses a U+0000 now leaves one log line, `[nul] database refused U+0000 or invalid text` and the Prisma and SQLSTATE codes (`P2039/22021`), so a value built by the server with bad bytes is no longer blamed on the client without a trace (security review A09). The line carries only codes taken from the two closed sets the detector already knows: no message, value, argument, request or person. No wire contract changes.
+- 8653331: `GET /companies?q=` and `GET /queue?q=` refuse a NUL character with 400 `validation_failed` instead of forwarding it to crm-api and answering 503 `crm_unavailable`.
+- 3e5d1b5: The activity-host and meeting-host resolves wait at most 800 ms for a team read (counted once per call), so a slow auth costs one project's assignees instead of the whole batch; a slower read is not aborted and still fills the cache.
+- 3e5d1b5: A U+0000 in a text id or in a team's name or description is now a 400 `validation_failed` (no echo in `detail`) instead of a 500 from Postgres: auth's `/admin/teams` routes (name, description, team and user ids) and projects-api's shared `IdSchema` (`GET /projects?teamId=` and `?projectManagerId=`, `PUT /projects/{id}/teams`, every route taking an id). The host-resolve routes now use the same schema.
+
 ## 0.5.0
 
 ### Minor Changes

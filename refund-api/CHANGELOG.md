@@ -1,5 +1,14 @@
 # @operai/refund-api
 
+## 0.8.1
+
+### Patch Changes
+
+- 8653331: A U+0000 in any input is a 400, never a 500. Postgres text (and the text inside jsonb) cannot hold it; every backend's global error handler now answers the database's refusal (Postgres 22021 / 22P05, Prisma P2039 / P2010) with a 400 `validation_failed` (hours-api: `invalid_request`) that names no value and none of the database's words, so a route nobody remembered is still not a 500. In auth a guard in front of the whole app refuses a NUL in the path, the query or a JSON body before any route runs (`GET /admin/users?q=%00`, `POST /admin/departments`, roles, invitations, legal entities, …). In projects-api the shared text helpers (`requiredText`, `optionalText`, a new `searchText`) refuse it, which covers `GET /projects?q=`, a project's name, a T&M position's profile, the Bexio order id and `GET /system/purchase-orders?dealIds=`.
+- 8653331: The safety net that answers 400 when Postgres refuses a U+0000 now leaves one log line, `[nul] database refused U+0000 or invalid text` and the Prisma and SQLSTATE codes (`P2039/22021`), so a value built by the server with bad bytes is no longer blamed on the client without a trace (security review A09). The line carries only codes taken from the two closed sets the detector already knows: no message, value, argument, request or person. No wire contract changes.
+- 8653331: A NUL (U+0000) in an id, query or text of any route is now a 400 `validation_failed` instead of a 500 (QE F1): ids and free text are refused at the schema, and a database error caused by a NUL that reaches Postgres anyway is answered 400 too (it was wrapped in a `DatabaseError` rendered as a plain 500 before the global handler could see it).
+- 8653331: The log line of an unhandled error no longer writes the whole error and its `cause` chain, which can hold a Prisma or driver message with the query's arguments (an id, an email). It writes the error's own message and call frames and each cause by name and code only; a Prisma error itself has no message in it either.
+
 ## 0.8.0
 
 ### Minor Changes

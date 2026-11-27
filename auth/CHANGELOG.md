@@ -1,5 +1,19 @@
 # @operai/auth
 
+## 0.11.0
+
+### Minor Changes
+
+- 3e5d1b5: Teams, admin side (step 1): `GET/POST /admin/teams`, `GET/PATCH /admin/teams/{id}`, `POST /admin/teams/{id}/archive` and `/restore`, and `DELETE` answering 405 `not_deletable`. Admin-only (a department-conferred admin is refused). Writes of a team's own fields carry the version they were read at as `baseVersion` in the body (409 `version_conflict` + `currentVersion` when stale, since auth's CORS exposes no ETag). A name already taken, ignoring case and archived teams included, answers 409 `team_name_taken` with `existingName`. One audit row per successful change, no permission epoch bump: a team grants nothing.
+- 3e5d1b5: Teams, service read (step 2): `GET /system/teams?ids=…` answers up to 50 teams with their members (name order, deactivated ones last with no name) and whether each holds the bound app's access, and `GET /system/teams?state=active[&q=…]` lists the active teams' names for the attach picker (name search, exact match first, 50 at most). It takes a service JWT with the new scope `teams:read` from a service bound in code (`TEAM_READERS`, projects-api only); the app is derived from the verified caller, never asked for; every credential failure is the same 401. Two allowances per service per 10 minutes, chosen by whether `ids` is present: 3 000 for ids and 1 500 for options. Grant `teams:read` to projects-api in `SERVICE_CLIENTS` only after this version is live (an unknown scope stops auth at startup).
+
+### Patch Changes
+
+- 8653331: A request body over 256 KiB is refused with a 413 `request_too_large` before anything reads it (security review A04/A05). The NUL guard decodes the whole JSON body of every request, signed in or not, and Bun's own ceiling is about 128 MiB, so an anonymous caller could make auth hold several copies of that. The limit sits in front of the guard and answers without reading a byte when the declared length is over it; the biggest body any auth route legitimately takes (a role holding every permission of the suite) is about 7 KiB. The legal-entity writes keep their own 16 KiB cap. No wire contract changes for a legitimate request.
+- 8653331: A U+0000 in any input is a 400, never a 500. Postgres text (and the text inside jsonb) cannot hold it; every backend's global error handler now answers the database's refusal (Postgres 22021 / 22P05, Prisma P2039 / P2010) with a 400 `validation_failed` (hours-api: `invalid_request`) that names no value and none of the database's words, so a route nobody remembered is still not a 500. In auth a guard in front of the whole app refuses a NUL in the path, the query or a JSON body before any route runs (`GET /admin/users?q=%00`, `POST /admin/departments`, roles, invitations, legal entities, …). In projects-api the shared text helpers (`requiredText`, `optionalText`, a new `searchText`) refuse it, which covers `GET /projects?q=`, a project's name, a T&M position's profile, the Bexio order id and `GET /system/purchase-orders?dealIds=`.
+- 8653331: The safety net that answers 400 when Postgres refuses a U+0000 now leaves one log line, `[nul] database refused U+0000 or invalid text` and the Prisma and SQLSTATE codes (`P2039/22021`), so a value built by the server with bad bytes is no longer blamed on the client without a trace (security review A09). The line carries only codes taken from the two closed sets the detector already knows: no message, value, argument, request or person. No wire contract changes.
+- 3e5d1b5: A U+0000 in a text id or in a team's name or description is now a 400 `validation_failed` (no echo in `detail`) instead of a 500 from Postgres: auth's `/admin/teams` routes (name, description, team and user ids) and projects-api's shared `IdSchema` (`GET /projects?teamId=` and `?projectManagerId=`, `PUT /projects/{id}/teams`, every route taking an id). The host-resolve routes now use the same schema.
+
 ## 0.10.0
 
 ### Minor Changes

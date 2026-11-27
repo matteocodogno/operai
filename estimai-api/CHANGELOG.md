@@ -1,5 +1,14 @@
 # @operai/estimai-api
 
+## 0.3.3
+
+### Patch Changes
+
+- 8653331: A NUL (U+0000) in an estimate id, a collaborator id or any text of an estimate or a notice is now a 400 on every route, where seven `/estimates/{id}` routes (the estimate, its close and reopen, and the collaborators) and a save with a NUL in its name or notes answered 500. The schemas refuse it, and the routes keep the database's error as the cause so the safety net answers it as `validation_failed` too.
+- 8653331: A U+0000 in any input is a 400, never a 500. Postgres text (and the text inside jsonb) cannot hold it; every backend's global error handler now answers the database's refusal (Postgres 22021 / 22P05, Prisma P2039 / P2010) with a 400 `validation_failed` (hours-api: `invalid_request`) that names no value and none of the database's words, so a route nobody remembered is still not a 500. In auth a guard in front of the whole app refuses a NUL in the path, the query or a JSON body before any route runs (`GET /admin/users?q=%00`, `POST /admin/departments`, roles, invitations, legal entities, …). In projects-api the shared text helpers (`requiredText`, `optionalText`, a new `searchText`) refuse it, which covers `GET /projects?q=`, a project's name, a T&M position's profile, the Bexio order id and `GET /system/purchase-orders?dealIds=`.
+- 8653331: The safety net that answers 400 when Postgres refuses a U+0000 now leaves one log line, `[nul] database refused U+0000 or invalid text` and the Prisma and SQLSTATE codes (`P2039/22021`), so a value built by the server with bad bytes is no longer blamed on the client without a trace (security review A09). The line carries only codes taken from the two closed sets the detector already knows: no message, value, argument, request or person. No wire contract changes.
+- 8653331: The log line of an unhandled error no longer writes the whole error and its `cause` chain, which can hold a Prisma or driver message with the query's arguments (an id, an email). It writes the error's own message and call frames and each cause by name and code only; a Prisma error itself has no message in it either.
+
 ## 0.3.2
 
 ### Patch Changes
