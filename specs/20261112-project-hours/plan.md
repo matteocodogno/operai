@@ -20,6 +20,12 @@ files, and the local auth's `SERVICE_CLIENTS` already carries its scope `meeting
 onto #12's branch now (task T5) instead of onto `main` after #12 merges, its pull request stacked on #12's and moved to `main`
 once #12 merges (Risk R1, § Deploy order). No route, API, decision, test or ADR change; file:line references into files #12
 also changes (hours-api `src/entries/filters.ts`, both Prisma schemas) are to `225f0275` and have moved.
+Amended a fourth time 2026-11-27 (drift reported by T3, `decisions.md` § T2, T3): § Components said `currentPeriod` is
+wired in `toProjectView`, while § API contracts puts it on every response carrying `TermsViewSchema`, the
+`POST`/`PATCH /projects/{id}/terms` answers included. T3 followed the contract and derives it in the terms view
+(`termsView` / `toTermsView`, `projects-api/src/terms/terms.ts`), which `toProjectView` and the terms routes both call;
+the projects-api row (b) and the AC-1.1 test row now say so, with file:line references to T3's `be99186a`. No route,
+API, decision or ADR change: the contract is unchanged and the tests the row names exist since T3.
 
 ## Architecture
 
@@ -42,7 +48,7 @@ mechanism of ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-
 | Service / app | Change | ACs |
 |---|---|---|
 | **meetings-api** | `GET /system/meetings/hosts` takes `projectId=` (exactly one of `ids`, `dealId`, `projectId`); host fixed to `{app:"projects", entityType:"project"}`; same scope `meetings.hosts.read`, same `sub` allowlist, same answer shape. `src/system/hosts.routes.ts` | AC-4.1–4.5, 4.8–4.10 |
-| **projects-api** | (a) `POST /activity-host/v1/resolve` open items gain `projectManagerId: string \| null` (`null` while the project awaits one), `src/activity-host/activity-host.routes.ts`. (b) the terms view's `hourPackage` gains `currentPeriod: { from, to, ended } \| null` (`ended` only `true` for a capacity package past its expiry, D83), derived on read by a pure `packagePeriod(hourPackage, today)` (`src/terms/packagePeriod.ts`, new) with `today` the Europe/Zurich date (`src/lib/businessDay.ts`, new, same rule as hours-api `src/entries/today.ts`), wired in `toProjectView` (`src/projects/projects.routes.ts:95-128`) and `HourPackageView` (`src/projects/projects.schemas.ts:59`) | AC-1.1–1.3, 1.9, 2.3, 2.7 |
+| **projects-api** | (a) `POST /activity-host/v1/resolve` open items gain `projectManagerId: string \| null` (`null` while the project awaits one), `src/activity-host/activity-host.routes.ts`. (b) the terms view's `hourPackage` gains `currentPeriod: { from, to, ended } \| null` (`ended` only `true` for a capacity package past its expiry, D83), derived on read by a pure `packagePeriod(hourPackage, today)` (`src/terms/packagePeriod.ts`, new) with `today` the Europe/Zurich date (`src/lib/businessDay.ts`, new, same rule as hours-api `src/entries/today.ts`), wired in the terms view itself, `termsView` and `toTermsView` (`src/terms/terms.ts:175,216`, through `hourPackageView` at `:166-169`), so every response carrying `TermsViewSchema` has it: the project view, whose `toProjectView` calls `toTermsView` (`src/projects/projects.routes.ts:120`), and the `POST`/`PATCH /projects/{id}/terms` answers (`src/terms/terms.routes.ts:162,210`), neither route file changed; schema `HourPackageView` (`src/projects/projects.schemas.ts:56-62`) | AC-1.1–1.3, 1.9, 2.3, 2.7 |
 | **crm-api** | `POST /activity-host/v1/resolve` deal items gain `ownerUserId: string`, `src/activity-host/resolve.routes.ts:86-97` | AC-2.4 |
 | **hours-api** | (a) new `GET /time-entries/summary` (`src/summary/`, new: route, query, `summaryOf`); (b) `projectCondition` beside `dealCondition` in `src/entries/filters.ts` — the `projectId` filter of the list and totals = entries on the project OR on meetings linked to it now, cursor key + 409 like the deal's; (c) `byProject` in `src/totals/totals.ts` places a meeting entry under its linked project (new tail bucket `project-unknown`); (d) `src/labels/resolve.ts` resolves a meeting's project from the same `readMeetingHosts` read and the viewer's projects resolve, `TimeEntryView` meeting `on` gains `project: MeetingProject` (`src/entries/view.ts`); (e) clients: `readMeetingsLinkedToProject` in `src/clients/meetings.ts`, `projectManagerId` / `ownerUserId` parsed in `src/clients/projects.ts` / `crm.ts`; (f) OpenAPI + `src/matrix.test.ts` inventory | AC-1.x (window), 2.1–2.7, 4.1–4.10 |
 | **shell** | `hours.hostHours` in `ExtensionProps` and `LOADERS` (`() => import('hours/HostHours')`), `shell/src/lib/extensions.tsx:36-69`; props `{ on: 'project' \| 'deal', targetId: string }` | AC-2.x, 2.6 |
@@ -310,7 +316,7 @@ e2e in `shell/e2e/project-hours.spec.ts` (new) through the shell.
 
 | AC | Level | Test |
 |---|---|---|
-| AC-1.1 | unit + integration + component + e2e | projects-api `packagePeriod` vectors; projects-api GET project carries `currentPeriod`; hours-api summary `windowMinutes` counts only days in the window; projects-ui `consumptionOf` (hours left; once exceeded "over by" the absolute figure, never a negative) and `ConsumptionBlock` inside the Hours card; e2e: a project with a yearly package and entries shows used / left without opening the breakdown |
+| AC-1.1 | unit + integration + component + e2e | projects-api `packagePeriod` vectors; projects-api GET project and the `POST`/`PATCH /projects/{id}/terms` answers carry `currentPeriod`; hours-api summary `windowMinutes` counts only days in the window; projects-ui `consumptionOf` (hours left; once exceeded "over by" the absolute figure, never a negative) and `ConsumptionBlock` inside the Hours card; e2e: a project with a yearly package and entries shows used / left without opening the breakdown |
 | AC-1.2 | unit + integration | `packagePeriod` yearly: period *k* boundaries, 29 Feb; summary over period 2 excludes period 1's entries |
 | AC-1.3 | unit | `packagePeriod` capacity: with expiry, without (to = today), after expiry (stays), before start (`null`) |
 | AC-1.9 | unit + component | `packagePeriod` capacity past its expiry → `ended: true`; yearly and unexpired → `false`; `ConsumptionBlock` shows the "Expired" `StatusBadge` only when `ended` |

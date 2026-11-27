@@ -37,7 +37,7 @@ stack up (`mise run dev`).
   - done when: `cd projects-api && bun run typecheck && bun test src/activity-host/activity-host.test.ts` passes: an open item carries `projectManagerId` (the PM's id), `null` for a project awaiting its manager; `assignees`, `may`, `missing` and `reader:false` unchanged (existing tests untouched)
 
 - [x] T3: [BE] projects-api `packagePeriod`, the Zurich business day and `hourPackage.currentPeriod { from, to, ended }` — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.9 — deps: none
-  - touch: `projects-api/src/terms/packagePeriod*.ts`, `projects-api/src/lib/businessDay*.ts`, `projects-api/src/projects/projects.schemas.ts`, `projects-api/src/projects/projects.routes.ts`, `projects-api/src/projects/*.test.ts`
+  - touch: `projects-api/src/terms/packagePeriod*.ts`, `projects-api/src/lib/businessDay*.ts`, `projects-api/src/projects/projects.schemas.ts`, `projects-api/src/terms/terms.ts`, `projects-api/src/terms/terms.test.ts`, `projects-api/src/projects/*.test.ts`
   - done when: `cd projects-api && bun run typecheck && bun test src/terms src/lib/businessDay* src/projects` passes with `packagePeriod` vectors (plan Test strategy AC-1.1–1.3, AC-1.9): yearly period *k* and its boundaries, an anniversary on 29 February in a common year, capacity with expiry, without (to = today), after expiry (stays, `ended: true`), before start (`null`), yearly and unexpired `ended: false`; `businessDay` returns the Europe/Zurich date across midnight UTC; `GET /projects/{id}` carries `currentPeriod` inside `hourPackage` and nothing else changes in the view
 
 - [x] T4: [BE] crm-api deal resolve answers `ownerUserId` — refs: AC-2.4 — deps: none
