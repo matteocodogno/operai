@@ -18,7 +18,7 @@ import { env } from "../lib/env";
 import { TEST_SERVICE_AUDIENCE } from "../test-support/env";
 import { claimsOf, startHosts } from "../test-support/hosts";
 import { OWNER_TIMEOUT_MS, type CallOptions } from "./owner";
-import { readMeetingHosts, readMeetingsLinkedToDeal } from "./meetings";
+import { readMeetingHosts, readMeetingsLinkedToDeal, readMeetingsLinkedToProject } from "./meetings";
 
 const hosts = startHosts();
 afterAll(() => hosts.stop());
@@ -42,6 +42,12 @@ const linkedTo = async (dealId: string) => {
   return answer.meetingIds;
 };
 
+const linkedToProject = async (projectId: string) => {
+  const answer = await readMeetingsLinkedToProject(projectId);
+  if (answer.state !== "ok") throw new Error(`expected ok, got ${answer.state}`);
+  return answer.meetingIds;
+};
+
 const SHORT = { timeoutMs: 60 } as const;
 
 describe("readMeetingHosts", () => {
@@ -49,18 +55,18 @@ describe("readMeetingHosts", () => {
     hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" });
     hosts.meetings.add({ id: "m2", creator: "user-bob", dealId: null });
     const items = await hostsOf(["m1", "m2", "m3"]);
-    expect(items.get("m1")).toEqual({ dealId: "d1" });
-    expect(items.get("m2")).toEqual({ dealId: null });
+    expect(items.get("m1")).toEqual({ dealId: "d1", projectId: null });
+    expect(items.get("m2")).toEqual({ dealId: null, projectId: null });
     expect(items.has("m3")).toBe(false);
   });
 
   it("follows a relink: the next read says the new deal", async () => {
     hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" });
-    expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: "d1" });
+    expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: "d1", projectId: null });
     hosts.meetings.relink("m1", "d2");
-    expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: "d2" });
+    expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: "d2", projectId: null });
     hosts.meetings.relink("m1", null);
-    expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: null });
+    expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: null, projectId: null });
   });
 
   // ADR 20261104-meeting-host-contract-resolve-and-notices: a host is data, never a branch. meetings-api stores and returns three strings, so this client
@@ -81,9 +87,9 @@ describe("readMeetingHosts", () => {
         },
       });
       const items = await hostsOf(["m1", "m2", "m3"]);
-      expect(items.get("m1")).toEqual({ dealId: "d1" });
-      expect(items.get("m2")).toEqual({ dealId: null });
-      expect(items.get("m3")).toEqual({ dealId: null });
+      expect(items.get("m1")).toEqual({ dealId: "d1", projectId: null });
+      expect(items.get("m2")).toEqual({ dealId: null, projectId: null });
+      expect(items.get("m3")).toEqual({ dealId: null, projectId: null });
       expect(warn).not.toHaveBeenCalled();
     });
 
@@ -104,15 +110,55 @@ describe("readMeetingHosts", () => {
       ["a differently cased crm / deal", { app: "CRM", entityType: "Deal", entityId: "d1" }],
       ["crm / deal with padding", { app: "crm ", entityType: "deal", entityId: "d1" }],
       ["a crm / deal that names no deal", { app: "crm", entityType: "deal", entityId: "" }],
-      ["the old projects host", { app: "projects", entityType: "project", entityId: "p1" }],
     ])("reads %s as no deal, never as a failed batch and never as the id it carries", async (_label, host) => {
       hosts.fail("meetings.system-hosts", { body: { items: [row("m1", host)] } });
-      expect(await readMeetingHosts(["m1"])).toEqual({ state: "ok", items: new Map([["m1", { dealId: null }]]) });
+      expect(await readMeetingHosts(["m1"])).toEqual({ state: "ok", items: new Map([["m1", { dealId: null, projectId: null }]]) });
+    });
+
+    // A Projects project host is no deal, as ever; since specs/20261112-project-hours it is a project (D78).
+    it("reads a Projects project host as no deal, and as that project", async () => {
+      hosts.fail("meetings.system-hosts", { body: { items: [row("m1", { app: "projects", entityType: "project", entityId: "p1" })] } });
+      expect(await readMeetingHosts(["m1"])).toEqual({ state: "ok", items: new Map([["m1", { dealId: null, projectId: "p1" }]]) });
     });
 
     it("is no deal whatever the strings are: a stored host of unusual strings is data", async () => {
       hosts.fail("meetings.system-hosts", { body: { items: [row("m1", { app: "ünïcode ✓", entityType: "x".repeat(300), entityId: "a,b&c" })] } });
-      expect(await readMeetingHosts(["m1"])).toEqual({ state: "ok", items: new Map([["m1", { dealId: null }]]) });
+      expect(await readMeetingHosts(["m1"])).toEqual({ state: "ok", items: new Map([["m1", { dealId: null, projectId: null }]]) });
+    });
+  });
+
+  // specs/20261112-project-hours T7 (labels): the host a meeting stores is a deal OR a project, so one read says both. The labels layer asks it once.
+  describe("the project a meeting is linked to (specs/20261112-project-hours, AC-4.7, AC-4.10)", () => {
+    it("answers the project beside the deal: a deal's meeting has no project, a project's meeting no deal, an unlinked one neither", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" });
+      hosts.meetings.add({ id: "m2", creator: "user-bob", projectId: "p1" });
+      hosts.meetings.add({ id: "m3", creator: "user-bob" });
+      const items = await hostsOf(["m1", "m2", "m3"]);
+      expect(items.get("m1")).toEqual({ dealId: "d1", projectId: null });
+      expect(items.get("m2")).toEqual({ dealId: null, projectId: "p1" });
+      expect(items.get("m3")).toEqual({ dealId: null, projectId: null });
+    });
+
+    it("follows a relink between a deal, a project and none", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1" });
+      expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: null, projectId: "p1" });
+      hosts.meetings.relinkProject("m1", "p2");
+      expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: null, projectId: "p2" });
+      hosts.meetings.relink("m1", "d1");
+      expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: "d1", projectId: null });
+    });
+
+    it.each([
+      ["a project host that names no project", { app: "projects", entityType: "project", entityId: "" }],
+      ["another app's project", { app: "testhost", entityType: "project", entityId: "p1" }],
+      ["a Projects host that is not a project", { app: "projects", entityType: "task", entityId: "p1" }],
+      ["a differently cased projects / project", { app: "Projects", entityType: "Project", entityId: "p1" }],
+      ["projects / project with padding", { app: "projects ", entityType: "project", entityId: "p1" }],
+      ["a CRM deal whose id looks like a project's", { app: "crm", entityType: "deal", entityId: "p1" }],
+    ])("reads %s as no project, never as a failed batch and never as the id it carries", async (_label, host) => {
+      hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host }] } });
+      const answer = await readMeetingHosts(["m1"]);
+      expect(answer.state === "ok" && answer.items.get("m1")?.projectId).toBeNull();
     });
   });
 
@@ -139,7 +185,7 @@ describe("readMeetingHosts", () => {
     it("is dropped after a 401 and a fresh one is used ONCE: a rotated key costs one retry, not an outage", async () => {
       hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" });
       hosts.fail("meetings.system-hosts", { status: 401, times: 1 });
-      expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: "d1" });
+      expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: "d1", projectId: null });
       expect(hosts.callsTo("auth.service-token")).toHaveLength(2);
       const [first, second] = hosts.callsTo("meetings.system-hosts");
       expect(first?.authorization).not.toBe(second?.authorization);
@@ -335,10 +381,125 @@ describe("readMeetingsLinkedToDeal", () => {
   });
 });
 
-// What every owner client shares, for the two system reads.
+// The project twin of `readMeetingsLinkedToDeal` (specs/20261112-project-hours T6, AC-4.1, AC-4.2, AC-4.8, AC-4.9): the same system route, the same
+// credential, `?projectId=` instead of `?dealId=`, and an item counts only when its stored host is exactly {projects, project, <that id>}.
+describe("readMeetingsLinkedToProject", () => {
+  it("answers the meetings linked to the project now, and no others: another project's, a deal's, an unlinked one", async () => {
+    hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1" });
+    hosts.meetings.add({ id: "m2", creator: "user-bob", projectId: "p1" });
+    hosts.meetings.add({ id: "m3", creator: "user-bob", projectId: "p2" });
+    hosts.meetings.add({ id: "m4", creator: "user-bob", dealId: "p1" });
+    hosts.meetings.add({ id: "m5", creator: "user-bob" });
+    expect([...(await linkedToProject("p1"))].sort()).toEqual(["m1", "m2"]);
+  });
+
+  it("answers an empty list for a project no meeting is linked to: a fact, not `unavailable`", async () => {
+    expect(await linkedToProject("p1")).toEqual([]);
+  });
+
+  it("follows a relink to another project, to a deal and to none (AC-4.2)", async () => {
+    hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1" });
+    hosts.meetings.relinkProject("m1", "p2");
+    expect([await linkedToProject("p1"), await linkedToProject("p2")]).toEqual([[], ["m1"]]);
+    hosts.meetings.relink("m1", "d1");
+    expect(await linkedToProject("p2")).toEqual([]);
+    hosts.meetings.relinkProject("m1", "p1");
+    hosts.meetings.relinkProject("m1", null);
+    expect(await linkedToProject("p1")).toEqual([]);
+  });
+
+  it("sends the project as `projectId` and nothing else, as the service: never the caller's token", async () => {
+    await linkedToProject("p1");
+    const [call] = hosts.callsTo("meetings.system-hosts");
+    expect(Object.fromEntries(call!.query)).toEqual({ projectId: "p1" });
+    expect(call?.path).toBe("/system/meetings/hosts");
+    expect(claimsOf(call?.authorization ?? null)).toMatchObject({ sub: "system:hours-api", aud: TEST_SERVICE_AUDIENCE, scope: "meetings.hosts.read" });
+  });
+
+  it("is a question the route has no `dealId` or `ids` in", async () => {
+    await linkedToProject("p1");
+    const [call] = hosts.callsTo("meetings.system-hosts");
+    expect([call!.query.has("dealId"), call!.query.has("ids")]).toEqual([false, false]);
+  });
+
+  it("builds the query with URLSearchParams: a project id holding & # + % or a space reaches the owner exactly as sent", async () => {
+    for (const projectId of ["p&1", "p#2", "p+3", "p%4", "p 5"]) {
+      hosts.meetings.add({ id: `m-${projectId}`, creator: "user-bob", projectId });
+      expect(await linkedToProject(projectId)).toEqual([`m-${projectId}`]);
+    }
+    expect(hosts.callsTo("meetings.system-hosts").map((call) => call.query.get("projectId"))).toEqual(["p&1", "p#2", "p+3", "p%4", "p 5"]);
+  });
+
+  describe("what a `?projectId=` answer may hold", () => {
+    const project = (entityId: string) => ({ app: "projects", entityType: "project", entityId });
+
+    it("keeps only the items whose host is exactly {projects, project, <that projectId>}", async () => {
+      hosts.fail("meetings.system-hosts", {
+        body: {
+          items: [
+            { id: "m1", host: project("p1") },
+            { id: "m2", host: project("other") },
+            { id: "m3", host: null },
+            { id: "m4", host: { app: "testhost", entityType: "widget", entityId: "p1" } },
+            { id: "m5", host: { app: "projects", entityType: "task", entityId: "p1" } },
+            { id: "m6", host: { app: "testhost", entityType: "project", entityId: "p1" } },
+            { id: "m7", host: project("P1") },
+            { id: "m8", host: project("p1 ") },
+            { id: "m9", host: project("p1") },
+            { id: "m10", host: { app: "crm", entityType: "deal", entityId: "p1" } },
+          ],
+        },
+      });
+      expect(await readMeetingsLinkedToProject("p1")).toEqual({ state: "ok", meetingIds: ["m1", "m9"] });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("answers an empty list when none of what it holds is linked to the project: a fact, not `unavailable`", async () => {
+      hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host: project("other") }, { id: "m2", host: null }] } });
+      expect(await readMeetingsLinkedToProject("p1")).toEqual({ state: "ok", meetingIds: [] });
+    });
+
+    it("lists a meeting once", async () => {
+      hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host: project("p1") }, { id: "m1", host: project("p1") }] } });
+      expect(await readMeetingsLinkedToProject("p1")).toEqual({ state: "ok", meetingIds: ["m1"] });
+    });
+
+    it.each([
+      ["a string", "p1"],
+      ["an array", []],
+      ["an object missing its entityId", { app: "projects", entityType: "project" }],
+      ["a numeric entityId", { app: "projects", entityType: "project", entityId: 7 }],
+    ])("answers `unavailable` for an item whose host is %s: the wrong shape fails the answer, it is not dropped", async (_label, host) => {
+      hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host: project("p1") }, { id: "m2", host }] } });
+      expect(await readMeetingsLinkedToProject("p1")).toEqual({ state: "unavailable" });
+    });
+  });
+
+  it("answers `unavailable` and calls meetings-api not at all when `auth` will not mint a token", async () => {
+    hosts.fail("auth.service-token", { status: 500 });
+    expect(await readMeetingsLinkedToProject("p1")).toEqual({ state: "unavailable" });
+    expect(hosts.callsTo("meetings.system-hosts")).toEqual([]);
+  });
+
+  it("drops a 401 token once and uses a fresh one, as the deal's read does", async () => {
+    hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1" });
+    hosts.fail("meetings.system-hosts", { status: 401, times: 1 });
+    expect(await linkedToProject("p1")).toEqual(["m1"]);
+    expect(hosts.callsTo("auth.service-token")).toHaveLength(2);
+  });
+
+  // R2 (plan § Risks): hours-api deployed BEFORE meetings-api learns `projectId` meets a 422. A closed, known failure: unavailable, never "none linked".
+  it("answers `unavailable` to a meetings-api that predates `projectId` (422), never \"no meeting is linked\"", async () => {
+    hosts.fail("meetings.system-hosts", { status: 422 });
+    expect(await readMeetingsLinkedToProject("p1")).toEqual({ state: "unavailable" });
+  });
+});
+
+// What every owner client shares, for the three system reads.
 const SYSTEM = [
   { name: "hosts by ids", arrange: () => hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" }), call: (o?: CallOptions) => readMeetingHosts(["m1"], o) },
   { name: "meetings of a deal", arrange: () => hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" }), call: (o?: CallOptions) => readMeetingsLinkedToDeal("d1", o) },
+  { name: "meetings of a project", arrange: () => hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1" }), call: (o?: CallOptions) => readMeetingsLinkedToProject("p1", o) },
 ] as const;
 
 describe.each(SYSTEM)("$name: what every owner client does", (subject) => {

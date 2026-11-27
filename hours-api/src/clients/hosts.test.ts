@@ -196,6 +196,25 @@ describe("projects-api: the strict body and the reader", () => {
     const bob = await (await projectsResolve({ entityType: "project", ids: ["p1"] }, `Bearer ${tokenShaped({ sub: "user-bob" })}`)).json();
     expect(bob).toEqual({ reader: false, items: [{ id: "p1", state: "missing" }] });
   });
+
+  // specs/20261112-project-hours T2, AC-2.3, AC-2.7: the owner states WHO manages the project beside who may book on it.
+  it("states `projectManagerId`: the manager's id, `null` for a project that awaits one, and by default `null` (nobody is the manager by accident)", async () => {
+    hosts.projects.setProject("p1", { label: "One", assignees: ["user-pm", "user-alice"], projectManagerId: "user-pm" });
+    hosts.projects.setProject("p2", { label: "Awaiting", assignees: ["user-alice"], projectManagerId: null });
+    hosts.projects.setProject("p3", { label: "Unscripted", assignees: ["user-alice"] });
+    const body: any = await (await projectsResolve({ entityType: "project", ids: ["p1", "p2", "p3"] })).json();
+    expect(body.items.map((item: { projectManagerId: unknown }) => item.projectManagerId)).toEqual(["user-pm", null, null]);
+  });
+
+  it("states no `projectManagerId` at all when it plays a projects-api that predates it", async () => {
+    hosts.projects.setProject("p1", { label: "One", assignees: ["user-alice"], projectManagerId: "user-pm" });
+    hosts.projects.legacyManager = true;
+    const body: any = await (await projectsResolve({ entityType: "project", ids: ["p1"] })).json();
+    expect(body.items[0]).not.toHaveProperty("projectManagerId");
+    expect(body.items[0]).toMatchObject({ id: "p1", state: "open", assignees: ["user-alice"] });
+    hosts.reset();
+    expect(hosts.projects.legacyManager).toBe(false);
+  });
 });
 
 describe("crm-api: the deal body", () => {
@@ -221,6 +240,24 @@ describe("crm-api: the deal body", () => {
     hosts.crm.legacy = true;
     expect((await crmResolve({ entityType: "deal", ids: ["d1"] })).status).toBe(422);
     expect((await crmResolve({ entityType: "company", ids: [] })).status).toBe(200);
+  });
+
+  // specs/20261112-project-hours T4, AC-2.4: the owner states WHO owns the deal beside who is involved in it.
+  it("states `ownerUserId`: the owner's id, and by default an id no test calls as (nobody is the owner by accident)", async () => {
+    hosts.crm.setDeal("d1", { label: "One", involved: ["user-owner", "user-tech"], ownerUserId: "user-owner" });
+    hosts.crm.setDeal("d2", { label: "Unscripted", involved: ["user-alice"] });
+    const body: any = await (await crmResolve({ entityType: "deal", ids: ["d1", "d2"] })).json();
+    expect(body.items.map((item: { ownerUserId: unknown }) => item.ownerUserId)).toEqual(["user-owner", "user-deal-owner"]);
+  });
+
+  it("states no `ownerUserId` at all when it plays a crm-api that predates it", async () => {
+    hosts.crm.setDeal("d1", { label: "One", involved: ["user-alice"], ownerUserId: "user-owner" });
+    hosts.crm.legacyOwner = true;
+    const body: any = await (await crmResolve({ entityType: "deal", ids: ["d1"] })).json();
+    expect(body.items[0]).not.toHaveProperty("ownerUserId");
+    expect(body.items[0]).toMatchObject({ id: "d1", state: "open", involved: ["user-alice"] });
+    hosts.reset();
+    expect(hosts.crm.legacyOwner).toBe(false);
   });
 });
 
@@ -342,6 +379,10 @@ describe("meetings-api: the system route answers one identical 401 to anything b
     });
     expect((await systemHosts("", serviceToken())).status).toBe(422);
     expect((await systemHosts("ids=m1&dealId=d1", serviceToken())).status).toBe(422);
+    // `projectId` is the third of the "exactly one" (specs/20261112-project-hours T1, AC-4.1): two of the three are as refused as none.
+    expect((await systemHosts("ids=m1&projectId=p1", serviceToken())).status).toBe(422);
+    expect((await systemHosts("dealId=d1&projectId=p1", serviceToken())).status).toBe(422);
+    expect((await systemHosts("ids=m1&dealId=d1&projectId=p1", serviceToken())).status).toBe(422);
     expect((await systemHosts(`ids=${Array.from({ length: 101 }, (_, i) => `m${i}`).join(",")}`, serviceToken())).status).toBe(422);
   });
 
@@ -411,6 +452,70 @@ describe("meetings-api: the system route answers one identical 401 to anything b
       hosts.meetings.add({ id: "m1", creator: "user-alice", host: { app: "testhost", entityType: "widget", entityId: "w9" } });
       const body = (await (await meetings("ids=m1")).json()) as { items: { host: unknown }[] };
       expect(body.items[0]?.host).toMatchObject({ app: "testhost", entityType: "widget", entityId: "w9" });
+    });
+  });
+
+  // The project twin of `?dealId=` (specs/20261112-project-hours T1, plan § API contracts "meetings-api"): same credential, same answer, same id rules.
+  describe("`?projectId=`, as meetings-api T1 builds it (specs/20261112-project-hours)", () => {
+    const projectHost = { app: "projects", entityType: "project", entityId: "p1" };
+
+    it("matches a stored host that is EXACTLY {projects, project, projectId}, and on nothing else, a deal's meeting included", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1" });
+      hosts.meetings.add({ id: "m2", creator: "user-bob", host: { app: "testhost", entityType: "project", entityId: "p1" } });
+      hosts.meetings.add({ id: "m3", creator: "user-bob", host: { app: "projects", entityType: "task", entityId: "p1" } });
+      hosts.meetings.add({ id: "m4", creator: "user-bob", host: { app: "projects", entityType: "project", entityId: "P1" } });
+      hosts.meetings.add({ id: "m5", creator: "user-bob", dealId: "p1" });
+      hosts.meetings.add({ id: "m6", creator: "user-bob" });
+      expect(await (await systemHosts("projectId=p1", serviceToken())).json()).toEqual({ items: [{ id: "m1", host: projectHost }] });
+      // And the deal question does not return it.
+      expect(await (await systemHosts("dealId=p1", serviceToken())).json()).toEqual({
+        items: [{ id: "m5", host: { app: "crm", entityType: "deal", entityId: "p1" } }],
+      });
+    });
+
+    it("answers `{id, host}` and nothing else, id ascending, unpaged", async () => {
+      hosts.meetings.add({ id: "m2", title: "Secret title", creator: "user-bob", participants: ["user-carol"], projectId: "p1" });
+      hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1" });
+      const body = await (await systemHosts("projectId=p1", serviceToken())).json();
+      expect(body).toEqual({ items: [{ id: "m1", host: projectHost }, { id: "m2", host: projectHost }] });
+      expect(JSON.stringify(body)).not.toContain("Secret title");
+    });
+
+    it("trims `projectId`, refuses an empty, blank, over-long or repeated one, and answers a NUL as nothing linked", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1" });
+      expect(((await (await systemHosts("projectId=%20p1%20", serviceToken())).json()) as { items: unknown[] }).items).toHaveLength(1);
+      for (const query of ["projectId=", "projectId=%20%20", `projectId=${"x".repeat(65)}`, `projectId=${"x".repeat(129)}`, "projectId=a&projectId=b"]) {
+        expect((await systemHosts(query, serviceToken())).status).toBe(422);
+      }
+      const nul = await systemHosts("projectId=a%00b", serviceToken());
+      expect([nul.status, await nul.json()]).toEqual([200, { items: [] }]);
+    });
+
+    it("decides the credential before the query: a bad one gets the one identical 401 even for a question that is itself a 422", async () => {
+      for (const credential of [null, `Bearer ${tokenShaped({ sub: "user-alice", aud: TEST_AUDIENCE })}`, serviceToken({ sub: "system:crm-api" }), serviceToken({ scope: "notifications.push" })]) {
+        const res = await systemHosts("ids=m1&projectId=p1", credential);
+        expect([res.status, await res.json()]).toEqual([401, { type: "https://httpstatuses.com/401", title: "scripted", status: 401 }]);
+      }
+    });
+
+    it("`relinkProject` moves a meeting to another project, and `relink` to a deal or to none: the next read follows (AC-4.2)", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1" });
+      const idsOf = async (query: string) => ((await (await systemHosts(query, serviceToken())).json()) as { items: { id: string }[] }).items.map((item) => item.id);
+      expect(await idsOf("projectId=p1")).toEqual(["m1"]);
+      hosts.meetings.relinkProject("m1", "p2");
+      expect([await idsOf("projectId=p1"), await idsOf("projectId=p2")]).toEqual([[], ["m1"]]);
+      hosts.meetings.relink("m1", "d1");
+      expect([await idsOf("projectId=p2"), await idsOf("dealId=d1")]).toEqual([[], ["m1"]]);
+      hosts.meetings.relinkProject("m1", "p1");
+      expect(await idsOf("projectId=p1")).toEqual(["m1"]);
+      hosts.meetings.relinkProject("m1", null);
+      expect(await idsOf("projectId=p1")).toEqual([]);
+      expect(await (await systemHosts("ids=m1", serviceToken())).json()).toEqual({ items: [{ id: "m1", host: null }] });
+    });
+
+    it("`host` wins over `projectId` and `dealId`, as it does over `dealId`", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", projectId: "p1", host: { app: "testhost", entityType: "widget", entityId: "w9" } });
+      expect(await (await systemHosts("projectId=p1", serviceToken())).json()).toEqual({ items: [] });
     });
   });
 });

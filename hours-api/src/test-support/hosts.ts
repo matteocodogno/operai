@@ -3,11 +3,11 @@
  * activities-api `startTestHosts` pattern). ONE `Bun.serve` on port 0 that plays, over real HTTP and
  * through the same client code as production:
  *
- *   projects-api   POST {url}/projects/activity-host/v1/resolve        entity type `project`, `assignees`
- *   crm-api        POST {url}/crm/activity-host/v1/resolve             entity type `deal`, `involved`
+ *   projects-api   POST {url}/projects/activity-host/v1/resolve        entity type `project`, `assignees`, `projectManagerId`
+ *   crm-api        POST {url}/crm/activity-host/v1/resolve             entity type `deal`, `involved`, `ownerUserId`
  *   activities-api GET  {url}/activities/activities                    `?ids=` and `?dealId=` (paged)
  *   meetings-api   GET  {url}/meetings/meetings                        `?ids=` (the caller's own meetings)
- *                  GET  {url}/meetings/system/meetings/hosts           `?ids=` / `?dealId=`, service JWT only
+ *                  GET  {url}/meetings/system/meetings/hosts           `?ids=` / `?dealId=` / `?projectId=`, service JWT only
  *   auth           GET  {url}/auth/authz/resolve                       the caller's permissions
  *                  POST {url}/auth/authz/users/identities              display identities
  *                  POST {url}/auth/system/service-token                hours-api's own 5-minute JWT
@@ -28,7 +28,9 @@
  * the contract, raw text, a delay, a redirect, and `times` to fail only the next N calls.
  * `sever(host)` repoints one owner at a closed port, a real network error. `legacy` plays an owner
  * that predates T6-T9 (plan R7): crm-api that answers 422 to `entityType: "deal"`, activities-api
- * that answers 422 to `ids` alone, meetings-api that ignores `ids` and returns the caller's latest page.
+ * that answers 422 to `ids` alone, meetings-api that ignores `ids` and returns the caller's latest page. `projects.legacyManager` and
+ * `crm.legacyOwner` play the owners that predate specs/20261112-project-hours T2 and T4: their open items state no `projectManagerId` /
+ * `ownerUserId` at all (absent, not null), which a client must read as "not stated" and never as a grant.
  *
  * `calls` records EVERY request that reached the server, in arrival order, whatever the answer was
  * (a refused body, a scripted failure, a timed-out call), so "the fake recorded no call" means no
@@ -103,6 +105,12 @@ export interface ScriptedProject {
   readonly writable?: boolean;
   /** The project manager and the team. Default `[]`. */
   readonly assignees?: readonly string[];
+  /**
+   * The project's manager, the fact projects-api states beside `assignees` (specs/20261112-project-hours T2, AC-2.3): a user id, or `null` for
+   * a project that still awaits one (AC-2.7). Default `null`: nobody is the manager unless a test says so, so no caller gains the per-person
+   * figure by accident. Not added to `assignees` for you: a manager who may book time is in both, as in production.
+   */
+  readonly projectManagerId?: string | null;
 }
 
 export interface ScriptedDeal {
@@ -111,6 +119,12 @@ export interface ScriptedDeal {
   readonly href?: string;
   /** The owner and the technical contact (user ids). Default `[]`. */
   readonly involved?: readonly string[];
+  /**
+   * The deal's owner, the fact crm-api states beside `involved` (specs/20261112-project-hours T4, AC-2.4). A deal always has one, so
+   * there is no `null`; default `"user-deal-owner"`, an id no test calls as, so no caller is the owner by accident. Not added to
+   * `involved` for you: the owner who may book time is in both, as in production.
+   */
+  readonly ownerUserId?: string;
 }
 
 export interface ScriptedActivity {
@@ -140,9 +154,11 @@ export interface ScriptedMeeting {
   readonly participants?: readonly string[];
   /** The CRM deal it is linked to (host `{crm, deal, dealId}`); null: none. */
   readonly dealId?: string | null;
+  /** The project it is linked to (host `{projects, project, projectId}`, specs/20261104-meetings A18); null: none. A meeting has ONE host, so giving this and `dealId` together is a test bug (`dealId` wins). */
+  readonly projectId?: string | null;
   /**
    * The host the meeting stores, three strings of ANY value (ADR 20261104-meeting-host-contract-resolve-and-notices: a host is data; production has only
-   * `crm` / `deal`). Wins over `dealId`. null: none.
+   * `crm` / `deal` and `projects` / `project`). Wins over `dealId` and `projectId`. null: none.
    */
   readonly host?: StoredHost | null;
   /** ISO instant; default: later than every meeting added before (so the list is newest first). */
@@ -207,6 +223,11 @@ export interface ProjectsHost {
   setProject(id: string, project: ScriptedProject): void;
   /** `who` is a JWT `sub`, or `"*"` for everyone not named (default: everyone reads). */
   setReader(who: string, reader: boolean): void;
+  /**
+   * projects-api before specs/20261112-project-hours T2: an open item states no `projectManagerId` at all (the member is absent, not `null`). A client
+   * must read that as "not stated", never as a manager and never as a failed answer.
+   */
+  legacyManager: boolean;
 }
 
 export interface CrmHost {
@@ -214,6 +235,8 @@ export interface CrmHost {
   setReader(who: string, reader: boolean): void;
   /** crm-api before T7: `entityType: "deal"` is a 422 (plan R7). */
   legacy: boolean;
+  /** crm-api before specs/20261112-project-hours T4: an open deal states no `ownerUserId` (the member is absent). A client must read that as "not stated". */
+  legacyOwner: boolean;
 }
 
 export interface ActivitiesHost {
@@ -228,6 +251,8 @@ export interface MeetingsHost {
   add(meeting: ScriptedMeeting): void;
   /** Links the meeting to the CRM deal `dealId`, or to none: the relink of AC-2.6. */
   relink(id: string, dealId: string | null): void;
+  /** Links the meeting to the project `projectId`, or to none: the relink of specs/20261112-project-hours AC-4.2. */
+  relinkProject(id: string, projectId: string | null): void;
   /** Stores any host on the meeting, or none: a host that is not a CRM deal. */
   setHost(id: string, host: StoredHost | null): void;
   /** meetings-api no longer holds the meeting (it was deleted): the caller's list does not have it, so its entries read `hidden`. */
@@ -318,9 +343,10 @@ function readerOf(readers: ReadonlyMap<string, boolean>, sub: string | null): bo
 }
 
 const dealHost = (dealId: string): StoredHost => ({ app: "crm", entityType: "deal", entityId: dealId });
+const projectHost = (projectId: string): StoredHost => ({ app: "projects", entityType: "project", entityId: projectId });
 
 /** A meeting as the fake keeps it: its host resolved to what is stored, and its place in the order it was added. */
-type StoredMeeting = Omit<ScriptedMeeting, "dealId" | "host" | "startsAt"> & {
+type StoredMeeting = Omit<ScriptedMeeting, "dealId" | "projectId" | "host" | "startsAt"> & {
   readonly host: StoredHost | null;
   readonly startsAt: string;
   readonly order: number;
@@ -356,7 +382,7 @@ export function startHosts(): Hosts {
   /** The instants of each `sub`'s counted calls to the identities route, oldest first. */
   const identityHits = new Map<string, number[]>();
   const grants = new Map<string, { resource: string; action: string }[]>();
-  const flags = { crmLegacy: false, activitiesLegacy: false, meetingsLegacy: false };
+  const flags = { crmLegacy: false, activitiesLegacy: false, meetingsLegacy: false, projectsLegacyManager: false, crmLegacyOwner: false };
   let clock = Date.parse("2026-01-01T00:00:00Z");
   const tick = () => new Date((clock += 60_000)).toISOString();
 
@@ -385,6 +411,7 @@ export function startHosts(): Hosts {
         href: project.href ?? `/projects/${id}`,
         may: { write: true, manage: true },
         assignees: [...(project.assignees ?? [])],
+        ...(flags.projectsLegacyManager ? {} : { projectManagerId: project.projectManagerId ?? null }),
       };
     });
     return Response.json({ reader: true, items });
@@ -419,6 +446,7 @@ export function startHosts(): Hosts {
         href: deal.href ?? `/crm/deals/${id}`,
         may: { write: true, manage: true },
         involved: [...(deal.involved ?? [])],
+        ...(flags.crmLegacyOwner ? {} : { ownerUserId: deal.ownerUserId ?? "user-deal-owner" }),
       };
     });
     return Response.json({ reader: true, items });
@@ -547,21 +575,23 @@ export function startHosts(): Hosts {
     const invalid = () => problem(422, "validation_failed");
     const idsParams = query.getAll("ids");
     const dealIds = query.getAll("dealId");
-    if (idsParams.length + dealIds.length !== 1) return invalid();
+    const projectIds = query.getAll("projectId");
+    // Exactly one of `ids`, `dealId`, `projectId` (specs/20261112-project-hours T1): two of them, or none, is a 422.
+    if (idsParams.length + dealIds.length + projectIds.length !== 1) return invalid();
     // Id ascending, whatever the question (T9).
     const byId = (a: StoredMeeting, b: StoredMeeting) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     const row = (meeting: StoredMeeting) => ({ id: meeting.id, host: meeting.host });
 
-    if (dealIds.length === 1) {
-      // One id, ≤ 128 characters raw, trimmed, then 1..64; a NUL names no deal: nothing is linked to it.
-      const raw = dealIds[0]!;
-      const dealId = raw.trim();
-      if (raw.length > 128 || dealId.length < 1 || dealId.length > 64) return invalid();
-      if (dealId.includes("\u0000")) return Response.json({ items: [] });
-      // The meetings whose stored host is EXACTLY { crm, deal, dealId }: never paged, never capped.
-      const linked = meetings.filter(
-        (meeting) => meeting.host?.app === "crm" && meeting.host.entityType === "deal" && meeting.host.entityId === dealId,
-      );
+    if (dealIds.length === 1 || projectIds.length === 1) {
+      // One id, ≤ 128 characters raw, trimmed, then 1..64; a NUL names no record: nothing is linked to it.
+      const asDeal = dealIds.length === 1;
+      const raw = (asDeal ? dealIds : projectIds)[0]!;
+      const recordId = raw.trim();
+      if (raw.length > 128 || recordId.length < 1 || recordId.length > 64) return invalid();
+      if (recordId.includes("\u0000")) return Response.json({ items: [] });
+      // The meetings whose stored host is EXACTLY { crm, deal, dealId } / { projects, project, projectId }: never paged, never capped.
+      const [app, entityType] = asDeal ? (["crm", "deal"] as const) : (["projects", "project"] as const);
+      const linked = meetings.filter((meeting) => meeting.host?.app === app && meeting.host.entityType === entityType && meeting.host.entityId === recordId);
       return Response.json({ items: linked.sort(byId).map(row) });
     }
     // ≤ 6500 characters raw, ≤ 100 members as sent, each trimmed then 1..64; a NUL member names no meeting.
@@ -770,7 +800,7 @@ export function startHosts(): Hosts {
     identityLimit = null;
     identityHits.clear();
     grants.clear();
-    flags.crmLegacy = flags.activitiesLegacy = flags.meetingsLegacy = false;
+    flags.crmLegacy = flags.activitiesLegacy = flags.meetingsLegacy = flags.projectsLegacyManager = flags.crmLegacyOwner = false;
     clock = Date.parse("2026-01-01T00:00:00Z");
     forgetTokens();
     // What hours-api remembered of the names this server answered must not outlive the test (T46).
@@ -788,6 +818,12 @@ export function startHosts(): Hosts {
     projects: {
       setProject: (id, project) => void projects.set(id, project),
       setReader: (who, reader) => void projectReaders.set(who, reader),
+      get legacyManager() {
+        return flags.projectsLegacyManager;
+      },
+      set legacyManager(value: boolean) {
+        flags.projectsLegacyManager = value;
+      },
     },
     crm: {
       setDeal: (id, deal) => void deals.set(id, deal),
@@ -797,6 +833,12 @@ export function startHosts(): Hosts {
       },
       set legacy(value: boolean) {
         flags.crmLegacy = value;
+      },
+      get legacyOwner() {
+        return flags.crmLegacyOwner;
+      },
+      set legacyOwner(value: boolean) {
+        flags.crmLegacyOwner = value;
       },
     },
     activities: {
@@ -810,16 +852,19 @@ export function startHosts(): Hosts {
       },
     },
     meetings: {
-      add({ dealId, host, ...meeting }) {
+      add({ dealId, projectId, host, ...meeting }) {
         meetings.push({
           ...meeting,
-          host: host !== undefined ? host : dealId != null ? dealHost(dealId) : null,
+          host: host !== undefined ? host : dealId != null ? dealHost(dealId) : projectId != null ? projectHost(projectId) : null,
           startsAt: meeting.startsAt ?? tick(),
           order: meetings.length,
         });
       },
       relink(id, dealId) {
         this.setHost(id, dealId === null ? null : dealHost(dealId));
+      },
+      relinkProject(id, projectId) {
+        this.setHost(id, projectId === null ? null : projectHost(projectId));
       },
       setHost(id, host) {
         const index = meetings.findIndex((meeting) => meeting.id === id);

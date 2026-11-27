@@ -8,17 +8,18 @@
  *   AC-4.10): a host-only reader, someone else's meeting and an unknown id are absent alike (AC-2.10).
  *   The caller's `Authorization` is forwarded unchanged. No `page`: 25 ids fit page 1.
  *
- * AS ITSELF — `readMeetingHosts`, `readMeetingsLinkedToDeal`   GET /system/meetings/hosts
- *   `?ids=a,b,c` (≤ 100): the deal each meeting is linked to now. `?dealId=<id>`: the meetings linked
- *   to that deal now. A meeting's CURRENT deal is not stored on an entry (a relink must move its hours,
+ * AS ITSELF — `readMeetingHosts`, `readMeetingsLinkedToDeal`, `readMeetingsLinkedToProject`   GET /system/meetings/hosts
+ *   `?ids=a,b,c` (≤ 100): the deal or project each meeting is linked to now. `?dealId=<id>`, `?projectId=<id>`
+ *   (specs/20261112-project-hours, D78): the meetings linked to that deal or project now. A meeting's CURRENT deal or project
+ *   is not stored on an entry (a relink must move its hours,
  *   AC-2.6), and no viewer is entitled to it through a meeting they may not read, so hours-api asks
  *   meetings-api's first `/system/*` route with its OWN credential: the 5-minute service JWT of
  *   `auth POST /system/service-token` (scope `meetings.hosts.read`, `sub` `system:hours-api`,
  *   `aud` = SERVICE_AUDIENCE), cached by `serviceTokens`, dropped after a 401 and fetched fresh ONCE.
  *   NEVER the caller's token, and nothing here takes one. What it learns reaches a viewer only with the
- *   right to read the deal it names (labels, T13). It answers `{id, host}` and nothing else, where `host`
+ *   right to read the deal or project it names (labels, T13). It answers `{id, host}` and nothing else, where `host`
  *   is what the meeting stores: null, or three strings of any value (ADR 20261104-meeting-host-contract-resolve-and-notices). Only exactly
- *   crm / deal is a deal; any other host counts as no deal and never fails a batch (plan § Views).
+ *   crm / deal is a deal and exactly projects / project a project; any other host counts as neither and never fails a batch (plan § Views).
  *
  * An unknown id is simply absent from the system answer (the meeting no longer exists). Absence means
  * so only when the answer carries nothing nobody asked for (`keepAsked`).
@@ -90,6 +91,11 @@ export async function listMeetingsByIds(authorization: string, ids: readonly str
 export interface MeetingHost {
   /** The CRM deal the meeting is linked to now, or null (no host, or a host that is not a deal). */
   readonly dealId: string | null;
+  /**
+   * The project the meeting is linked to now, or null (no host, or a host that is not a project). A meeting has ONE host, so at most one of
+   * `dealId` and `projectId` is set (specs/20261112-project-hours D78, plan § The hours views "Labels").
+   */
+  readonly projectId: string | null;
 }
 
 export type MeetingHosts = Unavailable | { readonly state: "ok"; /** An id that is absent: the meeting no longer exists. */ readonly items: ReadonlyMap<string, MeetingHost> };
@@ -112,6 +118,13 @@ const systemBody = z.object({ items: z.array(wireSystemItem) });
  */
 const dealOf = (host: z.infer<typeof wireSystemItem>["host"]): string | null =>
   host !== null && host.app === "crm" && host.entityType === "deal" && host.entityId !== "" ? host.entityId : null;
+
+/**
+ * The project a stored host names, by the same rule as `dealOf`: only exactly `app: "projects"`, `entityType: "project"` is one, and an empty
+ * `entityId` names nothing (specs/20261104-meetings A18: Projects is a meeting host, specs/20261112-project-hours D78).
+ */
+const projectOf = (host: z.infer<typeof wireSystemItem>["host"]): string | null =>
+  host !== null && host.app === "projects" && host.entityType === "project" && host.entityId !== "" ? host.entityId : null;
 
 /** One call to the system route under hours-api's own credential; a 401 is retried once with a fresh token. */
 async function callAsService(op: string, query: URLSearchParams, options: CallOptions): Promise<OwnerAnswer> {
@@ -153,7 +166,7 @@ export async function readMeetingHosts(ids: readonly string[], options: CallOpti
 
     const { kept, filterIgnored } = keepAsked(batch, parsed.data.items);
     if (filterIgnored) return { stop: unavailable("meetings", "hosts-by-ids", "filter_ignored") };
-    return { done: new Map([...kept].map(([id, item]) => [id, { dealId: dealOf(item.host) }])) };
+    return { done: new Map([...kept].map(([id, item]) => [id, { dealId: dealOf(item.host), projectId: projectOf(item.host) }])) };
   });
 
   if ("stop" in outcome) return outcome.stop;
@@ -169,14 +182,35 @@ export async function readMeetingHosts(ids: readonly string[], options: CallOpti
  * route's shape (`host` neither null nor three strings) is `unavailable`.
  */
 export async function readMeetingsLinkedToDeal(dealId: string, options: CallOptions = {}): Promise<LinkedMeetings> {
-  const answer = await callAsService("meetings-of-deal", new URLSearchParams({ dealId }), options);
+  return readLinkedMeetings("meetings-of-deal", new URLSearchParams({ dealId }), (host) => dealOf(host) === dealId, options);
+}
+
+/**
+ * The meetings linked to `projectId` now (specs/20261112-project-hours T6, AC-4.1, AC-4.2): `GET /system/meetings/hosts?projectId=`, the deal's
+ * read with the project's host. The route answers the meetings whose stored host is exactly `{ app: "projects", entityType: "project",
+ * entityId: projectId }`, unpaged and uncapped, so a project's figures are never answered low (AC-4.9); from that answer this client KEEPS ONLY
+ * the items whose host is exactly that, as the deal's does. A meetings-api that predates the filter answers 422 (plan R2): `unavailable`,
+ * never "no meeting is linked".
+ */
+export async function readMeetingsLinkedToProject(projectId: string, options: CallOptions = {}): Promise<LinkedMeetings> {
+  return readLinkedMeetings("meetings-of-project", new URLSearchParams({ projectId }), (host) => projectOf(host) === projectId, options);
+}
+
+/** The one system read both "meetings of a deal" and "meetings of a project" are: the items `keep` says are linked, each once. */
+async function readLinkedMeetings(
+  op: string,
+  query: URLSearchParams,
+  keep: (host: z.infer<typeof wireSystemItem>["host"]) => boolean,
+  options: CallOptions,
+): Promise<LinkedMeetings> {
+  const answer = await callAsService(op, query, options);
   if (answer.kind === "unavailable") return UNAVAILABLE;
   const parsed = systemBody.safeParse(answer.json);
-  if (!parsed.success) return unavailable("meetings", "meetings-of-deal", "malformed");
+  if (!parsed.success) return unavailable("meetings", op, "malformed");
 
   const meetingIds = new Set<string>();
   for (const item of parsed.data.items) {
-    if (dealOf(item.host) === dealId) meetingIds.add(item.id);
+    if (keep(item.host)) meetingIds.add(item.id);
   }
   return { state: "ok", meetingIds: [...meetingIds] };
 }

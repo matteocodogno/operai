@@ -9,7 +9,8 @@
  * reader each id is `missing` or `open` (a deal in ANY stage, won and lost included, A13) and an open
  * deal says who is `involved`: its owner and, once an estimate is linked, its technical contact — the
  * CRM's half of "who may book time on this deal"; the other half, a task's assignee or an activity's
- * participant, is asked of activities-api (`activities.ts`).
+ * participant, is asked of activities-api (`activities.ts`). It also says who OWNS the deal (`ownerUserId`,
+ * specs/20261112-project-hours AC-2.4): the one fact that lets the deal's owner see its hours per person.
  *
  * A crm-api that predates T7 answers 422 to `entityType: "deal"` (plan R7): `unavailable`, never
  * "missing". See `owner.ts` for what counts as an answer.
@@ -28,6 +29,12 @@ export type ResolvedDeal =
       readonly href: string;
       /** User ids: the owner and the technical contact, each once. */
       readonly involved: readonly string[];
+      /**
+       * The deal's owner, the one fact the per-person figure of a record's hours turns on (specs/20261112-project-hours AC-2.4, plan D-P2): a
+       * user id; `undefined` from a crm-api that predates the member ("not stated": never an owner, never a grant — only an id equal to the
+       * caller's is one). A deal always has an owner, so there is no `null`.
+       */
+      readonly ownerUserId: string | undefined;
     };
 
 const nonEmpty = z.string().min(1);
@@ -41,6 +48,8 @@ const wireItem = z.discriminatedUnion("state", [
     href: z.string(),
     // Who is involved: absent is not "nobody".
     involved: z.array(nonEmpty),
+    // The owner: a user id, or absent (a crm-api before specs/20261112-project-hours T4). Anything else, `null` included, breaks the contract.
+    ownerUserId: nonEmpty.optional(),
   }),
 ]);
 
@@ -52,7 +61,7 @@ const config = (): HostResolve<z.infer<typeof wireItem>, ResolvedDeal> => ({
   toResolved(item) {
     if (item.state === "missing") return { state: "missing" };
     if (!isSuitePath(item.href)) return undefined;
-    return { state: "open", label: item.label, href: item.href, involved: [...new Set(item.involved)] };
+    return { state: "open", label: item.label, href: item.href, involved: [...new Set(item.involved)], ownerUserId: item.ownerUserId };
   },
 });
 

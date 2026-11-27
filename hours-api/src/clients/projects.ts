@@ -9,7 +9,8 @@
  * `missing` or `open`, and an open project says who is `assignees`: its project manager and its team
  * (a project from a deal still awaiting its manager answers its team only), the people who may book
  * time on it. `writable` is false for a closed or cancelled project; entries are accepted in any state
- * (A12), so hours-api reads it only to ignore it.
+ * (A12), so hours-api reads it only to ignore it. It also says who MANAGES the project (`projectManagerId`,
+ * specs/20261112-project-hours AC-2.3): the one fact that lets the manager see its hours per person.
  *
  * See `owner.ts` for what counts as an answer and what is `unavailable`.
  */
@@ -32,6 +33,13 @@ export type ResolvedProject =
        * still resolves, a booking is refused (specs/20261126-teams D3, AC-5.4).
        */
       readonly assignees: readonly string[] | null;
+      /**
+       * The project's manager, the one fact the per-person figure of a record's hours turns on (specs/20261112-project-hours AC-2.3, plan D-P2):
+       * a user id; `null` while the project still awaits one (AC-2.7: nobody is its manager, so only holders of see everyone's hours see it per
+       * person); `undefined` from a projects-api that predates the member. `undefined` is not `null` — it means "not stated" — but neither is ever
+       * a grant: only an id equal to the caller's is.
+       */
+      readonly projectManagerId: string | null | undefined;
     };
 
 const nonEmpty = z.string().min(1);
@@ -46,6 +54,8 @@ const wireItem = z.discriminatedUnion("state", [
     href: z.string(),
     // The people a task may go to: absent is not "nobody", and neither is null ("unknown", D3); only absent is malformed.
     assignees: z.array(nonEmpty).nullable(),
+    // The manager: a user id, `null` (awaiting one), or absent (a projects-api before specs/20261112-project-hours T2). Anything else breaks the contract.
+    projectManagerId: nonEmpty.nullable().optional(),
   }),
 ]);
 
@@ -57,7 +67,14 @@ const config = (): HostResolve<z.infer<typeof wireItem>, ResolvedProject> => ({
   toResolved(item) {
     if (item.state === "missing") return { state: "missing" };
     if (!isSuitePath(item.href)) return undefined;
-    return { state: "open", label: item.label, href: item.href, writable: item.writable, assignees: item.assignees === null ? null : [...new Set(item.assignees)] };
+    return {
+      state: "open",
+      label: item.label,
+      href: item.href,
+      writable: item.writable,
+      assignees: item.assignees === null ? null : [...new Set(item.assignees)],
+      projectManagerId: item.projectManagerId,
+    };
   },
 });
 
