@@ -9,6 +9,7 @@
  */
 import { strings } from '../strings'
 import type { EntryOn, TimeEntryView, TotalsAnswer, Unavailable, UnavailableSource } from './hoursApi.types'
+import { meetingProjectOf } from './meetingProject'
 
 /** A name to show, and the link it opens — only a visible name has one. */
 export type ShownName = { text: string; href: string | null }
@@ -59,6 +60,33 @@ export const countsForDealLine = (on: EntryOn): string | null => {
   }
 }
 
+/**
+ * A meeting row's "Counts for project …" line (specs/20261112-project-hours AC-4.4, AC-4.7): the project its hours count for, or why
+ * the viewer is not told, in the same place and style as the deal's. `null` for a meeting linked to no project (and for one from an
+ * hours-api that sends no `project`, which reads as none), for every kind that is not a meeting, and for an UNKNOWN project: the
+ * deal's unknown line speaks for both, because the two are unknown together (one read of the meeting's host) and a meeting has
+ * one host, so at most one of the two lines exists. A name is written only for `visible`; no id is ever read.
+ */
+export const countsForProjectLine = (on: EntryOn): string | null => {
+  if (on.type !== 'meeting') return null
+  const project = meetingProjectOf(on)
+  switch (project.state) {
+    case 'none':
+    case 'unknown':
+      return null
+    case 'linked':
+      if (project.visibility === 'visible') {
+        // A readable project that came without a label is never named by an id: the words for a name that is unavailable.
+        return typeof project.label === 'string'
+          ? strings.names.countsForProject(project.label)
+          : strings.names.countsForUnavailableProject
+      }
+      return project.visibility === 'hidden'
+        ? strings.names.countsForHiddenProject
+        : strings.names.countsForUnavailableProject
+  }
+}
+
 /** The "Activity: …" line (AC-2.7): `null` when the entry points at none or at one deleted since (AC-2.9). */
 export const activityLine = (activity: TimeEntryView['activity']): string | null => {
   if (activity === null) return null
@@ -81,14 +109,20 @@ export const onPhrase = (on: EntryOn): string => {
 
 const isHidden = (visibility: string) => visibility === 'hidden'
 
-const entryHasHiddenName = (entry: TimeEntryView): boolean =>
-  (entry.on.type !== 'none' && isHidden(entry.on.visibility)) ||
-  (entry.on.type === 'meeting' && entry.on.deal.state === 'linked' && isHidden(entry.on.deal.visibility)) ||
-  (entry.activity !== null && isHidden(entry.activity.visibility))
+const entryHasHiddenName = (entry: TimeEntryView): boolean => {
+  const { on } = entry
+  const project = on.type === 'meeting' ? meetingProjectOf(on) : null
+  return (
+    (on.type !== 'none' && isHidden(on.visibility)) ||
+    (on.type === 'meeting' && on.deal.state === 'linked' && isHidden(on.deal.visibility)) ||
+    (project !== null && project.state === 'linked' && isHidden(project.visibility)) ||
+    (entry.activity !== null && isHidden(entry.activity.visibility))
+  )
+}
 
 /**
  * Whether anything the viewer sees is withheld because they may not read it (AC-4.10): an entry's project,
- * deal or meeting, the deal a meeting counts for, an activity, or a `hidden` group of the totals. Only then
+ * deal or meeting, the deal or the project a meeting counts for, an activity, or a `hidden` group of the totals. Only then
  * does the standing "names not visible" note show. An UNAVAILABLE name is another thing (the owner did not
  * answer) and has its own banner.
  */
@@ -103,10 +137,17 @@ const SOURCE_ORDER: readonly UnavailableSource[] = [
   'activities',
   'meetings',
   'meeting-deals',
+  'meeting-projects',
 ]
 
-/** The union of what each read said it could not ask — the sources the "names could not be loaded" banner names. */
+/**
+ * The union of what each read said it could not ask — the sources the "names could not be loaded" banner names. `meeting-deals`
+ * and `meeting-projects` come from the one read of the meetings' hosts and say one thing in one phrase (`strings.names.sources`,
+ * guarded by a test), so when both were asked only the first is kept and the banner names it once (specs/20261112-project-hours
+ * design S4 "Names and sources"); `meeting-projects` alone (a by-project totals read) is kept.
+ */
 export const unavailableSources = (...answers: (Unavailable | undefined)[]): UnavailableSource[] => {
   const asked = new Set(answers.flatMap((answer) => answer ?? []))
+  if (asked.has('meeting-deals')) asked.delete('meeting-projects')
   return SOURCE_ORDER.filter((source) => asked.has(source))
 }

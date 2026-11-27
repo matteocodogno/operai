@@ -56,3 +56,42 @@ describe('the mark in the On cell, in Italian (AC-2.3, AC-4.3)', () => {
     expect(on.queryByText('Da riunione')).toBeNull()
   })
 })
+
+describe('the project a meeting counts for in the On cell, in Italian (specs/20261112-project-hours AC-4.4, AC-4.7)', () => {
+  const setupProject = async (project: unknown) => {
+    document.documentElement.setAttribute('lang', 'it')
+    const { default: EntriesTable } = await import('./EntriesTable')
+    const { strings } = await import('../strings')
+    const { meetingOn, timeEntryView } = await import('../test-support/fakeApi')
+    render(
+      <EntriesTable
+        entries={[
+          timeEntryView({
+            id: 'e1',
+            minutes: 60,
+            on: { ...meetingOn('m1', 'Sync settimanale'), project } as never,
+          }),
+        ]}
+      />,
+    )
+    const table = screen.getByRole('table', { name: strings.everyone.entries.caption })
+    return within(within(table).getAllByRole('row')[1]!.querySelectorAll('td')[2]! as HTMLElement)
+  }
+
+  it('names a visible project, and none of the English', async () => {
+    const on = await setupProject({
+      state: 'linked',
+      visibility: 'visible',
+      id: 'p1',
+      label: 'Progetto Alfa',
+      href: '/projects/p1',
+    })
+    expect(on.getByText('Conta per il progetto Progetto Alfa')).not.toBeNull()
+    expect(on.queryByText(/Counts for/)).toBeNull()
+  })
+
+  it('says a hidden project in the design’s words', async () => {
+    const on = await setupProject({ state: 'linked', visibility: 'hidden' })
+    expect(on.getByText('Conta per un progetto non visibile a te')).not.toBeNull()
+  })
+})

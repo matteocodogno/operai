@@ -57,3 +57,49 @@ describe('the mark in Italian (AC-2.3, AC-4.3)', () => {
     expect(row.queryByText('Da riunione')).toBeNull()
   })
 })
+
+describe('the project a meeting counts for, in Italian (specs/20261112-project-hours AC-4.4, AC-4.7)', () => {
+  const setupProject = async (project: unknown, deal: unknown = { state: 'none' }) => {
+    document.documentElement.setAttribute('lang', 'it')
+    const { default: EntryRow } = await import('./EntryRow')
+    const { meetingOn, timeEntryView } = await import('../test-support/fakeApi')
+    render(
+      <EntryRow
+        entry={timeEntryView({
+          id: 'a1',
+          minutes: 60,
+          on: { ...meetingOn('m1', 'Sync settimanale', deal as never), project } as never,
+        })}
+      />,
+    )
+    return within(screen.getByTestId('hours-entry-a1'))
+  }
+
+  it('names a visible project: "Conta per il progetto Progetto Alfa", and none of the English', async () => {
+    const row = await setupProject({
+      state: 'linked',
+      visibility: 'visible',
+      id: 'p1',
+      label: 'Progetto Alfa',
+      href: '/projects/p1',
+    })
+    expect(row.getByText('Conta per il progetto Progetto Alfa')).not.toBeNull()
+    expect(row.queryByText(/Counts for/)).toBeNull()
+  })
+
+  it('says a hidden and an unavailable project in the design’s words', async () => {
+    const hidden = await setupProject({ state: 'linked', visibility: 'hidden' })
+    expect(hidden.getByText('Conta per un progetto non visibile a te')).not.toBeNull()
+    cleanup()
+    vi.resetModules()
+    const unavailable = await setupProject({ state: 'linked', visibility: 'unavailable' })
+    expect(unavailable.getByText('Conta per un progetto il cui nome non è disponibile')).not.toBeNull()
+  })
+
+  it('says the one unknown line for the deal or the project, once', async () => {
+    const row = await setupProject({ state: 'unknown' }, { state: 'unknown' })
+    expect(row.getAllByText("L'opportunità o il progetto a cui contano queste ore al momento non è noto")).toHaveLength(
+      1,
+    )
+  })
+})

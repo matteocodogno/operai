@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { strings } from '../strings'
-import type { TimeEntryView } from '../lib/hoursApi.types'
+import type { MeetingProject, TimeEntryView } from '../lib/hoursApi.types'
 import {
   dealOn,
   meetingOn,
@@ -234,6 +234,54 @@ describe('On: the name, the kind and what the hours count for (AC-2.6, AC-4.10, 
   it('a meeting linked to no deal says nothing about one', () => {
     renderTable([timeEntryView({ on: meetingOn('m9', 'Weekly') })])
     expect(lines(cells(0).on)).toEqual(['Weekly', 'Meeting'])
+  })
+})
+
+describe('On: the project a meeting counts for (specs/20261112-project-hours AC-4.4, AC-4.7)', () => {
+  const forProject = (project: MeetingProject | undefined, title = 'Kick-off call') =>
+    timeEntryView({
+      on: project === undefined ? meetingOn('m9', title) : { ...meetingOn('m9', title), project },
+    })
+
+  it('a meeting linked to a project the viewer can read: its title, the kind, then "Counts for project …", as plain text', () => {
+    renderTable([
+      forProject({ state: 'linked', visibility: 'visible', id: 'p1', label: 'Project Alpha', href: '/projects/p1' }),
+    ])
+    expect(lines(cells(0).on)).toEqual(['Kick-off call', 'Meeting', 'Counts for project Project Alpha'])
+    expect(within(cells(0).on).queryByRole('link', { name: /Project Alpha/ })).toBeNull()
+  })
+
+  it.each([
+    ['hidden', { state: 'linked', visibility: 'hidden' } as const, n.countsForHiddenProject],
+    ['unavailable', { state: 'linked', visibility: 'unavailable' } as const, n.countsForUnavailableProject],
+  ])('a meeting whose project is %s: the design’s words, never the project or its id', (_name, project, words) => {
+    const leaked = { ...project, id: 'p-secret', label: 'Leaked project' } as unknown as MeetingProject
+    renderTable([forProject(leaked, 'Weekly')])
+    expect(lines(cells(0).on)).toEqual(['Weekly', 'Meeting', words])
+    expect(cells(0).on.textContent).not.toContain('Leaked project')
+    expect(cells(0).on.textContent).not.toContain('p-secret')
+  })
+
+  it('a meeting whose deal and project are both unknown says the one line once', () => {
+    renderTable([
+      timeEntryView({
+        on: { ...meetingOn('m9', 'Weekly', { state: 'unknown' }), project: { state: 'unknown' } },
+      }),
+    ])
+    expect(lines(cells(0).on)).toEqual(['Weekly', 'Meeting', n.countsForUnknownDeal])
+  })
+
+  it.each([
+    ['linked to no project', { state: 'none' } as const],
+    ['from an hours-api that sends no `project`', undefined],
+  ])('a meeting %s says nothing about one', (_name, project) => {
+    renderTable([forProject(project, 'Weekly')])
+    expect(lines(cells(0).on)).toEqual(['Weekly', 'Meeting'])
+  })
+
+  it('a project entry says nothing but its own name', () => {
+    renderTable([timeEntryView({ on: projectOn('p1', 'Project Alpha'), workType: null })])
+    expect(lines(cells(0).on)).toEqual(['Project Alpha', 'Project'])
   })
 })
 

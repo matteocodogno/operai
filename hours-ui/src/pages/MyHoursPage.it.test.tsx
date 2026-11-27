@@ -222,7 +222,7 @@ describe('the entries by day in Italian (AC-5.5, AC-3.8, AC-4.10)', () => {
     expect(await screen.findByText('Nessuna ora registrata in questo periodo')).not.toBeNull()
     expect(screen.getByText('Registra le ore lavorate e compaiono qui, giorno per giorno.')).not.toBeNull()
     expect(screen.getByTestId('hours-banner-unavailable').textContent).toBe(
-      "Le ore sono complete; questi nomi non sono stati caricati e risultano non disponibili: i nomi dei progetti, l'opportunità a cui contano le ore delle riunioni.",
+      "Le ore sono complete; questi nomi non sono stati caricati e risultano non disponibili: i nomi dei progetti, l'opportunità o il progetto a cui contano le ore delle riunioni.",
     )
     expect(screen.getByRole('note', { name: 'Registrazioni senza nome visibile' })).not.toBeNull()
     expect(strings.entries.title).toBe('Registrazioni')

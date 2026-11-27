@@ -23,6 +23,18 @@ export type MeetingDeal =
   | { state: 'unknown' }
 
 /**
+ * The project a meeting entry's hours count for (specs/20261112-project-hours AC-4.4–4.7, plan § API contracts "`MeetingProject`"): the
+ * deal's union with a project's id, label and href, read live from the meeting's host on every request and never stored. The id and
+ * the name come only with `visible`, so a viewer who cannot read the project learns neither which project a meeting is linked to nor
+ * its name (D44, as `MeetingDeal`). A meeting has one host, so at most one of its `deal` and `project` is `linked`.
+ */
+export type MeetingProject =
+  | { state: 'linked'; visibility: 'visible'; id: string; label: string; href: string }
+  | { state: 'linked'; visibility: 'hidden' | 'unavailable' }
+  | { state: 'none' }
+  | { state: 'unknown' }
+
+/**
  * A project, deal or meeting an entry is on. `id` is `null` on an entry that is not the viewer's own unless
  * `visibility` is `visible` (D44, AC-4.10): a holder of everyone's hours must not learn the id of a record they
  * cannot read, and a `dealId`/`projectId`/`meetingId` filter fed with it would tell them what it is linked to.
@@ -34,7 +46,9 @@ type Named = { id: string | null; label: string | null; href: string | null; vis
 export type EntryOn =
   | ({ type: 'project' } & Named)
   | ({ type: 'deal' } & Named)
-  | ({ type: 'meeting'; deal: MeetingDeal } & Named)
+  // `project` is absent from an hours-api that predates specs/20261112-project-hours (deploy step 4, after this client's step 2): a
+  // missing one reads as `{ state: 'none' }` everywhere, through `meetingProjectOf` (design G4), never as an unknown one.
+  | ({ type: 'meeting'; deal: MeetingDeal; project?: MeetingProject } & Named)
   | { type: 'none'; category: { id: string; name: string; retired: boolean } }
 
 export type EntryTargetType = EntryOn['type']
@@ -67,7 +81,8 @@ export type TimeEntryView = {
 }
 
 /** The sources a read could not ask; the entries are still listed and counted (AC-4.7). */
-export type UnavailableSource = 'projects' | 'crm' | 'activities' | 'meetings' | 'meeting-deals' | 'identities'
+export type UnavailableSource =
+  'projects' | 'crm' | 'activities' | 'meetings' | 'meeting-deals' | 'meeting-projects' | 'identities'
 export type Unavailable = UnavailableSource[]
 
 export type EntriesPage = { items: TimeEntryView[]; nextCursor: string | null; unavailable: Unavailable }
@@ -92,6 +107,8 @@ export type TotalsGroup =
   | { kind: 'hidden'; minutes: number }
   | { kind: 'unavailable'; minutes: number }
   | { kind: 'deal-unknown'; minutes: number }
+  /** `groupBy=project` only: meeting hours whose project could not be asked (specs/20261112-project-hours AC-4.5, AC-4.10). */
+  | { kind: 'project-unknown'; minutes: number }
 
 export type TotalsAnswer = { totalMinutes: number; groups: TotalsGroup[]; unavailable: Unavailable }
 

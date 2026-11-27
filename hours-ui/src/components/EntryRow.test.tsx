@@ -10,7 +10,8 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
-import type { TimeEntryView } from '../lib/hoursApi.types'
+import type { MeetingProject, TimeEntryView } from '../lib/hoursApi.types'
+import { strings } from '../strings'
 import { dealOn, meetingOn, otherWorkOn, projectOn, timeEntryView } from '../test-support/fakeApi'
 import EntryRow from './EntryRow'
 
@@ -220,5 +221,70 @@ describe('an entry that is not automatic draws the row it always drew', () => {
     )
     expect(markIn('auto')).not.toBeNull()
     expect(markIn('hand')).toBeNull()
+  })
+})
+
+describe('the project a meeting counts for (specs/20261112-project-hours AC-4.4, AC-4.7; design S4 "The screen line")', () => {
+  const n = strings.names
+  const forProject = (project: MeetingProject | undefined) =>
+    timeEntryView({
+      id: 'k1',
+      minutes: 60,
+      on: project === undefined ? meetingOn('m1', 'Kick-off call') : { ...meetingOn('m1', 'Kick-off call'), project },
+    })
+  const countsLines = (id = 'k1') => within(row(id)).queryAllByText(/^(Counts for|The deal or project)/)
+
+  it('names a project the viewer can read, as plain text under the name: "Counts for project Project Alpha"', () => {
+    renderRow(
+      forProject({ state: 'linked', visibility: 'visible', id: 'p1', label: 'Project Alpha', href: '/projects/p1' }),
+    )
+    const line = within(row('k1')).getByText('Counts for project Project Alpha')
+    expect(before(within(row('k1')).getByText('Kick-off call'), line)).toBe(true)
+    expect(line.closest('a')).toBeNull()
+    expect(within(row('k1')).queryByRole('link', { name: /Project Alpha/ })).toBeNull()
+    expect(countsLines()).toHaveLength(1)
+  })
+
+  it.each([
+    ['hidden', { state: 'linked', visibility: 'hidden' } as const, n.countsForHiddenProject],
+    ['unavailable', { state: 'linked', visibility: 'unavailable' } as const, n.countsForUnavailableProject],
+  ])('says "%s" in the design’s words, never the project or its id', (_name, project, words) => {
+    const leaked = { ...project, id: 'p-secret', label: 'Leaked project' } as unknown as MeetingProject
+    renderRow(forProject(leaked))
+    expect(within(row('k1')).getByText(words)).not.toBeNull()
+    expect(row('k1').textContent).not.toContain('Leaked project')
+    expect(row('k1').textContent).not.toContain('p-secret')
+    expect(countsLines()).toHaveLength(1)
+  })
+
+  it('says the one "deal or project … unknown right now" line when both are unknown, once', () => {
+    renderRow(
+      timeEntryView({
+        id: 'k1',
+        minutes: 60,
+        on: { ...meetingOn('m1', 'Kick-off call', { state: 'unknown' }), project: { state: 'unknown' } },
+      }),
+    )
+    expect(within(row('k1')).getAllByText(n.countsForUnknownDeal)).toHaveLength(1)
+    expect(countsLines()).toHaveLength(1)
+  })
+
+  it.each([
+    ['linked to no project', { state: 'none' } as const],
+    ['from an hours-api that sends no `project`', undefined],
+  ])('says nothing about a project for a meeting %s', (_name, project) => {
+    renderRow(forProject(project))
+    expect(countsLines()).toHaveLength(0)
+    expect(row('k1').textContent).not.toContain('Counts for')
+  })
+
+  it('says nothing for the project entry itself: its name is the row’s own', () => {
+    renderRow(timeEntryView({ id: 'k1', minutes: 60, on: projectOn('p1', 'Project Alpha') }))
+    expect(countsLines()).toHaveLength(0)
+  })
+
+  it('draws no deal line for a meeting that counts for a project (a meeting has one host)', () => {
+    renderRow(forProject({ state: 'linked', visibility: 'hidden' }))
+    expect(within(row('k1')).queryByText(/Counts for deal|a deal/)).toBeNull()
   })
 })

@@ -2,7 +2,7 @@ import { DataTable, VisuallyHidden, cx, formatDate, formatDuration, listRowMetaC
 import type { DataTableColumn } from '@operai/ui'
 import { showsFromMeetingMark } from '../lib/fromMeetingMark'
 import type { TimeEntryView } from '../lib/hoursApi.types'
-import { activityLine, countsForDealLine, rowName } from '../lib/names'
+import { activityLine, countsForDealLine, countsForProjectLine, rowName } from '../lib/names'
 import { strings } from '../strings'
 import FromMeetingBadge from './FromMeetingBadge'
 import { personName } from './PersonFilterOptions'
@@ -58,8 +58,8 @@ function Pieces({ pieces }: { pieces: (string | null)[] }) {
 
 /**
  * The "On" cell (design S4): the name — a link only for one the viewer may read (AC-4.10) — then the kind
- * and the work type or category, then, for a meeting, the deal its hours count for (AC-2.6). The kind is
- * always said, so a row whose name is withheld still says what sort of work it was. An entry Operai recorded from a meeting carries
+ * and the work type or category, then, for a meeting, the deal or the project its hours count for (AC-2.6; specs/20261112-project-hours
+ * AC-4.4, AC-4.7). The kind is always said, so a row whose name is withheld still says what sort of work it was. An entry Operai recorded from a meeting carries
  * the "From meeting" badge on the name line, before the name and outside every `<p>` of the cell, exactly while it is recorded on a
  * meeting (`showsFromMeetingMark`, the rule of the List's rows too: specs/20261112-meeting-hours AC-2.3 as changed, D-P5, D67; design
  * S2), so the lines a reader (or a test) takes from it are the same. Moved to a project, a deal or other work it draws no badge and no
@@ -68,7 +68,9 @@ function Pieces({ pieces }: { pieces: (string | null)[] }) {
  */
 function On({ entry }: { entry: TimeEntryView }) {
   const name = rowName(entry.on)
-  const countsFor = countsForDealLine(entry.on)
+  // A meeting has one host, so at most one of these two lines exists (specs/20261112-project-hours design S4).
+  const countsForDeal = countsForDealLine(entry.on)
+  const countsForProject = countsForProjectLine(entry.on)
   const marked = showsFromMeetingMark(entry)
   const nameLine = name !== null && (
     // Beside the badge the name is a flex item: `min-w-0` lets one of 200 characters with no break shrink to the cell and wrap.
@@ -93,7 +95,8 @@ function On({ entry }: { entry: TimeEntryView }) {
         nameLine
       )}
       <Pieces pieces={[strings.entries.type[entry.on.type], detailName(entry)]} />
-      {countsFor !== null && <p className={cx(listRowMetaClassName, 'break-words')}>{countsFor}</p>}
+      {countsForDeal !== null && <p className={cx(listRowMetaClassName, 'break-words')}>{countsForDeal}</p>}
+      {countsForProject !== null && <p className={cx(listRowMetaClassName, 'break-words')}>{countsForProject}</p>}
     </div>
   )
 }

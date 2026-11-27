@@ -19,7 +19,16 @@ const en = {
   countsForDeal: (name: string) => `Counts for deal ${name}`,
   countsForHiddenDeal: 'Counts for a deal that is not visible to you',
   countsForUnavailableDeal: 'Counts for a deal whose name is unavailable',
-  countsForUnknownDeal: 'The deal these hours count for is unknown right now',
+  /**
+   * The one "unknown" line of a meeting row, for the deal AND the project: both come from the one read of the meeting's host, so they
+   * are unknown together, and two lines (or one that is half wrong) would be noise (specs/20261112-project-hours design S4). The key
+   * keeps the deal's name; `countsForProjectLine` says nothing for an unknown project.
+   */
+  countsForUnknownDeal: 'The deal or project these hours count for is unknown right now',
+  /** A meeting row's line (specs/20261112-project-hours AC-4.4, AC-4.7): the project its hours count for. */
+  countsForProject: (name: string) => `Counts for project ${name}`,
+  countsForHiddenProject: 'Counts for a project that is not visible to you',
+  countsForUnavailableProject: 'Counts for a project whose name is unavailable',
   /** The activity an entry points at (AC-2.7). */
   activity: (subject: string) => `Activity: ${subject}`,
   activityHidden: 'Activity: not visible to you',
@@ -31,7 +40,9 @@ const en = {
     crm: 'deal names',
     activities: 'activity subjects',
     meetings: 'meeting titles',
-    'meeting-deals': 'the deal that meeting hours count for',
+    // The two codes always come together (one read of the meetings' hosts) and say one thing: the banner names it once.
+    'meeting-deals': 'the deal or project that meeting hours count for',
+    'meeting-projects': 'the deal or project that meeting hours count for',
   },
 }
 
@@ -42,7 +53,10 @@ const it: typeof en = {
   countsForDeal: (name: string) => `Conta per l'opportunità ${name}`,
   countsForHiddenDeal: "Conta per un'opportunità non visibile a te",
   countsForUnavailableDeal: "Conta per un'opportunità il cui nome non è disponibile",
-  countsForUnknownDeal: "L'opportunità a cui contano queste ore al momento non è nota",
+  countsForUnknownDeal: "L'opportunità o il progetto a cui contano queste ore al momento non è noto",
+  countsForProject: (name: string) => `Conta per il progetto ${name}`,
+  countsForHiddenProject: 'Conta per un progetto non visibile a te',
+  countsForUnavailableProject: 'Conta per un progetto il cui nome non è disponibile',
   activity: (subject: string) => `Attività: ${subject}`,
   activityHidden: 'Attività: non visibile a te',
   activityUnavailable: 'Attività: nome non disponibile',
@@ -52,7 +66,8 @@ const it: typeof en = {
     crm: 'i nomi delle opportunità',
     activities: 'gli oggetti delle attività',
     meetings: 'i titoli delle riunioni',
-    'meeting-deals': "l'opportunità a cui contano le ore delle riunioni",
+    'meeting-deals': "l'opportunità o il progetto a cui contano le ore delle riunioni",
+    'meeting-projects': "l'opportunità o il progetto a cui contano le ore delle riunioni",
   },
 }
 
