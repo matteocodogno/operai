@@ -1,5 +1,85 @@
 # QE report — project-hours (specs/20261112-project-hours), rigor production, full mode
 
+## QE pass 3 (after fix round 2)
+
+A fresh agent re-checking the one open defect of pass 2 (D3) against the designer's amendment `043ab194` (design.md only), scoped as briefed to that defect and to its class.
+The local stack was stopped and the databases were being reset, so no server, browser, backend test or e2e was run; none is needed to judge a docs-only fix whose subject is a frontend
+code path that vitest drives. Nothing is BLOCKED.
+
+## QE verdict: PASS   (pass 3; measured at 2166b8e7, clean tree; this report is committed after it, docs only)
+
+**D3 is resolved.** Every clause the fix added to design.md is true of the code (table below), no other place in the spec directory still says the table view cannot restart, and
+nothing the D1 fix said became false. I also added the one test the brief allowed, which pins the claim that was previously only read from the code (three tests, test file only).
+No defect is open, so the feature's verdict is **PASS** with no product code change.
+
+| Check | Threshold | Actual | Result |
+|---|---|---|---|
+| Product code unchanged since pass 1 | empty diff | `git diff --stat 117bdadf HEAD -- ':!specs' ':!hours-ui/src/pages/MyHoursPage.table.test.tsx'` prints nothing; the same against `95c3d470` (where pass 1 measured product code) prints nothing. Without the second exclusion the diff is exactly one file, the test I added in this pass (`2166b8e7`). Files changed since pass 2's `9cbf00ad`: that test file, `design.md` (`043ab194`), `qe-report.md` | ✓ |
+| D3: every clause of the fix is true of the code | all | 8 of 8 hold (table below); the three that were only read from the code are now pinned by an executed test | ✓ |
+| D3 class: nowhere else says the table view cannot restart | none | `grep -n -i "cannot restart\|has no pages" design.md`: only line 23, the amendment note quoting the removed sentence. Every restart mention in `spec.md`, `plan.md`, `tasks.md`, `decisions.md` re-read: `decisions.md:71` (the list's silent restart, true), `plan.md:127` (HostHours burst re-reads, unrelated), `decisions.md:126` (the Export button is the List's, true). Every table-view mention in design.md re-read (lines 77, 87, 310, 363, 398, 419, 561; spec AC-4.11): none denies the restart, none promises a status | ✓ |
+| Nothing the D1 fix said became false | pass 2's clauses 1 to 7 | each rests on product code that is byte-identical (first row) and on tests that still pass (next rows); the new paragraph's sentences 1 to 7 are untouched by `043ab194` (`git show 043ab194 -- design.md`: +4 −2, the amendment note, the last sentence of the S4 paragraph with its tag, one clause on the Accessibility bullet) | ✓ |
+| hours-ui vitest, the files the brief named (table, entries, export, project filter) + `useHoursQuery.test.tsx` + `EveryoneHoursPage.projectFilter.test.tsx`, at 2166b8e7 | green | **7 files, 215 passed, 0 failed** (212 at 043ab194 before my addition, + 3) | ✓ |
+| hours-ui full suite, at 2166b8e7 | green | **104 files, 3116 passed, 0 failed** (pass 1: 3113, + 3) | ✓ |
+| hours-ui `pnpm lint`, at 2166b8e7 | exit 0 | exit 0 | ✓ |
+| hours-ui typecheck `tsc -b` (covers `src` including tests; a planted type error was reported and then removed), at 2166b8e7 | exit 0 | exit 0 | ✓ |
+| `mise run changeset:check` | OK | OK (`project-hours-card-and-consumption.md` among the matches) | ✓ |
+| Secret scan (pre-commit betterleaks) | pass | passed on the test commit | ✓ |
+| The new tests fail when the behaviour is broken | each mutation fails them | three temporary mutations of product code, each restored with `git checkout` (tree clean afterwards, only the test file differed): (M1) `exportPages.ts:49` without `'project_meetings_changed'` → all 3 tests fail (`[undefined,'c1']` where `[undefined,'c1',undefined]` is expected); (M2) `EXPORT_ATTEMPTS = 2` → the three-in-a-row test fails (4 requests, not 6); (M3) `refusedMeetingsRead` also accepting `project_meetings_changed` → the three-in-a-row test fails (the host-filter state would show) | ✓ |
+| Every other row of pass 1 and pass 2 | stands | not re-run, inputs identical (first row); see "What stands" | ✓ (carried) |
+
+### D3's clauses, one by one (design.md S4 paragraph line 315, Accessibility bullet line 448, amendment note line 23)
+
+| # | Clause | Evidence | Holds |
+|---|---|---|---|
+| 1 | "My hours' table view has no Load more" | `LoadMore` is rendered only in the List's branch (`MyHoursPage.tsx:705`); the table branch renders `TableView` (`:627`), which has none | ✓ |
+| 2 | "its one complete read of the period goes through the export's walk (`readAllEntries`)"; note: "called by `readTable`" | `readTable` (`MyHoursPage.tsx:87-90`) calls `readAllEntries(filters, { signal })`; `readAllEntries` has exactly two callers, `HoursExport.tsx:46` and `readTable`; its filters are `tableFilters` (`:214`), which carries `applied.projectId` / `applied.dealId` | ✓ |
+| 3 | "so it restarts the same way" (both 409 codes, at most three walks) | `exportPages.ts:41-52`: attempt below `EXPORT_ATTEMPTS` (`:32`) and `isCode(error, 'deal_meetings_changed', 'project_meetings_changed')` loops; pinned by the new tests below and by `exportPages.test.ts:149`, `:164` | ✓ |
+| 4 | "a 409 answers only a later page, so a period that holds more than one page of 500 entries can meet it" | hours-api `list.routes.ts:188-193`: both 409s need `position !== null`, i.e. a cursor; the walk asks `limit=500` (`exportPages.ts:30`, the API's maximum, `list.routes.ts:27`) and a next cursor exists only when `rows.length > limit` (`:204`); so a period of at most 500 entries is one request and cannot meet it | ✓ |
+| 5 | "the walk then starts over, silently (the card stays in its one loading state)" | one promise: `useHoursQuery` is `loading` until `readTable` settles (`useHoursQuery.ts:53-74`); `TableView` draws the skeleton for `loading` (`TableView.tsx:376`). **Now pinned**: `MyHoursPage.table.test.tsx:1058` (week and month): between the 409 and the restart's first page the skeleton is up, no grid, no `hours-table-error`, no refusal, `queryByRole('alert')` is null, and the grid that arrives holds the second walk's 2 h 30 alone (none of the first walk's 4 h) | ✓ |
+| 6 | "at most three walks in all" | `exportPages.ts:32`; **now pinned**: `MyHoursPage.table.test.tsx:1118` sees cursors `[undefined,'c1',undefined,'c1',undefined,'c1']` (3 walks, each refused on its 2nd page), then waits and sees no seventh request | ✓ |
+| 7 | "Refused three times in a row, the card shows its own read-failure state with Retry, as for any failed read of the period, not the host-filter refusal (503 `host_unavailable` only)" | `refusedMeetingsRead` is `isCode(state.error, 'host_unavailable')` only (`MyHoursPage.tsx:112-113`); the error branch of `tableState` (`:559`) is `tableFailure(error)` = `strings.entries.error.body` for any answered status, drawn by `TableView`'s `ErrorBanner` with title, body and Retry (`TableView.tsx:391-398`). **Now pinned** in the same test: title "Your hours could not be loaded", body "Try again in a moment.", one alert, toolbar kept, no `hours-project-filter-unavailable`, and Retry (now healthy) reads the period again and shows the grid | ✓ |
+| 8 | Accessibility: "the table card's own polite loading line ("Loading your week…" / "Loading your month…"), already spoken when the read began, is all there is: its text does not change during the restart" | the line is `VisuallyHidden live` = `aria-live="polite"` (`TableView.tsx:372`, `operai-ui` `VisuallyHidden`), its text is `announcement()` = `words.loading` while loading (`:257-258`), `strings/table.ts:41` and `:56` (English; Italian `:136`, `:151`). **Now pinned**: a `MutationObserver` on that node records nothing from the moment the first walk is waiting through the 409 and the restart's request (the same node, the same text), and records the change once the period arrives (a positive control, so the silence is not an observer that cannot see) | ✓ |
+| – | Amendment note: "F4 speaks only of 'the list' and is true as written"; "Changed in place: S4 (last sentence), Accessibility (one clause)" | F4 (lines 77-79) says the list starts over silently and that the table view's grid is replaced by the refusal, both true; the diff of `043ab194` matches the note (it also retitles the paragraph "QE D1 and D3", which the note does not list; harmless) | ✓ |
+
+## Defects (pass 3)
+
+None open. **D3. RESOLVED (verified in this pass).** Root cause, now closed: the D1 fix described the table view from its name (a view with "no pages", so "nothing to restart") instead of from the call it makes
+(`readTable` → `readAllEntries`, the export's walk, which is the code that restarts). The designer replaced the denial with the true statement and added the Accessibility consequence; I checked each clause against the code
+above and pinned the three that had been read only. Class check: no other place in the spec directory repeats the denial (third row of the table).
+
+## Observations (pass 3; not defects)
+
+- **O6 is narrower, not gone.** The table view's restart is now run as one chain (restart, loading line untouched, three refusals, Retry). The List's and Everyone's hours' restart still rests on a composition of pinned pieces, as pass 2 said.
+- **O7 stands** (a restart re-reads the entries only, not the totals), unchanged.
+- **O8. The new tests drive the page against a faked API.** The fake answers the 409 to the first request that carries a cursor, so no 500-entry fixture is needed; the server half (a 409 needs a cursor and a changed linked set) is pinned by hours-api's own `src/entries/projectFilter.test.ts:150`, which I read but did not run (no backend tests, by instruction).
+
+## What stands from passes 1 and 2
+
+Every other row stands, because no product code changed since pass 1: `git diff --stat 117bdadf HEAD -- ':!specs' ':!hours-ui/src/pages/MyHoursPage.table.test.tsx'` is empty (and so is the same against `95c3d470`). That covers
+the AC sweep (30/30), the gates (hours-api, meetings-api, projects-api, crm-api, projects-ui, crm-ui, shell, coverage, `shared:check`, audits), the e2e results, the rendered checks, the performance numbers, the security note, the
+"Pre-existing red outside scope" list (including the shell audit, `hours-in-place` A and the crm-api `offerDrafts.preview.test.ts:739` red) and the residue note. None was re-executed here; their inputs are identical.
+Of the hours-ui row of pass 1 (`pnpm lint && build && test`), this pass re-executed lint, the typecheck half of the build (`tsc -b`) and the full suite, with the three new tests added to the count; `vite build` was not re-run, its inputs being identical.
+
+## Tests added (pass 3, committed in `2166b8e7`, test file only)
+
+`hours-ui/src/pages/MyHoursPage.table.test.tsx`, a new `describe` at line 1044 ("the linked meetings changed between two pages of the period's read"): two tests (the first parameterised over the week and the month, so three runs), 117 lines. No other file touched.
+
+## Blocked (pass 3)
+
+None.
+
+## Security
+
+No recommendation: the change is a docs amendment and one test file; nothing touches auth, input handling, upload or a dependency (no manifest or lockfile in either commit).
+
+## Self-critique (pass 3)
+
+One pass over this section. The PASS rests on reading the code and on tests run at a clean `2166b8e7` (215 in the named files, 3116 in the suite), nothing observed in a browser (by instruction), so "silent" is shown by a jsdom run of the real page with a faked API, not by a live restart; a real period over 500 entries with a relink between pages was not made.
+I added a test and counted it as evidence for three clauses; the observer-based check of the live line is the most elaborate assertion in it, and I made it prove it can see by a positive control, but it asserts a DOM fact, not what a screen reader says (a polite region with unchanged text is silent by the ARIA rules, not by anything I heard).
+The M1 to M3 mutations were applied to product files and restored by `git checkout`; I confirmed a clean tree after each, but a reader who wants certainty can re-run `git status` and `git diff` on those two files. The report is committed after the gates, docs only, as passes 1 and 2 were: the measured tree is `2166b8e7`.
+
+---
+
 ## QE pass 2 (after fix round 1)
 
 A fresh agent re-checking the one open defect of pass 1 (D1) against the designer's amendment `9cbf00ad` (design.md only). Scope as briefed: code, tests and docs.
