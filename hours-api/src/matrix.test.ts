@@ -111,9 +111,24 @@ const JWT = [
   "DELETE /time-entries/:id",
   "GET /time-entries",
   "GET /time-entries/totals",
+  // A record's hours, for whoever its OWNER says may read the record (specs/20261112-project-hours T9): decided by projects-api or crm-api, asked as the caller,
+  // not by a catalog permission, so every caller below is told alike by this table; what it does per record is src/summary/*.test.ts.
+  "GET /time-entries/summary",
 ] as const;
 
 type JwtRoute = (typeof JWT)[number];
+
+/** The routes that write, whatever they are (the verb says it): the entries' and the lists' and the one system route's, and no other (specs/20261112-project-hours AC-3.1). */
+const WRITES = [
+  "POST /time-categories",
+  "PATCH /time-categories/:id",
+  "POST /work-types",
+  "PATCH /work-types/:id",
+  "POST /time-entries",
+  "PATCH /time-entries/:id",
+  "DELETE /time-entries/:id",
+  "POST /system/meeting-hours/v1/notices",
+] as const;
 
 const KNOWN: ReadonlySet<string> = new Set<string>([...PUBLIC, ...SYSTEM, ...JWT]);
 
@@ -151,6 +166,11 @@ describe("route inventory (AC-5.3)", () => {
 
   it("mounts every classified route (no stale row)", () => {
     expect(real.stale).toEqual([]);
+  });
+
+  it("mounts the record summary as a read, and no route that writes beyond the entries', the lists' and the notices' (specs/20261112-project-hours AC-3.1)", () => {
+    expect(real.mounted).toContain("GET /time-entries/summary");
+    expect(real.mounted.filter((key) => !key.startsWith("GET ")).sort()).toEqual([...WRITES].sort());
   });
 
   it("has no route behind method ALL: the only ALL entries are global middleware on /*", () => {
@@ -294,6 +314,11 @@ describe("default-deny: a path or a method nothing serves is refused like a JWT 
     ["DELETE", "/time-entries"],
     ["GET", "/time-entries/some-id"],
     ["POST", "/time-entries/totals"],
+    // The summary is a read: nothing writes to it, and nothing else answers there.
+    ["POST", "/time-entries/summary"],
+    ["PUT", "/time-entries/summary"],
+    ["GET", "/time-entries/summary/"],
+    ["GET", "/time-entries/summary/some-id"],
     ["GET", "/time-categories"],
     ["GET", "/work-types"],
     ["DELETE", "/time-categories/some-id"],
@@ -702,6 +727,24 @@ const CASES: readonly Case[] = [
     request: () => ({ method: "GET", path: `/time-entries/totals?groupBy=day&${NOVEMBER}&whose=all&userId=${BOB}` }),
     expect: READ_ALL(200),
     check: (res) => expect(res.json.totalMinutes).toBe(60),
+  },
+
+  // ── GET /time-entries/summary: decided by the record's owner, not by a catalog permission, so the same answer for every caller ──
+  {
+    route: "GET /time-entries/summary",
+    what: "a request that names no record: refused alike for everyone, holders and admins included, and nobody is asked",
+    writes: false,
+    auth: 0,
+    request: () => ({ method: "GET", path: "/time-entries/summary" }),
+    expect: ANYONE(INVALID),
+  },
+  {
+    route: "GET /time-entries/summary",
+    what: "a request that names a project and a deal: refused alike for everyone, and nobody is asked",
+    writes: false,
+    auth: 0,
+    request: () => ({ method: "GET", path: "/time-entries/summary?projectId=p1&dealId=d1" }),
+    expect: ANYONE(INVALID),
   },
 ];
 

@@ -383,6 +383,116 @@ describe("the notices route is in the document as the one route a service calls,
   });
 });
 
+// ─── A record's hours: the summary (specs/20261112-project-hours T9) ─────────
+
+describe("the summary of a record's hours is a read in the document, with a closed answer (specs/20261112-project-hours AC-1.8, AC-3.1; plan § API contracts)", () => {
+  const KEY = "GET /time-entries/summary";
+  const ID_BOUNDS = { minLength: 1, maxLength: 64 };
+  const answer = (): Schema => deref(operation(KEY).op.responses["200"].content["application/json"].schema);
+
+  it("is one new GET, tagged with the entries', that answers 200, 400, 401, 404 and 503, and adds no write operation", () => {
+    const { op } = operation(KEY);
+    expect(op.tags).toEqual(["Entries"]);
+    expect(Object.keys(op.responses).sort()).toEqual(["200", "400", "401", "404", "503"]);
+    // The writes of the document are the entries' and the lists' and the notices': the summary adds none.
+    expect(operations.filter(({ method }) => method !== "GET").map(({ key }) => key).sort()).toEqual(
+      [
+        "DELETE /time-entries/:id",
+        "PATCH /time-categories/:id",
+        "PATCH /time-entries/:id",
+        "PATCH /work-types/:id",
+        "POST /system/meeting-hours/v1/notices",
+        "POST /time-categories",
+        "POST /time-entries",
+        "POST /work-types",
+      ].sort(),
+    );
+  });
+
+  it("takes exactly four query members: the two ids, bounded by the id rule, and the two days of the window, as YYYY-MM-DD", () => {
+    expect(parametersOf(KEY).map((candidate) => `${candidate.in}:${candidate.name}`).sort()).toEqual(["query:dealId", "query:projectId", "query:windowFrom", "query:windowTo"]);
+    for (const name of ["projectId", "dealId"]) {
+      expect({ name, required: parameter(KEY, name).required, ...{ minLength: parameter(KEY, name).schema.minLength, maxLength: parameter(KEY, name).schema.maxLength } }).toEqual({ name, required: false, ...ID_BOUNDS });
+    }
+    for (const name of ["windowFrom", "windowTo"]) {
+      const found = parameter(KEY, name);
+      expect({ name, required: found.required, pattern: found.schema.pattern }).toEqual({ name, required: false, pattern: "^\\d{4}-\\d{2}-\\d{2}$" });
+    }
+  });
+
+  it("answers an object that is closed at every level, with exactly the plan's members, all required", () => {
+    const view = answer();
+    expect(Object.keys(view.properties).sort()).toEqual(["byPerson", "byWorkType", "on", "totalMinutes", "unavailable", "windowMinutes"]);
+    expect([...view.required].sort()).toEqual(["byPerson", "byWorkType", "on", "totalMinutes", "unavailable", "windowMinutes"]);
+    for (const { path, schema } of walk(view)) {
+      if (schema.type === "object") expect({ path: path.join("."), closed: schema.additionalProperties }).toEqual({ path: path.join("."), closed: false });
+    }
+  });
+
+  it("is minutes and groups of minutes: no member of the document's answer is an entry, a note, a meeting, a subject or an amount", () => {
+    const names = [...new Set([...walk(answer())].flatMap(({ path }) => (path.length > 0 ? [path[path.length - 1]!] : [])))].filter((name) => name !== "[]").sort();
+    // The members of the answer, of `on` and of the groups: the key-set of the plan's SummaryAnswer, and no other.
+    expect(names).toEqual(["byPerson", "byWorkType", "id", "key", "kind", "label", "minutes", "on", "retired", "status", "totalMinutes", "type", "unavailable", "windowMinutes"]);
+  });
+
+  it("makes `windowMinutes` and `byPerson` nullable: null is no window, and no right to see the people", () => {
+    const view = answer();
+    expect({ type: view.properties.windowMinutes.type, nullable: view.properties.windowMinutes.nullable }).toEqual({ type: "integer", nullable: true });
+    expect(view.properties.byPerson.nullable).toBe(true);
+    expect(view.properties.byWorkType.nullable ?? false).toBe(false);
+    expect(view.properties.totalMinutes.nullable ?? false).toBe(false);
+  });
+
+  it("names the two notes `unavailable` can carry: `identities` and `authz`", () => {
+    expect([...answer().properties.unavailable.items.enum].sort()).toEqual(["authz", "identities"]);
+  });
+
+  it("says who sees what: the per-person part is the manager's, the owner's or a holder's, and the answer is never cached", () => {
+    const { description } = operation(KEY).op;
+    expect(description).toMatch(/manager/);
+    expect(description).toContain("time-entry:read-all");
+    expect(description).toMatch(/never cached/);
+  });
+
+  it("types the work types' groups with a `retired` flag and the people's with a `status`, and nothing else beyond the key, label and minutes", () => {
+    const view = answer();
+    const kinds = (schema: Schema) => deref(schema.items).oneOf?.map(deref) ?? [deref(schema.items)];
+    const workTypes = kinds(view.properties.byWorkType);
+    expect(workTypes.map((variant: Schema) => Object.keys(variant.properties).sort())).toEqual([["key", "kind", "label", "minutes", "retired"], ["kind", "minutes"]]);
+    const people = kinds(view.properties.byPerson);
+    expect(people.map((variant: Schema) => Object.keys(variant.properties).sort())).toEqual([["key", "kind", "label", "minutes", "status"]]);
+    // A person `auth` cannot name has no name; a work type always has one.
+    expect(people[0].properties.label.nullable).toBe(true);
+    expect(workTypes[0].properties.label.nullable ?? false).toBe(false);
+  });
+
+  it("is what the app serves: the same members, in an answer of a real record", async () => {
+    hosts.projects.setProject("p1", { label: "Alpha", projectManagerId: PERSONAS.alice.sub });
+    await makeNoEntityEntry(SEED.categories.training, { userId: PERSONAS.alice.sub });
+
+    const res = await call("GET", "/time-entries/summary?projectId=p1", { as: "alice" });
+
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.json).sort()).toEqual(Object.keys(answer().properties).sort());
+  });
+});
+
+describe("the totals and the list know the project filter's meetings (specs/20261112-project-hours AC-4.4, AC-4.5, AC-4.8)", () => {
+  it("documents `project-unknown` beside `deal-unknown` among the kinds of a totals group", () => {
+    const group = deref({ $ref: "#/components/schemas/TotalsGroup" });
+    const kinds = (group.oneOf as Schema[]).map((variant) => deref(variant).properties.kind.enum?.[0]);
+    expect(kinds.sort()).toEqual(["deal-unknown", "hidden", "keyed", "none", "project-unknown", "unavailable"]);
+  });
+
+  it("documents both 409s of the list, and the 503 of the two reads that count a record's meetings, for a project as for a deal", () => {
+    expect(operation("GET /time-entries").op.responses["409"].description).toMatch(/deal_meetings_changed[\s\S]*project_meetings_changed/);
+    for (const key of ["GET /time-entries", "GET /time-entries/totals"]) {
+      expect(operation(key).op.responses["503"].description).toMatch(/projectId/);
+      expect(parameter(key, "projectId").description).toMatch(/meetings currently linked/);
+    }
+  });
+});
+
 // ─── AC-3.2: nobody deletes a category or a work type ────────────────────────
 
 describe("no DELETE exists on the lists (AC-3.2)", () => {

@@ -15,6 +15,7 @@ import { meetingHoursNoticesRouter } from "./meetingHours/notices.routes";
 import { requestLogger } from "./lib/logger";
 import { problem } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
+import { summaryRouter } from "./summary/summary.routes";
 import { totalsRouter } from "./totals/totals.routes";
 
 // Exported so the authorization matrix (src/matrix.test.ts, T20) can read the ASSEMBLED
@@ -77,12 +78,14 @@ app.use("*", jwtMiddleware);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 // Every area router is mounted here, once, in this order (src/index.ts is shared by T12, T14, T17
-// and T18): lists, entries, list, totals. T10 mounted none; T12 mounts the lists, T14 the entry writes.
+// and T18): lists, entries, list, totals, summary. T10 mounted none; T12 mounts the lists, T14 the entry writes; the summary
+// (specs/20261112-project-hours T9) is a read of one record's hours, the only route added for that spec in this service.
 
 app.route("/", listsRouter);
 app.route("/", entriesRouter);
 app.route("/", entryListRouter);
 app.route("/", totalsRouter);
+app.route("/", summaryRouter);
 
 // ─── Error answers (RFC 7807 Problem JSON) ───────────────────────────────────
 
