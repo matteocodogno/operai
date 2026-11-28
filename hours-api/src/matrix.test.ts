@@ -15,14 +15,19 @@
  *   admin         the admin ROLE, neither permission granted    nothing here is decided by a role name (AC-3.3)
  *   adminGranted  the admin role with both default grants       lists and oversight, still never another's entry
  *
- * The route list is read from the app's own table: a route mounted without a classification here (public or
- * JWT) fails the inventory, a classified route that is not mounted fails it too, and one hiding behind method
- * `ALL` fails it. Every JWT route is then driven by every caller and refused, with and without a credential,
+ * The route list is read from the app's own table: a route mounted without a classification here (public,
+ * system or JWT) fails the inventory, a classified route that is not mounted fails it too, and one hiding behind
+ * method `ALL` fails it. Every JWT route is then driven by every caller and refused, with and without a credential,
  * as the plan says. A refused write must change nothing (the tables are compared before and after), a request
  * that needs no decision of `auth` must not ask it, and what `auth` is asked it is asked AS THE CALLER.
  *
+ * The one SYSTEM route (specs/20261112-meeting-hours T7: meetings-api's notices of a meeting's hours facts) takes a
+ * scoped service JWT and no session: its own table below drives every caller above against it and every service
+ * principal there is, and only `system:meetings-api` with the scope is let through (AC-1.6, AC-1.7).
+ *
  * The JWT middleware is the harness's mock of the real one (same RS256, issuer and audience rules, so a
- * service credential is refused alike); the REAL middleware is proved in auth/jwt.middleware.test.ts.
+ * service credential is refused alike); the REAL middleware is proved in auth/jwt.middleware.test.ts. The system
+ * guard is the real one, with the harness's key set.
  *
  * No cell may answer 501: the build-order seam of T14 is gone (plan R11) and an entry that needs an owner is
  * answered by the owner, which the owner suites (T15, T16) drive. Here every entry is on no entity, so no owner
@@ -86,6 +91,14 @@ function grantsOf(who: Who): void {
 /** Answer without a credential: liveness and the API documents. Nothing else may (AC-5.3). */
 const PUBLIC = ["GET /health", "GET /openapi.json", "GET /docs"] as const;
 
+/**
+ * A route that takes a SERVICE credential and no person's (specs/20261112-meeting-hours T7): a scoped service JWT of one
+ * named service, verified by its own guard, mounted ABOVE the session guard (plan R8). A session, whatever it holds, is
+ * refused on it, and a service credential is refused on every route below. The unknown `/system/anything` stays what it
+ * was: a path nothing serves, refused like any other (default-deny).
+ */
+const SYSTEM = ["POST /system/meeting-hours/v1/notices"] as const;
+
 /** Every other route: a valid session, and whatever else the route asks for itself. */
 const JWT = [
   "GET /time-lists",
@@ -102,7 +115,7 @@ const JWT = [
 
 type JwtRoute = (typeof JWT)[number];
 
-const KNOWN: ReadonlySet<string> = new Set<string>([...PUBLIC, ...JWT]);
+const KNOWN: ReadonlySet<string> = new Set<string>([...PUBLIC, ...SYSTEM, ...JWT]);
 
 interface TableRoute {
   readonly method: string;
@@ -128,8 +141,12 @@ function audit(table: readonly TableRoute[]) {
 describe("route inventory (AC-5.3)", () => {
   const real = audit(app.routes);
 
-  it("classifies every mounted route as public or JWT, and nothing else", () => {
+  it("classifies every mounted route as public, system or JWT, and nothing else", () => {
     expect(real.unclassified).toEqual([]);
+  });
+
+  it("mounts exactly the one system route under /system/: meetings-api's notices", () => {
+    expect(real.mounted.filter((key) => key.split(" ")[1]!.startsWith("/system/"))).toEqual([...SYSTEM]);
   });
 
   it("mounts every classified route (no stale row)", () => {
@@ -224,6 +241,8 @@ async function wrongCredentials(): Promise<Array<[string, string | null]>> {
     ["Basic credentials", "Basic dXNlcjpwYXNz"],
     // The credential hours-api itself holds for meetings-api (ADR 20261006-scoped-service-jwt-fourth-notify-caller): a service JWT, never a user session.
     ["a service JWT (aud = SERVICE_AUDIENCE, sub = a system principal)", `Bearer ${await token({ sub: "system:hours-api", audience: TEST_SERVICE_AUDIENCE })}`],
+    // The one service with a route of its own here reaches no route that is a person's (specs/20261112-meeting-hours AC-1.6).
+    ["meetings-api's service JWT, the one the notices route accepts", `Bearer ${await harness.signServiceToken()}`],
     ["a PERSON's token with the SERVICE audience", `Bearer ${await token({ audience: TEST_SERVICE_AUDIENCE })}`],
     ["a token for another audience", `Bearer ${await token({ audience: "another-service" })}`],
     ["a token from another issuer", `Bearer ${await token({ issuer: "http://evil.test" })}`],
@@ -284,6 +303,15 @@ describe("default-deny: a path or a method nothing serves is refused like a JWT 
     ["GET", "/metrics"],
     ["GET", "/admin"],
     ["GET", "/system/anything"],
+    // Next to the one system route: another method, another path under it, a trailing slash. Nothing there is served.
+    ["GET", "/system/meeting-hours/v1/notices"],
+    ["PUT", "/system/meeting-hours/v1/notices"],
+    ["PATCH", "/system/meeting-hours/v1/notices"],
+    ["DELETE", "/system/meeting-hours/v1/notices"],
+    ["POST", "/system/meeting-hours/v1/notices/"],
+    ["POST", "/system/meeting-hours/v1/notices/some-id"],
+    ["POST", "/system/meeting-hours/v1"],
+    ["POST", "/system/meeting-hours"],
   ];
 
   for (const [method, path] of UNSERVED) {
@@ -373,6 +401,9 @@ async function snapshot(): Promise<string> {
     await db.timeEntry.findMany({ orderBy: { id: "asc" } }),
     await db.timeCategory.findMany({ orderBy: { id: "asc" } }),
     await db.workType.findMany({ orderBy: { id: "asc" } }),
+    // What automatic entries keep for themselves (specs/20261112-meeting-hours): the applied versions and the blocks.
+    await db.meetingHoursMeeting.findMany({ orderBy: { meetingId: "asc" } }),
+    await db.meetingHoursBlock.findMany({ orderBy: [{ meetingId: "asc" }, { userId: "asc" }] }),
   ]);
 }
 
@@ -818,5 +849,60 @@ describe("`auth` down: what needs a permission is refused as unavailable, what d
     expect((await call("PATCH", `/time-entries/${bobs.id}`, { as: "holder", body: { minutes: 90 } })).status).toBe(404);
     expect((await call("DELETE", `/time-entries/${bobs.id}`, { as: "holder" })).status).toBe(404);
     expect(await snapshot()).toBe(before);
+  });
+});
+
+// ─── The system route: route x caller (specs/20261112-meeting-hours T7; AC-1.6, AC-1.7, plan R8) ───────
+
+describe("the system route takes a service credential and no session: only system:meetings-api with the scope is let through", () => {
+  const PATH = "/system/meeting-hours/v1/notices";
+  const NOTICE = {
+    noticeId: "matrix-notice",
+    meeting: { id: "matrix-meeting", seq: 1, facts: { startsAt: "2026-11-12T09:00:00Z", durationMs: 3_600_000, creatorId: PERSONAS.alice.sub, participantIds: [BOB] } },
+  };
+
+  /** A call as a service: a validly signed token of `options` (by default meetings-api's, with the scope). */
+  const asService = async (options: Parameters<typeof harness.signServiceToken>[0] = {}) =>
+    call("POST", PATH, { as: null, headers: { Authorization: `Bearer ${await harness.signServiceToken(options)}` }, body: NOTICE });
+
+  for (const who of WHOS) {
+    it(`${who}: a session is a 401 whatever it holds, and nothing is written or asked`, async () => {
+      grantsOf(who);
+      const before = await snapshot();
+
+      const res = await call("POST", PATH, { as: AS[who], body: NOTICE });
+
+      expect(res.status).toBe(401);
+      expect(res.json).toMatchObject({ type: "https://httpstatuses.com/401", title: "Unauthorized", status: 401, instance: PATH });
+      expect(await snapshot()).toBe(before);
+      expect(hosts.calls).toEqual([]);
+    });
+  }
+
+  it("lets system:meetings-api through, alone among the suite's services, and asks nobody: not `auth`, not an owner", async () => {
+    // Every service client `auth` knows (`SERVICE_CLIENTS`), each holding the scope as if mis-configured: the `sub` allowlist is what refuses them.
+    const OTHERS = ["refund-api", "estimai-api", "inventory-api", "crm-api", "notify-api", "projects-api", "activities-api", "hours-api", "accounting-api", "auth"];
+    const before = await snapshot();
+    for (const client of OTHERS) {
+      const res = await asService({ sub: `system:${client}` });
+      expect({ client, status: res.status }).toEqual({ client, status: 401 });
+    }
+    // meetings-api's other scopes do not open it, and its real scope set (notifications, host notices, this one) does.
+    expect((await asService({ scope: "notifications.push host-notices.send" })).status).toBe(401);
+    expect(await snapshot()).toBe(before);
+
+    const ok = await asService({ scope: "notifications.push host-notices.send meeting-hours-notices.send" });
+
+    expect(ok.status).toBe(200);
+    expect(ok.json).toEqual({ applied: true });
+    expect(await db.timeEntry.count({ where: { sourceMeetingId: "matrix-meeting" } })).toBe(2);
+    // Applying decides from the facts it was given: no permission is resolved, no identity, no owner, no service token minted.
+    expect(hosts.calls).toEqual([]);
+  });
+
+  it("is reached through the assembled app's own order: a service JWT meets the system guard, never the user's (R8)", async () => {
+    // The same token on a route below the session guard is a 401 (above: the meetings-api row of `wrongCredentials`), here it is a 200.
+    expect((await asService()).status).toBe(200);
+    expect((await call("GET", `/time-entries?${NOVEMBER}`, { as: null, headers: { Authorization: `Bearer ${await harness.signServiceToken()}` } })).status).toBe(401);
   });
 });

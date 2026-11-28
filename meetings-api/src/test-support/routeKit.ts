@@ -197,7 +197,10 @@ export async function createKit() {
       for (const key of storage.keys()) await storage.deleteObject(key);
       __resetAuthzCacheForTests();
       __resetIdentityCacheForTests();
-      await db.$executeRawUnsafe('TRUNCATE "meeting_job", "meeting", "host_notice", "meeting_deletion", "meeting_folder" CASCADE');
+      // `hours_notice` has no foreign key to `meeting` (a `deleted` notice outlives its meeting), so no cascade empties it.
+      await db.$executeRawUnsafe(
+        'TRUNCATE "meeting_job", "meeting", "host_notice", "hours_notice", "meeting_deletion", "meeting_folder" CASCADE',
+      );
     },
   };
 }

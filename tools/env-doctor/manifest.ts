@@ -263,7 +263,10 @@ export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
   { ...LINK_BASE, caller: "notify-api", requiredScopes: ["users.contact"] },
   // specs/20261104-meetings: meetings-api pushes meeting notifications (notify-api) and posts host notices to
   // crm-api (ADR 20261104-meeting-host-contract-resolve-and-notices). No emails.send: an email notice, if ever wanted, is a deliberate widening.
-  { ...LINK_BASE, caller: "meetings-api", requiredScopes: ["notifications.push", "host-notices.send"] },
+  // specs/20261112-meeting-hours (T1, AC-1.6): it also tells hours-api each meeting's hours facts through `POST /system/meeting-hours/v1/notices`
+  // (`meeting-hours-notices.send`, verified there with the sub allowlist `system:meetings-api`; ADR 20261124-meeting-hours-facts-pushed-by-their-owner-…).
+  // Granted in production only AFTER the auth that knows the scope is live (an unknown scope stops auth), here and in auth's template in one change.
+  { ...LINK_BASE, caller: "meetings-api", requiredScopes: ["notifications.push", "host-notices.send", "meeting-hours-notices.send"] },
   // specs/20261103-projects: projects-api reads CRM company names from crm-api as itself (ADR 20261103-projects-api-reads-crm-companies-with-scoped-service-credential); specs/20261103-projects-handoff adds
   // the won deals of the to-start queue (`crm.deals.read`, ADR 20261104-projects-handoff-live-reads-between-crm-and-projects-over-service-credentials), the contacts of a deal's company
   // for the referent (`crm.contacts.read`, held by this client only), a deal's estimate man-days from
@@ -380,6 +383,10 @@ export const INTERNAL_URL_VARS: ReadonlyArray<{
   { name: "CRM_API_URL", services: ["hours-api"], target: "crm-api" },
   { name: "ACTIVITIES_API_URL", services: ["hours-api"], target: "activities-api" },
   { name: "MEETINGS_API_URL", services: ["hours-api"], target: "meetings-api" },
+  // specs/20261112-meeting-hours (T1, AC-1.6, ADR 20261124-meeting-hours-facts-pushed-by-their-owner-…): meetings-api posts a meeting's hours facts to
+  // hours-api's `POST /system/meeting-hours/v1/notices` as itself (a scoped service JWT). Private networking on hours-api's own PORT: the token must
+  // never travel over the public domain. meetings-api's env.ts requires it in production only (default http://localhost:8090 elsewhere).
+  { name: "HOURS_API_URL", services: ["meetings-api"], target: "hours-api" },
 ];
 
 /** Browser-facing / identity-claim URLs — must stay PUBLIC (`https://`, not localhost/internal in prod). */
@@ -593,7 +600,10 @@ export const PRODUCTION_REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = 
   // here for production: without it hours-api's deal-filtered reads are refused 503 and its by-deal
   // totals cannot name a meeting's deal. Equal across auth, notify-api, crm-api, estimai-api,
   // projects-api, activities-api, meetings-api and hours-api, and different from AUTH_AUDIENCE.
-  "meetings-api": ["SERVICE_AUDIENCE"],
+  // specs/20261112-meeting-hours (T1): HOURS_API_URL is where meetings-api posts a meeting's hours facts. Its env.ts defaults it to
+  // http://localhost:8090 outside production (so a local setup starts) and requires it with NODE_ENV=production; without it in production no
+  // meeting would ever give anyone an automatic entry. The production template must state it.
+  "meetings-api": ["SERVICE_AUDIENCE", "HOURS_API_URL"],
 };
 
 /**

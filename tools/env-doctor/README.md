@@ -172,6 +172,18 @@ production order matters (plan R7, `infra/README.md` § Time tracking): add the 
 production `SERVICE_CLIENTS` only **after** the auth that knows `meetings.hosts.read` is live — an
 unknown scope stops auth (ADR 20261108-crm-pushes-deal-links-to-estimai). The doctor checks the contract, not the order.
 
+Added with specs/20261112-meeting-hours (`meetings-api` also posts a meeting's hours facts to `hours-api`, which records the automatic entries from them; ADR 20261124-meeting-hours-facts-pushed-by-their-owner-as-a-versioned-state-built-at-send-time-through-an-until-delivered-outbox-and-applied-by-hours-api-only-when-not-older; no new service and no new secret):
+
+| Invariant | Bug it catches |
+|---|---|
+| `meetings-api`'s `HOURS_API_URL` is an internal URL like every other call: `http://` + `*.railway.internal` (production) + the **target's** `PORT` (hours-api 8090); a Railway `${{hours-api.…}}` reference is accepted as self-consistent. Its own `env.ts` requires it with `NODE_ENV=production` and defaults it to `http://localhost:8090` elsewhere, so the doctor requires it for production and preview only (`PRODUCTION_REQUIRED_KEYS`), never for `--env local` | a missing value (meetings-api exits at start in production, or, were it optional, no meeting would ever give anyone an automatic entry), a public hours-api URL (the service token would travel over the public domain) or a wrong port (every notice fails and the entries stay late) |
+| `meetings-api`'s `SERVICE_CLIENTS` entry holds **exactly** `notifications.push host-notices.send meeting-hours-notices.send`, in `auth`'s template and live: a missing OR an extra scope fails, and the same exact-set rule fails any other listed client (`crm-api`, `hours-api`, …) that holds `meeting-hours-notices.send` | notices answered 401 by hours-api (the scope missing: meetings-api keeps them and retries every 30 minutes until it is added), or a second client able to write automatic entries |
+| `SERVICE_AUDIENCE` (the existing rule: byte-identical across `auth`, `notify-api`, `crm-api`, `estimai-api`, `projects-api`, `activities-api`, `meetings-api` and `hours-api`, and different from `AUTH_AUDIENCE` on `meetings-api` and `hours-api`) is now also what `hours-api` **verifies**, on `POST /system/meeting-hours/v1/notices` (scope `meeting-hours-notices.send`, `sub` `system:meetings-api`). No new check: the rule already covers it | hours-api answering one 401 to every notice of meetings-api |
+
+`hours-api` gains no variable. The production order matters here as it did for `meetings.hosts.read` (`infra/README.md` § Meeting hours release): add
+`meeting-hours-notices.send` to the `meetings-api` entry of production `SERVICE_CLIENTS` only **after** the auth that knows it is live, and set
+`HOURS_API_URL` on `meetings-api` **before** its release deploys. The doctor checks the contract, not the order.
+
 What it cannot express: two *different* `${{shared.X}}` references (e.g. `SERVICE_AUDIENCE`
 vs `AUTH_AUDIENCE`) or a reference vs a literal cannot be compared offline — that is a
 warning for the secret match and silent for the distinctness check; use `--dir` with resolved

@@ -15,14 +15,16 @@ export function setupOpenAPI(app: OpenAPIHono): void {
         "Requires a valid RS256 Bearer JWT issued by the Operai auth service. Every user records and " +
         "reads their own hours; everyone's hours need `time-entry:read-all` and the lists need " +
         "`time-list:manage`, both asked live of auth (ADR 20261112-hours-api-time-entries-own-service-hours-catalog). Whether a person may book on a " +
-        "project, a deal or a meeting is asked of its owner as the caller (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).",
+        "project, a deal or a meeting is asked of its owner as the caller (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). " +
+        "One route is not a person's: meetings-api tells hours-api what a meeting's hours facts are, with a scoped service JWT " +
+        "(`POST /system/meeting-hours/v1/notices`, specs/20261112-meeting-hours).",
       contact: {
         name: "wellD",
         url: "https://welld.ch",
       },
     },
     servers: [{ url: "http://localhost:8090", description: "Local development" }],
-    tags: [{ name: "System", description: "Health checks" }],
+    tags: [{ name: "System", description: "Health checks, and the one route another service calls" }],
   });
 
   // Scalar UI at /docs

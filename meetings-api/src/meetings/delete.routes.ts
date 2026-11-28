@@ -17,8 +17,10 @@
  *      The transient one goes first because losing it costs nothing, whereas audio deleted from
  *      the main bucket under a meeting that still exists would be a lie the row tells.
  *   2. one transaction: drop the meeting's titled outbox rows, record the `deleted` host
- *      notice (no title, no date-time) and the content-free `meeting_deletion` entry, then
- *      delete the meeting, whose rows cascade. The notice and its retry job outlive it.
+ *      notice (no title, no date-time), the `deleted` hours notice for hours-api (when the
+ *      meeting's hours were ever announced, specs/20261112-meeting-hours) and the
+ *      content-free `meeting_deletion` entry, then delete the meeting, whose rows cascade.
+ *      The notices and their retry jobs outlive it.
  *   3. after the commit, the one awaited notice attempt (a down host never blocks this),
  *      and a last sweep of the prefix for a chunk that landed while we were deleting.
  */
@@ -33,6 +35,7 @@ import { ProblemError, forbidden, validationHook } from "../lib/problem";
 import { requireTransientStorage, transientKeys } from "../lib/google/transientStorage";
 import { objectKeys, requireStorage } from "../lib/storage";
 import { deliverNotices, recordNotice } from "../hosts/notices";
+import { recordHoursNotice } from "../hours/record";
 import { callerOf } from "./caller";
 import { lockMeeting } from "./lock";
 import { loadMeetingForVisibility, meetingNotFound, resolveAccess } from "./visibility";
@@ -113,6 +116,9 @@ deleteRouter.openapi(deleteMeeting, async (c) => {
       row.hostApp !== null && row.hostEntityType !== null && row.hostEntityId !== null
         ? await recordNotice(tx, { id, creatorUserId: row.creatorUserId }, { app: row.hostApp, entityType: row.hostEntityType, entityId: row.hostEntityId }, { event: "deleted" })
         : null;
+    // hours-api removes the untouched entries of a deleted meeting (AC-3.4): the notice, with its version, is taken while the row
+    // still exists, and outlives it (no foreign key; its job carries no meeting id, so the cascade below leaves both alone).
+    await recordHoursNotice(tx, id, { deleted: true });
     await tx.meetingDeletion.create({ data: { meetingId: id, deletedByUserId: caller.userId, via } });
     await tx.meeting.delete({ where: { id } });
     return noticeId;

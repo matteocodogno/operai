@@ -51,6 +51,7 @@ const prod = (): Record<string, string> => ({
   SERVICE_CLIENT_ID: "meetings-api",
   SERVICE_CLIENT_SECRET: "s".repeat(32),
   CRM_API_URL: "http://crm-api.railway.internal:8084",
+  HOURS_API_URL: "http://hours-api.railway.internal:8090",
   MEETINGS_SPEECH_LOCATION: "eu",
   MEETINGS_VERTEX_LOCATION: "eu",
   MEETINGS_VERTEX_MODEL_ID: "claude-sonnet-5-0",
@@ -305,6 +306,42 @@ describe("production-only refusals", () => {
       delete source[key];
       expect(parseEnv(source).ok).toBe(false);
     }
+  });
+});
+
+describe("HOURS_API_URL (specs/20261112-meeting-hours T8: where the hours notices go, plan § Delivering a notice)", () => {
+  it("defaults to http://localhost:8090 outside production", () => {
+    for (const NODE_ENV of ["development", "test"]) {
+      const r = parseEnv({ ...dev(), NODE_ENV });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.env.HOURS_API_URL).toBe("http://localhost:8090");
+    }
+  });
+
+  it("is read as given when set", () => {
+    const r = parseEnv({ ...dev(), HOURS_API_URL: "http://hours-api.railway.internal:8090" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.env.HOURS_API_URL).toBe("http://hours-api.railway.internal:8090");
+    const p = parseEnv(prod());
+    expect(p.ok).toBe(true);
+    if (p.ok) expect(p.env.HOURS_API_URL).toBe("http://hours-api.railway.internal:8090");
+  });
+
+  it("is required in production: no default there, and the service exits 1 naming it", async () => {
+    const source = prod();
+    delete source["HOURS_API_URL"];
+    expect(parseEnv(source).ok).toBe(false);
+    const { code, output } = await spawnEnv(source);
+    expect(code).toBe(1);
+    expect(output).toContain("HOURS_API_URL");
+  });
+
+  it("must be a URL, and the refusal does not echo the value", async () => {
+    expect(parseEnv({ ...dev(), HOURS_API_URL: "not-a-url" }).ok).toBe(false);
+    const { code, output } = await spawnEnv({ ...dev(), HOURS_API_URL: "leaky-not-a-url" });
+    expect(code).toBe(1);
+    expect(output).toContain("HOURS_API_URL");
+    expect(output).not.toContain("leaky-not-a-url");
   });
 });
 

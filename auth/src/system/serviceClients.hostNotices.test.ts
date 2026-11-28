@@ -67,13 +67,13 @@ const mint = (clientId: string) =>
   });
 
 describe("host-notices.send (specs/20261104-meetings — AC-11.8, AC-12.4)", () => {
-  test("mints a token for meetings-api whose scope is notifications.push host-notices.send, sub system:meetings-api", async () => {
+  test("mints a token for meetings-api whose scope is notifications.push host-notices.send meeting-hours-notices.send, sub system:meetings-api", async () => {
     const res = await mint("meetings-api");
     expect(res.status).toBe(200);
     const claims = decodeJwt(((await res.json()) as { token: string }).token);
     expect(claims.sub).toBe("system:meetings-api");
     expect(claims.aud).toBe(SERVICE_AUDIENCE);
-    expect(claims["scope"]).toBe("notifications.push host-notices.send");
+    expect(claims["scope"]).toBe("notifications.push host-notices.send meeting-hours-notices.send");
     expect(String(claims["scope"]).split(" ")).not.toContain("emails.send");
   });
 

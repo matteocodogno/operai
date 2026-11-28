@@ -28,6 +28,12 @@ const { app, MAX_REQUEST_BODY_BYTES } = await import("../index");
 const { db } = await import("../lib/db");
 const { env } = await import("../lib/env");
 
+// The system guard of the notices route is the REAL one (nothing replaces it, unlike the user session guard, which
+// `testAuth.ts` mocks); only the key set it verifies against is the harness's, as the remote one would be auth's.
+// `signServiceToken` mints what that key set accepts. Set here for the whole process, like the jwt mock.
+const { __setDefaultJwksForTests } = await import("../auth/systemAuth.middleware");
+__setDefaultJwksForTests(harness.serviceKeys());
+
 export { app, db, env, MAX_REQUEST_BODY_BYTES };
 
 // ─── The seeded lists (A15, AC-3.7) ──────────────────────────────────────────
@@ -90,6 +96,22 @@ export function makeWorkType(list: "project" | "deal" = "project", name = next("
   return db.workType.create({ data: { list, name, retiredAt: options.retired ? new Date() : null, createdBy: "user-admin" } });
 }
 
+// ─── The release day of meeting hours (specs/20261112-meeting-hours, AC-1.5) ──────────────────
+
+/**
+ * The `since` `resetWorld` puts into the one `meeting_hours_release` row. The migration writes the day it
+ * ran, which in a test database is whenever it was deployed, so a test cannot rely on that; this one is
+ * before every day the factories use (2026-11-02 by default), so no fixture is "before the release" unless
+ * a test asks with `setReleaseDay`.
+ */
+export const RELEASE_DAY = "2026-01-01";
+
+/** Sets the release day (`YYYY-MM-DD`): the one row of `meeting_hours_release`, as the migration made it. */
+export async function setReleaseDay(day: string): Promise<void> {
+  const since = new Date(`${day}T00:00:00Z`);
+  await db.meetingHoursRelease.upsert({ where: { id: 1 }, create: { id: 1, since }, update: { since } });
+}
+
 // ─── Entries, inserted directly ──────────────────────────────────────────────
 
 /** What every entry has, whatever it is on. The defaults make a valid 1 h entry of `alice` on a past day. */
@@ -143,9 +165,26 @@ export function makeDealEntry(dealId: string, options: PointingEntryOptions = {}
   });
 }
 
+/** What only an entry on a meeting may be: one Operai recorded from the meeting's facts (specs/20261112-meeting-hours). */
+export interface MeetingEntryOptions extends EntryOptions {
+  /**
+   * Makes it an automatic entry, as `apply()` writes one: `origin: meeting`, `sourceMeetingId` the meeting, no note.
+   * `"untouched"` still follows its meeting (`followsMeeting: true`); `"touched"` is one its person changed
+   * (`followsMeeting: false`, the mark stays). Without it the entry is a person's own. A note goes with `"touched"`
+   * only: the CHECK `time_entry_follows_shape` refuses one on an untouched entry, and Operai writes none (AC-4.1).
+   */
+  readonly automatic?: "untouched" | "touched";
+}
+
 /** An entry on a meeting: no work type and no activity pointer, as the schema requires. */
-export function makeMeetingEntry(meetingId: string, options: EntryOptions = {}) {
-  return insert({ ...base(options), target: "meeting", meetingId });
+export function makeMeetingEntry(meetingId: string, options: MeetingEntryOptions = {}) {
+  const { automatic, ...entry } = options;
+  return insert({
+    ...base(entry),
+    target: "meeting",
+    meetingId,
+    ...(automatic !== undefined ? { origin: "meeting" as const, sourceMeetingId: meetingId, followsMeeting: automatic === "untouched" } : {}),
+  });
 }
 
 /** An entry on no entity (shown as "Other work"): a category, never a work type. Default category Training. */
@@ -234,10 +273,16 @@ export function onReset(hook: () => void | Promise<void>): void {
 
 /**
  * Puts the world back to its start: no entries, no list rows but the seeded ones, and those as the
- * migration made them (a test may have renamed, retired or restored one), then every registered hook.
+ * migration made them (a test may have renamed, retired or restored one), no applied meeting versions
+ * and no blocks, the one release row back (`RELEASE_DAY`), then every registered hook.
  */
 export async function resetWorld(): Promise<void> {
   await db.timeEntry.deleteMany();
+  await db.meetingHoursBlock.deleteMany();
+  await db.meetingHoursMeeting.deleteMany();
+  // The release table holds ONE row by its CHECK, and `apply()` reads the release day from it: it is put
+  // back, never emptied (the seeded lists below are treated the same way).
+  await setReleaseDay(RELEASE_DAY);
   await db.timeCategory.deleteMany({ where: { id: { notIn: SEED_CATEGORY_ROWS.map((row) => row.id) } } });
   await db.workType.deleteMany({ where: { id: { notIn: SEED_WORK_TYPE_ROWS.map((row) => row.id) } } });
   await db.$transaction([

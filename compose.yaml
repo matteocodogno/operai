@@ -498,6 +498,10 @@ services:
   # AUTH_JWKS_URL / AUTH_BASE_URL / PROJECTS_API_URL / CRM_API_URL / ACTIVITIES_API_URL /
   # MEETINGS_API_URL point at the other services on localhost, which a container cannot reach by
   # that name.
+  #
+  # meetings-api is not a compose service (it runs on the host, `mise run dev`): it sends the meeting-hours notices here
+  # (specs/20261112-meeting-hours) with `HOURS_API_URL`, which defaults to http://localhost:8090 outside production. Were it
+  # ever run in compose, it would set HOURS_API_URL=http://hours-api:8090.
   hours-api:
     build:
       context: ./hours-api

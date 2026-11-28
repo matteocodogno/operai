@@ -203,8 +203,8 @@
   total or in the offer's price. _Avoid:_ optional line (confused with optional block).
 
 ### Time tracking (specs/20261112-time-tracking)
-- **Time entry**: one person's own declaration that they spent a duration, on one day, on
-  one thing — a project, a deal, a meeting, or no entity (then with a category). Not an
+- **Time entry**: one person's own declaration — or recorded for them from a meeting (an
+  **Automatic entry**) — that they spent a duration, on one day, on one thing — a project, a deal, a meeting, or no entity (then with a category). Not an
   activity, but may point at one. _Avoid:_ timesheet row, worklog, booking.
 - **Category** (time tracking): what a time entry on no entity is about (training, talk
   preparation, administration, …), from a list an admin manages. Not the inventory's
@@ -213,9 +213,29 @@
   two lists an admin manages (one for projects, one for deals). _Avoid:_ task type, service.
 - **Contractual day**: 8 h 24 min, from 42 hours a week, Monday to Friday. Nothing checks a
   day against it in specs/20261112-time-tracking.
-- **Suggested entry**: a time entry Operai offers a person from a Meetings meeting they took
-  part in; it counts for nothing until the person confirms it (specs/20261112-meeting-hours). _Avoid:_ proposal
-  (ProposAI's word), draft entry.
+- **Automatic entry**: a time entry Operai records for a person on a Meetings meeting they
+  created or took part in, once its duration is known (rounded to 30 minutes); the person's own
+  from the moment it exists, and, until they change it, it follows the meeting
+  (specs/20261112-meeting-hours). It stays an automatic entry when its person records it on something else;
+  its "From meeting" mark shows only while it is recorded on a meeting (D67). _Avoid:_ suggested entry (the
+  superseded design), proposal (ProposAI's word), draft entry.
+- **Untouched**: said of an **Automatic entry** its person has not changed since Operai recorded it. Any edit its
+  person saves is a change, whether or not the values differ (saving the stored values again counts; Operai does
+  not compare values, A39). Reading it, or its meeting being relinked to another deal, is not a change. Only an
+  untouched entry follows its meeting. _Avoid:_ unedited, pristine.
+- **Block** (meeting hours): the record that a person must never again get an **Automatic entry** on one meeting,
+  because they deleted theirs or already had an entry of their own on it when its duration became known. Not the
+  CRM offer wizard's **Block choice**. _Avoid:_ tombstone, ban.
+- **Hours fact**: one of the three things about a meeting its **Automatic entries** are built from — when it
+  started, how long it lasted, and which Operai users took part (creator included). A change of title, content or
+  external participants is not an hours fact. _Avoid:_ meeting data.
+- **Hours notice**: the message Meetings sends to Hours when a meeting's **Hours facts** change or the meeting is
+  deleted; it names the meeting and a version and carries the facts as they are when it is sent, never a title
+  or content. Not a **Host notice**. _Avoid:_ event, sync.
+- **Held duration** / **Measured duration**: the duration a recorded or uploaded meeting holds before its audio is
+  processed (the sum of the pieces the browser reported, or what an uploaded file says of itself) / the length
+  of its audio as Operai measures it when processing it. The measured one replaces the held one when they differ
+  materially (D63, A42). _Avoid:_ real length, actual duration, claimed duration.
 - **Consumption**: the hours recorded on a project set against what its terms sold — the hour
   package, the max effort and estimated man-days, or the positions' planned man-days
   (specs/20261112-project-hours). _Avoid:_ burn, usage.

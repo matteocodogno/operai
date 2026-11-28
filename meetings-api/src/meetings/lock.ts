@@ -8,8 +8,13 @@
 import type { Prisma } from "../lib/generated/prisma/client";
 import { meetingNotFound } from "./visibility";
 
+/** Takes one meeting's row lock until the transaction ends; `false` when there is no such row (it never throws for one). */
+export async function lockMeetingRow(tx: Prisma.TransactionClient, id: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "meeting" WHERE "id" = ${id} FOR UPDATE`;
+  return rows.length > 0;
+}
+
 /** Locks the row, or throws the identical 404 when it is gone (deleted since the caller opened it). */
 export async function lockMeeting(tx: Prisma.TransactionClient, id: string): Promise<void> {
-  const rows = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "meeting" WHERE "id" = ${id} FOR UPDATE`;
-  if (rows.length === 0) throw meetingNotFound();
+  if (!(await lockMeetingRow(tx, id))) throw meetingNotFound();
 }

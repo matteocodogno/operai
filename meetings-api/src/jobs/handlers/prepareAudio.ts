@@ -14,10 +14,20 @@
  *      pinned to the one that probe named. The probe at upload confirm is only an early
  *      reject: it guarded one object, this one guards the bytes decoded;
  *   3. puts `audio.ogg`, then in ONE job-guarded transaction sets `audioKey`,
- *      `audioBytes`, `audioCreatedAt` (the 29-day clock starts here) and enqueues
- *      `transcribe`;
+ *      `audioBytes`, `audioCreatedAt` (the 29-day clock starts here), takes the MEASURED
+ *      duration when the held one is materially wrong (below), and enqueues `transcribe`;
  *   4. deletes the chunk / original OBJECTS (the chunk rows stay: they are the metadata
  *      `recording.lostMs` is computed from) and removes the temp dir in `finally`.
+ *
+ * THE MEASURED DURATION (specs/20261112-meeting-hours AC-3.8 to AC-3.10, plan § The measured duration, D-P6, D-P10; ADR
+ * 20261124-a-duration-a-client-reports-is-replaced-by-the-one-the-server-measures-when-they-differ-by-more-than-the-larger-of-30-seconds-and-10-percent):
+ * the duration a recording or an upload holds is what the creator's browser or the file's container reported, and every
+ * participant's automatic entry is built from it. Step 3 compares it with the length of the normalized audio
+ * (`durationAfterMeasure`, src/media/measuredDuration.ts) and takes the measured one only when they differ by more than the
+ * larger of 30 s and 10 %. It is decided HERE, in the commit that has the measurement, with the held duration read under the
+ * meeting's row lock, and the meeting stays `processing`: an open Meetings page polls only while `processing`, so a correction
+ * moved to `transcribe` or later would never reach it (R10). A changed duration is a hours fact, so `recordHoursNotice` announces
+ * it like any other. A meeting whose audio cannot be measured is `failed` with its held duration untouched (D69).
  *
  * Every step is idempotent: audio that is already stored is not rebuilt. A failure that
  * retrying cannot fix marks the meeting `failed` with a closed code and KEEPS the sources
@@ -34,9 +44,11 @@ import { join } from "node:path";
 import { db } from "../../lib/db";
 import { MAX_CHUNK_BYTES, MAX_UPLOAD_BYTES, ObjectTooLargeError, isUploadKeyOf, objectKeys, requireStorage, type Storage } from "../../lib/storage";
 import { withFfmpegSlot } from "../../media/ffmpegSlot";
+import { durationAfterMeasure } from "../../media/measuredDuration";
 import { MAX_NORMALIZED_MS, NormalizeError, groupIntoRuns, normalizeAudio, ToolMissingError } from "../../media/normalize";
 import { MAX_AUDIO_MS, pinnedDemuxer, probeMedia, type ProbeVerdict } from "../../media/probe";
 import { announce as defaultAnnounce, type NotifyEvent } from "../../lib/notify";
+import { readHoursFacts, recordHoursNotice } from "../../hours/record";
 import { PermanentJobError, TransientJobError, enqueueJob, type JobContext, type JobHandler } from "../runner";
 import { announceProcessing } from "./processingNotice";
 
@@ -179,11 +191,14 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
 
     const before = await db.meeting.findUnique({ where: { id: meetingId }, select: { id: true, title: true, processingRequestedBy: true, creatorUserId: true } });
     const result = await ctx.commit(async (tx) => {
+      const hoursBefore = await readHoursFacts(tx, meetingId);
       const flipped = await tx.meeting.updateMany({
         where: { id: meetingId, status: "processing", audioKey: null },
         data: { status: "draft", stage: null, failureCode: "too_long", processingStartedAt: null, processingRequestedBy: null, processedAt: null, durationMs: null },
       });
       if (flipped.count === 0) return false;
+      // A duration announced at confirm is taken back: hours-api must remove the entries it made from it (AC-1.3).
+      await recordHoursNotice(tx, meetingId, { before: hoursBefore }, now());
       await source.cleanupRows();
       return true;
     });
@@ -196,7 +211,7 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
     const meetingId = ctx.job.meetingId;
     if (!meetingId) throw new PermanentJobError("no_meeting");
 
-    const meeting = await db.meeting.findUnique({ where: { id: meetingId }, select: { source: true, status: true, audioKey: true, durationMs: true } });
+    const meeting = await db.meeting.findUnique({ where: { id: meetingId }, select: { source: true, status: true, audioKey: true } });
     // Deleted, discarded or already finished: nothing to do.
     if (!meeting) return;
 
@@ -231,7 +246,7 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
       //    what was probed, through the demuxer the probe named. All of it runs under the process's
       //    one ffmpeg slot (ADR 20261104-meetings-api-reads-audio-bytes-third-reader): a second prepare_audio, or the transcribe job's splitter, waits.
       const output = join(workDir, "audio.ogg");
-      const { durationMs } = await withFfmpegSlot(async () => {
+      const { durationMs: measuredMs } = await withFfmpegSlot(async () => {
         const inputs = meeting.source === "uploaded" ? files : await groupIntoRuns(workDir, files);
         const inputFormats: string[] = [];
         for (const input of inputs) {
@@ -248,24 +263,34 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
       const { sizeBytes } = await storage.putAudioFile(meetingId, output);
       const stamp = now();
       const committed = await ctx.commit(async (tx) => {
+        // The meeting's row lock. Its duration is the HELD one as it is NOW, not the copy this attempt could have read before
+        // ffmpeg ran: nothing writes it while a meeting is `processing` today, but the decision must not depend on that.
+        const hoursBefore = await readHoursFacts(tx, meetingId);
+        const held = hoursBefore?.durationMs ?? null;
+        const next = durationAfterMeasure(held, measuredMs);
         const updated = await tx.meeting.updateMany({
+          // `status` is NOT changed here: the meeting leaves `processing` in `transcribe`, so an open page still reads this (R10).
           where: { id: meetingId, status: "processing", audioKey: null },
           data: {
             audioKey: objectKeys.audio(meetingId),
             audioBytes: sizeBytes,
             audioCreatedAt: stamp,
-            ...(meeting.durationMs === null ? { durationMs } : {}),
+            ...(next !== held ? { durationMs: next } : {}),
           },
         });
         if (updated.count === 0) return false;
+        // A duration filled or replaced is a hours fact that changed, so a notice is recorded; one left as it was records nothing.
+        await recordHoursNotice(tx, meetingId, { before: hoursBefore }, stamp);
         await enqueueJob(tx, { kind: "transcribe", meetingId });
-        return true;
+        return { replaced: held !== null && next !== held, heldMs: held };
       });
       if (!committed.committed || !committed.value) {
         // The meeting vanished (deleted) or moved on while ffmpeg ran: do not leave its audio behind.
         await storage.deleteObject(objectKeys.audio(meetingId)).catch(() => {});
         return;
       }
+      // The operators' only trace of a replaced duration (D-P10): two integers and the meeting id, no user id, no title. Not shown in the app (A43).
+      if (committed.value.replaced) console.log("[prepare_audio] duration_corrected", { meetingId, heldMs: committed.value.heldMs, measuredMs });
 
       // 4. The sources are no longer needed; video bytes never outlive this step.
       if (await deleteSources(storage, meetingId, source)) await source.cleanupRows();

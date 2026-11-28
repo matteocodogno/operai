@@ -230,6 +230,8 @@ export interface MeetingsHost {
   relink(id: string, dealId: string | null): void;
   /** Stores any host on the meeting, or none: a host that is not a CRM deal. */
   setHost(id: string, host: StoredHost | null): void;
+  /** meetings-api no longer holds the meeting (it was deleted): the caller's list does not have it, so its entries read `hidden`. */
+  remove(id: string): void;
   /** meetings-api before T8: ignores `ids` and returns the caller's latest page (plan R7). */
   legacy: boolean;
 }
@@ -823,6 +825,11 @@ export function startHosts(): Hosts {
         const index = meetings.findIndex((meeting) => meeting.id === id);
         if (index === -1) throw new Error(`hosts.meetings: no meeting ${id}`);
         meetings[index] = { ...meetings[index]!, host };
+      },
+      remove(id) {
+        const index = meetings.findIndex((meeting) => meeting.id === id);
+        if (index === -1) throw new Error(`hosts.meetings: no meeting ${id}`);
+        meetings.splice(index, 1);
       },
       get legacy() {
         return flags.meetingsLegacy;

@@ -566,7 +566,7 @@ describe("env-doctor checker — meetings (specs/20261104-meetings)", () => {
   const CLIENT_SECRET_MEET = "m".repeat(40);
   // A synthetic stand-in for the base64 service-account key; the tests assert it is never printed.
   const GCP_KEY = "eyJzeW50aGV0aWMta2V5LW5ldmVyLXByaW50ZWQi" + "Z".repeat(24);
-  const meetingsRegistry = (scope = "notifications.push host-notices.send", secret = CLIENT_SECRET_MEET) =>
+  const meetingsRegistry = (scope = "notifications.push host-notices.send meeting-hours-notices.send", secret = CLIENT_SECRET_MEET) =>
     JSON.stringify({
       "inventory-api": { secret: CLIENT_SECRET, scope: "notifications.push emails.send" },
       "estimai-api": { secret: CLIENT_SECRET_EST, scope: "notifications.push estimate-notices.send" },
@@ -608,6 +608,7 @@ describe("env-doctor checker — meetings (specs/20261104-meetings)", () => {
       SERVICE_CLIENT_ID: "meetings-api",
       SERVICE_CLIENT_SECRET: CLIENT_SECRET_MEET,
       SERVICE_AUDIENCE: SVC_AUD, // specs/20261112-time-tracking: /system/meetings/hosts, production-required
+      HOURS_API_URL: "http://hours-api.railway.internal:8090", // specs/20261112-meeting-hours: where the notices go, production-required
       MEETINGS_S3_ENDPOINT: "https://t3.storageapi.dev",
       MEETINGS_S3_REGION: "ams",
       MEETINGS_S3_EU_ENDPOINT_HOSTS: "t3.storageapi.dev",
@@ -699,10 +700,57 @@ describe("env-doctor checker — meetings (specs/20261104-meetings)", () => {
 
   test("meetings-api's client without notifications.push → error; an extra emails.send → error (least privilege)", () => {
     const s = meetingsSuite();
-    s.auth!.SERVICE_CLIENTS = meetingsRegistry("host-notices.send");
+    s.auth!.SERVICE_CLIENTS = meetingsRegistry("host-notices.send meeting-hours-notices.send");
     expect(errText(checkSuite(s, PROD))).toContain('entry "meetings-api" lacks the "notifications.push" scope');
-    s.auth!.SERVICE_CLIENTS = meetingsRegistry("notifications.push host-notices.send emails.send");
+    s.auth!.SERVICE_CLIENTS = meetingsRegistry("notifications.push host-notices.send meeting-hours-notices.send emails.send");
     expect(errText(checkSuite(s, PROD))).toContain('holds the "emails.send" scope, which meetings-api does not need');
+  });
+
+  // specs/20261112-meeting-hours (T1, AC-1.6): hours-api verifies `meeting-hours-notices.send` and names `system:meetings-api` in its sub allowlist.
+  test("meetings-api's client without meeting-hours-notices.send → error naming only that scope (specs/20261112-meeting-hours)", () => {
+    const s = meetingsSuite();
+    s.auth!.SERVICE_CLIENTS = meetingsRegistry("notifications.push host-notices.send");
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain('entry "meetings-api" lacks the "meeting-hours-notices.send" scope');
+    expect(text).not.toContain('lacks the "notifications.push" scope');
+    expect(text).not.toContain('lacks the "host-notices.send" scope');
+  });
+
+  test("meeting-hours-notices.send is meetings-api's alone: another client holding it → error (specs/20261112-meeting-hours)", () => {
+    const s = meetingsSuite();
+    const registry = JSON.parse(meetingsRegistry());
+    registry["crm-api"].scope += " meeting-hours-notices.send";
+    s.auth!.SERVICE_CLIENTS = JSON.stringify(registry);
+    expect(errText(checkSuite(s, PROD))).toContain('entry "crm-api" holds the "meeting-hours-notices.send" scope, which crm-api does not need');
+  });
+
+  describe("HOURS_API_URL (specs/20261112-meeting-hours T1): where meetings-api posts its hours notices", () => {
+    test("the contract entries: an internal URL targeting hours-api, required for meetings-api in production only", () => {
+      expect(INTERNAL_URL_VARS.some((u) => u.name === "HOURS_API_URL" && u.services.includes("meetings-api") && u.target === "hours-api")).toBe(true);
+      expect(PRODUCTION_REQUIRED_KEYS["meetings-api"]).toContain("HOURS_API_URL");
+      expect(REQUIRED_KEYS["meetings-api"]).not.toContain("HOURS_API_URL"); // meetings-api's env.ts defaults it outside production
+    });
+    test("missing in production → error naming it; a local setup is not flagged (env.ts defaults it)", () => {
+      const s = meetingsSuite();
+      delete s["meetings-api"]!.HOURS_API_URL;
+      expect(errText(checkSuite(s, PROD))).toContain("HOURS_API_URL is missing");
+      expect(errText(checkSuite(s, LOCAL))).not.toContain("HOURS_API_URL is missing");
+    });
+    test("locally, env.ts's own default (http://localhost:8090) is accepted", () => {
+      const s = meetingsSuite();
+      s["meetings-api"]!.HOURS_API_URL = "http://localhost:8090";
+      expect(errs(checkSuite(s, LOCAL)).filter((x) => x.message.includes("HOURS_API_URL"))).toEqual([]);
+    });
+    test("a public URL → error (the service token must not travel over the public domain)", () => {
+      const s = meetingsSuite();
+      s["meetings-api"]!.HOURS_API_URL = "https://hours-api.operai.welld.io";
+      expect(errText(checkSuite(s, PROD))).toContain("HOURS_API_URL");
+    });
+    test("a Railway reference to hours-api's private domain and port is accepted", () => {
+      const s = meetingsSuite();
+      s["meetings-api"]!.HOURS_API_URL = "http://${{hours-api.RAILWAY_PRIVATE_DOMAIN}}:${{hours-api.PORT}}";
+      expect(errs(checkSuite(s, PROD)).filter((x) => x.message.includes("HOURS_API_URL"))).toEqual([]);
+    });
   });
 
   test("meetings-api's client id missing from auth's registry, or a different secret → error, no secret printed", () => {
@@ -1832,7 +1880,7 @@ describe("env-doctor checker — hours-api (specs/20261112-time-tracking)", () =
     JSON.stringify({
       ...JSON.parse(projectsRegistry()),
       "activities-api": { secret: CLIENT_SECRET_ACT, scope: "notifications.push emails.send" },
-      "meetings-api": { secret: CLIENT_SECRET_MEET, scope: "notifications.push host-notices.send" },
+      "meetings-api": { secret: CLIENT_SECRET_MEET, scope: "notifications.push host-notices.send meeting-hours-notices.send" },
       "hours-api": { secret: CLIENT_SECRET_HOURS, scope: hoursScope },
     });
 
@@ -1866,6 +1914,7 @@ describe("env-doctor checker — hours-api (specs/20261112-time-tracking)", () =
       SERVICE_CLIENT_ID: "meetings-api",
       SERVICE_CLIENT_SECRET: CLIENT_SECRET_MEET,
       SERVICE_AUDIENCE: SVC_AUD,
+      HOURS_API_URL: "http://hours-api.railway.internal:8090", // specs/20261112-meeting-hours
       MEETINGS_S3_ENDPOINT: "https://t3.storageapi.dev",
       MEETINGS_S3_REGION: "ams",
       MEETINGS_S3_EU_ENDPOINT_HOSTS: "t3.storageapi.dev",
@@ -1929,7 +1978,8 @@ describe("env-doctor checker — hours-api (specs/20261112-time-tracking)", () =
         ...Object.keys(OWNER_URLS), "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", "SERVICE_AUDIENCE", "PORT",
       ].sort(),
     );
-    expect(PRODUCTION_REQUIRED_KEYS["meetings-api"]).toEqual(["SERVICE_AUDIENCE"]);
+    // specs/20261112-meeting-hours: meetings-api also posts its hours notices to hours-api (HOURS_API_URL).
+    expect(PRODUCTION_REQUIRED_KEYS["meetings-api"]).toEqual(["SERVICE_AUDIENCE", "HOURS_API_URL"]);
   });
 
   test("required keys: every variable hours-api's own env.ts requires, in production and locally", () => {
@@ -2061,13 +2111,22 @@ describe("env-doctor checker — hours-api (specs/20261112-time-tracking)", () =
     expect(errText(checkSuite(s, PROD))).toContain("hours-api must not hold");
   });
 
-  test("meetings-api's own service client is unchanged by the new audience (notifications.push + host-notices.send)", () => {
+  test("meetings-api's own service client is unchanged by the new audience (notifications.push + host-notices.send + meeting-hours-notices.send)", () => {
     const s = hoursSuite();
     expect(errs(checkSuite(s, PROD))).toEqual([]);
     const registry = JSON.parse(hoursRegistry());
-    registry["meetings-api"].scope = "notifications.push host-notices.send meetings.hosts.read";
+    registry["meetings-api"].scope = "notifications.push host-notices.send meeting-hours-notices.send meetings.hosts.read";
     s.auth!.SERVICE_CLIENTS = JSON.stringify(registry);
     expect(errText(checkSuite(s, PROD))).toContain('entry "meetings-api" holds the "meetings.hosts.read" scope, which meetings-api does not need');
+  });
+
+  test("meetings-api's HOURS_API_URL must be hours-api's private address and port (specs/20261112-meeting-hours)", () => {
+    const s = hoursSuite();
+    s["meetings-api"]!.HOURS_API_URL = "http://hours-api.railway.internal:8085";
+    expect(errsAbout(checkSuite(s, PROD), "meetings-api")).toContain("targets port 8085 but hours-api.PORT is 8090");
+    const t = hoursSuite();
+    t["meetings-api"]!.HOURS_API_URL = "https://hours-api.operai.welld.io";
+    expect(errsAbout(checkSuite(t, PROD), "meetings-api")).toContain("HOURS_API_URL");
   });
 
   test("hours-api's service-client secret is redacted", () => {

@@ -2,9 +2,11 @@
  * Service-token client (specs/20261104-meetings, copied from crm-api; ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049).
  * Exchanges `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` for the 5-minute RS256
  * service JWT `auth POST /system/service-token` mints. meetings-api uses it as
- * `system:meetings-api` for two things (scopes `notifications.push` and
- * `host-notices.send`, never `emails.send`, AC-12.4): the Bearer credential for
- * notify-api's `/system/notifications` and for a host's notice endpoint.
+ * `system:meetings-api` for three things (scopes
+ * `notifications.push host-notices.send meeting-hours-notices.send`, never
+ * `emails.send`, AC-12.4): the Bearer credential for notify-api's
+ * `/system/notifications`, for a host's notice endpoint and for hours-api's
+ * `/system/meeting-hours/v1/notices` (specs/20261112-meeting-hours).
  *
  * - Cached in memory; refetched once the token is within 60 s of expiry.
  * - SINGLE-FLIGHT: concurrent callers share one in-flight exchange (a burst of
@@ -117,7 +119,8 @@ export function createServiceTokenProvider(options: ServiceTokenProviderOptions)
 /**
  * The provider wired from the environment, or `null` when the group is not
  * configured (env.ts; required in production): meetings-api then pushes no
- * notification and sends no host notice.
+ * notification, sends no host notice and records no hours notice (the hours
+ * channel needs it too, `src/hours/client.ts`).
  */
 export const serviceTokens: ServiceTokenProvider | null =
   env.NOTIFY_INTERNAL_URL && env.SERVICE_CLIENT_ID && env.SERVICE_CLIENT_SECRET

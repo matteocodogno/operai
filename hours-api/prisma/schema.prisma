@@ -28,6 +28,15 @@ datasource db {
 // the activity belongs to the same project or deal, no retired item on a create or change, a
 // category that requires a note, no future day) stay application checks.
 // The migration also inserts the initial lists (A15, AC-3.7) with fixed ids.
+//
+// specs/20261112-meeting-hours (plan.md § Data model "hours-api", ADR 20261124-a-system-written-time-entry-follows-its-source-fact-only-until-its-person-changes-it-and-is-never-written-again-after-the-person-removed-it):
+// the second migration, `meeting_hours`, adds the columns and tables below. Its raw SQL, proved by
+// src/db.constraints.test.ts and src/migration.seed.test.ts:
+//   time_entry  time_entry_origin_shape   origin = meeting exactly when a source meeting is remembered
+//               time_entry_follows_shape  only an automatic entry still on its meeting, with no note, follows it
+//               time_entry_one_automatic_per_meeting   partial unique index (userId, sourceMeetingId):
+//                                         one automatic entry per person and meeting, ever (AC-4.2)
+//   meeting_hours_meeting  seq >= 0       meeting_hours_release  id = 1, one row, written by the migration
 
 enum TimeTarget {
   project
@@ -41,36 +50,60 @@ enum WorkTypeList {
   deal
 }
 
+/// Who wrote a time entry (specs/20261112-meeting-hours): the person, or Operai from a meeting's facts.
+enum TimeEntryOrigin {
+  person
+  meeting
+}
+
+/// Why a person is never given an automatic entry on a meeting (AC-1.4, AC-2.5).
+enum MeetingHoursBlockReason {
+  had_entry
+  deleted
+}
+
 model TimeEntry {
-  id         String        @id @default(cuid())
+  id              String          @id @default(cuid())
   /// The JWT `sub` of its creator, never client input (AC-1.1, AC-1.6).
-  userId     String
-  day        DateTime      @db.Date
+  userId          String
+  day             DateTime        @db.Date
   /// 30..1440, a multiple of 30 (CHECK time_entry_minutes). A duration only, never a start or an
   /// end time (AC-1.8).
-  minutes    Int
-  target     TimeTarget
+  minutes         Int
+  target          TimeTarget
   /// projects-api id (no FK: another service); set only on a `project` entry (CHECK)
-  projectId  String?
+  projectId       String?
   /// crm-api id; set only on a `deal` entry (CHECK)
-  dealId     String?
+  dealId          String?
   /// meetings-api id; set only on a `meeting` entry (CHECK). The deal a meeting counts for is
   /// read live, never stored here (AC-2.6).
-  meetingId  String?
+  meetingId       String?
   /// set only on a `none` entry (CHECK)
-  categoryId String?
-  category   TimeCategory? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  categoryId      String?
+  category        TimeCategory?   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   /// optional; never on a `meeting` or `none` entry (CHECK). Whether it comes from the list that
   /// matches the target is an application check.
-  workTypeId String?
-  workType   WorkType?     @relation(fields: [workTypeId], references: [id], onDelete: Restrict)
+  workTypeId      String?
+  workType        WorkType?       @relation(fields: [workTypeId], references: [id], onDelete: Restrict)
   /// activities-api id; only on a project or deal entry (CHECK). Shown only while the activity
   /// still exists; never cleared by a read or a write (D47).
-  activityId String?
+  activityId      String?
   /// <= 1000 characters (CHECK time_entry_note_length)
-  note       String?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  note            String?
+  /// `meeting` for an entry Operai recorded from a meeting's facts, `person` for every other one,
+  /// every entry that existed before the feature included. Never changed once written, and the
+  /// person's own PATCH keeps it (AC-2.3).
+  origin          TimeEntryOrigin @default(person)
+  /// The meeting an automatic entry was recorded for, remembered even once its person moved the
+  /// entry elsewhere. Set exactly when `origin` is `meeting` (CHECK time_entry_origin_shape);
+  /// one entry per person and meeting (partial unique index time_entry_one_automatic_per_meeting).
+  sourceMeetingId String?
+  /// True while the entry still follows its meeting: written by Operai and not changed by its
+  /// person since. Cleared by any saved change of the person (A39); only a following entry can be
+  /// moved, resized or removed by a later notice (AC-3.1..3.5). CHECK time_entry_follows_shape.
+  followsMeeting  Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   @@index([userId, day])
   @@index([projectId, day])
@@ -109,4 +142,39 @@ model WorkType {
   entries   TimeEntry[]
 
   @@map("work_type")
+}
+
+/// The newest version of a meeting's facts applied (specs/20261112-meeting-hours D-P1). The row
+/// is also the lock that serialises every apply of one meeting. No foreign key: the meeting is
+/// meetings-api's.
+model MeetingHoursMeeting {
+  meetingId String    @id
+  /// >= 0 (CHECK); 0 until a first notice is applied.
+  seq       Int
+  appliedAt DateTime?
+
+  @@map("meeting_hours_meeting")
+}
+
+/// A person who must never get an automatic entry on a meeting: they already had an entry of their
+/// own when its duration became known (AC-1.4), or deleted theirs (AC-2.5). No foreign key
+/// (other services' ids); written by Operai, never by a client.
+model MeetingHoursBlock {
+  meetingId String
+  userId    String
+  reason    MeetingHoursBlockReason
+  createdAt DateTime                @default(now())
+
+  @@id([meetingId, userId])
+  @@map("meeting_hours_block")
+}
+
+/// The release day (AC-1.5): ONE row, `id = 1` (CHECK), written by the migration as the
+/// Europe/Zurich date it ran, never by configuration. A meeting whose day is before `since`
+/// records no automatic entry.
+model MeetingHoursRelease {
+  id    Int      @id @db.SmallInt
+  since DateTime @db.Date
+
+  @@map("meeting_hours_release")
 }

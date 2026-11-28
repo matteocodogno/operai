@@ -77,6 +77,7 @@ enum JobKind {
   transcribe
   summarize
   deliver_host_notice
+  deliver_hours_notice
 }
 
 enum JobState {
@@ -115,6 +116,18 @@ enum NoticeState {
   failed
 }
 
+// specs/20261112-meeting-hours: what a hours notice announces (the meeting's facts as they are when it is sent,
+// or that the meeting is gone) and whether it still waits for delivery. A delivered row is deleted.
+enum HoursNoticeKind {
+  state
+  deleted
+}
+
+enum HoursNoticeState {
+  pending
+  failed
+}
+
 model Meeting {
   id            String           @id @default(cuid())
   title         String
@@ -135,6 +148,9 @@ model Meeting {
   hostEntityId   String?
   hostVisible    Boolean @default(false)
   hostNoticeSeq  Int     @default(0)
+  // Version of the hours facts (startsAt, durationMs, Operai participants) last announced to hours-api
+  // (specs/20261112-meeting-hours). Bumped, in the transaction that changes one of them, by the writer of the hours notice.
+  hoursSeq       Int     @default(0)
 
   // all or none (CHECK); none on a `text` meeting
   consentUserId        String?
@@ -450,6 +466,24 @@ model ConversationTurn {
 
   @@index([meetingId, userId, createdAt])
   @@map("conversation_turn")
+}
+
+// The hours outbox (specs/20261112-meeting-hours, ADR 20261124-meeting-hours-facts-pushed-by-their-owner-as-a-versioned-state-built-at-send-time-through-an-until-delivered-outbox-and-applied-by-hours-api-only-when-not-older).
+// meetingId has NO foreign key: a `deleted` notice outlives its meeting. The row holds NO personal data and no
+// content: the facts it announces are read when it is sent. A delivered row is deleted; a `failed` one is kept
+// with its closed code for the operator.
+model HoursNotice {
+  id            String           @id @default(cuid())
+  meetingId     String
+  seq           Int
+  kind          HoursNoticeKind
+  state         HoursNoticeState @default(pending)
+  attempts      Int              @default(0)
+  lastErrorCode String?
+  createdAt     DateTime         @default(now())
+
+  @@index([meetingId])
+  @@map("hours_notice")
 }
 
 // Content-free, append-only rate-limit ledger (AC-13.4); pruned per user on insert.

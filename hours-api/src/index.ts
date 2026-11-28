@@ -11,6 +11,7 @@ import { entriesRouter } from "./entries/entries.routes";
 import { entryListRouter } from "./entries/list.routes";
 import { handleError, handleNotFound, invalidRequestHook } from "./lib/errors";
 import { listsRouter } from "./lists/lists.routes";
+import { meetingHoursNoticesRouter } from "./meetingHours/notices.routes";
 import { requestLogger } from "./lib/logger";
 import { problem } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
@@ -55,6 +56,15 @@ app.use(
 
 app.route("/", healthRouter);
 setupOpenAPI(app);
+
+// ─── Service routes ──────────────────────────────────────────────────────────
+// The one route that takes a SERVICE credential, never a user session: meetings-api's notices of a meeting's hours facts
+// (specs/20261112-meeting-hours). Its own guard (`systemAuth.middleware`, a scoped service JWT, one 401 for every failure) rides
+// on the route, so it must be mounted ABOVE the session guard: below it, a service JWT meets the user gate and every notice
+// is a 401 (plan R8). Any later `/system/*` route goes here too, each with its own guard; the matrix (src/matrix.test.ts) fails
+// on a route it was not told about.
+
+app.route("/", meetingHoursNoticesRouter);
 
 // ─── The session guard ───────────────────────────────────────────────────────
 // Default-deny (AC-5.3): every path below this line, including one nothing serves, needs a valid

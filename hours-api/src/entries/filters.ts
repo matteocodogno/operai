@@ -20,6 +20,7 @@ import { ProblemError } from "../lib/problem";
 import { IdSchema, isWellFormedId } from "../lists/idRule";
 import type { EntryScope } from "../oversight/scope";
 import { hostUnavailable } from "../targets/errors";
+import { dayDate } from "./rules";
 import { DaySchema } from "./schemas";
 
 // ─── The members ─────────────────────────────────────────────────────────────
@@ -91,8 +92,6 @@ export function readFilters(query: FilterQuery): EntryFilters {
 
 // ─── The database's question ─────────────────────────────────────────────────
 
-const dayOf = (day: string): Date => new Date(`${day}T00:00:00Z`);
-
 /**
  * What "on this deal" means: the entries on the deal itself, plus the entries on the meetings linked to it NOW
  * (AC-2.6). The link is not stored on an entry, so a relinked meeting's hours move with it, and only meetings-api
@@ -144,7 +143,7 @@ export async function entryQuery(filters: EntryFilters, scope: EntryScope): Prom
   const where: Prisma.TimeEntryWhereInput = {
     ...(scope.kind === "person" ? { userId: scope.userId } : {}),
     ...(forDeal !== undefined ? { AND: [forDeal.condition] } : {}),
-    day: { gte: dayOf(filters.from), lte: dayOf(filters.to) },
+    day: { gte: dayDate(filters.from), lte: dayDate(filters.to) },
     ...(filters.target !== undefined ? { target: filters.target } : {}),
     ...(filters.projectId !== undefined ? { projectId: filters.projectId } : {}),
     ...(filters.meetingId !== undefined ? { meetingId: filters.meetingId } : {}),
