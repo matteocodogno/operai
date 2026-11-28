@@ -955,6 +955,8 @@ describe("GET /projects/:id — the hour package's current period (specs/2026111
       [
         "awaitingProjectManager", "company", "createdAt", "endDate", "entity", "id", "name", "projectManager", "purchaseOrder",
         "startDate", "state", "stateBeforeHold", "team", "tenderDealId", "terms", "type", "updatedAt", "version",
+        // specs/20261126-teams: the attached teams and who is on the project
+        "onProject", "onProjectComplete", "teams", "teamsRetryAfterSeconds", "teamsStatus",
       ].sort(),
     );
 

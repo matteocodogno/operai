@@ -171,7 +171,15 @@ describe("resolveProjects", () => {
     });
     const outcome = await resolveProjects(ALICE, ["p1"]);
     if (outcome.state !== "ok") throw new Error(`expected an answer, got ${outcome.state}`);
-    expect(outcome.items.get("p1")).toEqual({ state: "open", label: "Atlas", href: "/projects/p1", writable: true, assignees: null });
+    // No `projectManagerId` on the wire: undefined, "not stated" (specs/20261112-project-hours T6), never a grant.
+    expect(outcome.items.get("p1")).toEqual({
+      state: "open",
+      label: "Atlas",
+      href: "/projects/p1",
+      writable: true,
+      assignees: null,
+      projectManagerId: undefined,
+    });
   });
 
   it.each(["https://evil.example/x", "//evil.example/x", "javascript:alert(1)", "projects/p1", "/a\\b", "/with space", ""])(
