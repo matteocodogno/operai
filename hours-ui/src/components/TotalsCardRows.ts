@@ -5,7 +5,7 @@
  * Pure: one row per group, IN THE ORDER THE SERVER SENT THEM — never sorted here, because the plan fixes
  * that order per grouping (minutes descending, then the merged rows; months newest first) and a second
  * sort would only be able to disagree with it. A merged group (`hidden`, `unavailable`, `deal-unknown`,
- * `none`) is the row the server made of it: one row however many items it holds. Names of the data (a
+ * `project-unknown`, `none`) is the row the server made of it: one row however many items it holds. Names of the data (a
  * project, a deal, a category) are shown as the server sends them; the words around them come from the
  * catalog, and no row ever shows an id. A person is named as everywhere else (`personName`, T29): "Unknown
  * user" when the name could not be read, "(deactivated)" for a closed account.
@@ -30,7 +30,12 @@ const mergedWords = (): Record<GroupChoice, Partial<Record<string, string>>> => 
   return {
     // A person is never merged: every group of the person grouping is a keyed one.
     person: {},
-    project: { hidden: rows.project.hidden, unavailable: rows.project.unavailable, none: rows.project.none },
+    project: {
+      hidden: rows.project.hidden,
+      unavailable: rows.project.unavailable,
+      'project-unknown': rows.project.projectUnknown,
+      none: rows.project.none,
+    },
     deal: {
       hidden: rows.deal.hidden,
       unavailable: rows.deal.unavailable,

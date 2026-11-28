@@ -11,9 +11,11 @@ import { entriesRouter } from "./entries/entries.routes";
 import { entryListRouter } from "./entries/list.routes";
 import { handleError, handleNotFound, invalidRequestHook } from "./lib/errors";
 import { listsRouter } from "./lists/lists.routes";
+import { meetingHoursNoticesRouter } from "./meetingHours/notices.routes";
 import { requestLogger } from "./lib/logger";
 import { problem } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
+import { summaryRouter } from "./summary/summary.routes";
 import { totalsRouter } from "./totals/totals.routes";
 
 // Exported so the authorization matrix (src/matrix.test.ts, T20) can read the ASSEMBLED
@@ -56,6 +58,15 @@ app.use(
 app.route("/", healthRouter);
 setupOpenAPI(app);
 
+// ─── Service routes ──────────────────────────────────────────────────────────
+// The one route that takes a SERVICE credential, never a user session: meetings-api's notices of a meeting's hours facts
+// (specs/20261112-meeting-hours). Its own guard (`systemAuth.middleware`, a scoped service JWT, one 401 for every failure) rides
+// on the route, so it must be mounted ABOVE the session guard: below it, a service JWT meets the user gate and every notice
+// is a 401 (plan R8). Any later `/system/*` route goes here too, each with its own guard; the matrix (src/matrix.test.ts) fails
+// on a route it was not told about.
+
+app.route("/", meetingHoursNoticesRouter);
+
 // ─── The session guard ───────────────────────────────────────────────────────
 // Default-deny (AC-5.3): every path below this line, including one nothing serves, needs a valid
 // session (RS256, issuer, `aud=AUTH_AUDIENCE`), so a route added later without its own check is
@@ -67,12 +78,14 @@ app.use("*", jwtMiddleware);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 // Every area router is mounted here, once, in this order (src/index.ts is shared by T12, T14, T17
-// and T18): lists, entries, list, totals. T10 mounted none; T12 mounts the lists, T14 the entry writes.
+// and T18): lists, entries, list, totals, summary. T10 mounted none; T12 mounts the lists, T14 the entry writes; the summary
+// (specs/20261112-project-hours T9) is a read of one record's hours, the only route added for that spec in this service.
 
 app.route("/", listsRouter);
 app.route("/", entriesRouter);
 app.route("/", entryListRouter);
 app.route("/", totalsRouter);
+app.route("/", summaryRouter);
 
 // ─── Error answers (RFC 7807 Problem JSON) ───────────────────────────────────
 

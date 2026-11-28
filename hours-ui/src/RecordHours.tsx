@@ -7,6 +7,8 @@ import type { EntryDialogLists } from './components/EntryDialog'
 import { durationText } from './components/EntryDialogModel'
 import { createEntry, getTimeLists } from './lib/hoursApi'
 import type { EntryInput } from './lib/hoursApi.types'
+import { TIME_ENTRY_RECORDED } from './lib/timeEntryRecordedEvent'
+import type { TimeEntryRecordedDetail } from './lib/timeEntryRecordedEvent'
 import { MY_HOURS_PATH, checkProps, presetOf } from './RecordHoursModel'
 import type { RecordHoursProps } from './RecordHoursModel'
 import { strings } from './strings'
@@ -36,8 +38,14 @@ const isPlainClick = (event: MouseEvent<HTMLAnchorElement>) =>
  * with a link to My hours through `navigateSuite`. The message has no timer (G1): a link that vanished in three seconds
  * could not be reached from the keyboard (WCAG 2.2.1). It goes by ×, by the next save, or by leaving the page.
  *
- * It imports only `EntryDialog`, `hoursApi`, `searchers` and the strings, so the chunk a host loads carries none of the
- * pages and not `exceljs` (plan R3; `RecordHours.graph.test.ts` holds that).
+ * After a save that stood it also broadcasts ONE content-free `operai:time-entry-recorded` event on `window`, naming only the
+ * project or deal it recorded on (a task row: the task's project or deal; other work: none), so a panel on the same page that
+ * shows that target's figures can read them again from their owner (specs/20261112-project-hours T10, D84, D-P6; ADR
+ * 20261116-record-hours-widget-through-the-host-extension-seam, amended 2026-11-26). It is still not a callback: nothing comes back
+ * to the host, a host that does not listen is unchanged, and a refused or failed save sends nothing.
+ *
+ * It imports only `EntryDialog`, `hoursApi`, `searchers`, the event's name and the strings, so the chunk a host loads carries none
+ * of the pages and not `exceljs` (plan R3; `RecordHours.graph.test.ts` holds that).
  */
 export default function RecordHours(props: RecordHoursProps): ReactNode {
   // An invalid set is a host bug: it throws here, and the host's boundary shows its fallback link.
@@ -45,7 +53,7 @@ export default function RecordHours(props: RecordHoursProps): ReactNode {
 }
 
 function RecordHoursButton(props: RecordHoursProps) {
-  const { on, targetName, activityName, placement } = props
+  const { on, targetId, targetName, activityName, placement } = props
   const t = strings.recordHours
   const button = useRef<HTMLButtonElement>(null)
   const read = useRef<AbortController | null>(null)
@@ -106,6 +114,10 @@ function RecordHoursButton(props: RecordHoursProps) {
     await createEntry(input)
     setRecorded(sentenceOf(input, lists?.status === 'loaded' ? lists.lists.categories : []))
     close()
+    // Only now: a refused or failed save threw above, so no panel is told of hours that were not recorded. The fact is the target and
+    // nothing else (D-P6); the figures are read again by whoever shows them, from their owner, never taken from this.
+    const detail: TimeEntryRecordedDetail = on === 'none' ? { on, targetId: '' } : { on, targetId }
+    window.dispatchEvent(new CustomEvent(TIME_ENTRY_RECORDED, { detail }))
   }
 
   const dismiss = () => {

@@ -1425,7 +1425,8 @@ Everything below is a **checklist for a person**: nothing in this section has be
 | `AUTH_ISSUER` / `AUTH_AUDIENCE` | public claim `${{shared.AUTH_ISSUER}}` / `${{shared.AUTH_AUDIENCE}}` (the sixth resource server on this value) | no |
 | `NOTIFY_INTERNAL_URL` | `${{shared.NOTIFY_INTERNAL_URL}}` | no |
 | `CRM_API_URL` | internal, `http://${{crm-api.RAILWAY_PRIVATE_DOMAIN}}:${{crm-api.PORT}}` — the host contract (ADR 20261104-meeting-host-contract-resolve-and-notices) | no |
-| `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | `meetings-api` / `${{shared.MEETINGS_SERVICE_CLIENT_SECRET}}` (≥ 32 chars, byte-identical to its `SERVICE_CLIENTS` entry) | secret: yes |
+| `HOURS_API_URL` | **new (specs/20261112-meeting-hours).** internal, `http://${{hours-api.RAILWAY_PRIVATE_DOMAIN}}:${{hours-api.PORT}}` — where the hours notices go; **required in production** (the service exits 1 without it), never hours-api's public domain, and not `infra/check.sh`'s `HOURS_API_URL` override, which is the public URL. § Meeting hours release | no |
+| `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | `meetings-api` / `${{shared.MEETINGS_SERVICE_CLIENT_SECRET}}` (≥ 32 chars, byte-identical to its `SERVICE_CLIENTS` entry, whose scopes are exactly `notifications.push host-notices.send meeting-hours-notices.send`) | secret: yes |
 | `MEETINGS_S3_ENDPOINT` / `_REGION` / `_EU_ENDPOINT_HOSTS` | the audio bucket; a non-AWS endpoint needs its host in the EU list or the service exits 1 (ADR 20260716-eu-object-storage-refund-attachments lineage) | no |
 | `MEETINGS_S3_BUCKET` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | set by reference to the Railway bucket by `provision-tool.sh --bucket`; **its own bucket and credentials**, never crm's or refund's | secrets: yes |
 | `MEETINGS_SPEECH_LOCATION` | `eu` — the only value accepted (Chirp 3 is GA in `eu` and `us` only); the Speech endpoint is derived, never configured | no |
@@ -1599,10 +1600,13 @@ go-live.**
   lead, not something this checklist closes.
 
 **Wiring in `auth` (do this first).** `SERVICE_CLIENTS` gains exactly:
-`"meetings-api":{"secret":"${{shared.MEETINGS_SERVICE_CLIENT_SECRET}}","scope":"notifications.push host-notices.send"}`
+`"meetings-api":{"secret":"${{shared.MEETINGS_SERVICE_CLIENT_SECRET}}","scope":"notifications.push host-notices.send meeting-hours-notices.send"}`
 (no `emails.send`). Generate the secret (≥ 32 random chars) as the Railway Shared Variable
 `MEETINGS_SERVICE_CLIENT_SECRET`. `crm-api` needs `SERVICE_AUDIENCE=${{shared.SERVICE_AUDIENCE}}`
-to verify the notices; `env:doctor` fails a template without it.
+to verify the notices; `env:doctor` fails a template without it. The third scope, `meeting-hours-notices.send`, is the one
+hours-api verifies on its meeting-hours notices (specs/20261112-meeting-hours): an environment provisioned before that release holds the
+first two and gains the third as § Meeting hours release says (only after the `auth` that knows it is live); a first provisioning from this
+version of the file takes all three at once.
 
 **Provisioning and order.** From the repo root (plan first, `--apply` only after reading it):
 
@@ -3336,7 +3340,7 @@ variable below is required). Committed contract: `tools/env-doctor/templates/pro
 | `AUTH_AUDIENCE` | `${{shared.AUTH_AUDIENCE}}` | no |
 | `PROJECTS_API_URL` / `CRM_API_URL` / `ACTIVITIES_API_URL` / `MEETINGS_API_URL` | internal, `http://${{<service>.RAILWAY_PRIVATE_DOMAIN}}:${{<service>.PORT}}` — the owners it asks "may this person book here" as the caller (forwarded JWT, 2 s, a write fails closed, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Unset, the service exits 1 | no |
 | `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | `hours-api` / `${{shared.HOURS_SERVICE_CLIENT_SECRET}}` — at least 32 chars, byte-identical to its `SERVICE_CLIENTS` entry, whose scope is **exactly** `meetings.hosts.read` | secret: yes |
-| `SERVICE_AUDIENCE` | `${{shared.SERVICE_AUDIENCE}}` — the `aud` of the service JWT it shows meetings-api; must differ from `AUTH_AUDIENCE` (both refuse an equal pair at startup) | no |
+| `SERVICE_AUDIENCE` | `${{shared.SERVICE_AUDIENCE}}` — the `aud` of the service JWT it shows meetings-api, and, since specs/20261112-meeting-hours, the audience its one service route (`POST /system/meeting-hours/v1/notices`) verifies; must differ from `AUTH_AUDIENCE` (both refuse an equal pair at startup) | no |
 | `PORT` / `NODE_ENV` | `8090` / `production` | no |
 
 It has no `NOTIFY_INTERNAL_URL`, no storage and no AI variable, so none is required. **Deploy notes.**
@@ -3666,6 +3670,328 @@ Rollback: redeploy the previous production deployment of the project concerned. 
 that tool; rolling back the shell or `hours-ui` turns every host's button into the link, rolling back the shell also leaves the month unpinned,
 and rolling back `hours-ui` also takes the table view with it (My hours is the List again, as before this release). Nothing needs undoing in
 the data: an entry the widget saves is the entry My hours saves.
+
+## Meeting hours release (specs/20261112-meeting-hours, ADR 20261124-meeting-hours-facts-pushed-by-their-owner-as-a-versioned-state-built-at-send-time-through-an-until-delivered-outbox-and-applied-by-hours-api-only-when-not-older, ADR 20261124-a-system-written-time-entry-follows-its-source-fact-only-until-its-person-changes-it-and-is-never-written-again-after-the-person-removed-it; plan § Deploy order, § Release backfill, R1, R3)
+
+A meeting's hours are recorded **automatically** for its creator and its Operai participants once its duration is known: an
+*automatic entry* in My hours, marked "From meeting" ("Da riunione") while it is recorded on a meeting. `meetings-api` owns the facts (when the meeting started, how
+long it lasted, who created it, which Operai users took part) and tells `hours-api`, which records the entries. This release adds no
+service, no database and no secret.
+
+| Piece | Where | What this release changes |
+|---|---|---|
+| `auth` | Railway | the service scope `meeting-hours-notices.send` becomes known (code only); the `meetings-api` entry of production `SERVICE_CLIENTS` gains it (step 2) |
+| `hours-api` | Railway | migration `…_meeting_hours` (three columns and two CHECKs on `time_entry`, one partial unique index, three small tables, and the **release day**: `meeting_hours_release.since`, stamped with the Zurich date the migration runs) and the route `POST /system/meeting-hours/v1/notices`. No new variable: its `SERVICE_AUDIENCE` now also verifies a service JWT |
+| `meetings-api` | Railway | migration `20261124100000_hours_notice` (the outbox `hours_notice`, `Meeting.hoursSeq`, the job kind `deliver_hours_notice` and the **backfill**), the delivery job, the new variable **`HOURS_API_URL`**, and `prepare_audio`'s **measured duration** (code only; its one log line is R9's signal, § The measured duration) |
+| `hours-ui` | Vercel | the "From meeting" badge, shown only while the entry is recorded on a meeting, and a sentence in the delete confirmation (code only) |
+
+`crm-api`, `projects-api`, `activities-api`, `notify-api` and the shell do not change. The route is hours-api's first that takes a service
+credential: `sub` `system:meetings-api` only, `aud` = `SERVICE_AUDIENCE`, scope `meeting-hours-notices.send`, one identical 401 for
+everything else, decided before the body is read.
+
+**Order (plan § Deploy order): `auth` first; only once it is live, the scope in its client entry; `hours-api` and `meetings-api` in
+either order (in the same release, R3 below); `hours-ui` at any time.** A push to `main` redeploys every connected Railway service in
+no fixed order, so each manual step starts only when the one before it is live: `railway deployment list --service <svc>` shows the
+newest row `SUCCESS` with the release's commit. A scope added to production `SERVICE_CLIENTS` before the `auth` that knows it is live
+stops `auth` (an unknown scope refuses to start, ADR 20261108-crm-pushes-deal-links-to-estimai).
+
+**Step 0 - before the merge: `HOURS_API_URL` on `meetings-api`.**
+Set `HOURS_API_URL=http://${{hours-api.RAILWAY_PRIVATE_DOMAIN}}:${{hours-api.PORT}}` (the value of
+`tools/env-doctor/templates/production/meetings-api.env`: private networking on hours-api's own port, **never its public domain**, because
+the service token travels in this call). It is required in production: a `meetings-api` built from this release exits 1 at start naming
+it, so it has to exist before the merge. It is inert until then (the running code ignores it). Applying it redeploys `meetings-api`, a
+single replica, so choose a quiet moment. Do not confuse it with `infra/check.sh`'s `HOURS_API_URL`, an override of that script that holds the
+public URL. Gate:
+
+```bash
+mise run env:doctor -- --env production    # the committed contract: meetings-api.env's HOURS_API_URL and the three scopes of auth.env's meetings-api entry
+railway variables --service meetings-api --json | jq -r 'keys[]' | grep -qx HOURS_API_URL && echo present || echo MISSING
+```
+
+`present`, and open the variable in the Variables tab: a value that starts `http://:` means the `${{…}}` key matched no service
+(§ Private networking & shared variables).
+
+**Step 1 - `auth`: the scope becomes known.**
+Merge, then wait for `auth`'s deployment of the release. It carries the scope `meeting-hours-notices.send` in `KNOWN_SERVICE_SCOPES`
+and nothing else (no migration, no seed). Gate:
+
+```bash
+railway deployment list --service auth                                         # newest row SUCCESS, commit = the release's
+curl -s -o /dev/null -w '%{http_code}\n' https://auth.operai.welld.io/health   # 200
+```
+
+**Step 2 - the scope on the `meetings-api` entry, only now.**
+On `auth`, edit `SERVICE_CLIENTS` (one line in the Variables tab, every other entry and the secret reference untouched; the shape is in
+`tools/env-doctor/templates/production/auth.env`): the `meetings-api` entry's `scope` becomes **exactly**
+`notifications.push host-notices.send meeting-hours-notices.send`. Applying the change redeploys `auth`. Gate: the same as step 1, plus
+no `Invalid environment variables` line in `auth`'s deploy log. If `auth` does not start (a scope the running code does not know; the log
+names the entry and the rule, never a value), restore the previous `scope` (`notifications.push host-notices.send`) and redeploy. Until
+this step is done every notice is answered 401 and waits (§ What a wrong order does).
+
+**Step 3 - `hours-api` and `meetings-api`.**
+Both run a migration as their `preDeploy` and both are deployed by the merge. Wait until both deployments are `SUCCESS`: `hours-api`'s
+migration stamps the release day, `meetings-api`'s adds the outbox and enqueues the backfill (below), and the delivery starts when the
+service does. Gate:
+
+```bash
+railway deployment list --service hours-api      # newest row SUCCESS, commit = the release's
+railway deployment list --service meetings-api   # the same
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://hours-api.operai.welld.io/system/meeting-hours/v1/notices   # 401: the route exists, no credential
+```
+
+A **404** on the last line means hours-api is not on the release. A 401 proves the route exists; it does not prove the route is mounted above
+the user session guard (mounted below it, a service token meets the user gate and gets the same 401): the first `notice_delivered` line
+below does.
+
+**Step 4 - `hours-ui`.** Deployed by the merge; any time. An hours-api that predates the release sends no `origin`, which the page reads as
+a hand-made entry: no mark, nothing else different.
+
+**The release day and the backfill window (plan R3).** The release day is the Zurich date `hours-api`'s migration ran, written once to
+`meeting_hours_release.since`: a meeting that started before it records nothing (AC-1.5), and no configuration can move it (a different
+day is a new migration, never an edit of the applied one). `meetings-api`'s migration enqueues one notice, delivered by its job runner
+when the service starts, for every meeting that has a duration and started in the last **14 days**, so the meetings processed on the
+release day before `meetings-api` went live, and a gap of up to two weeks between the two deploys, need no operator step. What it does not
+cover: **`hours-api` live and `meetings-api` more than 14 days later**. A meeting that started after the release day and more than 14 days
+before `meetings-api`'s deploy gets no entry, and nothing repairs it later (only a change to the meeting's facts sends a fresh notice).
+`meetings-api` first and `hours-api` later loses nothing that should exist: the notices wait (404) and `hours-api` applies them against its
+own release day. So deploy both in the one release; if they cannot go together, `hours-api` first and `meetings-api` within 14 days.
+
+### Verify, and is anything late? (plan R1)
+
+Read only, ids and counts only (no query below prints a person or a title). Once both services are live:
+
+```sql
+-- on the hours database: the release day, the one row; meetings that started before it never record
+SELECT since FROM meeting_hours_release;
+
+-- on the hours database, after the backfill was delivered: how many entries come from a meeting
+SELECT origin, count(*) FROM time_entry GROUP BY origin;
+```
+
+```bash
+railway logs --service meetings-api --since 30m | grep -o 'meeting_hours\.notice_[a-z]*' | sort | uniq -c
+railway logs --service hours-api --since 30m | grep -c 'meeting_hours\.applied'
+```
+
+Expect `notice_delivered` lines in `meetings-api` and `meeting_hours.applied` lines in `hours-api` (each carries counts, never a user id). A
+`notice_retry` or `notice_refused` line is the signal below. If the CLI has no `--since`, use the dashboard log view.
+
+**The stale-notice check.** A delivered notice is deleted, so any `hours_notice` row older than an hour is `pending` (waiting, retried every 30
+minutes at worst) or `failed` (refused for good). Run it once after the release, after any `hours-api` or `auth` incident, and when someone
+says a meeting's hours did not appear:
+
+```sql
+-- on the meetings database, read only: notices still undelivered an hour after they were recorded, by state and last error
+SELECT n.state, n."lastErrorCode" AS code, count(*) AS notices, min(n."createdAt") AS oldest, max(n.attempts) AS most_attempts
+FROM hours_notice n
+LEFT JOIN meeting_job j ON j."noticeId" = n.id
+WHERE n."createdAt" < (now() AT TIME ZONE 'UTC') - interval '1 hour'
+  -- a notice due on a later day (a meeting dated after today, plan A37) has not been tried yet and is not late
+  AND NOT COALESCE(n.attempts = 0 AND j.state = 'queued' AND j."runAfter" > (now() AT TIME ZONE 'UTC'), false)
+GROUP BY n.state, n."lastErrorCode"
+ORDER BY notices DESC;
+```
+
+No rows: nothing is late. Otherwise read `state` and `code` (a closed vocabulary: an HTTP status or one word, never a message or a body):
+
+| `state` / `code` | What it means | What to do |
+|---|---|---|
+| `pending` / `http_404` | hours-api does not have the route yet | wait for (or redeploy) `hours-api`; it is delivered by itself |
+| `pending` / `unauthorized` | the token was minted and hours-api refused it twice: the scope is not on the `meetings-api` entry (step 2), or `SERVICE_AUDIENCE` differs between `auth` and `hours-api` | step 2; compare the two `SERVICE_AUDIENCE` references |
+| `pending` / `token_unavailable` | `meetings-api` could not get a token from `auth` | `auth`'s health; the secret of the entry equals `MEETINGS_SERVICE_CLIENT_SECRET` |
+| `pending` / `timeout`, `transport`, `http_502`, `http_503` and other 5xx | hours-api is down or unreachable | `hours-api`'s health; `HOURS_API_URL` resolved to the private address and port 8090 |
+| `pending` / `malformed` | the URL answers 200 with something that is not hours-api's answer | `HOURS_API_URL` points at another service |
+| `pending` / empty, `most_attempts` 0 | not tried yet: `meetings-api`'s job runner is not running (`MEETINGS_WORKER` must be `on`) | the service's log and variable |
+| `failed` / `invalid_request`, `rejected`, `invalid_notice` | refused for good: the body breaks the wire, a version gap between the two copies of `meetingHoursWire.ts` (R2) | a developer: the row stays as the evidence; the meeting's next change sends a fresh version |
+| `failed` / `disabled` | the channel is off: `HOURS_API_URL` or the service credential is missing | set it (step 0) |
+
+A `pending` row is delivered by itself once the cause is gone, nothing is lost or recorded twice (hours-api keeps only the newest version of
+a meeting and one automatic entry per person and meeting). Delete or edit no row by hand.
+
+### The measured duration, and R9's signal (plan § The measured duration, § Risks R9, D-P10; ADR 20261124-a-duration-a-client-reports-is-replaced-by-the-one-the-server-measures-when-they-differ-by-more-than-the-larger-of-30-seconds-and-10-percent)
+
+Every automatic entry rests on the meeting's duration, which a recording's browser reports (the sum of the pieces it stored) and an upload's
+container claims. `meetings-api`'s `prepare_audio` now measures the decoded audio and, in the one commit that stores it, replaces the held
+duration when the two differ by more than the larger of 30 seconds and 10 % of the held duration, shorter or longer
+(`src/media/measuredDuration.ts`; the meeting is still `processing`, so an open Meetings page shows the measured figure on its next poll).
+Within the margin the held duration stays, even across a 30-minute step. A correction goes out as an ordinary hours notice: an untouched
+entry follows it, an entry its person changed does not. It adds no step, variable, scope or migration and needs no deploy order (it is
+`meetings-api`'s alone, and any `hours-api` of this release applies a corrected duration like any other change); nothing in the app shows it.
+
+The one trace is a log line, written once after the commit and only when a **held duration was replaced** (not when a missing one was
+filled, not when the held one stood):
+
+```
+[prepare_audio] duration_corrected { meetingId: "<id>", heldMs: <integer>, measuredMs: <integer> }
+```
+
+It carries the meeting id and two integers, never a user id, a title or any content. The overwritten held figure survives only in this line,
+for as long as the platform keeps the log. It is R9's signal: whether the margin corrects **honest** recordings (a systematic gap between the
+pieces a browser reports and the decoded audio, an interrupted and resumed session, a codec's padding), which would resize entries silently.
+
+- **Before the merge (R9's early check).** In development, with the real recorder, record 2 minutes, 15 minutes and one interrupted and resumed
+  session, and upload a 10-minute m4a and a 10-minute webm. Expect **no** `duration_corrected` line from any of them. A line means an honest
+  recording is being corrected: stop and tell the owner before releasing.
+- **After the release.** Count the lines and set them against the meetings processed in the same window (read only, a count and nothing else):
+
+```bash
+railway logs --service meetings-api --since 7d | grep -c 'duration_corrected'
+railway logs --service meetings-api --since 7d | grep 'duration_corrected'    # which meetings and by how much, ids and integers only
+```
+
+```sql
+-- on the meetings database: meetings whose audio was prepared in the same 7 days (what the log count is a share of)
+SELECT count(*) FROM meeting WHERE "audioCreatedAt" >= (now() AT TIME ZONE 'UTC') - interval '7 days';
+```
+
+If the CLI has no `--since`, or the platform keeps less than 7 days, use the dashboard log view and the window it keeps, in both commands.
+
+How to read it: a few lines far apart (a claim of 3 hours measured at 10 minutes) are the rule doing its job. A steady share of ordinary recordings,
+each off by a little more than the margin, is R9: raise the margin (two constants in one pure function, `MEASURE_MARGIN_FLOOR_MS` and
+`MEASURE_MARGIN_DIVISOR`, a one-line change decided with the owner, A42). There is no operator switch for it, and the pause below does not stop
+it: the correction is a Meetings fact written whether or not the hours channel is on, and only its notice depends on the channel. A duration
+already replaced is not put back (the held figure exists only in the log line); each person can still change or delete their own entry.
+Meetings processed before this release are never measured again (R11): the backfill sends their held duration.
+
+### Rollback by step
+
+- **Pause, the one lever.** Remove `meeting-hours-notices.send` from the `meetings-api` entry of `SERVICE_CLIENTS` (the previous two scopes) and
+  redeploy `auth`. Entries already written stay, no new one is recorded or moved, and the notices wait as `pending` / `unauthorized` (one row
+  per change to a meeting's facts); putting the scope back delivers them. Never unset `HOURS_API_URL` to pause: in production it makes
+  `meetings-api` exit at start.
+- **`hours-ui` (step 4):** redeploy its previous production deployment in Vercel. The marks and the extra sentence go; the entries stay, as
+  plain entries.
+- **`hours-api` and `meetings-api` (step 3): fix forward, do not roll the image back once the release has written anything.** Both
+  migrations are additive and Railway does not reverse them (§ Rollback & operations). The previous `hours-api` does not clear
+  `followsMeeting` on a person's edit nor write the block on a person's delete, so an edit made while it runs would be overwritten, and a
+  deleted entry recorded again, by the next notice after the roll forward. The previous `meetings-api` has no handler for the
+  `deliver_hours_notice` jobs its runner would claim. Pause instead. Only before the first automatic entry exists
+  (`SELECT count(*) FROM time_entry WHERE origin = 'meeting'` is 0) is a redeploy of the previous `hours-api` safe.
+- **Steps 1 and 2:** remove the scope from the entry first, then roll `auth` back: the `auth` built before this release does not know
+  `meeting-hours-notices.send`, so it refuses to start while `SERVICE_CLIENTS` still names it.
+
+### What a wrong order does
+
+A wrong order delays and never loses: every refusal other than a body the wire rejects is retried until delivered (30 s, 2 min, 10 min, then
+every 30 min), and `hours-api` applies only the newest version of a meeting.
+
+| Missing | What happens |
+|---|---|
+| `HOURS_API_URL` on `meetings-api` before its release (step 0) | the new `meetings-api` deployment exits 1 at start, naming the variable; set it and redeploy |
+| step 1 before step 2 | `auth` stops at start on the unknown scope: restore the previous `scope` |
+| the scope on the entry (step 2) | every notice is answered 401 and waits; nobody gets an automatic entry until it is added |
+| `hours-api` not yet on the release | 404, transient: delivered once the route exists, against `hours-api`'s own release day |
+| `meetings-api` not yet on the release | nothing is sent; entries start when its backfill and live notices do (R3) |
+| `hours-ui` not yet on the release | entries are there and counted, unmarked |
+
+## Project hours release (specs/20261112-project-hours, ADR 20261126-a-record-hours-summary-is-authorised-by-the-records-owner-as-the-reader-and-its-per-person-part-by-a-role-the-owner-states, ADR 20261126-a-figure-set-against-another-owners-figure-is-composed-by-the-screen-of-the-owner-of-the-comparison-and-a-panel-about-one-tools-data-is-that-tools-widget; plan § Deploy order, R1, R2, R4)
+
+A project's page and a deal's page get one **Hours** card (the record's total hours and a closed breakdown; on a project, also the hours set against what its
+terms sold, and, since US-5, what that says about the project: a consumed percentage, a state, the excess, a bar, the time elapsed and date lines), and the hours
+recorded on the meetings linked to a project now count for the project everywhere a linked meeting already counts for a deal. This
+release adds no service, no database, **no migration**, no secret, no variable, no scope and no `env:doctor` entry: `auth`, `notify-api`, `activities-api` and
+`tools/env-doctor` do not change, and `infra/check.sh` has nothing new to pin (the Hours card calls hours-api from the shell's document, whose CSP `connect-src`
+and trusted origins already include it for hours-ui).
+
+| Piece | Where | What this release changes |
+|---|---|---|
+| `meetings-api` | Railway | `GET /system/meetings/hosts` takes `projectId=` (exactly one of `ids`, `dealId`, `projectId`); same scope `meetings.hosts.read`, same `sub` `system:hours-api`, same `{ id, host }` answer (code only) |
+| `projects-api` | Railway | the resolve answer carries `projectManagerId` (`null` while a project awaits its manager) and the terms view's `hourPackage` carries `currentPeriod { from, to, ended } \| null`; US-5: the terms view states `asOf` (`YYYY-MM-DD`), the Europe/Zurich day `currentPeriod` was derived for, on `GET /projects/{id}`, a project write's answer and the terms `POST`/`PATCH` answers (never stored, never an input, not part of the ETag) (code only) |
+| `crm-api` | Railway | the resolve answer for a deal carries `ownerUserId` (code only) |
+| `hours-ui` | Vercel | exposes `./HostHours`; `./RecordHours` broadcasts `operai:time-entry-recorded` after a save; the Project filter, the by-project totals and the export's **Counts for project** column know a project's linked meetings; a missing `on.project` reads as none (code only) |
+| `shell` | Vercel | the host extension `hours.hostHours`: its loader imports `hours/HostHours`. **US-5: no source change, but it is rebuilt from the release commit**, so that its Tailwind sheet, the suite's only one, holds the 17 utilities of `projects-ui`'s consumption bar that no other source in the suite uses (step 3's confirm check, below) |
+| `hours-api` | Railway | the route `GET /time-entries/summary`; the `projectId` filter and `groupBy=project` count a project's linked meetings (409 `project_meetings_changed`, the `project-unknown` group, `meeting-projects` in `unavailable`); a meeting entry's `on.project` (code only) |
+| `projects-ui`, `crm-ui` | Vercel | the Hours card: on the project page the consumption block and hours-ui's panel, on the deal page the panel; US-5: the consumption block's signals (consumed percentage, state, excess, the bar, time elapsed, date lines) in `projects-ui` only, drawn from `projects-api`'s `asOf` (code only) |
+
+**Before step 1: the meeting hours release has shipped, by its own order (§ Meeting hours release).** This work is stacked on specs/20261112-meeting-hours
+(PR #12) and reaches `main` only after it has merged, so that release's preconditions hold first, above all its step 0, `HOURS_API_URL` on `meetings-api`: a
+`meetings-api` built from this branch carries #12's code and exits 1 at start without it. Nothing below waits for #12's notice channel to be switched on (its
+scope in production `SERVICE_CLIENTS`).
+
+**Order (plan § Deploy order): `meetings-api`, `projects-api` and `crm-api` (any order among them), then `hours-ui`, then the `shell`, then `hours-api`, then
+`projects-ui` and `crm-ui` (either first).**
+
+1. **`meetings-api`, `projects-api`, `crm-api`**: the new filter and the two new facts. Additive: their only consumer, `hours-api`, parses an owner's answer with
+   `z.object`, which drops a member it does not know, so an `hours-api` that is not yet on the release is not disturbed.
+2. **`hours-ui`**: accepts `project-unknown`, `meeting-projects` and `on.project`, and exposes `./HostHours`, which shows its own unavailable state until step 4.
+3. **`shell`**: registers `hours.hostHours`. An unknown name, or a failed import, renders the host's fallback either way. **US-5 gives this step a condition, with no
+   source change:** the shell must be built from the same commit as `projects-ui`, because the suite has one Tailwind sheet, which the shell generates from every
+   remote's source, and Tailwind emits only the classes a scanned source holds; 17 utilities of the consumption bar are in no other source today. This release's
+   commit rebuilds the shell anyway (it changes `shell/` and rewrites `shell/src/lib/suiteVersion.generated.json`), so the step is to **confirm** it, before step 5,
+   with the live shell's CSS:
+
+   ```bash
+   for css in $(curl -s https://operai.welld.io/ | grep -oE '/assets/[^"]+\.css'); do curl -s "https://operai.welld.io$css"; done | grep -c 'bg-linear-90'   # 1 or more: the live sheet holds the bar
+   ```
+
+   `0` means the live shell predates the bar: redeploy the shell from the release commit before `projects-ui` goes live, or accept the skew described under § What a
+   wrong order does. Run the check again if the shell is rolled back, or if a later push changes `projects-ui` alone.
+4. **`hours-api`**: the summary, and the project filter and by-project placement. **Never before step 1**: a `meetings-api` that predates the filter answers 422
+   to `projectId`, which `hours-api` reads as "cannot say" (never as "no meeting is linked").
+5. **`projects-ui`, `crm-ui`**: embed the panel and show the consumption block.
+
+A push to `main` redeploys every connected Railway service and builds every Vercel project at once, in no fixed order, so this is the order to **confirm live**,
+and to promote in if a build has to be redone: `railway deployment list --service <svc>` shows the newest row `SUCCESS` with the release's commit, and a Vercel
+project's newest production deployment is `Ready`. No step has a manual action or a gate of its own, since nothing is configured (step 3's CSS check only confirms
+what its build did). **US-5 (2026-11-27) adds no step and moves none**: `projects-api`'s `asOf` ships with step 1 and `projects-ui`'s signals with step 5. Every other
+order is degraded and never wrong: a figure is withheld or marked unavailable, never shown low (AC-4.9), a signal or a drawing is left out, and each row below clears
+by itself once the piece it needs is live.
+
+### What a wrong order does (plan R2, R4)
+
+| Live before the piece it needs | What the person sees |
+|---|---|
+| `hours-api` (4) before `meetings-api` (1) | **the one that matters**: the Project filter of My hours and Everyone's hours, and a project's summary (the Hours card's total and the consumption block), are **503 `host_unavailable`**: a refusal, not a wrong figure (an unfiltered by-project totals read and an entry's `on.project` read the hosts by id and are not affected, nor are a deal's figures). It ends when `meetings-api` is live; nothing is lost or written |
+| `hours-api` (4) before `projects-api` or `crm-api` (1) | the owner's answer has no `projectManagerId` / `ownerUserId`, which is read as an older owner (nobody's, never a grant): the project's manager and the deal's owner do not see the per-person hours yet; the total and the work-type breakdown show as usual |
+| `hours-api` (4) before `hours-ui` (2) | the one case where an old `hours-ui` meets something it does not know: the `project-unknown` group of a by-project totals read whose hosts read failed (R4); this is why `hours-ui` is step 2 |
+| `projects-ui` or `crm-ui` (5) before `hours-api` (4) | the summary route does not exist yet: the panel and the consumption block each show their own unavailable state with **Retry** (it works once `hours-api` is live), and the page and the rest of the card load (AC-2.6) |
+| `projects-ui` (5) before `projects-api` (1) | `currentPeriod` is absent, which reads as nothing to compare, never as "not started": an hour package's consumption is not shown and the panel is alone in the card; a fixed-price or time-and-material project's block shows (it needs only `hours-api`), **with no time elapsed and no date line either**, since `asOf` is absent too: its percentage, state, excess and bar show, and an SLA-only project's block of date lines alone does not (less, never wrong) |
+| `projects-ui` or `crm-ui` (5) before the `shell` (3) | the live shell does not know `hours.hostHours`, and an unknown name renders the host's fallback, "Hours are unavailable. Reload the page to try again." (the consumption block is `projects-ui`'s own and shows; for its bar see the next row) |
+| `projects-ui` (5) live before a `shell` built from the release commit (3) (a build that finishes first, a shell rolled back or promoted to an older deployment, or a tab loaded before the shell's deploy) | every line of the consumption block (the state, the pace line, the excess, the date lines) is drawn right, their utilities being in the sheet already, but **the bar has no track, fill, beyond part or estimate diamond** (zero height or size, no stripes, no outlines): only its ticks, today mark and labels show, the "125%" label past the bar's end. A missing drawing, never a wrong figure: the bar is `aria-hidden` and the lines say everything it shows. Cleared by the shell's deploy and a reload (the sheet is the document's, read once) |
+| the `shell` (3) before `hours-ui` (2) | the shell's loader imports `hours/HostHours`, which the live `hours-ui` does not expose yet: the import is rejected and the host shows the same fallback |
+
+A page that was already open when the last piece went live shows the new card or the new figures after a reload. A project page keeps what was true on the Zurich day
+it was loaded on until it is reloaded, a Record hours save included, which has five cases of one cause: (a) a capacity hour package without an expiry date is
+compared up to that day, so a page left open across Zurich midnight keeps the new day's hours out of the **consumption block** (hours used too low, hours left too
+high; the panel's total includes them), the one case with no date on screen to show it; (b) a yearly package's anniversary passing leaves the block on the period
+that has ended, and a save dated in the new period does not move it; (c) a package's start date arriving leaves the block saying the package has not started;
+(d) a capacity package's expiry date passing shows "Expired" only after a reload, its figures right all along; (e) the time elapsed, the today mark and each date
+line (US-5) stay on the loaded day, so a date that is today still says today after midnight, a date 31 days ahead is not yet near and a date that passes at
+midnight is not yet said to have passed, while the percentage, the state and the excess follow the hours; a reload corrects each of the five: a known limitation,
+not a fault (specs/20261112-project-hours A52, D85, D86, R8).
+
+### Verify
+
+Once the pieces are live. The OpenAPI documents are public, like `/health`:
+
+```bash
+curl -s https://hours-api.operai.welld.io/openapi.json | jq -e '.paths | has("/time-entries/summary")'                                                        # true: hours-api is on the release
+curl -s https://meetings-api.operai.welld.io/openapi.json | jq -e '[.paths["/system/meetings/hosts"].get.parameters[].name] | index("projectId") != null'   # true: meetings-api is on the release
+./infra/check.sh                                                                                                                                             # health, remoteEntry.js + CORS and the CSP pins, unchanged
+```
+
+Then by hand, as a person who reads a project with an hour package and some hours: the project page has one **Hours** card right after Details, showing the
+package's hours, the hours used in its period and the hours left, its consumed percentage and state (in words and an icon) and a bar with a visible track and fill (no
+track: the live shell's sheet predates the bar, step 3), then the total and **Show breakdown** (closed); a deal's page has the same card after Meetings, with
+the total and the breakdown. Opening the breakdown makes no request. As the project's manager the breakdown also shows **By person**; as another reader it does not.
+Recording 30 minutes with **Record hours** on the page grows the card's figures without a reload. In My hours, filtering by a project that has a linked meeting with
+hours lists that meeting's entries, each with "Counts for project <name>".
+
+### Rollback by step
+
+Nothing in this release has a migration, so no database step undoes it; each piece is redeployed on its own, and the order is the reverse of the release (5, 4, 3, 2,
+1) when more than one goes.
+
+- **`projects-ui`, `crm-ui` (step 5):** redeploy the previous production deployment in Vercel. The Hours card goes; Record hours and the Meetings panel stay.
+- **`hours-api` (step 4):** redeploy the previous Railway deployment. The summary route goes (the panel and the block show their unavailable state), the project
+  filter stops counting a project's linked meetings, and by-project totals place those entries under `none`; entries are untouched. The meeting hours migration of #12
+  is a different release and is not undone this way (§ Meeting hours release, § Rollback by step).
+- **`shell`, `hours-ui` (steps 3 and 2):** redeploy the previous Vercel deployment. Every host's Hours panel becomes the host's fallback; the Project filter and the
+  export lose the linked meetings' line and column. Roll the `shell` back together with `projects-ui` (step 5), never alone past this release: an older shell under a
+  `projects-ui` on US-5 draws the consumption bar without its track (§ What a wrong order does).
+- **`meetings-api`, `projects-api`, `crm-api` (step 1):** redeploy the previous Railway deployment. Rolling `meetings-api` back while `hours-api` is on the release makes
+  every project filter and project summary 503 (the first row above): roll `hours-api` back first, or accept the refusal. Rolling `projects-api` back hides an hour
+  package's consumption block and, on every project, the time elapsed and the date lines (no `asOf`); rolling `crm-api` back hides a deal owner's per-person hours.
 
 ## Rollback & operations
 

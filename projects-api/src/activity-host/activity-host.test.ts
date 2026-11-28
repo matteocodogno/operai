@@ -66,6 +66,34 @@ describe("POST /activity-host/v1/resolve", () => {
     expect(body.items[0]!["assignees"]).toEqual(["user-viewer"]); // no null where the PM will be
   });
 
+  // specs/20261112-project-hours T2 (AC-2.3, AC-2.7): hours-api asks who the project manager is, as the caller, to decide
+  // whether the caller may see the per-person hours. The owner states the role; it never decides the rule (plan D-P2).
+  it("states the project manager's id on an open item, so hours-api can tell whether the caller is the PM (AC-2.3)", async () => {
+    const project = await seed({ projectManagerId: "user-pm-ch" });
+    await db.projectMember.create({ data: { projectId: project.id, userId: "user-viewer" } });
+    for (const persona of ["viewer", "pmCh", "admin"] as const) {
+      const item = (await resolveOne(project.id, persona)).items[0]!;
+      expect(item["projectManagerId"]).toBe("user-pm-ch"); // the manager, not a team member, whoever asks
+    }
+  });
+
+  it("states `projectManagerId: null` while a project from a deal awaits its project manager; the ops-manager is not named (AC-2.7, D79)", async () => {
+    const { project, order } = await seedDealProject();
+    expect(order.opsManagerId).toBeTruthy(); // the PO has an ops-manager, the project has no manager
+    const item = (await resolveOne(project.id, "viewer")).items[0]!;
+    expect(item["state"]).toBe("open");
+    expect(item).toHaveProperty("projectManagerId", null); // present and null, never absent, never the ops-manager
+    expect(JSON.stringify(item)).not.toContain(order.opsManagerId);
+  });
+
+  it("does not state a project manager for a missing project or to a caller who cannot read (nothing leaks)", async () => {
+    const project = await seed();
+    expect(await resolveOne("nope")).toMatchObject({ items: [{ id: "nope", state: "missing" }] });
+    expect((await resolveOne("nope")).items[0]).not.toHaveProperty("projectManagerId");
+    const outsider = await resolve({ entityType: "project", ids: [project.id] }, "outsider");
+    expect(outsider.json.items[0]).toEqual({ id: project.id, state: "missing" });
+  });
+
   it("answers `may.manage` from project:manage on the project's own entity (AC-3.2)", async () => {
     const ch = await seed({ entity: "welld_ch" });
     const it = await seed({ entity: "welld_it", name: "Italia" });

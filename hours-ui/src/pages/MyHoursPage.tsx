@@ -13,6 +13,7 @@ import {
   tabPanelProps,
 } from '@operai/ui'
 import DealFilterUnavailable from '../components/DealFilterUnavailable'
+import type { HostFilterKind } from '../components/DealFilterUnavailable'
 import DeleteEntryDialog from '../components/DeleteEntryDialog'
 import EntryDayList from '../components/EntryDayList'
 import EntryDialog from '../components/EntryDialog'
@@ -91,15 +92,24 @@ const readTable = async (filters: EntryFilters, period: TablePeriod, signal: Abo
 /** Prefix of the ids the view switch's tabs and its panel point at each other with. */
 const VIEW_ID = 'hours-view'
 
-const NO_BANNERS: HoursBannersProps = { sources: [], dealGroupingUnavailable: false, hiddenNames: false }
+const NO_BANNERS: HoursBannersProps = {
+  sources: [],
+  dealGroupingUnavailable: false,
+  projectGroupingUnavailable: false,
+  hiddenNames: false,
+}
 
 const sameBanners = (a: HoursBannersProps, b: HoursBannersProps): boolean =>
   a.sources.join() === b.sources.join() &&
   a.dealGroupingUnavailable === b.dealGroupingUnavailable &&
+  a.projectGroupingUnavailable === b.projectGroupingUnavailable &&
   a.hiddenNames === b.hiddenNames
 
-/** Meetings cannot say which meetings belong to the deal: the refusal AC-4.11 turns into one state. */
-const refusedDealRead = (state: HoursQueryState<unknown>): boolean =>
+/**
+ * Meetings cannot say which meetings belong to the filtered deal (AC-4.11) or project (specs/20261112-project-hours
+ * AC-4.8): the refusal that turns into one state.
+ */
+const refusedMeetingsRead = (state: HoursQueryState<unknown>): boolean =>
   state.status === 'error' && isCode(state.error, 'host_unavailable')
 
 /** The `groupBy=day` answer as day → minutes: the figure beside each day's heading, never a client sum. */
@@ -236,18 +246,26 @@ export default function MyHoursPage() {
           : { status: 'loading' }
 
   // AC-4.11: with a deal filter, a refused first page, totals or day totals is ONE state for the whole view — and
-  // so is an export the same refusal stopped (T30). That one is remembered as the first page it was made over, so
-  // it is gone the moment the view reads again (Retry, any change of a filter) and can never block a later view.
+  // so is an export the same refusal stopped (T30), under a project filter too (T21). That one is remembered as the
+  // first page it was made over, so it is gone the moment the view reads again (Retry, any change of a filter) and
+  // can never block a later view.
   const firstPage = entries.first.status === 'loaded' ? entries.first.data : null
   const [exportRefusedFor, setExportRefusedFor] = useState<EntriesPage | null>(null)
   const exportRefused = firstPage !== null && exportRefusedFor === firstPage
-  const blocked =
-    deal !== null &&
-    (refusedDealRead(entries.first) ||
-      refusedDealRead(totals.state) ||
-      refusedDealRead(days.state) ||
-      refusedDealRead(tableRead.state) ||
+  // The same state for a project filter (specs/20261112-project-hours AC-4.8). Both depend on the one Meetings answer, so with
+  // both set the project's words show — the person is never told about a filter that is not set — and clearing it leaves the
+  // deal's refusal if the deal still triggers it.
+  const hostFilter: HostFilterKind | null = project !== null ? 'project' : deal !== null ? 'deal' : null
+  const blockedBy: HostFilterKind | null =
+    hostFilter !== null &&
+    (refusedMeetingsRead(entries.first) ||
+      refusedMeetingsRead(totals.state) ||
+      refusedMeetingsRead(days.state) ||
+      refusedMeetingsRead(tableRead.state) ||
       exportRefused)
+      ? hostFilter
+      : null
+  const blocked = blockedBy !== null
 
   const totalsCard = useRef<TotalsCardHandle>(null)
   const tableView = useRef<TableViewHandle>(null)
@@ -307,6 +325,7 @@ export default function MyHoursPage() {
     ? {
         sources: loadedTable?.unavailable ?? [],
         dealGroupingUnavailable: false,
+        projectGroupingUnavailable: false,
         hiddenNames: hasHiddenName(loadedTable?.items ?? []),
       }
     : {
@@ -318,6 +337,8 @@ export default function MyHoursPage() {
         ),
         dealGroupingUnavailable:
           state.group === 'deal' && (loadedTotals?.unavailable.includes('meeting-deals') ?? false),
+        projectGroupingUnavailable:
+          state.group === 'project' && (loadedTotals?.unavailable.includes('meeting-projects') ?? false),
         hiddenNames: hasHiddenName(loadedEntries, loadedTotals),
       }
   // The last settled notes, kept of the view they were read for: the other view's are not this view's.
@@ -360,7 +381,13 @@ export default function MyHoursPage() {
     setPickerKey((current) => current + 1)
   }
 
-  const clearDeal = () => {
+  // "Clear the … filter" of the refusal: drops the filter the banner names and puts focus in its picker.
+  const clearHostFilter = () => {
+    if (blockedBy === 'project') {
+      setProject(null)
+      document.querySelector<HTMLElement>('[data-testid="hours-filter-project-input"]')?.focus()
+      return
+    }
     setDeal(null)
     document.querySelector<HTMLElement>('[data-testid="hours-filter-deal-input"]')?.focus()
   }
@@ -522,7 +549,10 @@ export default function MyHoursPage() {
   // What the table view shows in place of the grid, or the grid: one state (design S7). The refusal that blocks the List
   // blocks the table as well, in the card, with its heading and toolbar kept.
   const tableState: TableViewState = blocked
-    ? { status: 'replaced', content: <DealFilterUnavailable ref={blocker} onRetry={retryAll} onClear={clearDeal} /> }
+    ? {
+        status: 'replaced',
+        content: <DealFilterUnavailable ref={blocker} kind={blockedBy} onRetry={retryAll} onClear={clearHostFilter} />,
+      }
     : tableRead.state.status === 'loaded'
       ? { status: 'loaded', grid: tableRead.state.data.grid }
       : tableRead.state.status === 'error'
@@ -607,7 +637,7 @@ export default function MyHoursPage() {
             onOpenCell={(row, day) => setOpenCell({ rowKey: row.key, day, tableKey })}
           />
         ) : blocked ? (
-          <DealFilterUnavailable ref={blocker} onRetry={retryAll} onClear={clearDeal} />
+          <DealFilterUnavailable ref={blocker} kind={blockedBy} onRetry={retryAll} onClear={clearHostFilter} />
         ) : (
           <>
             <TotalsCard
@@ -625,7 +655,7 @@ export default function MyHoursPage() {
                   <HoursExport
                     filters={filters}
                     resetKey={filterKey}
-                    onDealFilterUnavailable={() => setExportRefusedFor(firstPage)}
+                    onFilterUnavailable={() => setExportRefusedFor(firstPage)}
                   />
                 ) : undefined
               }

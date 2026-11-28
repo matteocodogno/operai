@@ -70,11 +70,14 @@ describe.each(REMOTE_VERSION_SOURCES)(
     // vite.config.ts exists there is nothing on the remote side to compare, so
     // the shell-side checks above are the only ones that can run.
     const remoteViteConfigPath = path.resolve(__dirname, '../../../', REMOTE_DIRS[id], 'vite.config.ts')
-    it.skipIf(!existsSync(remoteViteConfigPath))(`${REMOTE_DIRS[id]}/vite.config.ts's federation() call self-identifies as name: '${id}' and exposes './version'`, () => {
-      const source = readFileSync(remoteViteConfigPath, 'utf-8')
-      expect(source).toMatch(new RegExp(`federation\\(\\{\\s*name:\\s*'${id}'`, 's'))
-      expect(source).toMatch(/exposes:\s*\{[^}]*'\.\/version':\s*'\.\/src\/version\.ts'/s)
-    })
+    it.skipIf(!existsSync(remoteViteConfigPath))(
+      `${REMOTE_DIRS[id]}/vite.config.ts's federation() call self-identifies as name: '${id}' and exposes './version'`,
+      () => {
+        const source = readFileSync(remoteViteConfigPath, 'utf-8')
+        expect(source).toMatch(new RegExp(`federation\\(\\{\\s*name:\\s*'${id}'`, 's'))
+        expect(source).toMatch(/exposes:\s*\{[^}]*'\.\/version':\s*'\.\/src\/version\.ts'/s)
+      },
+    )
   },
 )
 
@@ -94,9 +97,12 @@ describe("'inventory' — the two federated entries are declared for tsc", () =>
 // specs/20261104-meetings (ADR 20261006-ungated-second-federated-entry-of-a-gated-remote shape, ADR 20261104-host-extension-federated-panel-through-the-shell): the meetings remote exposes three
 // mountable entries besides ./version, and the shell exposes the host-extension seam.
 describe("'meetings' — the federated entries are declared for tsc, and the seam is exposed", () => {
-  it.each(['meetings/App', 'meetings/MyMeetings', 'meetings/HostMeetings'])("remotes.d.ts declares '%s'", (specifier) => {
-    expect(remotesDtsSource).toContain(`declare module '${specifier}'`)
-  })
+  it.each(['meetings/App', 'meetings/MyMeetings', 'meetings/HostMeetings'])(
+    "remotes.d.ts declares '%s'",
+    (specifier) => {
+      expect(remotesDtsSource).toContain(`declare module '${specifier}'`)
+    },
+  )
 
   it("shell/vite.config.ts exposes './extensions' next to './session'", () => {
     expect(shellViteConfigSource).toMatch(/exposes:\s*\{[^}]*'\.\/extensions':\s*'\.\/src\/lib\/extensions\.tsx'/s)
@@ -110,9 +116,7 @@ describe('vercel.json CSP — inventory origins', () => {
     headers: { source: string; headers: { key: string; value: string }[] }[]
   }
   const csp =
-    vercel.headers
-      .flatMap((h) => h.headers)
-      .find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
+    vercel.headers.flatMap((h) => h.headers).find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
   const directive = (name: string): string =>
     csp
       .split(';')
@@ -199,9 +203,7 @@ describe('vercel.json CSP — letterheads origins', () => {
     headers: { source: string; headers: { key: string; value: string }[] }[]
   }
   const csp =
-    vercel.headers
-      .flatMap((h) => h.headers)
-      .find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
+    vercel.headers.flatMap((h) => h.headers).find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
   const directive = (name: string): string =>
     csp
       .split(';')
@@ -232,9 +234,7 @@ describe('vercel.json CSP — accounting origins', () => {
     headers: { source: string; headers: { key: string; value: string }[] }[]
   }
   const csp =
-    vercel.headers
-      .flatMap((h) => h.headers)
-      .find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
+    vercel.headers.flatMap((h) => h.headers).find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
   const directive = (name: string): string =>
     csp
       .split(';')
@@ -321,6 +321,21 @@ describe('vercel.json CSP — hours origins', () => {
   it("the shell's hours.recordHours loader imports the specifier remotes.d.ts declares", () => {
     const extensionsSource = readFileSync(path.resolve(__dirname, '../lib/extensions.tsx'), 'utf-8')
     expect(extensionsSource).toMatch(/'hours\.recordHours':\s*\(\)\s*=>\s*import\('hours\/RecordHours'\)/)
+  })
+
+  // specs/20261112-project-hours, T14 (plan D-P4): the hours remote's third entry, the read panel of a record's hours the
+  // project page and the deal page embed through `hours.hostHours`. The same three things agree on the specifier: the
+  // ambient declaration, the loader in lib/extensions.tsx, and (T13) hours-ui's `exposes`.
+  it("remotes.d.ts declares 'hours/HostHours' with the two string props of the hours.hostHours extension", () => {
+    expect(remotesDtsSource).toContain("declare module 'hours/HostHours'")
+    const declaration = /declare module 'hours\/HostHours' \{[\s\S]*?\n\}/.exec(remotesDtsSource)?.[0] ?? ''
+    expect(declaration).toMatch(/\bon:\s*'project' \| 'deal'/)
+    expect(declaration).toMatch(/\btargetId:\s*string/)
+  })
+
+  it("the shell's hours.hostHours loader imports the specifier remotes.d.ts declares", () => {
+    const extensionsSource = readFileSync(path.resolve(__dirname, '../lib/extensions.tsx'), 'utf-8')
+    expect(extensionsSource).toMatch(/'hours\.hostHours':\s*\(\)\s*=>\s*import\('hours\/HostHours'\)/)
   })
 
   it("index.css scans hours-ui's source (@source), so the shell's one Tailwind sheet carries the remote's utilities (ADR 20260709-suite-frontend-module-federation addendum)", () => {

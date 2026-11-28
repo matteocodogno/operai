@@ -7,11 +7,13 @@
  * 400 / 422 naming the field, never a 500 from a constraint.
  *
  * The wire shape is specs/20261103-projects's contract shape, renamed: `{ id, type, startDate, endDate, terms,
- * version }`, with the type-specific `terms` nested (`termsView`).
+ * version }`, with the type-specific `terms` nested (`termsView`), and since specs/20261112-project-hours T22 the
+ * `asOf` day it was derived for (`toTermsView`).
  */
 
 import type { z } from "@hono/zod-openapi";
 import type { Prisma } from "../lib/generated/prisma/client";
+import { businessDay } from "../lib/businessDay";
 import { fromDateOnly, toDateOnly } from "../lib/http";
 import { ProblemError, conflict, unprocessable } from "../lib/problem";
 import type { ProjectType } from "../projects/projects.schemas";
@@ -22,6 +24,7 @@ import {
   type HourPackageSchema,
   type SlaSchema,
 } from "./terms.schemas";
+import { packagePeriod } from "./packagePeriod";
 
 type Sla = z.infer<typeof SlaSchema>;
 type HourPackage = z.infer<typeof HourPackageSchema>;
@@ -160,8 +163,17 @@ export interface TermsRow {
   readonly version: number;
 }
 
-/** The type-specific `terms` of the `Terms` view: the stored terms of the project's type, absent members `null`. */
-export function termsView(row: TermsRow) {
+/** An hour package as the view shows it: what is stored, and the window that is current at `today` (derived, never stored). */
+const hourPackageView = (
+  pkg: { readonly hours: number; readonly kind: "capacity" | "yearly"; readonly startDate: string; readonly expiryDate: string | null },
+  today: string,
+) => ({ ...pkg, currentPeriod: packagePeriod(pkg, today) });
+
+/**
+ * The type-specific `terms` of the `Terms` view: the stored terms of the project's type, absent members `null`. An hour
+ * package carries its `currentPeriod` at `today`, the Europe/Zurich business day (specs/20261112-project-hours T3).
+ */
+export function termsView(row: TermsRow, today: string = businessDay()) {
   switch (row.type) {
     case "fixed_price":
       return {
@@ -179,12 +191,15 @@ export function termsView(row: TermsRow) {
         hourPackage:
           row.hourPackageHours === null || row.hourPackageKind === null || row.hourPackageStart === null
             ? null
-            : {
-                hours: row.hourPackageHours,
-                kind: row.hourPackageKind,
-                startDate: toDateOnly(row.hourPackageStart)!,
-                expiryDate: toDateOnly(row.hourPackageExpiry),
-              },
+            : hourPackageView(
+                {
+                  hours: row.hourPackageHours,
+                  kind: row.hourPackageKind,
+                  startDate: toDateOnly(row.hourPackageStart)!,
+                  expiryDate: toDateOnly(row.hourPackageExpiry),
+                },
+                today,
+              ),
       };
     case "t_and_m":
       return {
@@ -198,14 +213,23 @@ export function termsView(row: TermsRow) {
   }
 }
 
-/** The `Terms` of tasks.md § API contracts: `{ id, type, startDate, endDate, terms, version }`. */
-export function toTermsView(row: TermsRow) {
+/**
+ * The `Terms` of tasks.md § API contracts: `{ id, type, startDate, endDate, terms, version, asOf }`.
+ *
+ * `asOf` is the Europe/Zurich business day this view was derived for: the one `today` argument, resolved once here and given
+ * to `termsView` (so to `packagePeriod`) and returned beside it, so a period and every signal that reads today (the time
+ * elapsed, a date signal, "Expired") are of one day by construction, never of two reads of a clock that can straddle midnight
+ * (specs/20261112-project-hours T22, AC-5.29, D-P7; ADR 20261126 figure composed by the screen, § Amendment 2026-11-27). It is
+ * derived on read, never stored, no part of the ETag (`version` is) and never an input (the terms request schemas are strict).
+ */
+export function toTermsView(row: TermsRow, today: string = businessDay()) {
   return {
     id: row.id,
     type: row.type,
     startDate: toDateOnly(row.startDate)!,
     endDate: toDateOnly(row.endDate),
-    terms: termsView(row),
+    terms: termsView(row, today),
     version: row.version,
+    asOf: today,
   };
 }

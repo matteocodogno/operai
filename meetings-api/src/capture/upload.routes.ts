@@ -27,6 +27,7 @@ import { IdParams, commonErrors } from "../lib/http";
 import { ProblemError, conflict, validationHook } from "../lib/problem";
 import { MAX_UPLOAD_BYTES, isUploadContentType, requireStorage } from "../lib/storage";
 import { enqueueJob } from "../jobs/runner";
+import { readHoursFacts, recordHoursNotice } from "../hours/record";
 import { ToolMissingError, demuxerForContentType, probeUpload, type RejectReason } from "../media/probe";
 import { loadMeetingView } from "../meetings/view";
 import type { AuthzVariables } from "../auth/authz.middleware";
@@ -179,6 +180,8 @@ uploadRouter.openapi(confirmRoute, async (c) => {
     // replaced it meanwhile (another tab) changed the row, so this matches nothing and the whole flip rolls back.
     const bound = await tx.meetingUpload.updateMany({ where: { meetingId: id, objectKey: upload.objectKey }, data: { sizeBytes: head.sizeBytes } });
     if (bound.count === 0) throw conflict("upload_superseded", "A new upload was started meanwhile: upload the file again");
+    // The probed duration is a hours fact (it may stay null: `prepare_audio` then measures it): announced in this transaction.
+    const hoursBefore = await readHoursFacts(tx, id);
     const flipped = await tx.meeting.updateMany({
       where: { id, status: "draft" },
       data: {
@@ -192,6 +195,7 @@ uploadRouter.openapi(confirmRoute, async (c) => {
     });
     // Lost a race with a second confirm: that one queued the job.
     if (flipped.count === 0) throw conflict("not_draft", "A file can only be confirmed on a draft meeting");
+    await recordHoursNotice(tx, id, { before: hoursBefore }, now);
     await enqueueJob(tx, { kind: "prepare_audio", meetingId: id });
   });
   // Whatever else sits under the upload prefix is never read; drop it now (best effort: prepare_audio sweeps again).

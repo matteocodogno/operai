@@ -228,9 +228,10 @@ describe("groupBy=project (AC-1.4, AC-4.5, AC-4.7, AC-4.10; plan ยง Totals)", ()
       ],
       unavailable: [],
     });
-    // projects-api alone, once, as the viewer: no other source is needed to group by project.
-    expect(hosts.calls.map((recorded) => recorded.route)).toEqual(["projects.resolve"]);
-    expect(hosts.calls[0]?.authorization).toBe(await bearerOf("alice"));
+    // The project of the meeting entry is asked of meetings-api (m1 is not held there: it is linked to no project, so its hours are `none`), then
+    // projects-api once, as the viewer, for every project: no other source is needed to group by project (specs/20261112-project-hours AC-4.5).
+    expect(asked()).toEqual(["meetings.system-hosts", "projects.resolve"]);
+    expect(hosts.callsTo("projects.resolve")[0]?.authorization).toBe(await bearerOf("alice"));
   });
 
   it("breaks a tie on the hours by the name as an English collator reads it, then by id", async () => {
@@ -692,7 +693,7 @@ describe("whatever is down, every entry is counted, in one group (AC-4.7; plan ย
     expect(hosts.calls).toEqual([]);
   });
 
-  it("names exactly the sources the grouping needed: person asks auth, project asks projects-api, deal asks crm-api and the meetings' links", async () => {
+  it("names exactly the sources the grouping needed: person asks auth, project asks projects-api and the meetings' links, deal asks crm-api and the meetings' links", async () => {
     await fixture();
     hosts.fail("projects.resolve", { status: 500 });
     hosts.fail("crm.resolve", { status: 500 });
@@ -700,7 +701,8 @@ describe("whatever is down, every entry is counted, in one group (AC-4.7; plan ย
     hosts.fail("auth.identities", { status: 500 });
 
     expect((await groupsOf(`groupBy=person&${NOVEMBER}`)).unavailable).toEqual(["identities"]);
-    expect((await groupsOf(`groupBy=project&${NOVEMBER}`)).unavailable).toEqual(["projects"]);
+    // A meeting's hours count under the project it is linked to (specs/20261112-project-hours AC-4.5), so by project the links are read too, and named apart from the deal's.
+    expect((await groupsOf(`groupBy=project&${NOVEMBER}`)).unavailable).toEqual(["projects", "meeting-projects"]);
     expect((await groupsOf(`groupBy=deal&${NOVEMBER}`)).unavailable).toEqual(["crm", "meeting-deals"]);
   });
 });

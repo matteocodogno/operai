@@ -16,6 +16,7 @@ import { db } from "../lib/db";
 import { IdParams, commonErrors } from "../lib/http";
 import { requireIdentities } from "../lib/identities";
 import { announce } from "../lib/notify";
+import { readHoursFacts, recordHoursNotice } from "../hours/record";
 import { unprocessable, validationHook } from "../lib/problem";
 import { callerOf, creatorControl } from "./caller";
 import { lockMeeting } from "./lock";
@@ -89,6 +90,8 @@ participantsRouter.openapi(putParticipants, async (c) => {
 
   const { title, added } = await db.$transaction(async (tx) => {
     await lockMeeting(tx, id);
+    // The set of Operai participants is a hours fact (each gets an entry, a removed one loses it): a change is announced in this transaction.
+    const hoursBefore = await readHoursFacts(tx, id);
     const current = await tx.meetingParticipant.findMany({ where: { meetingId: id }, orderBy: { createdAt: "asc" } });
     const wanted = new Set(userIds);
     const have = new Set(current.flatMap((p) => (p.userId !== null ? [p.userId] : [])));
@@ -116,6 +119,8 @@ participantsRouter.openapi(putParticipants, async (c) => {
     for (const e of unmatched) {
       await tx.meetingParticipant.create({ data: { meetingId: id, externalName: e.name, externalOrganisation: e.organisation, addedBy: caller.userId } });
     }
+
+    await recordHoursNotice(tx, id, { before: hoursBefore });
 
     const row = await tx.meeting.findUniqueOrThrow({ where: { id }, select: { title: true } });
     return { title: row.title, added: userIds.filter((u) => !have.has(u) && u !== caller.userId) };

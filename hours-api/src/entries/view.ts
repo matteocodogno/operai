@@ -5,7 +5,7 @@
  *
  * The entry's own columns (day, minutes, note, the category and work type) come from the row. Everything
  * that belongs to another service — the person's name, the project, deal or meeting, the activity, and
- * the deal a meeting's hours count for — is read through `src/labels/` AS THE VIEWER (live, except the person's name,
+ * the deal or project a meeting's hours count for — is read through `src/labels/` AS THE VIEWER (live, except the person's name,
  * which may be up to 60 s old: plan § Sequences "Names", src/lib/identities.ts) and shows only
  * what the viewer may read: a thing they may not read keeps its type and its minutes and loses its name, link,
  * subject and, unless the entry is the viewer's own, its id (AC-4.10, D44); a source that did not answer
@@ -16,7 +16,8 @@
  * (`row.userId === viewerId`: they booked it, they know what it is on). Otherwise it is `null`. A hidden id
  * handed out by a list is what the `dealId` / `meetingId` / `projectId` filters turn into a probe for which
  * hidden meetings are linked to which hidden deal, so the viewer is given nothing to feed them. Not an id
- * rule: `on.deal`, the category of an entry on no entity (hours-api's own list), the work type, the person.
+ * rule: `on.deal` and `on.project` of a meeting (their id travels only with `visible`, the author's own entry included), the category of an
+ * entry on no entity (hours-api's own list), the work type, the person.
  */
 
 import { z } from "@hono/zod-openapi";
@@ -42,18 +43,24 @@ const PersonSchema = z.object({ id: z.string(), name: z.string().nullable(), sta
  */
 const entityParts = { id: z.string().nullable(), label: z.string().nullable(), href: z.string().nullable(), visibility: VisibilitySchema };
 
-/** The deal a meeting's hours count for: its id only with `visibility: "visible"` (ADR 20261104-meetings-tool-shape-visibility-by-participation, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). */
-export const MeetingDealSchema = z.union([
+/**
+ * The deal a meeting's hours count for: its id only with `visibility: "visible"` (ADR 20261104-meetings-tool-shape-visibility-by-participation, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
+ * The project a meeting's hours count for is the same union with a project's id, label and href (`MeetingProject`, specs/20261112-project-hours AC-4.7, D78),
+ * and the same rule: a viewer who cannot read the project is told that the meeting is linked to one, and nothing else.
+ */
+const MeetingLinkSchema = z.union([
   z.object({ state: z.literal("linked"), visibility: z.literal("visible"), id: z.string(), label: z.string(), href: z.string() }).strict(),
   z.object({ state: z.literal("linked"), visibility: z.enum(["hidden", "unavailable"]) }).strict(),
   z.object({ state: z.literal("none") }).strict(),
   z.object({ state: z.literal("unknown") }).strict(),
 ]);
+export const MeetingDealSchema = MeetingLinkSchema;
+export const MeetingProjectSchema = MeetingLinkSchema;
 
 const OnSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("project"), ...entityParts }).strict(),
   z.object({ type: z.literal("deal"), ...entityParts }).strict(),
-  z.object({ type: z.literal("meeting"), ...entityParts, deal: MeetingDealSchema }).strict(),
+  z.object({ type: z.literal("meeting"), ...entityParts, deal: MeetingDealSchema, project: MeetingProjectSchema }).strict(),
   z.object({ type: z.literal("none"), category: z.object({ id: z.string(), name: z.string(), retired: z.boolean() }).strict() }).strict(),
 ]);
 
@@ -73,6 +80,14 @@ export const TimeEntryViewSchema = z
      * `visible` or when the entry is the viewer's own (D44), else `null`.
      */
     activity: z.object({ id: z.string().nullable(), subject: z.string().nullable(), visibility: VisibilitySchema }).strict().nullable(),
+    /**
+     * Who wrote the entry: `meeting` for an automatic entry Operai recorded from a meeting's facts, `person` for every
+     * other one, those that existed before the feature included (specs/20261112-meeting-hours, AC-2.3). It never changes:
+     * an entry its person changed or moved off the meeting is still `meeting`. What decides whether Operai still follows
+     * the meeting (`followsMeeting`) and which meeting it came from (`sourceMeetingId`) are not part of the view: they
+     * say what Operai will do, not what the person reads.
+     */
+    origin: z.enum(["person", "meeting"]),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -100,9 +115,10 @@ export function needsOf(rows: readonly EntryRow[]): LabelNeeds {
     userIds: rows.map((row) => row.userId),
     projectIds: idsOf("project", (row) => row.projectId),
     dealIds: idsOf("deal", (row) => row.dealId),
-    // The title is read as the viewer, the current deal with hours-api's own credential: two sources, one id list.
+    // The title is read as the viewer, the current deal and project with hours-api's own credential, in ONE call: two sources, one id list.
     meetingIds,
     meetingDealIds: meetingIds,
+    meetingProjectIds: meetingIds,
     activityIds: rows.flatMap((row) => (row.activityId === null ? [] : [row.activityId])),
   };
 }
@@ -138,7 +154,10 @@ function onOf(row: EntryRow, labels: Labels, own: boolean): { on: EntryOn; point
     case "meeting": {
       const id = required(row, row.meetingId, "a meeting and has no meeting id");
       const label = labels.meeting(id);
-      return { on: { type: "meeting", id: idFor(id, label.visibility, own), ...label, deal: labels.meetingDeal(id) }, pointable: null };
+      return {
+        on: { type: "meeting", id: idFor(id, label.visibility, own), ...label, deal: labels.meetingDeal(id), project: labels.meetingProject(id) },
+        pointable: null,
+      };
     }
     case "none": {
       if (row.category === null) throw new Error(`entry ${row.id} is on no entity and has no category`);
@@ -170,6 +189,7 @@ export function toView(row: EntryRow, labels: Labels, viewerId: string): TimeEnt
     // Only an entry on a project or a deal can point at an activity (the CHECK `time_entry_activity_target`).
     // Its id follows the activity's own visibility, which already follows the target's (labels/resolve.ts).
     activity: activity === null ? null : { id: idFor(activity.id, activity.visibility, own), subject: activity.subject, visibility: activity.visibility },
+    origin: row.origin,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

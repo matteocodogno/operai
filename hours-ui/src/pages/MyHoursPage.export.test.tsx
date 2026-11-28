@@ -29,6 +29,7 @@ import {
   listsHandler,
   page,
   problem,
+  projectItem,
   requests,
 } from '../test-support/fakeApi'
 import type { FakeAnswer, FakeHandler } from '../test-support/fakeApi'
@@ -50,6 +51,7 @@ const serveApi = (overrides: Parameters<typeof fakeApi>[0] = {}) => {
     'GET /time-entries': entriesHandler,
     'GET /time-entries/totals': totalsWithDays,
     'GET /deals': () => ({ status: 200, body: page([dealItem({ id: 'd1', title: 'Acme renewal' })]) }),
+    'GET /projects': () => ({ status: 200, body: page([projectItem({ id: 'p1', name: 'Project Alpha' })]) }),
     ...overrides,
   })
   apiFetch.mockImplementation(api)
@@ -73,6 +75,12 @@ const dealInput = () => screen.getByRole('combobox', { name: f.deal.label })
 const pickDeal = async () => {
   await userEvent.type(dealInput(), 'a')
   await userEvent.click(await screen.findByRole('option', { name: /Acme renewal/ }))
+}
+const projectInput = () => screen.getByRole('combobox', { name: f.project.label })
+
+const pickProject = async () => {
+  await userEvent.type(projectInput(), 'a')
+  await userEvent.click(await screen.findByRole('option', { name: /Project Alpha/ }))
 }
 
 /** 503 `host_unavailable` for the walk only (Meetings went down after the view was read). */
@@ -369,5 +377,147 @@ describe('an export refused because Meetings cannot say which meetings belong to
     })
     expect(screen.queryByTestId('hours-deal-filter-unavailable')).toBeNull()
     expect(screen.getByTestId('hours-day-list')).not.toBeNull()
+  })
+})
+
+describe('an export refused because Meetings cannot say which meetings are linked to the project (AC-4.8, D45, D78)', () => {
+  const blocker = () => screen.getByTestId('hours-project-filter-unavailable')
+
+  const exportUnderProject = async (overrides: Parameters<typeof fakeApi>[0] = {}) => {
+    serveApi({ 'GET /time-entries': refusingTheWalk(entriesHandler), ...overrides })
+    await renderPage()
+    await screen.findByTestId('hours-day-list')
+    await pickProject()
+    await waitFor(() => expect(screenCalls().length).toBe(2))
+    await screen.findByTestId('hours-day-list')
+    // By keyboard, as for the deal: it is the key that leaves the focus ON the button, which the refusal takes away.
+    exportButton().focus()
+    await userEvent.keyboard('{Enter}')
+    await screen.findByTestId('hours-project-filter-unavailable')
+  }
+
+  it('switches the page to the one project-filter-unavailable state, exactly as for a deal: the button, Totals and Entries are gone', async () => {
+    await exportUnderProject()
+    expect(blocker().getAttribute('role')).toBe('alert')
+    expect(within(blocker()).getByText(e.projectFilterUnavailable.title)).not.toBeNull()
+    expect(screen.queryByTestId('hours-deal-filter-unavailable')).toBeNull()
+    expect(queryExportButton()).toBeNull()
+    expect(screen.queryByTestId('hours-totals')).toBeNull()
+    expect(screen.queryByTestId('hours-entries')).toBeNull()
+    expect(screen.queryByTestId('hours-day-list')).toBeNull()
+    // One alert, and it is the banner's: the button shows no failure of its own.
+    expect(screen.queryByTestId('hours-export-error')).toBeNull()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(downloads).toHaveLength(0)
+    expect(blobs).toHaveLength(0)
+    expect(exceljsLoaded).not.toHaveBeenCalled()
+    // The filter stays picked, so the person can see which one to clear.
+    expect((projectInput() as HTMLInputElement).value).toBe('Project Alpha')
+  })
+
+  it('takes focus: the Export button that had it is gone', async () => {
+    await exportUnderProject()
+    await waitFor(() => expect(document.activeElement).toBe(blocker()))
+  })
+
+  it('Retry asks every read again, and the old refusal does not come back: the view is shown and the export works', async () => {
+    let healthy = false
+    await exportUnderProject({
+      'GET /time-entries': (url, init, params) =>
+        url.searchParams.has('limit') && !healthy
+          ? { status: 503, body: problem(503, 'host_unavailable') }
+          : entriesHandler(url, init, params),
+    })
+    healthy = true
+    await userEvent.click(within(blocker()).getByRole('button', { name: strings.common.retry }))
+
+    const heading = await screen.findByRole('heading', { level: 3, name: t.title })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(screen.queryByTestId('hours-project-filter-unavailable')).toBeNull()
+    expect(await screen.findByTestId('hours-day-list')).not.toBeNull()
+    await userEvent.click(exportButton())
+    await waitFor(() => expect(downloads).toHaveLength(1))
+    expect(walkCalls().at(-1)!.query['projectId']).toBe('p1')
+  })
+
+  it('"Clear the project filter" shows the view without it and puts focus in the Project field; choosing the same project again is not blocked by the old refusal', async () => {
+    await exportUnderProject()
+    await userEvent.click(within(blocker()).getByRole('button', { name: e.projectFilterUnavailable.clear }))
+    await screen.findByTestId('hours-day-list')
+    expect(screen.queryByTestId('hours-project-filter-unavailable')).toBeNull()
+    expect((projectInput() as HTMLInputElement).value).toBe('')
+
+    await pickProject()
+    // The same filters as the click that was refused: the first read, the project, no project, and the project again.
+    await waitFor(() => expect(screenCalls().length).toBe(4))
+    expect(await screen.findByTestId('hours-day-list')).not.toBeNull()
+    expect(screen.queryByTestId('hours-project-filter-unavailable')).toBeNull()
+    expect(exportButton()).not.toBeNull()
+  })
+
+  it('a refusal that arrives after the person changed the filters does not block the view they changed to', async () => {
+    const slow = deferred<FakeAnswer>()
+    serveApi({
+      'GET /time-entries': (url, init, params) =>
+        url.searchParams.has('limit') ? slow.promise : entriesHandler(url, init, params),
+    })
+    await renderPage()
+    await screen.findByTestId('hours-day-list')
+    await pickProject()
+    await screen.findByTestId('hours-day-list')
+    await userEvent.click(exportButton())
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: f.category.label }), 'tc-formazione')
+    await waitFor(() => expect(screenCalls().length).toBe(3))
+    await screen.findByTestId('hours-day-list')
+
+    await act(async () => {
+      slow.resolve({ status: 503, body: problem(503, 'host_unavailable') })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(screen.queryByTestId('hours-project-filter-unavailable')).toBeNull()
+    expect(screen.getByTestId('hours-day-list')).not.toBeNull()
+  })
+
+  it('any other failure of the export under a project filter is still the button’s own alert, and the page stays', async () => {
+    serveApi({
+      'GET /time-entries': (url, init, params) =>
+        url.searchParams.has('limit') ? { status: 500, body: problem(500) } : entriesHandler(url, init, params),
+    })
+    await renderPage()
+    await screen.findByTestId('hours-day-list')
+    await pickProject()
+    await screen.findByTestId('hours-day-list')
+    await userEvent.click(exportButton())
+    expect((await screen.findByTestId('hours-export-error')).textContent).toBe(x.failed)
+    expect(downloads).toHaveLength(0)
+    expect(screen.getByTestId('hours-day-list')).not.toBeNull()
+    expect(screen.queryByTestId('hours-project-filter-unavailable')).toBeNull()
+  })
+
+  it('with a deal filter set as well the project’s words show, and clearing the project leaves the deal filter set', async () => {
+    serveApi({ 'GET /time-entries': refusingTheWalk(entriesHandler) })
+    await renderPage()
+    await screen.findByTestId('hours-day-list')
+    await pickDeal()
+    await screen.findByTestId('hours-day-list')
+    await pickProject()
+    await waitFor(() => expect(screenCalls().at(-1)!.query).toHaveProperty('projectId'))
+    await screen.findByTestId('hours-day-list')
+    exportButton().focus()
+    await userEvent.keyboard('{Enter}')
+
+    await screen.findByTestId('hours-project-filter-unavailable')
+    expect(screen.queryByTestId('hours-deal-filter-unavailable')).toBeNull()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+
+    within(blocker()).getByRole('button', { name: e.projectFilterUnavailable.clear }).focus()
+    await userEvent.keyboard('{Enter}')
+
+    // Only the walk was refused and the view reads again, so the old refusal is gone; the deal is still picked.
+    expect(await screen.findByTestId('hours-day-list')).not.toBeNull()
+    expect(screen.queryByTestId('hours-project-filter-unavailable')).toBeNull()
+    expect(screen.queryByTestId('hours-deal-filter-unavailable')).toBeNull()
+    expect((projectInput() as HTMLInputElement).value).toBe('')
+    expect((dealInput() as HTMLInputElement).value).toBe('Acme renewal')
   })
 })

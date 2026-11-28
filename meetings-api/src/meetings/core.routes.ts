@@ -26,6 +26,7 @@ import { MAX_AGENDA_POINTS } from "../templates/builtin";
 import { verifyHostReference, type HostReference } from "../hosts/reference";
 import { deliverNotices, recordNotice } from "../hosts/notices";
 import { hostRegistry } from "../hosts/registry";
+import { readHoursFacts, recordHoursNotice } from "../hours/record";
 import { callerOf, creatorControl } from "./caller";
 import { lockMeeting } from "./lock";
 import {
@@ -189,6 +190,8 @@ coreRouter.openapi(patchMeeting, async (c) => {
     await lockMeeting(tx, id);
     const row = await tx.meeting.findUnique({ where: { id } });
     if (!row) throw meetingNotFound();
+    // A new `startsAt` is a hours fact: what hours-api builds entries from is announced in this transaction (specs/20261112-meeting-hours T9).
+    const hoursBefore = await readHoursFacts(tx, id);
 
     const data: Prisma.MeetingUpdateInput = {};
     const titleChanged = body.title !== undefined && body.title !== row.title;
@@ -249,6 +252,7 @@ coreRouter.openapi(patchMeeting, async (c) => {
     }
 
     if (Object.keys(data).length > 0) await tx.meeting.update({ where: { id }, data });
+    await recordHoursNotice(tx, id, { before: hoursBefore });
   });
 
   // One awaited attempt, in seq order; the change stands whatever the host says (AC-11.9).

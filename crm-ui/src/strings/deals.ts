@@ -93,6 +93,15 @@ const en = {
     loading: 'Loading meetings…',
     unavailable: 'Meetings are unavailable. Reload the page to try again.',
   },
+  /**
+   * The Hours card (specs/20261112-project-hours AC-2.2, AC-2.4, AC-2.6, design S2; plan D-P4): the panel is hours-ui's own, the total
+   * recorded and a closed breakdown; these are the host's title, loading and fallback copy.
+   */
+  hours: {
+    heading: 'Hours',
+    loading: 'Loading hours…',
+    unavailable: 'Hours are unavailable. Reload the page to try again.',
+  },
   /** The deal page's Delivery card: the project that carries the deal, read from projects-api (specs/20261103-projects-handoff AC-3.4). */
   delivery: {
     title: 'Delivery',
@@ -233,6 +242,11 @@ const it: typeof en = {
     heading: 'Riunioni',
     loading: 'Caricamento delle riunioni…',
     unavailable: 'Le riunioni non sono disponibili. Ricarica la pagina per riprovare.',
+  },
+  hours: {
+    heading: 'Ore',
+    loading: 'Caricamento delle ore…',
+    unavailable: 'Le ore non sono disponibili. Ricarica la pagina per riprovare.',
   },
   delivery: {
     title: 'Consegna',

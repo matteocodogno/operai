@@ -16,8 +16,9 @@
  * error instead.
  *
  * Under a deal filter, a later page may be refused 409 `deal_meetings_changed`: the deal's meetings changed since the
- * first page. The pages read so far are dropped and the walk starts over, at most `EXPORT_ATTEMPTS` times in all, so
- * the file is always one consistent reading of the deal.
+ * first page; under a project filter, 409 `project_meetings_changed`, the same for the project's linked meetings
+ * (specs/20261112-project-hours AC-4.4). The pages read so far are dropped and the walk starts over, at most
+ * `EXPORT_ATTEMPTS` times in all, so the file is always one consistent reading of the deal or project.
  */
 import { isCode } from './errors'
 import { listEntries } from './hoursApi'
@@ -45,7 +46,7 @@ export const readAllEntries = async (
     try {
       return await walk(filters, signal)
     } catch (error) {
-      if (attempt >= EXPORT_ATTEMPTS || !isCode(error, 'deal_meetings_changed')) throw error
+      if (attempt >= EXPORT_ATTEMPTS || !isCode(error, 'deal_meetings_changed', 'project_meetings_changed')) throw error
     }
   }
 }

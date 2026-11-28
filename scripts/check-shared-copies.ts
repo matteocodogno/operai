@@ -103,6 +103,7 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
       "activities-api/src/auth/systemAuth.middleware.ts",
       "accounting-api/src/auth/systemAuth.middleware.ts",
       "meetings-api/src/auth/systemAuth.middleware.ts",
+      "hours-api/src/auth/systemAuth.middleware.ts",
     ],
     why: "the service-JWT guard of every /system route (ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049); a fix to one copy must reach every copy",
   },
@@ -136,6 +137,24 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
     name: "accountingWire",
     files: ["accounting-api/src/system/accountingWire.ts", "refund-api/src/accounting/accountingWire.ts"],
     why: "the producer/consumer wire schema of accounting-api's /system/v1 answers (ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…, D23); change both files in one commit",
+  },
+  // The body of hours-api's `POST /system/meeting-hours/v1/notices` (specs/20261112-meeting-hours T2, plan R2 and R7): meetings-api
+  // builds it and hours-api parses it with the same code, so the sender and the receiver cannot each read the wire their own way
+  // (a drift is a permanent 400 that strands a notice). The two files are identical whole, markers and header included.
+  {
+    name: "meetingHoursWire",
+    files: ["hours-api/src/lib/meetingHoursWire.ts", "meetings-api/src/lib/meetingHoursWire.ts"],
+    why: "the producer/consumer wire schema of the meeting-hours notice (ADR 20261124-meeting-hours-facts-pushed-by-their-owner-…, plan R2/R7); change both files in one commit",
+  },
+  // The browser event a save made with Record hours broadcasts (specs/20261112-project-hours T10, plan § Browser event, D84, D-P6): its name
+  // and the guard of its detail are the contract between hours-ui (dispatches it, and listens in `HostHours`) and projects-ui (listens in
+  // `ConsumptionBlock`), two apps installed and deployed on their own. Whole file: a small module with no markers, and its header is
+  // part of what must match.
+  {
+    name: "timeEntryRecordedEvent",
+    files: ["hours-ui/src/lib/timeEntryRecordedEvent.ts", "projects-ui/src/lib/timeEntryRecordedEvent.ts"],
+    why: "the content-free `operai:time-entry-recorded` event's name and detail guard (ADR 20261116-record-hours-widget-through-the-host-extension-seam, amended 2026-11-26; plan D-P6); change both copies in one commit",
+    mode: "whole",
   },
   {
     name: "manDays",

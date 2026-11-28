@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { dealOn, meetingOn, otherWorkOn, projectOn, timeEntryView } from '../test-support/fakeApi'
-import type { EntryOn, TimeEntryView } from './hoursApi.types'
+import type { EntryOn, MeetingProject, TimeEntryView } from './hoursApi.types'
 import { tableGrid } from './tableGrid'
 import type { TableGrid } from './tableGrid'
 import { daysOf, holding } from './tablePeriod'
@@ -158,6 +158,62 @@ describe("tableGrid: a meeting's hours stay on the meeting's row (AC-5.7, D10)",
       DAYS,
     )
     expect(keys(grid).sort()).toEqual(['meeting:m1', 'meeting:m2', 'meeting:m3', 'meeting:m4'])
+  })
+})
+
+describe("tableGrid: the hours of a meeting that counts for a project stay on the meeting's row (specs/20261112-project-hours AC-4.11)", () => {
+  const alpha: MeetingProject = {
+    state: 'linked',
+    visibility: 'visible',
+    id: 'p1',
+    label: 'Alpenstrom',
+    href: '/projects/p1',
+  }
+  const meetingFor = (id: string, title: string, project: MeetingProject | undefined) =>
+    project === undefined ? meetingOn(id, title) : { ...meetingOn(id, title), project }
+
+  it('puts an entry on a meeting linked to a visible project on the meeting row, and makes no row for the project', () => {
+    const meeting = entry(WED, 60, meetingFor('m1', 'Kick-off', alpha))
+    const grid = tableGrid([meeting], DAYS)
+
+    expect(keys(grid)).toEqual(['meeting:m1'])
+    expect(grid.rows[0]?.kind).toBe('meeting')
+    expect(grid.rows[0]?.cells[WED]?.entries).toEqual([meeting])
+  })
+
+  it("leaves the project's own row as it is when the person also recorded on the project", () => {
+    const onProject = entry(WED, 120, projectOn('p1', 'Alpenstrom'))
+    const onMeeting = entry(WED, 60, meetingFor('m1', 'Kick-off', alpha))
+    const grid = tableGrid([onProject, onMeeting], DAYS)
+
+    const project = grid.rows.find((row) => row.key === 'project:p1')
+    expect(project?.cells[WED]).toEqual({ minutes: 120, entries: [onProject] })
+    expect(project?.minutes).toBe(120)
+    expect(grid.rows.find((row) => row.key === 'meeting:m1')?.minutes).toBe(60)
+    expect(grid.totalMinutes).toBe(180)
+  })
+
+  it('does the same for a meeting whose project the person cannot read, is unavailable, unknown, none, or missing from the answer', () => {
+    const grid = tableGrid(
+      [
+        entry(MON, 30, meetingFor('m1', 'One', { state: 'linked', visibility: 'hidden' })),
+        entry(MON, 30, meetingFor('m2', 'Two', { state: 'linked', visibility: 'unavailable' })),
+        entry(MON, 30, meetingFor('m3', 'Three', { state: 'unknown' })),
+        entry(MON, 30, meetingFor('m4', 'Four', { state: 'none' })),
+        entry(MON, 30, meetingFor('m5', 'Five', undefined)),
+      ],
+      DAYS,
+    )
+    expect(keys(grid).sort()).toEqual(['meeting:m1', 'meeting:m2', 'meeting:m3', 'meeting:m4', 'meeting:m5'])
+  })
+
+  it('keeps two meetings linked to one project on two rows of their own, each with its own minutes', () => {
+    const grid = tableGrid(
+      [entry(MON, 30, meetingFor('m1', 'Kick-off', alpha)), entry(TUE, 90, meetingFor('m2', 'Review', alpha))],
+      DAYS,
+    )
+    expect(keys(grid).sort()).toEqual(['meeting:m1', 'meeting:m2'])
+    expect(grid.rows.map((row) => row.minutes).sort()).toEqual([30, 90])
   })
 })
 

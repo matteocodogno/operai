@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * HoursExport — the Export button of both views (specs/20261112-time-tracking T30; design F5, S1, S4; AC-4.6, AC-4.7,
- * AC-4.9, AC-4.10, AC-4.11). The real `ExportButton` of `@operai/ui`, the real walk (`exportPages`) and the real
+ * AC-4.9, AC-4.10, AC-4.11; specs/20261112-project-hours T21, AC-4.8). The real `ExportButton` of `@operai/ui`, the real walk (`exportPages`) and the real
  * builder run, with `fakeApi` behind `apiFetch`; only the browser seams a download crosses — `URL.createObjectURL`
  * and the anchor click — are faked and recorded, so the file a test inspects is the one the person would get.
  */
@@ -273,42 +273,98 @@ describe('under a deal filter, Meetings cannot say which meetings are linked to 
 
   it('tells the page, so it can show its one state, and downloads nothing', async () => {
     useApi(refused)
-    const onDealFilterUnavailable = vi.fn()
+    const onFilterUnavailable = vi.fn()
     render(
-      <HoursExport
-        filters={{ ...FILTERS, dealId: 'd1' }}
-        resetKey="a"
-        onDealFilterUnavailable={onDealFilterUnavailable}
-      />,
+      <HoursExport filters={{ ...FILTERS, dealId: 'd1' }} resetKey="a" onFilterUnavailable={onFilterUnavailable} />,
     )
     click()
-    await waitFor(() => expect(onDealFilterUnavailable).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(onFilterUnavailable).toHaveBeenCalledTimes(1))
     expect(downloads).toHaveLength(0)
     expect(exceljsLoaded).not.toHaveBeenCalled()
   })
 
-  it('does not take a refusal with no deal filter for that state: the same 503 is an ordinary failure', async () => {
+  it('does not take a refusal with no deal or project filter for that state: the same 503 is an ordinary failure', async () => {
     useApi(refused)
-    const onDealFilterUnavailable = vi.fn()
-    render(<HoursExport filters={FILTERS} resetKey="a" onDealFilterUnavailable={onDealFilterUnavailable} />)
+    const onFilterUnavailable = vi.fn()
+    render(<HoursExport filters={FILTERS} resetKey="a" onFilterUnavailable={onFilterUnavailable} />)
     click()
     expect((await screen.findByRole('alert')).textContent).toBe(t.failed)
-    expect(onDealFilterUnavailable).not.toHaveBeenCalled()
+    expect(onFilterUnavailable).not.toHaveBeenCalled()
   })
 
   it('does not take any other refusal under a deal filter for that state either', async () => {
     useApi(() => ({ status: 503, body: problem(503, 'authz_unavailable') }))
-    const onDealFilterUnavailable = vi.fn()
+    const onFilterUnavailable = vi.fn()
     render(
-      <HoursExport
-        filters={{ ...FILTERS, dealId: 'd1' }}
-        resetKey="a"
-        onDealFilterUnavailable={onDealFilterUnavailable}
-      />,
+      <HoursExport filters={{ ...FILTERS, dealId: 'd1' }} resetKey="a" onFilterUnavailable={onFilterUnavailable} />,
     )
     click()
     expect((await screen.findByRole('alert')).textContent).toBe(t.failed)
-    expect(onDealFilterUnavailable).not.toHaveBeenCalled()
+    expect(onFilterUnavailable).not.toHaveBeenCalled()
+  })
+})
+
+describe('under a project filter, Meetings cannot say which meetings are linked to the project (AC-4.8)', () => {
+  const refused: FakeHandler = () => ({ status: 503, body: problem(503, 'host_unavailable') })
+
+  it('tells the page, so it can show its one state, exactly as under a deal filter, and downloads nothing', async () => {
+    useApi(refused)
+    const onFilterUnavailable = vi.fn()
+    render(
+      <HoursExport filters={{ ...FILTERS, projectId: 'p1' }} resetKey="a" onFilterUnavailable={onFilterUnavailable} />,
+    )
+    click()
+    await waitFor(() => expect(onFilterUnavailable).toHaveBeenCalledTimes(1))
+    expect(downloads).toHaveLength(0)
+    expect(blobs).toHaveLength(0)
+    expect(exceljsLoaded).not.toHaveBeenCalled()
+  })
+
+  it('tells the page once when both a deal and a project filter are set', async () => {
+    useApi(refused)
+    const onFilterUnavailable = vi.fn()
+    render(
+      <HoursExport
+        filters={{ ...FILTERS, dealId: 'd1', projectId: 'p1' }}
+        resetKey="a"
+        onFilterUnavailable={onFilterUnavailable}
+      />,
+    )
+    click()
+    await waitFor(() => expect(onFilterUnavailable).toHaveBeenCalledTimes(1))
+    expect(downloads).toHaveLength(0)
+  })
+
+  it('does not take any other refusal under a project filter for that state: the button shows its own alert', async () => {
+    useApi(() => ({ status: 503, body: problem(503, 'authz_unavailable') }))
+    const onFilterUnavailable = vi.fn()
+    render(
+      <HoursExport filters={{ ...FILTERS, projectId: 'p1' }} resetKey="a" onFilterUnavailable={onFilterUnavailable} />,
+    )
+    click()
+    expect((await screen.findByRole('alert')).textContent).toBe(t.failed)
+    expect(onFilterUnavailable).not.toHaveBeenCalled()
+  })
+
+  it('walks again when the linked meetings changed between two pages, and still downloads one file', async () => {
+    let changed = true
+    useApi((url) => {
+      const cursor = url.searchParams.get('cursor')
+      if (cursor === null) return { status: 200, body: exportPage([ALPHA_DEV], 'c1') }
+      if (changed) {
+        changed = false
+        return { status: 409, body: problem(409, 'project_meetings_changed') }
+      }
+      return { status: 200, body: exportPage([KICKOFF_ACME]) }
+    })
+    const onFilterUnavailable = vi.fn()
+    render(
+      <HoursExport filters={{ ...FILTERS, projectId: 'p1' }} resetKey="a" onFilterUnavailable={onFilterUnavailable} />,
+    )
+    click()
+    await waitFor(() => expect(downloads).toHaveLength(1))
+    expect(onFilterUnavailable).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
 

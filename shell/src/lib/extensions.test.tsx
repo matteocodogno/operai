@@ -51,6 +51,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.doUnmock('meetings/HostMeetings')
   vi.doUnmock('hours/RecordHours')
+  vi.doUnmock('hours/HostHours')
 })
 
 describe('HostExtension — the happy path', () => {
@@ -293,7 +294,12 @@ describe('HostExtension — a new entity gets a fresh panel', () => {
     expect(mounts).toBe(1)
 
     rerender(
-      <HostExtension name="meetings.hostMeetings" props={{ ...PROPS, entityId: 'deal-2' }} fallback={fallback} resetKey="deal-2" />,
+      <HostExtension
+        name="meetings.hostMeetings"
+        props={{ ...PROPS, entityId: 'deal-2' }}
+        fallback={fallback}
+        resetKey="deal-2"
+      />,
     )
     await flush()
     expect(mounts).toBe(2)
@@ -489,5 +495,179 @@ describe('HostExtension — hours.recordHours', () => {
       'Record hours on Third task',
     ])
     expect(screen.getAllByTestId('fallback')).toHaveLength(1)
+  })
+})
+
+// specs/20261112-project-hours, T14 (AC-2.6; plan D-P4): `hours.hostHours` is hours-ui's read panel of a project's or a
+// deal's hours, embedded by projects-ui's project page and crm-ui's deal page in one "Hours" card. Same seam, same
+// failure rule as `meetings.hostMeetings` and `hours.recordHours`: whatever goes wrong on hours-ui's side shows the
+// HOST's fallback ("Hours are unavailable. Reload the page to try again."), never a broken page. Each test asserts that
+// the federated module was actually asked for, so none can pass by way of the "unknown extension name" fallback.
+type HostHoursProps = ExtensionProps['hours.hostHours']
+
+const HOST_HOURS_PROPS: HostHoursProps = { on: 'project', targetId: 'project-1' }
+
+const hoursUnavailable = <p data-testid="fallback">Hours are unavailable. Reload the page to try again.</p>
+const hoursLoading = <p data-testid="loading">Loading hours…</p>
+
+describe('ExtensionProps["hours.hostHours"] — the contract is two strings and nothing else', () => {
+  it('is exactly { on: project | deal; targetId: string } (plan § shell — hours.hostHours)', () => {
+    // Checked by `tsc -b` (the build), not at run time: an extra, a missing or a retyped member fails the build.
+    expectTypeOf<HostHoursProps>().toEqualTypeOf<{ on: 'project' | 'deal'; targetId: string }>()
+    expectTypeOf<HostHoursProps[keyof HostHoursProps]>().toBeString()
+  })
+})
+
+describe('HostExtension — hours.hostHours', () => {
+  it('imports hours/HostHours and renders it with exactly the two props, nothing else (AC-2.6)', async () => {
+    const seen = vi.fn()
+    const factory = vi.fn(() => ({
+      default: (props: HostHoursProps) => {
+        seen(props)
+        return (
+          <p data-testid="panel">
+            Hours on {props.on} {props.targetId}
+          </p>
+        )
+      },
+    }))
+    vi.doMock('hours/HostHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    render(
+      <HostExtension
+        name="hours.hostHours"
+        props={HOST_HOURS_PROPS}
+        fallback={hoursUnavailable}
+        loading={hoursLoading}
+      />,
+    )
+    expect(screen.getByTestId('loading')).toBeDefined()
+    await flush()
+
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('panel').textContent).toBe('Hours on project project-1')
+    expect(seen).toHaveBeenCalledWith(HOST_HOURS_PROPS)
+    expect(Object.keys(seen.mock.calls[0]?.[0] as object).sort()).toEqual(['on', 'targetId'])
+    expect(screen.queryByTestId('fallback')).toBeNull()
+    expect(screen.queryByTestId('loading')).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('embeds a deal too, and after a render failure for one target another target mounts the panel again', async () => {
+    const factory = vi.fn(() => ({
+      default: (props: HostHoursProps) => {
+        if (props.targetId === 'bad') {
+          throw new Error('bad deal')
+        }
+        return (
+          <p data-testid="panel">
+            {props.on}:{props.targetId}
+          </p>
+        )
+      },
+    }))
+    vi.doMock('hours/HostHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    const { rerender } = render(
+      <HostExtension name="hours.hostHours" props={{ on: 'deal', targetId: 'bad' }} fallback={hoursUnavailable} />,
+    )
+    await flush()
+    expect(screen.getByTestId('fallback')).toBeDefined()
+
+    rerender(
+      <HostExtension name="hours.hostHours" props={{ on: 'deal', targetId: 'deal-2' }} fallback={hoursUnavailable} />,
+    )
+    await flush()
+
+    expect(screen.getByTestId('panel').textContent).toBe('deal:deal-2')
+  })
+
+  it('a rejected import (hours remote down, or one that predates the expose) shows the host fallback (AC-2.6)', async () => {
+    const factory = vi.fn(() => {
+      throw new Error('Failed to fetch remoteEntry.js')
+    })
+    vi.doMock('hours/HostHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    render(
+      <HostExtension
+        name="hours.hostHours"
+        props={HOST_HOURS_PROPS}
+        fallback={hoursUnavailable}
+        loading={hoursLoading}
+      />,
+    )
+    await flush()
+
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('fallback').textContent).toBe('Hours are unavailable. Reload the page to try again.')
+    expect(screen.queryByTestId('loading')).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a remote that never answers shows the host fallback after 5 s, not before (AC-2.6)', async () => {
+    const factory = vi.fn(() => new Promise(() => {}))
+    vi.doMock('hours/HostHours', factory)
+    const { HostExtension, EXTENSION_TIMEOUT_MS } = await loadHostExtension()
+    expect(EXTENSION_TIMEOUT_MS).toBe(5000)
+
+    render(
+      <HostExtension
+        name="hours.hostHours"
+        props={HOST_HOURS_PROPS}
+        fallback={hoursUnavailable}
+        loading={hoursLoading}
+      />,
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4999)
+    })
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('loading')).toBeDefined()
+    expect(screen.queryByTestId('fallback')).toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+
+    expect(screen.getByTestId('fallback')).toBeDefined()
+    expect(screen.queryByTestId('loading')).toBeNull()
+  })
+
+  it('a widget that throws on render (an invalid prop set is a host bug) shows the host fallback and the host page is intact (AC-2.6)', async () => {
+    const factory = vi.fn(() => ({
+      default: () => {
+        throw new Error('invalid HostHours props')
+      },
+    }))
+    vi.doMock('hours/HostHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    expect(() => {
+      render(
+        <div data-testid="host-page">
+          <HostExtension name="hours.hostHours" props={HOST_HOURS_PROPS} fallback={hoursUnavailable} />
+        </div>,
+      )
+    }).not.toThrow()
+    await flush()
+
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('fallback')).toBeDefined()
+    expect(screen.getByTestId('host-page')).toBeDefined()
+  })
+
+  it('a module without a default export shows the host fallback', async () => {
+    const factory = vi.fn(() => ({ somethingElse: 1 }))
+    vi.doMock('hours/HostHours', factory)
+    const { HostExtension } = await loadHostExtension()
+
+    render(<HostExtension name="hours.hostHours" props={HOST_HOURS_PROPS} fallback={hoursUnavailable} />)
+    await flush()
+
+    expect(factory).toHaveBeenCalled()
+    expect(screen.getByTestId('fallback')).toBeDefined()
   })
 })

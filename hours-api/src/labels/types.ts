@@ -21,12 +21,14 @@ export interface Person {
  * - `meetings`: meeting titles, read as the viewer (`GET /meetings?ids=`);
  * - `meeting-deals`: a meeting's current deal, read with hours-api's own credential (`GET /system/meetings/hosts`),
  *   which fails independently of `meetings` (scope, deploy order, R7);
+ * - `meeting-projects`: a meeting's current project, from the SAME read as `meeting-deals` (one host, one call), so the two fail together
+ *   whenever a read needed both; a read that needed only one names only that one (specs/20261112-project-hours D78, AC-4.10);
  * - `identities`: people's names (`auth POST /authz/users/identities`).
  */
-export type SourceName = "projects" | "crm" | "activities" | "meetings" | "meeting-deals" | "identities";
+export type SourceName = "projects" | "crm" | "activities" | "meetings" | "meeting-deals" | "meeting-projects" | "identities";
 
 /** The order a read names its unavailable sources in, as the plan's `Unavailable` type lists them. */
-export const SOURCE_ORDER: readonly SourceName[] = ["projects", "crm", "activities", "meetings", "meeting-deals", "identities"];
+export const SOURCE_ORDER: readonly SourceName[] = ["projects", "crm", "activities", "meetings", "meeting-deals", "meeting-projects", "identities"];
 
 export type UnavailableSources = SourceName[];
 
@@ -54,4 +56,18 @@ export type MeetingDeal =
   /** meetings-api answered: linked to no deal (or to a host that is not a CRM deal), or the meeting no longer exists. */
   | { readonly state: "none" }
   /** The system route did not answer: `meeting-deals` is in `unavailable`. */
+  | { readonly state: "unknown" };
+
+/**
+ * The project a meeting entry's hours count for (specs/20261112-project-hours AC-4.7, D78): the deal's shape, with a project's id, label and
+ * href, and the same rule — `id` only with `visibility: "visible"`, because the link was read with hours-api's own credential and a viewer who
+ * cannot read the project must not learn which project a meeting is linked to. A meeting has ONE host, so at most one of its `MeetingDeal` and
+ * `MeetingProject` is `linked`.
+ */
+export type MeetingProject =
+  | { readonly state: "linked"; readonly visibility: "visible"; readonly id: string; readonly label: string; readonly href: string }
+  | { readonly state: "linked"; readonly visibility: "hidden" | "unavailable" }
+  /** meetings-api answered: linked to no project (a deal, another host, no host), or the meeting no longer exists. */
+  | { readonly state: "none" }
+  /** The system route did not answer: `meeting-projects` is in `unavailable`. */
   | { readonly state: "unknown" };

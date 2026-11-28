@@ -28,6 +28,9 @@ declare module 'shell/session' {
   export const getAuthBaseUrl: () => string
   // activities-api for the project Tasks card and My tasks (specs/20261110-activities, T15).
   export const getActivitiesApiBaseUrl: () => string
+  // hours-api for the consumption block's summary read (specs/20261112-project-hours T16, plan D-P3); the shell's
+  // `VITE_HOURS_API_URL`, which its `apiFetch` already trusts (`shell/src/lib/session.ts`). projects-ui has no VITE_* of its own.
+  export const getHoursApiBaseUrl: () => string
 
   // Permission resolution (ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims), used for UX gating only.
   export interface Permission {
@@ -72,6 +75,9 @@ declare module 'shell/extensions' {
       /** The page header's button, or a task row's smaller one. */
       placement: 'page' | 'row'
     }
+    // The hours of a record (specs/20261112-project-hours, plan D-P4): hours-ui's read panel, the total recorded and a
+    // closed breakdown per work type and, when the server allows it, per person. Two plain strings in, nothing back.
+    'hours.hostHours': { on: 'project' | 'deal'; targetId: string }
   }
 
   export function HostExtension<K extends keyof ExtensionProps>(props: {

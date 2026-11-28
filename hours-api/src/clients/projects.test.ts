@@ -34,6 +34,59 @@ describe("resolveProjects", () => {
       href: "/projects/p1",
       writable: true,
       assignees: ["user-pm", "user-alice"],
+      // Not scripted: the fake's default is a project that awaits its manager.
+      projectManagerId: null,
+    });
+  });
+
+  // specs/20261112-project-hours T6, AC-2.3, AC-2.7: the owner states WHO manages the project, beside who may book on it.
+  describe("projectManagerId", () => {
+    it("answers the project manager the owner states, apart from the team", async () => {
+      hosts.projects.setProject("p1", { label: "Atlas", assignees: ["user-pm", "user-alice"], projectManagerId: "user-pm" });
+      expect((await ok(["p1"])).get("p1")).toMatchObject({ state: "open", projectManagerId: "user-pm", assignees: ["user-pm", "user-alice"] });
+    });
+
+    it("answers `null` for a project that awaits its manager: stated, and nobody", async () => {
+      hosts.projects.setProject("p1", { label: "Atlas", assignees: ["user-alice"], projectManagerId: null });
+      expect((await ok(["p1"])).get("p1")).toMatchObject({ state: "open", projectManagerId: null });
+    });
+
+    it("answers `undefined` for an owner that predates it, and still answers: not stated is not a manager and not a failure", async () => {
+      hosts.projects.setProject("p1", { label: "Atlas", assignees: ["user-alice"], projectManagerId: "user-pm" });
+      hosts.projects.legacyManager = true;
+      const project = (await ok(["p1"])).get("p1");
+      expect(project).toMatchObject({ state: "open", assignees: ["user-alice"] });
+      expect(project).toHaveProperty("projectManagerId", undefined);
+    });
+
+    it("is the same for a batch of projects: each carries its own manager", async () => {
+      hosts.projects.setProject("p1", { label: "One", assignees: [], projectManagerId: "user-pm" });
+      hosts.projects.setProject("p2", { label: "Two", assignees: [], projectManagerId: null });
+      const items = await ok(["p1", "p2", "p3"]);
+      expect([items.get("p1"), items.get("p2"), items.get("p3")].map((project) => (project?.state === "open" ? project.projectManagerId : "missing"))).toEqual([
+        "user-pm",
+        null,
+        "missing",
+      ]);
+    });
+
+    it.each([
+      ["a number", 7],
+      ["an empty string", ""],
+      ["an object", { id: "user-pm" }],
+      ["a list", ["user-pm"]],
+    ])("answers `unavailable` for a manager that is %s: a contract break, never a manager and never a quiet nobody", async (_label, projectManagerId) => {
+      hosts.fail("projects.resolve", {
+        body: { reader: true, items: [{ id: "p1", state: "open", writable: true, label: "Atlas", href: "/projects/p1", may: { write: true, manage: true }, assignees: [], projectManagerId }] },
+      });
+      expect(await resolveProjects(ALICE, ["p1"])).toEqual({ state: "unavailable" });
+    });
+
+    it("is not read from a missing project, and `not_reader` still decides alone", async () => {
+      expect((await ok(["nope"])).get("nope")).toEqual({ state: "missing" });
+      hosts.projects.setProject("p1", { label: "Atlas", projectManagerId: "user-pm" });
+      hosts.projects.setReader("user-alice", false);
+      expect(await resolveProjects(ALICE, ["p1"])).toEqual({ state: "not_reader" });
     });
   });
 
@@ -118,7 +171,15 @@ describe("resolveProjects", () => {
     });
     const outcome = await resolveProjects(ALICE, ["p1"]);
     if (outcome.state !== "ok") throw new Error(`expected an answer, got ${outcome.state}`);
-    expect(outcome.items.get("p1")).toEqual({ state: "open", label: "Atlas", href: "/projects/p1", writable: true, assignees: null });
+    // No `projectManagerId` on the wire: undefined, "not stated" (specs/20261112-project-hours T6), never a grant.
+    expect(outcome.items.get("p1")).toEqual({
+      state: "open",
+      label: "Atlas",
+      href: "/projects/p1",
+      writable: true,
+      assignees: null,
+      projectManagerId: undefined,
+    });
   });
 
   it.each(["https://evil.example/x", "//evil.example/x", "javascript:alert(1)", "projects/p1", "/a\\b", "/with space", ""])(

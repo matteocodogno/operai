@@ -32,15 +32,20 @@ vi.mock('shell/session', () => ({
 
 type SeamCall = { name: string; props: unknown }
 const calls: SeamCall[] = []
+// Each extension the deal page embeds gets its own test id: Record hours (the header), the Meetings panel and the
+// Hours card's panel (specs/20261112-project-hours).
+const PANEL_TEST_IDS: Record<string, string> = {
+  'hours.recordHours': 'host-record-hours',
+  'hours.hostHours': 'host-hours-panel',
+  'meetings.hostMeetings': 'host-meetings-panel',
+}
 vi.mock('shell/extensions', async (importOriginal) => {
   const stub = await importOriginal<typeof import('shell/extensions')>()
   return {
     HostExtension: (host: { name: string; props: unknown; fallback: ReactNode; loading?: ReactNode }) => {
       calls.push({ name: host.name, props: host.props })
       if (seam.mode === 'stub') return createElement(stub.HostExtension as never, host as never)
-      return createElement('section', {
-        'data-testid': host.name === 'hours.recordHours' ? 'host-record-hours' : 'host-meetings-panel',
-      })
+      return createElement('section', { 'data-testid': PANEL_TEST_IDS[host.name] ?? 'host-meetings-panel' })
     },
   }
 })

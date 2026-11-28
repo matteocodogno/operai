@@ -18,7 +18,12 @@ afterEach(() => cleanup())
 const e = strings.entries
 const n = strings.names
 
-const none: HoursBannersProps = { sources: [], dealGroupingUnavailable: false, hiddenNames: false }
+const none: HoursBannersProps = {
+  sources: [],
+  dealGroupingUnavailable: false,
+  projectGroupingUnavailable: false,
+  hiddenNames: false,
+}
 
 describe('HoursBanners', () => {
   it('renders nothing when every name loaded and none is withheld', () => {
@@ -71,6 +76,34 @@ describe('HoursBanners', () => {
     })
   })
 
+  describe('grouping by project while the meeting → project link did not answer (specs/20261112-project-hours AC-4.10)', () => {
+    it('adds the deal grouping’s twin: a polite warning that the meeting hours are in one separate row and the total is unchanged', () => {
+      render(<HoursBanners {...none} sources={['meeting-projects']} projectGroupingUnavailable />)
+
+      const warning = screen.getByTestId('hours-banner-project-grouping')
+      expect(warning.textContent).toContain(e.banners.projectGrouping)
+      expect(e.banners.projectGrouping).toBe(
+        "Meeting hours can't be placed under their project right now, so they are shown in one separate row. The total is unchanged.",
+      )
+      expect(warning.className).toContain('banner-warning')
+      expect(warning.getAttribute('role')).toBe('status')
+      expect(warning.getAttribute('aria-live')).toBe('polite')
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.queryByTestId('hours-banner-deal-grouping')).toBeNull()
+    })
+
+    it('is absent unless the grouping asks for it, even though the source is named', () => {
+      render(<HoursBanners {...none} sources={['meeting-projects']} />)
+      expect(screen.queryByTestId('hours-banner-project-grouping')).toBeNull()
+      expect(screen.getByTestId('hours-banner-unavailable')).not.toBeNull()
+    })
+
+    it('alone is enough to show the notes block: nothing else need be set', () => {
+      render(<HoursBanners {...none} projectGroupingUnavailable />)
+      expect(screen.getByTestId('hours-banner-project-grouping')).not.toBeNull()
+    })
+  })
+
   describe('a name the viewer may not read (AC-4.10)', () => {
     it('is a static, named note that is not announced', () => {
       render(<HoursBanners {...none} hiddenNames />)
@@ -97,10 +130,26 @@ describe('HoursBanners', () => {
   })
 
   it('shows the three in a fixed order: names missing, deal grouping, names not visible', () => {
-    render(<HoursBanners sources={['crm', 'meeting-deals']} dealGroupingUnavailable hiddenNames />)
+    render(<HoursBanners {...none} sources={['crm', 'meeting-deals']} dealGroupingUnavailable hiddenNames />)
     expect(screen.getAllByTestId(/^hours-banner-/).map((banner) => banner.getAttribute('data-testid'))).toEqual([
       'hours-banner-unavailable',
       'hours-banner-deal-grouping',
+      'hours-banner-hidden',
+    ])
+  })
+
+  it('puts the project grouping note where the deal one is: after the names missing, before the names not visible', () => {
+    render(
+      <HoursBanners
+        sources={['meeting-projects']}
+        dealGroupingUnavailable={false}
+        projectGroupingUnavailable
+        hiddenNames
+      />,
+    )
+    expect(screen.getAllByTestId(/^hours-banner-/).map((banner) => banner.getAttribute('data-testid'))).toEqual([
+      'hours-banner-unavailable',
+      'hours-banner-project-grouping',
       'hours-banner-hidden',
     ])
   })

@@ -27,6 +27,11 @@ Decision map (parents first; re-drawn after D1, all branches closed):
 - B8 Visibility — D9; B8a manager — D21; B8b project and deal pages — D22
 - B9 Global view and export — D25
 - B25 Amending specs/20261103-projects — D15 (nothing to amend)
+- B10 Hours of a meeting linked to a project (specs/20261112-project-hours, re-opened 2026-11-26) — D78; B8b-i per-person
+  figure of a project awaiting its project manager — D79
+- B11 Signals on the consumption block (specs/20261112-project-hours, re-opened a second time 2026-11-27) — D86–D94 (D92
+  rounding of the percentage, D93 closed and cancelled projects, D94 the day of a date); D95–D96 at the plan's gate 2 (D95 the
+  words at exactly 100 %, D96 the readings of US-5)
 
 Decided (the user chose):
 - D1 Purpose: record the time employees spend on company work — development on projects, pre-sales, meetings and more; "consumo di ore" did not mean consumption against what was sold (that is B3) — user, 2026-11-12
@@ -99,6 +104,225 @@ Decided after the rebase onto main (2026-11-16), when main had moved Refund's se
 - D52 A **Recorded on** filter (All / Project / Deal / Meeting / Other work) in My hours and Everyone's hours, so the hours the Totals show as "Not on a project" / "Not on a deal" can be isolated — user, 2026-11-16, after seeing that no filter reached them ("nessun filtro mi consente di vedere le ore loggate su `Not on a project`"); chose it over a negated "No project" / "No deal" option in the Project and Deal filters (Clockify's "Without project", an hours-api change) and over deferring it. Frontend only: hours-api's list and totals already take `target`; "Not on a project" is Deal + Meeting + Other work, read one at a time
 - D53 The entry dialog's **Duration** is a text field read by a forgiving parser (`2:30`, `2,5`, `2.5`, `2h30`, `2 h 30`, `90m`), showing how it read the value ("= 2 h 30") and refusing — never rounding — a value that is not whole 30-minute steps from 30 min to 24 h, instead of the native select of 48 options — user, 2026-11-16, after using it ("la select box per la selezione della duration non è usabile: mi mostra la lista delle opzioni per 30 min"); chose it over two selects (hours + minutes) and over a stepper with presets. Harvest, Clockify and Toggl type the duration the same way. The rules of AC-1.2 are unchanged
 
+Decided when specs/20261112-meeting-hours was re-opened (2026-11-24, before any plan; batched interview):
+- D54 A meeting's hours are recorded AUTOMATICALLY: when its duration becomes known, its creator and each Operai participant get a time entry on it, rounded to the nearest 30 minutes — no suggestion, no confirmation — user: "perchè parli di suggerimento? se un meeting è terminato, l'orario registrato apparirà in automatico (approssimato al 0.5h più vicino)". Supersedes D17's suggest-and-confirm (and its consequence in D14: "hours inferred from meetings are therefore suggestions each participant confirms"); narrows D14: Operai, not a user, records the entry — users still never create, change or delete someone else's. A5, A23 and A25 are moot. Asked where suggestions should appear, the user answered "dentro la tabella e nella lista": automatic entries are ordinary entries, shown in both
+- D55 An automatic entry its person deletes is never recorded again for them on that meeting — user chose the recommended option over "it comes back while the person has no entry on the meeting"
+- D56 An UNTOUCHED automatic entry follows its meeting (date-time → day, duration, removal from the participants, deletion of the meeting); once its person changes it, it is theirs and never changes with the meeting — user chose the recommended option over "never follows, an ordinary entry from the start"
+- D57 Automatic entries are marked "From meeting" wherever entries are listed one by one (the List, a table cell's entries); the mark stays after a change — user chose the recommended option over no mark
+
+Decided during /wellforge:plan of specs/20261112-meeting-hours (2026-11-24; the user answered "procedi" to "Mi confermi D-P3 e D-P4, e l'architettura va bene?"):
+- D58 A38 ("only Operai participants whose account is active") is enforced where a person is added to the meeting (meetings-api already refuses an inactive participant; a creator is active when creating) and is not re-checked when the duration becomes known — hours-api has no service path to auth's identities; a person deactivated in between gets an entry
+- D59 A meeting whose `durationMs` is 0 has no known duration (AC-1.3): no automatic entry, rather than A36's 30-minute floor
+- The plan's architecture (meetings-api pushes versioned facts through an until-delivered outbox, hours-api applies the newest; plan D-P1, D-P2, D-P5) — accepted at the same review
+
+Decided during /wellforge:design of specs/20261112-meeting-hours (2026-11-24, gaps raised by the designer; the plan was approved in the same answer):
+- D60 The Italian mark reads "Da riunione", not "Dal meeting" — every Italian string of hours-ui and meetings-ui, the kind badge on the same row included, says "riunione" — user chose the recommended option (G3)
+- D61 New AC-2.7: deleting an automatic entry, the confirmation also says Operai will not record it again from its meeting and that the person can still record hours themselves — user chose the recommended option over leaving the dialog unchanged (G1)
+- D62 AC-2.3 names Everyone's hours among the places that show the mark (plan D-P5) — user chose the recommended option over removing the mark from Everyone's hours (G4)
+
+Decided by the owner after the OWASP review of specs/20261112-meeting-hours (T13), 2026-11-24 — the review's optional
+hardenings added to that spec, approved again at 34 acceptance criteria (25 before); three of them withdrawn the same day
+by D74–D76 (the spec then has 28):
+- D63 Operai corrects a recorded or uploaded meeting's duration to the measured length of its audio when it differs by more than the larger of 30 s and 10 % of the held duration (A42); untouched entries follow it (D56), changed ones stay; a meeting whose audio cannot be read keeps its reported duration — review L1
+- D64 [withdrawn by D74] A correctly signed service credential refused only for its service or its permission is recorded for the operators (reason and service name, never the credential); the caller's answer stays the one identical refusal — review I1 (how widely: open, at plan)
+- D65 [withdrawn by D75] A meeting notice with an identifier containing a character no Operai identifier uses (A45) is refused for good and never retried — review I3
+- D66 [withdrawn by D76] Once a meeting is deleted, Operai keeps no record of which of its people deleted or already had an entry on it; the version record stays, so a late notice still records no hours — review I6
+- D67 The "From meeting" mark is shown only while an automatic entry is recorded on a meeting; one its person moved to a project, a deal or other work no longer shows it — review I8, design G6 reversed; amends D57 ("the mark stays after a change") and the Everyone's-hours consequence of D62; D60 unchanged
+- D68 AC-3.8 (the measured duration) stays in specs/20261112-meeting-hours; specs/20261104-meetings is not amended — user accepted the recommended default
+- D69 Audio Operai cannot read keeps its reported duration and the entries built on it (AC-3.10) — user accepted the recommended default
+- D70 AC-2.7's sentence stays for a deleted automatic entry its person had moved off the meeting (it is true) — user accepted the recommended default
+- D71 A meeting dated after the release day with a duration at release gets its entries only at its next change of start, duration or Operai participants (plan § Release backfill); accepted as a known limit — user accepted the recommended default
+- D72 [withdrawn by D74] D64 (refusals recorded) is made in the shared service-credential check itself, so all six copies (meetings-api, hours-api, crm-api, estimai-api, activities-api, accounting-api) change together and stay byte-identical — user chose the recommended option over hours-api alone (which would leave the shared-copies group)
+- D73 Glossary: Untouched, Block (meeting hours), Hours fact, Hours notice, Held duration / Measured duration added, Automatic entry amended for D67 — user accepted all
+- D74 I1 withdrawn, D64 and D72 no longer apply: AC-5.1, AC-5.2 and A44 are removed from specs/20261112-meeting-hours, with US-5 — owner, choice "A", 2026-11-24. The sender already shows the refusal (meetings-api logs `meeting_hours.notice_retry … code=unauthorized` and keeps `lastErrorCode` on the outbox row, which is how a missing scope was diagnosed the same day), and changing the shared service-credential check would touch six services, four of them unrelated to the feature. The review's note I1 is accepted as risk; the spec carries it as a non-goal
+- D75 I3 withdrawn, D65 no longer applies: AC-5.3, AC-5.4, A45 and the open question about A45 are removed — owner, choice "A", 2026-11-24. Every identifier is made by the server (cuid, better-auth, the JWT `sub`, participants confirmed active by auth), and the hardening would add a worse failure than the one it prevents: a real identifier outside the set would refuse a whole meeting's hours for good, because a refused notice is final. The review's note I3 is accepted as risk; the spec carries it as a non-goal
+- D76 I6 withdrawn, D66 no longer applies: AC-4.4, AC-4.5 and A46 are removed — owner, choice "A", 2026-11-24. The records of a deleted meeting are inert (no notice reads them again) and hold minimal data (person id, meeting id, reason); clearing them would cost a migration, a lock in the entry DELETE and race risks. The review's note I6 is accepted as risk; the spec carries it as a non-goal. An entry its person changed still stays when its meeting is deleted (AC-3.6, unchanged), and D73's glossary entry for Block no longer says it is dropped with the meeting
+
+Decided by the owner after the code review of PR #12 (specs/20261112-meeting-hours, 2026-11-25; a drift correction of one non-goal, no scope or behaviour change):
+- D77 The non-goal "A history of where a moved entry came from" is REWORDED to say what the build does, and the build is not changed: no log of what an entry was recorded on before is kept or shown, and no "From meeting" mark shows once it is recorded on a project, a deal or other work (AC-2.3); but `origin` stays `meeting` (never rewritten), is sent for every viewer, a `time-entry:read-all` holder included, and on such an entry drives only the delete confirmation's sentence (AC-2.7, D70) — owner, 2026-11-25. The review of PR #12 found the old wording ("nothing on the entry shows it was ever automatic") contradicted the build; the security review had already accepted the residual (owasp-report I8, N3). Offered and declined: send the real `origin` only to the entry's person. No acceptance criterion changes
+
+Decided when specs/20261112-project-hours was re-opened (2026-11-26, before any plan; batched interview). Numbered after D77,
+the last decision of specs/20261112-meeting-hours (PR #12, D54–D77, not yet on main when this was written):
+- D78 The hours recorded on a meeting linked to a project (specs/20261104-meetings A18, 2026-11-23) — by its person or
+  automatically (specs/20261112-meeting-hours) — count for that project EVERYWHERE, as a linked meeting's hours count for a
+  deal (specs/20261112-time-tracking AC-2.6): on the project page and in its consumption, in the hours views' project filter
+  and by-project totals, and in the export (the project carried like the deal of D40); without the team check; they follow a
+  relink; a project filter or a project page's hours are refused as unavailable while Meetings cannot say which meetings are
+  linked (D45's rule, never a figure lower than the truth); the project a meeting is linked to follows the viewer's access
+  as the deal does (AC-4.10). specs/20261112-meeting-hours had left the question to this spec (its non-goals). User chose
+  the recommended option over "the project page only" (two different figures for one project) and over "only the hours
+  recorded on the project" (no new read, but consumption blind to meetings and a rule different from deals), after the
+  comparison with Harvest, Toggl and Clockify, which put calendar meeting time on the project
+- D79 While a project awaits its project manager, its per-person figure is shown only to holders of see everyone's hours;
+  the purchase order's ops-manager does not see it — user chose the recommended option (D22 read literally) over "the
+  ops-manager while the project awaits one" (the A27 rule of specs/20261112-project-alerts)
+
+Decided during /wellforge:design of specs/20261112-project-hours (2026-11-26, after seeing the canvas of the first design):
+- D80 The project page and the deal page each get **one "Hours" card**, not two: on a project it shows the consumption
+  (when the terms sold something comparable) and the total recorded, always visible, and the breakdown by work type and by
+  person behind a **"Show breakdown"** disclosure, closed by default; on a deal it shows the total and the same closed
+  disclosure — the owner: "le card aggiuntive nella pagina di deals e progetto rischiano di provocare un carico cognitivo non
+  indifferente (che già sono tante)". The owner first chose tabs Overview | Hours, then dropped them on seeing that the page
+  would carry two menus (the tool's section tabs and the page's tabs: "così però nella stessa pagina ci sarebbe un doppio
+  menu"), had all the layouts drawn (two open cards; one card with a closed breakdown; tabs under the section menu; tabs with
+  the section menu removed from record pages; an Hours button opening a side panel; one line in Details plus a separate hours
+  page) and chose **"one card, breakdown closed"** (option 2), the recommended one together with the side panel. Consumption
+  stays visible at a glance. No acceptance criterion changes: the breakdown is on the page, one click away
+
+Decided during /wellforge:tasks of specs/20261112-project-hours (2026-11-26, the design's gaps G1–G5; batched questions):
+- D81 (G1) An exceeded hour package shows **"Over by" the absolute figure** ("Sforato di 4 h 30") instead of a negative "Hours
+  left": AC-1.1 amended. The library's `formatDuration` clamps a negative to zero and is not changed — user chose this over
+  the recommended `signed` option in `@operai/ui` (a library task and a shell-first deploy), the least invasive one
+- D82 (G2) AC-1.7 also covers terms that sold nothing to compare with (an SLA and no hour package): the card shows the total
+  only — user chose the recommended rewording
+- D83 (G3) An expired capacity package says so: projects-api's `currentPeriod` gains `ended`, derived by the same
+  `packagePeriod`, and the card shows a badge **"Expired" / "Scaduto"** (`StatusBadge` meaning `voided`) beside the period —
+  new AC-1.9. The user accepted the badge and asked to align the word with existing features: `expired` is the suite's word
+  for something no longer valid after a date (admin-ui invitations, "Expired"/"Scaduto", `voided`) and the terms already say
+  "Package expiry date" / "scade il"; `overdue` ("Overdue"/"In ritardo", `attention`) is a task not done by its due date,
+  which would read as work still to do. Rejected: no badge (the two dates the only signal)
+- D84 (G5) After a save with Record hours on a project or deal page, that page's hours figures show the new hours without
+  a reload — new AC-2.8. User chose this over the recommended "accept and note it in the release". Mechanism in the plan
+  (D-P6): a content-free browser event broadcast by the Record hours widget, amending ADR
+  20261116-record-hours-widget-through-the-host-extension-seam ("nothing comes back")
+
+Decided by the owner while implementing specs/20261112-project-hours (2026-11-27; a known limitation accepted, not a scope
+change: no acceptance criterion changes and the spec's status and approval stand):
+- D85 The project page's "today" is the Europe/Zurich day projects-api works out when it reads the project, which the page
+  does when it loads (`projects-api/src/terms/packagePeriod.ts`); an hour package's current period, its figures, whether it
+  has not started and whether it has expired are all derived from it. A page left open across a date therefore keeps what was
+  true on the day it was loaded, even after a save made with Record hours (AC-2.8, D84), until the page is reloaded (reading
+  the project again moves it, and a reload always does; so does a save of the project's terms or purchase order on that page,
+  `projects-ui/src/pages/ProjectDetailPage.tsx` `recordChanged`). The project's total hours (AC-2.1) are not read through that
+  day and are not affected by it; nothing is lost or wrong after a reload. ACCEPTED as one known limitation (A52 of the
+  spec), in four cases with the same cause: (a) a capacity package without an expiry date, the page open across Zurich
+  midnight: the hours dated the new day are left out of its consumption figures (AC-1.3), so the hours used are too low and
+  the hours left too high (or "Over by" too low) — the one case where a figure is too low with no date on screen to show it,
+  because the block then shows the start date and "no expiry" and no end date; (b) a yearly package's anniversary passes: the
+  block keeps showing the old period and its figures, and hours recorded in the new period do not move it (AC-1.1, AC-1.2,
+  AC-2.8); (c) a package's start date arrives: the block keeps saying the package has not started, with no figures (A51,
+  AC-2.8); (d) a capacity package's expiry date passes: the "Expired" mark appears only after a reload (AC-1.9), the figures
+  stay right. In (b) to (d) the block shows a date that has already passed (the period's end, the start date, the expiry).
+  Owner, 2026-11-27: first (a) alone, choice "A" of four, for specs/20261112-project-hours — the implementer had recorded it
+  as drift (specs/20261112-project-hours/decisions.md, T16); then, the same day, WIDENED to (b), (c) and (d), every case with
+  the same cause: "it is negligible, refreshing the page is enough". Rejected: computing the day in the browser (the Zurich
+  day is the server's to decide); letting the summary take an open-ended window (a contract and hours-api change for a rare
+  case); re-reading the project on every save (rejected for now, as more than the case is worth)
+
+Decided when specs/20261112-project-hours was re-opened a second time (2026-11-27, after it had passed QE and eval; the owner
+asked for signals on the consumption block and chose to add them to THIS spec, which re-opens gate 1; they looked at three
+mockups and chose option C, then decided the points below, the recommendations put to them accepted). Numbered after D85:
+- D86 Scope and look: **signals on the consumption block** — a consumed percentage, the states on track, close to the limit
+  and over, the excess beyond 100 %, the time elapsed, and dates passed or near — are added to THIS spec as US-5, not to a spec
+  of their own and not to specs/20261112-project-alerts. The status goes back to `draft` until the owner approves again;
+  `approved:` stays 2026-11-26, the date of the previous approval. The look is "option C" of the three mockups: under the
+  consumption figures, a bar of the consumed share on a scale that goes beyond 100 % (to 125 %), marks at 80 % and 100 %, the
+  part beyond 100 % drawn distinctly, a "today" mark for the time elapsed in the period, a line "used X % of the hours with Y %
+  of the period elapsed", the estimate as a reference mark for a fixed price, and a deadline line (passed / near). It reverses
+  two decisions of specs/20261112-project-hours/design.md S1 — "Exceeded" has no status colour, and the block has no progress
+  bar — which were taken while raising attention was project-alerts' alone: the designer amends the design. Alerts stay
+  project-alerts' (D34): nothing here creates a task or a notification. D85's limitation (A52) applies to every signal that
+  reads today — owner, 2026-11-27
+- D87 Thresholds, fixed and not configurable: below 80 % of the reference is on track; from 80 % to below 100 % is "close to
+  the limit" (the milder level, a warning); from 100 % is "over" (the graver level, a danger). The same thresholds as
+  specs/20261112-project-alerts (AC-1.1, AC-1.6), so the card and the alert task agree. A state is always said in words with
+  an icon, never by colour alone — owner, 2026-11-27
+- D88 The consumed percentage is rounded to a whole number (down: D92) and shown as it is beyond 100 % ("117 %"). The reference: an hour
+  package → its hours in the current period; `fixed_price` → its max effort (the estimate, when known, is shown as a reference
+  mark on the bar, not as the percentage's base); `t_and_m` → the sum of its positions' planned man-days. None for an SLA-only,
+  an internal and a no-terms project, nor for a package not started (as the figures today) — owner, 2026-11-27. The owner's
+  phrase was "usage percentage"; the glossary lists "usage" among the words to avoid for consumption, so the spec says
+  "consumed percentage"
+- D89 Dates ("times overrun"): the `fixed_price` deadline AND the terms' end date of every client type — passed → the graver
+  state, saying by how many days; 30 days or fewer remaining → the milder state, saying in how many days; otherwise nothing.
+  The same 30 days as specs/20261112-project-alerts AC-1.4 — owner, 2026-11-27
+- D90 Time elapsed (the "today" mark and the pace line): shown for hour packages whose current period has an end (yearly;
+  capacity with an expiry date) and for a `fixed_price` over the span from its terms' start date to its deadline; not shown
+  for a capacity package without an expiry, a `t_and_m`, SLA-only, internal or no-terms projects — owner, 2026-11-27
+- D91 An expired capacity package: its final figures stay neutral — no close-to-the-limit or over state, even if it had gone
+  over — with the existing "Expired" mark (AC-1.9, D83); the excess still reads in the figures — owner, 2026-11-27
+
+Decided by the owner on 2026-11-27, the same day, answering the two open questions the second re-opening raised (O5, O6) and
+confirming one of its assumptions (A55), before the spec's new approval. Numbered after D91:
+- D92 (closes O5) The consumed percentage is the exact percentage rounded DOWN to a whole number (the floor), beyond 100 % as
+  well, so the number never contradicts the state: 119 h 30 of 120 h (99.58 %) reads "99 %" and is close to the limit; 95 h 30
+  of 120 h (79.58 %) reads "79 %" and is on track; 116.25 % reads "116 %"; "100 %" is read only once the reference is fully used
+  (from exactly the reference up to, not including, 101 % of it). The state, the excess and the bar still follow the exact
+  hours (A53). Both thresholds being whole numbers, the floor reads below 80 % exactly when the project is on track, 80 % to
+  99 % exactly when it is close to the limit and 100 % or more exactly when it is over. Refines D88 ("rounded to a whole
+  number"); AC-5.5 to AC-5.9, AC-5.12 and A53 follow. Rejected: rounding half up (95 h 30 of 120 h would read 80 % and 119 h 30
+  would read 100 %, with the state saying on track and close to the limit with 30 min left) — owner, 2026-11-27
+- D93 (closes O6) A closed or cancelled project shows no state and no date signal, as project-alerts gives it no alert
+  (specs/20261112-project-alerts AC-1.5, AC-1.8, A30); a planned, active or on-hold project shows them; its figures, its bar and
+  its time elapsed read as for any other project (AC-5.26). Confirms A54. Rejected: showing them like any other project (a
+  project whose terms ended on purpose, F20, would read "passed by 200 days" at the graver level once closed) — owner,
+  2026-11-27
+- D94 (confirms A55) A date — a terms' end date, a fixed price's deadline — is a whole calendar day of the Europe/Zurich
+  calendar, counted in whole days from the page's day (A52, D85); the day itself is "today" and has not passed (0 days away,
+  said as today); it has passed from the next day, by 1 day, as a capacity package's expiry date has (AC-1.9, F18). D89 had not
+  said; confirmed as written (AC-5.21, AC-5.22) — owner, 2026-11-27
+Decided by the owner on 2026-11-27 at the plan's gate 2, after the spec's new approval, on what the design and the plan raised:
+- D95 (design.md G9) At exactly 100 % of the reference — the hours used equal the reference, nothing left and no excess — the
+  over state is said as the limit being reached ("Limit reached", "Limite raggiunto"); "Over the limit" ("Oltre il limite") only
+  once the hours are above the reference. Same state, same graver level, icon and tone: only the words change (AC-5.9).
+  Rejected: "Over the limit" from exactly 100 % (it says "over" where nothing has been exceeded) — owner, 2026-11-27
+- D96 Readings of US-5 confirmed with the plan at gate 2 (design.md § Readings, G10, G11): an icon follows the level — three
+  shapes for the three states, two for passed and near, a state and a date signal of the same level sharing their level's
+  shape (AC-5.10); the bar's estimate is given in text by the "Estimated man-days" fact, its position on the bar not put in
+  words (AC-5.11); a bar with no state said (an ended capacity package, a closed or cancelled project) is drawn neutral, never
+  in a state's tone (AC-5.25, AC-5.26) — owner, 2026-11-27
+
+Found while re-opening specs/20261112-project-hours (read from the repo, not asked):
+- F14 A meeting has at most one host, a CRM deal or (since 2026-11-23) a project; a meeting started from a project task is
+  linked to the task's project — specs/20261104-meetings A18; meetings-api `GET /system/meetings/hosts` answers `ids=` or
+  `dealId=` today
+- F15 A won public tender becomes a project with terms and no purchase order — ADR 20261124-a-won-public-tender-…;
+  a fixed-price project always has a deadline and a max effort, its estimated man-days may be absent —
+  projects-api `project_terms` CHECKs
+
+Found while re-opening specs/20261112-project-hours a second time (2026-11-27, read from the repo, not asked):
+- F16 Today the consumption block draws figures only: hours used and left (or "Over by" once a package is exceeded, D81),
+  man-days used against the estimate, the max effort or the planned total — no percentage, no state, no bar and no date line;
+  a capacity package past its expiry shows the "Expired" mark; terms that sold nothing comparable draw no block at all —
+  `projects-ui/src/components/ConsumptionBlock.tsx:50-111`, `projects-ui/src/lib/consumption.ts:120-181`. The design recorded
+  "no status colour" and "no progress bar" — `specs/20261112-project-hours/design.md:182-190` (reversed by D86)
+- F17 What terms allow: a start date is required and an end date optional, not before the start, for every client type; a
+  fixed price has a required deadline, a max effort above zero and an optional estimate of zero or more; an hour package has
+  more than zero hours; a time-and-material project has 1 to 50 positions, each above zero man-days. No rule orders a fixed
+  price's deadline against its start date, nor its estimate against its max effort — `projects-api/src/terms/terms.schemas.ts:30-70,
+  83-87`, `projects-api/prisma/migrations/20261103163000_init/migration.sql:137-165`. So a reference is never zero, a deadline
+  can precede the start date (no span for the time elapsed) and an estimate can exceed the max effort (a mark beyond the scale)
+- F18 A package period's ends are inclusive and a capacity package has ended only from the day after its expiry date
+  (`ended: today > expiryDate`); the day is Europe/Zurich and the server's (D85) — `projects-api/src/terms/packagePeriod.ts:68-87`
+- F19 A project's states are planned, active, on_hold, closed and cancelled; specs/20261112-project-alerts raises no alert for a
+  closed or cancelled project and raises the end-date and deadline alert only for one that is not — `projects-ui/src/lib/types.ts:14`,
+  `specs/20261112-project-alerts/spec.md:57-58, 63`
+- F20 The terms' end date is also how a project "ends" its terms (a contract is never deleted, it ends by an end date) —
+  specs/20261103-projects AC-2.10 — so a passed end date can be deliberate; specs/20261112-project-alerts raises its alert for it all the same (AC-1.5)
+- F21 The library has no percentage formatter of its own: `formatNumber` takes `{ style: 'percent' }` (en-GB and it-IT number
+  formats) — `operai-ui/src/lib/format.ts:114-121`
+
+Assumed while re-opening specs/20261112-project-hours (2026-11-26, not grilled — strike any that is wrong):
+- A48 (030) An hour recorded both on a linked meeting and on its project counts twice for the project (A1); not detected
+- A49 (030) The project manager's per-person figure includes people outside the team who took part in a linked meeting
+- A50 (030) A deal's hours do not count for the project made from it, nor the reverse
+- A51 (030) Before an hour package's start date no period is current; hours recorded before it count in no period
+
+Assumed while re-opening specs/20261112-project-hours a second time (2026-11-27, not grilled — strike any that is wrong;
+A52 is the spec's own, written at D85; A53 to A55 were then confirmed by the owner the same day, D92–D94, and A56 was added):
+- A53 (030) The state, the excess and the bar are decided on the exact hours, and the percentage is the exact percentage
+  rounded down for display (D92): with whole-number thresholds it never contradicts the state — confirmed by the owner with
+  D92 (closes O5)
+- A54 (030) A closed or cancelled project shows no state and no date signal, as it gets no alert (project-alerts AC-1.5, AC-1.8,
+  A30); a planned, active or on-hold project shows them — confirmed by the owner, D93 (closes O6)
+- A55 (030) A date is a whole calendar day of the Europe/Zurich calendar, counted in whole days from the page's day; the date
+  itself has not yet passed (it has passed from the next day, as a capacity package's expiry date has, AC-1.9) and is 0 days
+  away, said as today — D89 did not say; confirmed by the owner, D94
+- A56 (030) The time elapsed (AC-5.20) is rounded down to a whole number, as the consumed percentage is (D92): rounded half up,
+  a span of 200 days or more would read 100 % on its last day, before it has ended (a yearly package, 365 days, would), which
+  contradicts "100 % from the day after its last day". Written after D92, not asked of the owner, whose answer was about the
+  consumed percentage — strike it if the time elapsed should be rounded another way
+
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 
@@ -160,3 +384,5 @@ Open (unresolved — each needs an owner):
 - O2 (specs/20261112-project-hours) closed by D28
 - O3 Labour-law check before go-live: informing employees about the hours recorded and who reads them (IT: art. 4 L. 300/1970; CH: art. 26 OLL 3) — owner: management / HR
 - O4 A lock or approval of recorded hours before they are used to bill T&M on a timesheet — owner: product owner, at the latest with specs/20261112-project-hours or a billing export
+- O5 (specs/20261112-project-hours) closed by D92 — the consumed percentage is rounded down, so it never reads at or above a threshold the state has not reached
+- O6 (specs/20261112-project-hours) closed by D93 — a closed or cancelled project shows no state and no date signal

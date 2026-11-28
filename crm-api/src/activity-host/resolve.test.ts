@@ -8,6 +8,9 @@
  * specs/20261112-time-tracking T7 (AC-2.3, AC-2.10, AC-4.10; plan § API contracts, crm-api): the same route learns
  * `entityType: "deal"`, answered with the people `involved` in the deal (its owner, plus the
  * technical contact as the deal view reads it) so hours-api can decide who may book time on it.
+ *
+ * specs/20261112-project-hours T4 (AC-2.4, plan D-P2): an open deal item also carries `ownerUserId`, the deal's owner by
+ * role (never the technical contact, never `involved[0]`), so hours-api can decide who sees a deal's per-person hours.
  */
 import { beforeEach, describe, expect, it } from "bun:test";
 import { setupTestAuth } from "../test-support/testAuth";
@@ -156,7 +159,7 @@ const makeOwnedDeal = async (overrides: Record<string, unknown> = {}) => {
 };
 
 describe("entityType: deal (specs/20261112-time-tracking AC-2.3)", () => {
-  it("opens a deal with label, href, writable and may, `involved` being its owner when no estimate is linked", async () => {
+  it("opens a deal with label, href, writable and may, `involved` being its owner when no estimate is linked, and `ownerUserId` naming that owner (specs/20261112-project-hours AC-2.4)", async () => {
     const deal = await makeOwnedDeal({ title: "Website relaunch" });
     const res = await resolveDeals("consultant", [deal.id]);
     expect(res.status).toBe(200);
@@ -171,6 +174,7 @@ describe("entityType: deal (specs/20261112-time-tracking AC-2.3)", () => {
           href: `/crm/deals/${deal.id}`,
           may: { write: true, manage: true },
           involved: [PERSONAS.salesCh.sub],
+          ownerUserId: PERSONAS.salesCh.sub,
         },
       ],
     });
@@ -244,6 +248,46 @@ describe("entityType: deal (specs/20261112-time-tracking AC-2.3)", () => {
     const deal = await makeOwnedDeal();
     await markEstimateReady(deal.id, PERSONAS.salesCh.sub);
     expect((await resolveDeals("consultant", [deal.id])).json.items[0].involved).toEqual([PERSONAS.salesCh.sub]);
+  });
+
+  it("`ownerUserId` is the deal's owner and only the owner: a linked technical contact is `involved`, never the owner, and the owner is the one the deal view names (specs/20261112-project-hours AC-2.4)", async () => {
+    const deal = await makeOwnedDeal();
+    await markEstimateReady(deal.id, PERSONAS.tech.sub);
+    const res = await resolveDeals("consultant", [deal.id]);
+    const item = res.json.items[0];
+    expect(item.involved).toEqual([PERSONAS.salesCh.sub, PERSONAS.tech.sub]);
+    expect(item.ownerUserId).toBe(PERSONAS.salesCh.sub);
+    expect(item.ownerUserId).not.toBe(PERSONAS.tech.sub);
+    const view = (await call("GET", `/deals/${deal.id}`, { as: "consultant" })).json;
+    expect(item.ownerUserId).toBe(view.owner.id);
+  });
+
+  it("`ownerUserId` is still the owner when the owner is also the technical contact (listed once in `involved`)", async () => {
+    const deal = await makeOwnedDeal();
+    await markEstimateReady(deal.id, PERSONAS.salesCh.sub);
+    const item = (await resolveDeals("consultant", [deal.id])).json.items[0];
+    expect(item.involved).toEqual([PERSONAS.salesCh.sub]);
+    expect(item.ownerUserId).toBe(PERSONAS.salesCh.sub);
+  });
+
+  it("answers each deal's own owner in a mixed batch, and none for a deal that is missing", async () => {
+    const company = await makeCompany();
+    const bySales = await makeDeal(company.id, { title: "By sales" }, "salesCh");
+    const byAdmin = await makeDeal(company.id, { title: "By admin" }, "admin");
+    const res = await resolveDeals("consultant", [byAdmin.id, "nope", bySales.id]);
+    expect(res.json.items).toHaveLength(3);
+    expect(res.json.items[0]).toMatchObject({ id: byAdmin.id, ownerUserId: PERSONAS.admin.sub });
+    expect(res.json.items[1]).toEqual({ id: "nope", state: "missing" });
+    expect(res.json.items[2]).toMatchObject({ id: bySales.id, ownerUserId: PERSONAS.salesCh.sub });
+  });
+
+  it("`ownerUserId` follows the owner as the deal has it now: read live, nothing kept from an earlier answer", async () => {
+    const deal = await makeOwnedDeal();
+    expect((await resolveDeals("consultant", [deal.id])).json.items[0].ownerUserId).toBe(PERSONAS.salesCh.sub);
+    await db.deal.update({ where: { id: deal.id }, data: { ownerUserId: PERSONAS.admin.sub } });
+    const item = (await resolveDeals("consultant", [deal.id])).json.items[0];
+    expect(item.ownerUserId).toBe(PERSONAS.admin.sub);
+    expect(item.involved).toEqual([PERSONAS.admin.sub]);
   });
 
   it("an override row with no estimate (estimateId \"\") adds no technical contact, and the deal view shows none either (AC-2.3)", async () => {

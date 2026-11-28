@@ -24,7 +24,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { SeededSession } from './adminSession'
-import { apiCall, CRM_API_URL } from './activitiesFixtures'
+import { apiCall, CRM_API_URL, PROJECTS_API_URL, type ProjectRow } from './activitiesFixtures'
 import { hoursCall, HOURS_API_URL, minutesOfShort, type ApiResult } from './hoursFixtures'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -68,9 +68,230 @@ export async function createDealOwnedBy(
   return result.body
 }
 
+// ─── Projects: a maintenance project with a yearly hour package (specs/20261112-project-hours T18) ──
+
+/**
+ * A `maintenance` project on `welld_ch` for `companyId`, managed by `projectManagerId` and made, in the same statement, with
+ * terms that carry ONE yearly hour package of `hours` hours from `startDate` (the nested `POST /projects` shape of
+ * projects-api, specs/20261103-projects-handoff AC-5.3). Made by an admin (`project:manage` everywhere); the project manager
+ * is the person hours-api's resolve names as `projectManagerId` and who may record on it.
+ */
+export async function createYearlyPackageProjectViaApi(
+  admin: SeededSession,
+  input: { name: string; companyId: string; projectManagerId: string; hours: number; startDate: string },
+): Promise<ProjectRow> {
+  const result = await apiCall<ProjectRow & Json>(PROJECTS_API_URL, admin, 'POST', '/projects', {
+    name: input.name,
+    type: 'maintenance',
+    entity: 'welld_ch',
+    companyId: input.companyId,
+    projectManagerId: input.projectManagerId,
+    terms: {
+      startDate: input.startDate,
+      terms: { hourPackage: { hours: input.hours, kind: 'yearly', startDate: input.startDate } },
+    },
+  })
+  if (result.status !== 201 && result.status !== 200) {
+    throw new Error(
+      `[hoursOwnersFixtures] POST ${PROJECTS_API_URL}/projects -> ${result.status}: ${JSON.stringify(result.body).slice(0, 400)}`,
+    )
+  }
+  return result.body
+}
+
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+
+/** The first day of the month that is `months` months from the month of `day` (a `YYYY-MM-DD`; negative = earlier). */
+export function firstOfMonthShifted(day: string, months: number): string {
+  const [year, month] = day.split('-').map(Number) as [number, number]
+  const index = year * 12 + (month - 1) + months
+  return `${Math.floor(index / 12)}-${pad2((index % 12) + 1)}-01`
+}
+
+/** `day` moved by `days` calendar days (UTC arithmetic on a date-only string, so no clock or zone is involved). */
+export function addDaysTo(day: string, days: number): string {
+  const date = new Date(`${day}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+/**
+ * The days a yearly package is set up and expected from, worked out HERE from the spec's rule and not read back from
+ * projects-api (AC-1.1, AC-1.2: each 12 months from the start date is a period of its own, the current one is the one holding
+ * today), so the screen is checked against an independent oracle. The package starts on the first day of the month fourteen
+ * months before today's: today is then two months into the SECOND period, so a day of the first period exists that must not
+ * count, and the first day of the current period (on or before today, never in the future) is a day to record on.
+ */
+export function yearlyPackageAround(today: string): {
+  start: string
+  /** A day of the first period: its hours are in the project's total and in no period's figure. */
+  earlierPeriodDay: string
+  /** The current period, both days included. */
+  period: { from: string; to: string }
+} {
+  const start = firstOfMonthShifted(today, -14)
+  return {
+    start,
+    earlierPeriodDay: addDaysTo(start, 9),
+    period: { from: firstOfMonthShifted(start, 12), to: addDaysTo(firstOfMonthShifted(start, 24), -1) },
+  }
+}
+
+// ─── Projects: a hand-made fixed price, and the days a signal reads (specs/20261112-project-hours T25) ──
+
+/** A project's state, as projects-api names it. */
+export type ProjectStateName = 'planned' | 'active' | 'on_hold' | 'closed' | 'cancelled'
+
+const ifMatch = (version: number): Record<string, string> => ({ 'If-Match': `"${version}"` })
+
+/**
+ * A hand-made `fixed_price` project on `welld_ch` for `companyId`, managed by `projectManagerId`, with its terms made in the same
+ * statement (the nested `POST /projects` shape, as `createYearlyPackageProjectViaApi`): the terms run from `startDate` to
+ * `endDate`, the work is due `deadline`, and its max effort and estimate are man-days with at most one decimal. It starts
+ * `planned`; made by an admin (`project:manage` everywhere). A hand-made project never has a purchase order, so the client states
+ * the estimate itself.
+ */
+export async function createFixedPriceProjectViaApi(
+  admin: SeededSession,
+  input: {
+    name: string
+    companyId: string
+    projectManagerId: string
+    startDate: string
+    endDate: string
+    deadline: string
+    estimatedManDays: number
+    maxEffortManDays: number
+  },
+): Promise<ProjectRow> {
+  const result = await apiCall<ProjectRow & Json>(PROJECTS_API_URL, admin, 'POST', '/projects', {
+    name: input.name,
+    type: 'fixed_price',
+    entity: 'welld_ch',
+    companyId: input.companyId,
+    projectManagerId: input.projectManagerId,
+    terms: {
+      startDate: input.startDate,
+      endDate: input.endDate,
+      terms: {
+        deadline: input.deadline,
+        estimatedManDays: input.estimatedManDays,
+        maxEffortManDays: input.maxEffortManDays,
+      },
+    },
+  })
+  if (result.status !== 201 && result.status !== 200) {
+    throw new Error(
+      `[hoursOwnersFixtures] POST ${PROJECTS_API_URL}/projects (fixed_price) -> ${result.status}: ${JSON.stringify(result.body).slice(0, 400)}`,
+    )
+  }
+  return result.body
+}
+
+/** Moves a project to `to` (`POST /projects/{id}/transitions`, `If-Match` the project's version); returns it with its new version. */
+export async function transitionProjectViaApi(
+  admin: SeededSession,
+  project: { id: string; version: number },
+  to: ProjectStateName,
+): Promise<ProjectRow> {
+  const result = await apiCall<ProjectRow & Json>(
+    PROJECTS_API_URL,
+    admin,
+    'POST',
+    `/projects/${encodeURIComponent(project.id)}/transitions`,
+    { to },
+    ifMatch(project.version),
+  )
+  if (result.status !== 200) {
+    throw new Error(
+      `[hoursOwnersFixtures] POST ${PROJECTS_API_URL}/projects/${project.id}/transitions {to:${to}} -> ${result.status}: ${JSON.stringify(result.body).slice(0, 400)}`,
+    )
+  }
+  return result.body
+}
+
+/**
+ * Best-effort end of a project a journey made (a project cannot be deleted): one still open (planned, active or on hold) is
+ * cancelled, which is final; a closed or cancelled one is left as it is. Cleanup never fails a run.
+ */
+export async function retireProjectQuietly(admin: SeededSession, projectId: string): Promise<void> {
+  try {
+    const current = await apiCall<ProjectRow>(
+      PROJECTS_API_URL,
+      admin,
+      'GET',
+      `/projects/${encodeURIComponent(projectId)}`,
+    )
+    if (current.status !== 200) return
+    if (current.body.state === 'closed' || current.body.state === 'cancelled') return
+    await transitionProjectViaApi(admin, current.body, 'cancelled')
+  } catch {
+    // cleanup must never fail a run
+  }
+}
+
+/**
+ * A `YYYY-MM-DD` as a whole day number, by UTC arithmetic on a date-only string (no clock, no zone). The oracle's own arithmetic:
+ * deliberately not the one projects-ui's `consumption.ts` uses, so the screen is checked against an independent computation.
+ */
+export const dayNumberOf = (day: string): number => {
+  const [year, month, date] = day.split('-').map(Number) as [number, number, number]
+  return Date.UTC(year, month - 1, date) / 86_400_000
+}
+
+/** The whole days from `from` to `to` (negative when `to` is earlier). */
+export const daysBetween = (from: string, to: string): number => dayNumberOf(to) - dayNumberOf(from)
+
+/**
+ * The time elapsed of a span at `asOf`, by AC-5.20's rule and nothing else: the days of the span, both ends counted; the days
+ * gone are those from its first day up to but not including `asOf`, held between 0 and all of them; the share is rounded down.
+ * 0 up to and including the first day, 100 only from the day after the last.
+ */
+export function elapsedPercentOracle(span: { from: string; to: string }, asOf: string): number {
+  const days = daysBetween(span.from, span.to) + 1
+  const gone = Math.min(Math.max(daysBetween(span.from, asOf), 0), days)
+  return Math.floor((100 * gone) / days)
+}
+
+// ─── hours-api: a record's summary ──────────────────────────────────────────
+
+/** One group of `GET /time-entries/summary` (`byWorkType`, `byPerson`): the server's own figure, never summed here. */
+export interface SummaryGroup {
+  kind: string
+  key?: string
+  label?: string | null
+  minutes: number
+}
+
+export interface SummaryBody {
+  on: { type: string; id: string }
+  totalMinutes: number
+  windowMinutes: number | null
+  byWorkType: SummaryGroup[]
+  byPerson: SummaryGroup[] | null
+  unavailable: string[]
+}
+
+/** The summary of a project as `session` reads it (out-of-band verification of what the screen shows). */
+export const projectSummaryViaApi = (
+  session: SeededSession,
+  projectId: string,
+  window?: { from: string; to: string },
+): Promise<ApiResult<SummaryBody>> =>
+  hoursCall<SummaryBody>(
+    session,
+    'GET',
+    `/time-entries/summary?projectId=${encodeURIComponent(projectId)}${
+      window ? `&windowFrom=${window.from}&windowTo=${window.to}` : ''
+    }`,
+  )
+
 // ─── The export file ────────────────────────────────────────────────────────
 
-/** The nine columns of the file, in order (plan § Export file), as the spreadsheet has them. */
+/**
+ * The ten columns of the file, in order, as the spreadsheet has them (specs/20261112-time-tracking plan § Export file, widened by
+ * specs/20261112-project-hours AC-4.6: Counts for project is the 7th, right after Counts for deal).
+ */
 export interface ExportRow {
   day: unknown
   person: string
@@ -79,6 +300,7 @@ export interface ExportRow {
   on: string
   name: string
   countsForDeal: string
+  countsForProject: string
   categoryOrWorkType: string
   activity: string
   note: string
@@ -121,11 +343,12 @@ export async function readHoursExport(file: string): Promise<ExportSheet> {
   const sheet = workbook.worksheets[0]
   if (!sheet) throw new Error('[hoursOwnersFixtures] the export has no sheet')
   const cellsOf = (index: number): ExcelCell[] =>
-    Array.from({ length: 9 }, (_, column) => sheet.getRow(index).getCell(column + 1))
+    Array.from({ length: 10 }, (_, column) => sheet.getRow(index).getCell(column + 1))
   const header = cellsOf(1).map(textOf)
   const rows: ExportRow[] = []
   for (let index = 2; index <= sheet.rowCount; index += 1) {
-    const [day, person, hours, on, name, countsForDeal, categoryOrWorkType, activity, note] = cellsOf(index)
+    const [day, person, hours, on, name, countsForDeal, countsForProject, categoryOrWorkType, activity, note] =
+      cellsOf(index)
     rows.push({
       day: day!.value,
       person: textOf(person!),
@@ -133,6 +356,7 @@ export async function readHoursExport(file: string): Promise<ExportSheet> {
       on: textOf(on!),
       name: textOf(name!),
       countsForDeal: textOf(countsForDeal!),
+      countsForProject: textOf(countsForProject!),
       categoryOrWorkType: textOf(categoryOrWorkType!),
       activity: textOf(activity!),
       note: textOf(note!),

@@ -222,7 +222,7 @@ describe('the entries by day in Italian (AC-5.5, AC-3.8, AC-4.10)', () => {
     expect(await screen.findByText('Nessuna ora registrata in questo periodo')).not.toBeNull()
     expect(screen.getByText('Registra le ore lavorate e compaiono qui, giorno per giorno.')).not.toBeNull()
     expect(screen.getByTestId('hours-banner-unavailable').textContent).toBe(
-      "Le ore sono complete; questi nomi non sono stati caricati e risultano non disponibili: i nomi dei progetti, l'opportunità a cui contano le ore delle riunioni.",
+      "Le ore sono complete; questi nomi non sono stati caricati e risultano non disponibili: i nomi dei progetti, l'opportunità o il progetto a cui contano le ore delle riunioni.",
     )
     expect(screen.getByRole('note', { name: 'Registrazioni senza nome visibile' })).not.toBeNull()
     expect(strings.entries.title).toBe('Registrazioni')
@@ -248,6 +248,52 @@ describe('the entries by day in Italian (AC-5.5, AC-3.8, AC-4.10)', () => {
     expect(within(alert).getByText('Al momento non è possibile mostrare le ore di questa opportunità')).not.toBeNull()
     expect(within(alert).getByRole('button', { name: 'Riprova' })).not.toBeNull()
     expect(within(alert).getByRole('button', { name: 'Rimuovi il filtro opportunità' })).not.toBeNull()
+  })
+
+  it('says the project-filter-unavailable state in Italian (specs/20261112-project-hours AC-4.8)', async () => {
+    const { page, projectItem } = await import('../test-support/fakeApi')
+    await setup('it', '/hours?view=list', {
+      'GET /projects': () => ({ status: 200, body: page([projectItem({ id: 'p1', name: 'Project Alpha' })]) }),
+      'GET /time-entries': (url: URL) =>
+        url.searchParams.has('projectId')
+          ? {
+              status: 503,
+              body: { type: 'about:blank', title: 'Problem 503', status: 503, code: 'host_unavailable' },
+            }
+          : { status: 200, body: { items: [], nextCursor: null, unavailable: [] } },
+    })
+    await screen.findByText('Nessuna ora registrata in questo periodo')
+    await userEvent.type(screen.getByRole('combobox', { name: 'Progetto' }), 'a')
+    await userEvent.click(await screen.findByRole('option', { name: /Project Alpha/ }))
+
+    const alert = await screen.findByTestId('hours-project-filter-unavailable')
+    expect(within(alert).getByText('Al momento non è possibile mostrare le ore di questo progetto')).not.toBeNull()
+    expect(within(alert).getByRole('button', { name: 'Riprova' })).not.toBeNull()
+    expect(within(alert).getByRole('button', { name: 'Rimuovi il filtro progetto' })).not.toBeNull()
+    expect(alert.textContent).not.toMatch(/opportunità/)
+  })
+
+  it('says the by-project grouping of meeting hours in Italian: the row and the warning (AC-4.5, AC-4.10)', async () => {
+    await setup('it', '/hours?view=list&group=project', {
+      'GET /time-entries/totals': (url: URL) =>
+        url.searchParams.get('groupBy') === 'project'
+          ? {
+              status: 200,
+              body: {
+                totalMinutes: 150,
+                groups: [{ kind: 'project-unknown', minutes: 150 }],
+                unavailable: ['meeting-projects'],
+              },
+            }
+          : { status: 200, body: { totalMinutes: 0, groups: [], unavailable: [] } },
+    })
+
+    const table = await screen.findByTestId('hours-totals-table')
+    expect(within(table).getByText('Riunioni il cui progetto al momento non è noto')).not.toBeNull()
+    const warning = await screen.findByTestId('hours-banner-project-grouping')
+    expect(warning.textContent).toBe(
+      'Al momento le ore delle riunioni non possono essere attribuite al loro progetto, quindi compaiono in una riga separata. Il totale non cambia.',
+    )
   })
 })
 

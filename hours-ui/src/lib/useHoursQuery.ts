@@ -99,9 +99,9 @@ type MorePages<P> = { base: P; pages: P[]; loading: boolean; failed: boolean }
  * - `loadMore` asks for the cursor of the LAST page held; while one is in flight, or when the last page has
  *   no cursor, it asks nothing.
  * - A failed `loadMore` keeps every page already held (each was complete when read, D48), sets `moreFailed`,
- *   and the next `loadMore` asks for the same cursor again. Except a 409 `deal_meetings_changed`: the deal's
- *   meetings changed since the first page, so the pages held no longer match what a next one would, and the
- *   read starts over (`reload`) instead of mixing the two.
+ *   and the next `loadMore` asks for the same cursor again. Except a 409 `deal_meetings_changed` or
+ *   `project_meetings_changed`: the deal's (or the project's) linked meetings changed since the first page, so the
+ *   pages held no longer match what a next one would, and the read starts over (`reload`) instead of mixing the two.
  * - The later pages belong to the first page they were asked after: a new key, or a `reload`, makes a new
  *   first page, so they are gone in that very render (never an old page under new filters), the request in
  *   flight is aborted and its answer, however late, is dropped. The same on unmount.
@@ -146,7 +146,7 @@ export const useHoursPages = <P extends { nextCursor: string | null }>(
     fetchRef.current(last.nextCursor, controller.signal).then(
       (page) => settle({ base, pages: [...pages, page], loading: false, failed: false }),
       (error: unknown) => {
-        if (!controller.signal.aborted && isCode(error, 'deal_meetings_changed')) {
+        if (!controller.signal.aborted && isCode(error, 'deal_meetings_changed', 'project_meetings_changed')) {
           inFlight.current = null
           reload()
           return

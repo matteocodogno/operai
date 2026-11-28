@@ -43,6 +43,7 @@ const TotalsGroupSchema = z
     z.object({ kind: z.literal("hidden"), minutes }).strict().openapi({ description: "`project` or `deal`: everything the viewer may not read, merged" }),
     z.object({ kind: z.literal("unavailable"), minutes }).strict().openapi({ description: "`project` or `deal`: everything whose owner did not answer, merged" }),
     z.object({ kind: z.literal("deal-unknown"), minutes }).strict().openapi({ description: "`deal`: meeting entries whose current deal could not be read" }),
+    z.object({ kind: z.literal("project-unknown"), minutes }).strict().openapi({ description: "`project`: meeting entries whose current project could not be read" }),
   ])
   .openapi("TotalsGroup");
 
@@ -69,8 +70,8 @@ const totalsRoute = createRoute({
     403: problemDoc("`read_all_required`: `whose=all` or a `userId` without `time-entry:read-all`"),
     503: problemDoc(
       "`authz_unavailable`: `whose=all` or a `userId`, and `auth` could not say whether the caller holds `time-entry:read-all` (never allowed, AC-5.4). " +
-        "`host_unavailable`: with a `dealId` filter, meetings-api could not say which meetings are linked to the deal. " +
-        "Nothing partial is returned: a deal's hours are never shown low",
+        "`host_unavailable`: with a `dealId` or a `projectId` filter, meetings-api could not say which meetings are linked to the deal or the project. " +
+        "Nothing partial is returned: a deal's or a project's hours are never shown low",
     ),
   },
 });

@@ -77,6 +77,9 @@ export default defineConfig({
       // specs/20261116-record-hours-in-place, T3: the hours remote's second entry, the Record hours button other
       // tools' pages embed through `shell/extensions` (`hours.recordHours`).
       'hours/RecordHours': fileURLToPath(new URL('./src/federation/__stubs__/hoursRecordHours.tsx', import.meta.url)),
+      // specs/20261112-project-hours, T14: the hours remote's third entry, the read panel of a record's hours the
+      // project page and the deal page embed through `shell/extensions` (`hours.hostHours`).
+      'hours/HostHours': fileURLToPath(new URL('./src/federation/__stubs__/hoursHostHours.tsx', import.meta.url)),
     },
   },
   test: {

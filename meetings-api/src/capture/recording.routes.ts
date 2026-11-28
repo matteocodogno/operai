@@ -25,6 +25,7 @@ import type { AuthzVariables } from "../auth/authz.middleware";
 import { AUDIO_RETENTION_DAYS, derivedStatus } from "../meetings/derived";
 import { loadMeetingView } from "../meetings/view";
 import { enqueueJob } from "../jobs/runner";
+import { readHoursFacts, recordHoursNotice } from "../hours/record";
 import { openForCapture, openForControl, storageCall } from "./caller";
 import { callerOf, creatorControl } from "../meetings/caller";
 
@@ -374,10 +375,14 @@ const discardRoute = createRoute({
  * and `prepare_audio` is queued, in the caller's transaction (the job exists iff the
  * state change committed). `durationMs` is the sum of the STORED chunks, which
  * excludes paused time by construction: nothing is captured while paused.
+ *
+ * The duration is a fact hours-api builds entries from, so the same transaction leaves the hours notice (`recordHoursNotice`,
+ * specs/20261112-meeting-hours T9): a stop that does not commit announces nothing, and the facts are read when the notice is sent.
  */
 async function beginProcessing(tx: Prisma.TransactionClient, meetingId: string, sessionId: string | null, userId: string, reason: string): Promise<void> {
   const now = new Date();
   const stored = await tx.recordingChunk.aggregate({ where: { meetingId, storedAt: { not: null } }, _sum: { durationMs: true } });
+  const hoursBefore = await readHoursFacts(tx, meetingId);
   const flipped = await tx.meeting.updateMany({
     where: { id: meetingId, status: "recording" },
     data: {
@@ -390,6 +395,7 @@ async function beginProcessing(tx: Prisma.TransactionClient, meetingId: string, 
     },
   });
   if (flipped.count === 0) throw notRecording();
+  await recordHoursNotice(tx, meetingId, { before: hoursBefore }, now);
   if (sessionId) await tx.recordingSession.update({ where: { id: sessionId }, data: { endedAt: now, endReason: reason } });
   await enqueueJob(tx, { kind: "prepare_audio", meetingId });
 }

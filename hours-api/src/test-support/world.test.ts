@@ -20,6 +20,8 @@ import {
   makeWorkType,
   onReset,
   resetWorld,
+  RELEASE_DAY,
+  setReleaseDay,
 } from "./world";
 
 beforeEach(resetWorld);
@@ -60,6 +62,22 @@ describe("entries inserted directly, one factory per target", () => {
     const deal = await makeDealEntry("deal-1", { workTypeId: SEED.workTypes.deal.estimate, activityId: "activity-2" });
     expect(deal).toMatchObject({ workTypeId: "wt-deal-estimate", activityId: "activity-2" });
     expect(await makeNoEntityEntry(SEED.categories.other, { note: "Moving desks" })).toMatchObject({ categoryId: "tc-other", note: "Moving desks" });
+  });
+});
+
+describe("an automatic entry inserted directly (specs/20261112-meeting-hours)", () => {
+  it("is an untouched automatic entry on `automatic: \"untouched\"`: origin meeting, its meeting remembered, following it", async () => {
+    const entry = await makeMeetingEntry("meeting-1", { automatic: "untouched", userId: PERSONAS.bob.sub });
+    expect(entry).toMatchObject({ target: "meeting", meetingId: "meeting-1", origin: "meeting", sourceMeetingId: "meeting-1", followsMeeting: true, note: null, userId: "user-bob" });
+  });
+
+  it("is a touched one on `automatic: \"touched\"`: still marked as from its meeting, no longer following it", async () => {
+    const entry = await makeMeetingEntry("meeting-1", { automatic: "touched", minutes: 90 });
+    expect(entry).toMatchObject({ target: "meeting", meetingId: "meeting-1", origin: "meeting", sourceMeetingId: "meeting-1", followsMeeting: false, minutes: 90 });
+  });
+
+  it("is a person's entry without the option, as before", async () => {
+    expect(await makeMeetingEntry("meeting-1")).toMatchObject({ origin: "person", sourceMeetingId: null, followsMeeting: false });
   });
 });
 
@@ -111,6 +129,22 @@ describe("resetWorld", () => {
     expect(await db.timeCategory.findUnique({ where: { id: SEED.categories.other } })).toMatchObject({ name: "Other", requiresNote: true, retiredAt: null, createdBy: "system:migration" });
     expect(await db.timeCategory.findUnique({ where: { id: SEED.categories.training } })).toMatchObject({ name: "Training", requiresNote: false });
     expect(await db.workType.findUnique({ where: { id: SEED.workTypes.deal.demo } })).toMatchObject({ list: "deal", name: "Demo", retiredAt: null, createdBy: "system:migration" });
+  });
+
+  it("empties the applied versions and the blocks of meeting hours, and puts the one release row back (specs/20261112-meeting-hours)", async () => {
+    await db.meetingHoursMeeting.create({ data: { meetingId: "meeting-1", seq: 3 } });
+    await db.meetingHoursBlock.create({ data: { meetingId: "meeting-1", userId: PERSONAS.alice.sub, reason: "deleted" } });
+    await setReleaseDay("2026-11-24");
+
+    await resetWorld();
+
+    expect(await db.meetingHoursMeeting.count()).toBe(0);
+    expect(await db.meetingHoursBlock.count()).toBe(0);
+    // One row, as the migration leaves it, never none: apply() reads the release day from it. The day is pinned early
+    // so that the default day of an entry (2026-11-02) is on or after it.
+    const release = await db.meetingHoursRelease.findMany();
+    expect(release.map((row) => ({ id: row.id, since: row.since.toISOString().slice(0, 10) }))).toEqual([{ id: 1, since: RELEASE_DAY }]);
+    expect(RELEASE_DAY < "2026-11-02").toBe(true);
   });
 
   it("is safe to run twice in a row", async () => {

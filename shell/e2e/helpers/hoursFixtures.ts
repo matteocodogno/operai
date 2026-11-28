@@ -73,10 +73,14 @@ export const minutesOfShort = (text: string): number => {
 const admins = new Map<string, SeededSession>()
 
 /**
- * The dedicated persona families a hours journey may create: `hrs` (specs/20261112-time-tracking T35, T36) and `hip`
- * (specs/20261116-record-hours-in-place T13). `cleanupPeople(runId)` removes both by their `-<runId>@operai.test` tail.
+ * The dedicated persona families a hours journey may create: `hrs` (specs/20261112-time-tracking T35, T36), `hip`
+ * (specs/20261116-record-hours-in-place T13) and `php` (specs/20261112-project-hours T18). `cleanupPeople(runId)` removes
+ * all of them by their `-<runId>@operai.test` tail.
  */
-export type PersonaPrefix = 'hrs' | 'hip'
+export type PersonaPrefix = 'hrs' | 'hip' | 'php'
+
+/** The display name's prefix of a persona family (`Hrs Member 17…`). */
+const PERSONA_NAME_PREFIX: Record<PersonaPrefix, string> = { hrs: 'Hrs', hip: 'Hip', php: 'Php' }
 
 /**
  * An admin for THIS run (`<prefix>-admin-<runId>@operai.test`, `hrs` by default; removed by cleanupPeople with the other people of the run).
@@ -125,7 +129,7 @@ async function setRoles(
   runId: string,
   prefix: PersonaPrefix,
 ): Promise<void> {
-  if (!/^(hrs|hip)-[a-z-]+-[0-9-]+@operai\.test$/.test(email) || email === SHARED_SEED_EMAIL) {
+  if (!/^(hrs|hip|php)-[a-z-]+-[0-9-]+@operai\.test$/.test(email) || email === SHARED_SEED_EMAIL) {
     throw new Error(`[hoursFixtures] refusing to change roles of ${email}: not a dedicated hours persona`)
   }
   const admin = await hoursAdmin(runId, prefix)
@@ -203,7 +207,7 @@ export async function seedHoursPerson(
   runId: string,
   prefix: PersonaPrefix = 'hrs',
 ): Promise<HoursPerson> {
-  const name = `${prefix === 'hrs' ? 'Hrs' : 'Hip'} ${label} ${runId}`
+  const name = `${PERSONA_NAME_PREFIX[prefix]} ${label} ${runId}`
   const email = `${prefix}-${label}-${runId}@operai.test`
   const first = await seedUserSession(email, name)
   await setRoles(first.userId, roles, email, runId, prefix)

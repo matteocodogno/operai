@@ -18,9 +18,11 @@ export type Grouping = (typeof GROUPINGS)[number];
  * - `none`: entries outside the grouping (a project entry under `groupBy=deal`, …);
  * - `hidden`: the viewer may not read the project or deal;
  * - `unavailable`: the owner did not answer the viewer's read;
- * - `deal-unknown`: a meeting's current deal could not be read (`meeting-deals` did not answer).
+ * - `deal-unknown`: a meeting's current deal could not be read (`meeting-deals` did not answer);
+ * - `project-unknown`: a meeting's current project could not be read (`meeting-projects` did not answer), by-project totals only
+ *   (specs/20261112-project-hours AC-4.5, AC-4.10).
  */
-export type BucketKind = "none" | "hidden" | "unavailable" | "deal-unknown";
+export type BucketKind = "none" | "hidden" | "unavailable" | "deal-unknown" | "project-unknown";
 
 export interface KeyedGroup {
   readonly kind: "keyed";

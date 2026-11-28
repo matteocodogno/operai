@@ -117,7 +117,7 @@ describe('readAllEntries', () => {
     expect((failure as HoursApiError).status).toBe(503)
   })
 
-  it('starts the walk over when a later page says the deal\'s meetings changed, and keeps none of the first walk', async () => {
+  it("starts the walk over when a later page says the deal's meetings changed, and keeps none of the first walk", async () => {
     let refused = false
     useApi((url) => {
       const cursor = url.searchParams.get('cursor')
@@ -132,7 +132,7 @@ describe('readAllEntries', () => {
     expect(read.items.map((item) => item.id)).toEqual(['n1', 'n2'])
   })
 
-  it('gives up with the refusal after EXPORT_ATTEMPTS walks when the deal\'s meetings keep changing', async () => {
+  it("gives up with the refusal after EXPORT_ATTEMPTS walks when the deal's meetings keep changing", async () => {
     useApi((url) =>
       url.searchParams.get('cursor') === null
         ? { status: 200, body: exportPage([entry('e1')], 'c1') }
@@ -143,6 +143,35 @@ describe('readAllEntries', () => {
       (error: unknown) => error,
     )
     expect((failure as HoursApiError).code).toBe('deal_meetings_changed')
+    expect(requests(api, 'GET /time-entries')).toHaveLength(2 * EXPORT_ATTEMPTS)
+  })
+
+  it("starts the walk over when a later page says the PROJECT's linked meetings changed, as for a deal (AC-4.4)", async () => {
+    let refused = false
+    useApi((url) => {
+      const cursor = url.searchParams.get('cursor')
+      if (cursor === null) return { status: 200, body: exportPage([entry(refused ? 'n1' : 'e1')], 'c1') }
+      if (!refused) {
+        refused = true
+        return { status: 409, body: problem(409, 'project_meetings_changed') }
+      }
+      return { status: 200, body: exportPage([entry('n2')], null) }
+    })
+    const read = await readAllEntries({ ...FILTERS, dealId: undefined, projectId: 'p1' })
+    expect(read.items.map((item) => item.id)).toEqual(['n1', 'n2'])
+  })
+
+  it("gives up with the refusal after EXPORT_ATTEMPTS walks when the project's linked meetings keep changing", async () => {
+    useApi((url) =>
+      url.searchParams.get('cursor') === null
+        ? { status: 200, body: exportPage([entry('e1')], 'c1') }
+        : { status: 409, body: problem(409, 'project_meetings_changed') },
+    )
+    const failure = await readAllEntries({ ...FILTERS, dealId: undefined, projectId: 'p1' }).then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect((failure as HoursApiError).code).toBe('project_meetings_changed')
     expect(requests(api, 'GET /time-entries')).toHaveLength(2 * EXPORT_ATTEMPTS)
   })
 

@@ -7,7 +7,16 @@
 import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
 import { en, it as italian } from '../strings'
-import { otherWorkOn, projectOn, withIds } from '../test-support/fakeApi'
+import {
+  dealOn,
+  meetingOn,
+  otherWorkOn,
+  projectOn,
+  seenByOthers,
+  timeEntryView,
+  totalsAnswer,
+  withIds,
+} from '../test-support/fakeApi'
 import {
   ACME_DEMO,
   ALL_HANDS,
@@ -27,7 +36,7 @@ import {
   WEEKLY_HIDDEN_DEAL,
   WEEKLY_UNAVAILABLE_DEAL,
 } from '../test-support/fixtures/export'
-import type { TimeEntryView } from './hoursApi.types'
+import type { MeetingProject, TimeEntryView } from './hoursApi.types'
 import { buildHoursWorkbook, hoursFileName, workbookCopyOf } from './hoursWorkbook'
 
 const copyEn = workbookCopyOf(en)
@@ -41,11 +50,11 @@ const roundTrip = async (items: readonly TimeEntryView[], copy = copyEn): Promis
   return read.worksheets[0]!
 }
 
-/** The data rows (without the header), each as its nine cells. */
+/** The data rows (without the header), each as its ten cells. */
 const dataRows = (sheet: ExcelJS.Worksheet): ExcelJS.CellValue[][] => {
   const rows: ExcelJS.CellValue[][] = []
   sheet.eachRow({ includeEmpty: true }, (row, number) => {
-    if (number > 1) rows.push(Array.from({ length: 9 }, (_, index) => row.getCell(index + 1).value))
+    if (number > 1) rows.push(Array.from({ length: 10 }, (_, index) => row.getCell(index + 1).value))
   })
   return rows
 }
@@ -57,15 +66,16 @@ const COLUMNS = {
   on: 4,
   name: 5,
   countsForDeal: 6,
-  categoryOrWorkType: 7,
-  activity: 8,
-  note: 9,
+  countsForProject: 7,
+  categoryOrWorkType: 8,
+  activity: 9,
+  note: 10,
 } as const
 
 describe('the sheet: one header row and one row per entry, in the list order (AC-4.6)', () => {
-  it('has the nine columns of plan § Export file, in that order, with the English headers', async () => {
+  it('has the ten columns of plan § Export file, Counts for project the seventh, with the English headers', async () => {
     const sheet = await roundTrip([ALPHA_DEV])
-    const header = Array.from({ length: 9 }, (_, index) => sheet.getRow(1).getCell(index + 1).value)
+    const header = Array.from({ length: 10 }, (_, index) => sheet.getRow(1).getCell(index + 1).value)
     expect(header).toEqual([
       'Day',
       'Person',
@@ -73,11 +83,12 @@ describe('the sheet: one header row and one row per entry, in the list order (AC
       'On',
       'Name',
       'Counts for deal',
+      'Counts for project',
       'Category or work type',
       'Activity',
       'Note',
     ])
-    expect(sheet.columnCount).toBe(9)
+    expect(sheet.columnCount).toBe(10)
   })
 
   it('writes one row per entry, in the order the entries were given, and nothing after the last', async () => {
@@ -236,6 +247,203 @@ describe('Counts for deal: the deal the hours count for, one column for every ki
               : null
     expect(new Map(EXPORT_DEAL_TOTALS.groups.map((group) => [groupOf(group), group.minutes / 60]))).toEqual(hoursBy)
     expect(EXPORT_DEAL_TOTALS.totalMinutes).toBe(EXPORT_TOTAL_MINUTES)
+  })
+})
+
+describe('Counts for project: the project the hours count for, one column for every kind (specs/20261112-project-hours AC-4.6, AC-4.7)', () => {
+  const ALPHA_LINK: MeetingProject = {
+    state: 'linked',
+    visibility: 'visible',
+    id: 'p1',
+    label: 'Project Alpha',
+    href: '/projects/p1',
+  }
+  const BETA_LINK: MeetingProject = {
+    state: 'linked',
+    visibility: 'visible',
+    id: 'p3',
+    label: 'Project Beta',
+    href: '/projects/p3',
+  }
+  const ACME_LINK = {
+    state: 'linked',
+    visibility: 'visible',
+    id: 'd1',
+    label: 'Acme renewal',
+    href: '/crm/deals/d1',
+  } as const
+
+  /** A meeting entry that counts for `project` (or for no project, or for a deal); the meeting's own visibility is its own. */
+  const onMeeting = (id: string, project: MeetingProject | undefined, visibility: 'visible' | 'hidden' = 'visible') => {
+    const on = meetingOn(id, `Meeting ${id}`, { state: 'none' }, visibility)
+    return project === undefined ? on : { ...on, project }
+  }
+  const entryOn = (id: string, minutes: number, on: TimeEntryView['on']): TimeEntryView =>
+    seenByOthers(timeEntryView({ id, minutes, on }))
+
+  const countsForProject = async (entry: TimeEntryView) => {
+    const sheet = await roundTrip([entry])
+    return dataRows(sheet)[0]![COLUMNS.countsForProject - 1]
+  }
+
+  it('holds the project itself for an entry on a project, which also names it in Name', async () => {
+    const entry = entryOn('e1', 240, projectOn('p1', 'Project Alpha'))
+    expect(await countsForProject(entry)).toBe('Project Alpha')
+    expect(dataRows(await roundTrip([entry]))[0]![COLUMNS.name - 1]).toBe('Project Alpha')
+  })
+
+  it('holds the linked project for an entry on a meeting, whatever the meeting is called', async () => {
+    expect(await countsForProject(entryOn('e2', 150, onMeeting('m1', ALPHA_LINK)))).toBe('Project Alpha')
+    // The viewer may not read the meeting but may read its project: the project is named, the meeting is not.
+    const secretMeeting = entryOn('e3', 90, onMeeting('m2', BETA_LINK, 'hidden'))
+    expect(await countsForProject(secretMeeting)).toBe('Project Beta')
+    expect(dataRows(await roundTrip([secretMeeting]))[0]![COLUMNS.name - 1]).toBe('Not visible to you')
+  })
+
+  it('holds a placeholder for a project the viewer may not read, or whose owner did not answer, or that could not be asked', async () => {
+    expect(await countsForProject(entryOn('e4', 120, projectOn('p-secret', 'Secret project', 'hidden')))).toBe(
+      'Not visible to you',
+    )
+    expect(await countsForProject(entryOn('e5', 30, projectOn('p2', null, 'unavailable')))).toBe('Name unavailable')
+    expect(await countsForProject(entryOn('e6', 90, onMeeting('m3', { state: 'linked', visibility: 'hidden' })))).toBe(
+      'Not visible to you',
+    )
+    expect(
+      await countsForProject(entryOn('e7', 30, onMeeting('m4', { state: 'linked', visibility: 'unavailable' }))),
+    ).toBe('Name unavailable')
+    expect(await countsForProject(entryOn('e8', 150, onMeeting('m5', { state: 'unknown' })))).toBe('Unknown')
+  })
+
+  it('is empty for a meeting linked to no project, for a deal, for a meeting that counts for a deal, and for other work', async () => {
+    expect(await countsForProject(entryOn('e9', 30, onMeeting('m6', { state: 'none' })))).toBeNull()
+    expect(await countsForProject(entryOn('e10', 90, dealOn('d1', 'Acme renewal')))).toBeNull()
+    expect(
+      await countsForProject(entryOn('e11', 150, { ...meetingOn('m7', 'Pitch', ACME_LINK) } as TimeEntryView['on'])),
+    ).toBeNull()
+    expect(await countsForProject(entryOn('e12', 1440, otherWorkOn('Formazione')))).toBeNull()
+  })
+
+  it('reads an entry with no `on.project` (an hours-api older than this feature) as none: an empty cell, not "Unknown"', async () => {
+    const old = entryOn('e13', 60, onMeeting('m8', undefined))
+    expect(old.on).not.toHaveProperty('project')
+    expect(await countsForProject(old)).toBeNull()
+  })
+
+  it('never writes a name or an id the server sent for a project the viewer may not read', async () => {
+    const leaked = (visibility: 'hidden' | 'unavailable'): TimeEntryView =>
+      entryOn(
+        `e-leak-${visibility}`,
+        60,
+        onMeeting('m9', {
+          state: 'linked',
+          visibility,
+          id: 'LEAKED-PROJECT-ID',
+          label: 'LEAKED PROJECT',
+        } as MeetingProject),
+      )
+    const sheet = await roundTrip([leaked('hidden'), leaked('unavailable')])
+    const text = dataRows(sheet)
+      .flat()
+      .filter((value): value is string => typeof value === 'string')
+      .join('\n')
+    expect(text).not.toContain('LEAKED')
+    expect(dataRows(sheet).map((row) => row[COLUMNS.countsForProject - 1])).toEqual([
+      'Not visible to you',
+      'Name unavailable',
+    ])
+  })
+
+  it('holds no id of the project a meeting counts for', async () => {
+    const entries = [
+      entryOn('e-id-1', 150, onMeeting('m10', ALPHA_LINK)),
+      entryOn('e-id-2', 60, projectOn('p-own', 'Own project')),
+    ].map(withIds)
+    const text = dataRows(await roundTrip(entries))
+      .flat()
+      .filter((value): value is string => typeof value === 'string')
+    for (const id of ['p1', 'p-own', 'm10'])
+      expect(text.filter((cell) => cell === id || cell.includes(`${id}/`))).toEqual([])
+    expect(text.some((cell) => cell.includes('/projects/'))).toBe(false)
+  })
+
+  it('writes a project name that starts with = as text, never a formula', async () => {
+    const entry = entryOn(
+      'e-formula',
+      60,
+      onMeeting('m11', { ...ALPHA_LINK, label: '=HYPERLINK("http://evil.example","x")' }),
+    )
+    const cell = (await roundTrip([entry])).getRow(2).getCell(COLUMNS.countsForProject)
+    expect(cell.type).toBe(ExcelJS.ValueType.String)
+    expect(cell.formula).toBeUndefined()
+  })
+
+  it('sums, by this column, to the by-project totals of the same entries: a project to its group, the placeholders to hidden, unavailable and project-unknown, empty to none', async () => {
+    const entries = [
+      entryOn('t1', 240, projectOn('p1', 'Project Alpha')),
+      entryOn('t2', 120, projectOn('p-secret', 'Secret project', 'hidden')),
+      entryOn('t3', 30, projectOn('p2', null, 'unavailable')),
+      entryOn('t4', 150, onMeeting('m1', ALPHA_LINK)),
+      entryOn('t5', 60, onMeeting('m2', BETA_LINK)),
+      entryOn('t6', 90, onMeeting('m3', { state: 'linked', visibility: 'hidden' }, 'hidden')),
+      entryOn('t7', 30, onMeeting('m4', { state: 'linked', visibility: 'unavailable' })),
+      entryOn('t8', 150, onMeeting('m5', { state: 'unknown' })),
+      entryOn('t9', 30, onMeeting('m6', { state: 'none' })),
+      entryOn('t10', 60, onMeeting('m7', undefined)),
+      entryOn('t11', 90, dealOn('d1', 'Acme renewal')),
+      entryOn('t12', 1440, otherWorkOn('Formazione')),
+      entryOn('t13', 150, meetingOn('m8', 'Pitch', ACME_LINK)),
+    ]
+    // `GET /time-entries/totals?groupBy=project` over these entries, by hand (minutes), NOT computed from them:
+    //   Project Alpha    240 (project) + 150 (a meeting linked to it)                      = 390
+    //   Project Beta      60 (a meeting linked to it)                                      =  60
+    //   hidden           120 (a project) + 90 (a meeting linked to a project not readable) = 210
+    //   unavailable       30 (a project) + 30 (a meeting's project)                        =  60
+    //   project-unknown  150 (a meeting whose project could not be asked)                  = 150
+    //   none             30 + 60 + 150 (meetings with no project) + 90 (deal) + 1440      = 1770
+    //   total                                                                              = 2640
+    const byProject = totalsAnswer([
+      { kind: 'keyed', key: 'p1', label: 'Project Alpha', minutes: 390 },
+      { kind: 'keyed', key: 'p3', label: 'Project Beta', minutes: 60 },
+      { kind: 'hidden', minutes: 210 },
+      { kind: 'unavailable', minutes: 60 },
+      { kind: 'project-unknown', minutes: 150 },
+      { kind: 'none', minutes: 1770 },
+    ])
+    expect(byProject.totalMinutes).toBe(2640)
+
+    const sheet = await roundTrip(entries)
+    const hoursBy = new Map<string | null, number>()
+    for (const row of dataRows(sheet)) {
+      const project = row[COLUMNS.countsForProject - 1] as string | null
+      hoursBy.set(project, (hoursBy.get(project) ?? 0) + (row[COLUMNS.hours - 1] as number))
+    }
+    const groupOf = (group: (typeof byProject.groups)[number]): string | null =>
+      group.kind === 'keyed'
+        ? group.label
+        : group.kind === 'hidden'
+          ? 'Not visible to you'
+          : group.kind === 'unavailable'
+            ? 'Name unavailable'
+            : group.kind === 'project-unknown'
+              ? 'Unknown'
+              : null
+    expect(new Map(byProject.groups.map((group) => [groupOf(group), group.minutes / 60]))).toEqual(hoursBy)
+  })
+
+  it('does not change the Counts for deal column: a meeting that counts for a project says nothing there', async () => {
+    const sheet = await roundTrip([entryOn('e-d', 150, onMeeting('m1', ALPHA_LINK))])
+    expect(dataRows(sheet)[0]![COLUMNS.countsForDeal - 1]).toBeNull()
+  })
+
+  it('writes the Italian words for a hidden project and for an unknown one', async () => {
+    const sheet = await roundTrip(
+      [
+        entryOn('i1', 60, projectOn('p-secret', 'Secret', 'hidden')),
+        entryOn('i2', 60, onMeeting('m1', { state: 'unknown' })),
+      ],
+      workbookCopyOf(italian),
+    )
+    expect(dataRows(sheet).map((row) => row[COLUMNS.countsForProject - 1])).toEqual(['Non visibile a te', 'Non noto'])
   })
 })
 
@@ -402,13 +610,14 @@ describe('the words are the viewer’s language (AC-5.5)', () => {
   it('writes the Italian headers, kinds and placeholders from the Italian catalog', async () => {
     const sheet = await roundTrip(EXPORT_ENTRIES, workbookCopyOf(italian))
     expect(sheet.name).toBe('Ore')
-    expect(Array.from({ length: 9 }, (_, index) => sheet.getRow(1).getCell(index + 1).value)).toEqual([
+    expect(Array.from({ length: 10 }, (_, index) => sheet.getRow(1).getCell(index + 1).value)).toEqual([
       'Giorno',
       'Persona',
       'Ore',
       'Su',
       'Nome',
       "Conta per l'opportunità",
+      'Conta per il progetto',
       'Categoria o tipo di lavoro',
       'Attività',
       'Nota',

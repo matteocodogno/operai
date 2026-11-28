@@ -41,7 +41,7 @@ function make(handlers: Partial<Record<string, JobHandler>>, extra: Partial<Para
   return runner;
 }
 
-const insert = (data: { kind?: "prepare_audio" | "transcribe" | "summarize" | "deliver_host_notice"; [k: string]: unknown } = {}) =>
+const insert = (data: { kind?: "prepare_audio" | "transcribe" | "summarize" | "deliver_host_notice" | "deliver_hours_notice"; [k: string]: unknown } = {}) =>
   db.meetingJob.create({ data: { kind: "transcribe", maxAttempts: 3, ...data } as never });
 
 const get = (id: string) => db.meetingJob.findUniqueOrThrow({ where: { id } });
@@ -566,11 +566,12 @@ describe("SIGTERM drain", () => {
 describe("the handler table", () => {
   it("has a handler for every job kind; until its task lands each fails permanently as not_implemented", async () => {
     const { handlers } = await import("./handlers");
-    expect(Object.keys(handlers).sort()).toEqual(["deliver_host_notice", "prepare_audio", "summarize", "transcribe"]);
+    expect(Object.keys(handlers).sort()).toEqual(["deliver_host_notice", "deliver_hours_notice", "prepare_audio", "summarize", "transcribe"]);
     const ctx = { job: {}, attempt: 1, attemptId: null, signal: new AbortController().signal, commit: async () => ({ committed: false as const }) };
-    // Kinds whose task has landed. `summarize` (T94), `deliver_host_notice` (T20) and `transcribe` (T32)
-    // are exercised by their own suites and skipped here; the others, given a job with no meeting, refuse with their own code.
-    const implemented = new Set(["summarize", "deliver_host_notice", "transcribe"]);
+    // Kinds whose task has landed. `summarize` (T94), `deliver_host_notice` (T20), `transcribe` (T32) and
+    // `deliver_hours_notice` (specs/20261112-meeting-hours T8) are exercised by their own suites and skipped here;
+    // the others, given a job with no meeting, refuse with their own code.
+    const implemented = new Set(["summarize", "deliver_host_notice", "deliver_hours_notice", "transcribe"]);
     const landed: Record<string, string> = { prepare_audio: "no_meeting" };
     for (const [kind, handler] of Object.entries(handlers)) {
       if (implemented.has(kind)) continue;

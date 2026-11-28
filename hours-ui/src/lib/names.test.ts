@@ -7,10 +7,11 @@
 import { describe, expect, it } from 'vitest'
 import { strings } from '../strings'
 import { dealOn, meetingOn, otherWorkOn, projectOn, timeEntryView, totalsAnswer } from '../test-support/fakeApi'
-import type { MeetingDeal, TimeEntryView } from './hoursApi.types'
+import type { MeetingDeal, MeetingProject, TimeEntryView } from './hoursApi.types'
 import {
   activityLine,
   countsForDealLine,
+  countsForProjectLine,
   hasHiddenName,
   onPhrase,
   rowName,
@@ -97,8 +98,9 @@ describe('countsForDealLine: the deal a meeting’s hours count for (AC-2.6, AC-
     )
   })
 
-  it('a deal that could not be read at all is "unknown right now"', () => {
+  it('a deal that could not be read at all is "unknown right now", said for the deal or the project (one line for both)', () => {
     expect(countsForDealLine(meetingWith({ state: 'unknown' }))).toBe(n.countsForUnknownDeal)
+    expect(n.countsForUnknownDeal).toBe('The deal or project these hours count for is unknown right now')
   })
 
   it('a meeting linked to no deal says nothing, and neither do the other kinds', () => {
@@ -114,6 +116,71 @@ describe('countsForDealLine: the deal a meeting’s hours count for (AC-2.6, AC-
     expect(line).toBe(n.countsForHiddenDeal)
     expect(line).not.toContain('Leaked')
     expect(line).not.toContain('d-secret')
+  })
+})
+
+describe('countsForProjectLine: the project a meeting’s hours count for (specs/20261112-project-hours AC-4.4, AC-4.7)', () => {
+  const meetingFor = (project: MeetingProject) => ({ ...meetingOn('m1', 'Kick-off call'), project })
+
+  it('a linked, visible project is named', () => {
+    const line = countsForProjectLine(
+      meetingFor({ state: 'linked', visibility: 'visible', id: 'p1', label: 'Project Alpha', href: '/projects/p1' }),
+    )
+    expect(line).toBe(n.countsForProject('Project Alpha'))
+    expect(line).toBe('Counts for project Project Alpha')
+  })
+
+  it('a linked project the viewer cannot read, or whose name did not come, is the design’s words', () => {
+    expect(countsForProjectLine(meetingFor({ state: 'linked', visibility: 'hidden' }))).toBe(n.countsForHiddenProject)
+    expect(countsForProjectLine(meetingFor({ state: 'linked', visibility: 'unavailable' }))).toBe(
+      n.countsForUnavailableProject,
+    )
+    expect(n.countsForHiddenProject).toBe('Counts for a project that is not visible to you')
+    expect(n.countsForUnavailableProject).toBe('Counts for a project whose name is unavailable')
+  })
+
+  it('a readable project that came without a label is "name unavailable", never named by its id', () => {
+    const noLabel = { state: 'linked', visibility: 'visible', id: 'p-secret-id', label: null, href: '/projects/p1' }
+    const line = countsForProjectLine(meetingFor(noLabel as unknown as MeetingProject))
+    expect(line).toBe(n.countsForUnavailableProject)
+    expect(line).not.toContain('p-secret-id')
+  })
+
+  it('says nothing for a project that could not be read: the deal’s unknown line speaks for both', () => {
+    expect(countsForProjectLine(meetingFor({ state: 'unknown' }))).toBeNull()
+    expect(countsForDealLine({ ...meetingFor({ state: 'unknown' }), deal: { state: 'unknown' } })).toBe(
+      n.countsForUnknownDeal,
+    )
+  })
+
+  it('says nothing for a meeting linked to no project, nor for one from an hours-api that sends no `project`', () => {
+    expect(countsForProjectLine(meetingFor({ state: 'none' }))).toBeNull()
+    expect(countsForProjectLine(meetingOn('m1', 'Kick-off call'))).toBeNull()
+  })
+
+  it('says nothing for the other kinds, a project entry included (its name is the row’s own)', () => {
+    expect(countsForProjectLine(projectOn('p1'))).toBeNull()
+    expect(countsForProjectLine(dealOn('d1'))).toBeNull()
+    expect(countsForProjectLine(otherWorkOn('Formazione'))).toBeNull()
+  })
+
+  it('never writes a name or an id the server sent for a project that is not visible', () => {
+    for (const visibility of ['hidden', 'unavailable'] as const) {
+      const leaked = { state: 'linked', visibility, id: 'p-secret', label: 'Leaked project' } as MeetingProject
+      const line = countsForProjectLine(meetingFor(leaked))
+      expect(line).not.toContain('Leaked')
+      expect(line).not.toContain('p-secret')
+      expect(line).toBe(visibility === 'hidden' ? n.countsForHiddenProject : n.countsForUnavailableProject)
+    }
+  })
+
+  it('a meeting has one host: a meeting linked to a project says nothing about a deal', () => {
+    const on = {
+      ...meetingOn('m1', 'Kick-off call', { state: 'none' }),
+      project: { state: 'linked', visibility: 'hidden' } as const,
+    }
+    expect(countsForDealLine(on)).toBeNull()
+    expect(countsForProjectLine(on)).toBe(n.countsForHiddenProject)
   })
 })
 
@@ -169,6 +236,10 @@ describe('hasHiddenName: when the "names not visible" note shows (AC-4.10)', () 
       'a meeting whose deal is hidden',
       timeEntryView({ on: meetingOn('m1', 'Kick-off', { state: 'linked', visibility: 'hidden' }) }),
     ],
+    [
+      'a meeting whose project is hidden',
+      timeEntryView({ on: { ...meetingOn('m1', 'Kick-off'), project: { state: 'linked', visibility: 'hidden' } } }),
+    ],
     ['a hidden activity', timeEntryView({ activity: { id: 'a1', subject: null, visibility: 'hidden' } })],
   ])('is true for %s', (_name, entry) => {
     expect(hasHiddenName([plain, entry])).toBe(true)
@@ -181,6 +252,20 @@ describe('hasHiddenName: when the "names not visible" note shows (AC-4.10)', () 
   it('an unavailable name is not a hidden one (that is the other banner)', () => {
     const unavailable = timeEntryView({ on: projectOn('p1', 'x', 'unavailable') })
     expect(hasHiddenName([unavailable], totalsAnswer([{ kind: 'unavailable', minutes: 60 }]))).toBe(false)
+  })
+
+  it.each<[string, MeetingProject | undefined]>([
+    [
+      'linked to a project the viewer can read',
+      { state: 'linked', visibility: 'visible', id: 'p1', label: 'Alpha', href: '/projects/p1' },
+    ],
+    ['whose project’s name is unavailable', { state: 'linked', visibility: 'unavailable' }],
+    ['linked to no project', { state: 'none' }],
+    ['whose project is unknown', { state: 'unknown' }],
+    ['from an hours-api that sends no `project`', undefined],
+  ])('a meeting %s is not a hidden name', (_what, project) => {
+    const on = project === undefined ? meetingOn('m1', 'Kick-off') : { ...meetingOn('m1', 'Kick-off'), project }
+    expect(hasHiddenName([timeEntryView({ on })])).toBe(false)
   })
 })
 
@@ -196,5 +281,19 @@ describe('unavailableSources: the sources the banner names', () => {
       'crm',
       'meeting-deals',
     ])
+  })
+
+  it('knows meeting-projects, which comes with meeting-deals from the one read of the meetings’ hosts', () => {
+    expect(unavailableSources(['meeting-projects'])).toEqual(['meeting-projects'])
+    expect(unavailableSources(['meeting-projects', 'projects'])).toEqual(['projects', 'meeting-projects'])
+  })
+
+  it('names the pair once: the two codes say one thing, so the banner never repeats the phrase', () => {
+    expect(n.sources['meeting-projects']).toBe(n.sources['meeting-deals'])
+    expect(unavailableSources(['meeting-deals', 'meeting-projects', 'identities'])).toEqual([
+      'identities',
+      'meeting-deals',
+    ])
+    expect(unavailableSources(['meeting-projects'], ['meeting-deals'])).toEqual(['meeting-deals'])
   })
 })

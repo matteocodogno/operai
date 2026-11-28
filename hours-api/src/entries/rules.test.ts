@@ -6,6 +6,7 @@ import { describe, expect, it } from "bun:test";
 import { ID_MAX_LENGTH as LISTS_ID_MAX, isWellFormedId } from "../lists/idRule";
 import { ID_MAX_LENGTH as LABELS_ID_MAX, satisfiesIdRule } from "../labels/idRule";
 import { FIRST_DAY, NOTE_MAX_CODE_POINTS, countCodePoints, isBlank, isCalendarDay, isValidMinutes } from "./rules";
+import { dayDate } from "./rules";
 import { BUSINESS_ZONE, todayIn } from "./today";
 
 describe("isCalendarDay (plan § Entries, 'A day'; AC-1.3)", () => {
@@ -57,6 +58,32 @@ describe("isCalendarDay (plan § Entries, 'A day'; AC-1.3)", () => {
       "x".repeat(10_000),
     ]) {
       expect(isCalendarDay(day)).toBe(false);
+    }
+  });
+});
+
+describe("dayDate (plan amendment 2026-11-25, S4): a day is the UTC midnight the `date` column stores and compares", () => {
+  // `new Date("2026-03-29T00:00:00")` (no `Z`) is local midnight: it differs from the UTC one in every zone but UTC itself. The
+  // process's zone is set here so that the vector fails wherever the suite runs, on Europe/Zurich's daylight-saving day included.
+  const inZone = (zone: string, run: () => void): void => {
+    const before = process.env["TZ"];
+    process.env["TZ"] = zone;
+    try {
+      run();
+    } finally {
+      if (before === undefined) delete process.env["TZ"];
+      else process.env["TZ"] = before;
+    }
+  };
+
+  it("is the UTC midnight of the day whatever the zone of the process, the European daylight-saving day included", () => {
+    for (const zone of ["Europe/Zurich", "America/Los_Angeles", "Pacific/Auckland", "UTC"]) {
+      inZone(zone, () => {
+        expect(dayDate("2026-03-29").getTime()).toBe(Date.UTC(2026, 2, 29));
+        expect(dayDate("2026-10-25").getTime()).toBe(Date.UTC(2026, 9, 25));
+        expect(dayDate("2000-01-01").toISOString()).toBe("2000-01-01T00:00:00.000Z");
+        expect(dayDate("9999-12-31").toISOString()).toBe("9999-12-31T00:00:00.000Z");
+      });
     }
   });
 });

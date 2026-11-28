@@ -47,11 +47,19 @@ export type DealRef = z.infer<typeof DealRefSchema>;
 // ─── Terms (output): the type-specific `terms` nested, every member present, `null` when absent ─────────
 
 const SlaView = z.object({ highDays: z.number().int(), normalDays: z.number().int() });
+/**
+ * The window of an hour package that is current today, derived on read at the Europe/Zurich business day, never stored
+ * (specs/20261112-project-hours AC-1.1 – AC-1.3, AC-1.9, `terms/packagePeriod.ts`): both dates inclusive, `ended` true only for
+ * a capacity package past its expiry, whose final window it is (D83). `null` before the package's start date (A51).
+ */
+const PackagePeriodSchema = z.object({ from: z.string(), to: z.string(), ended: z.boolean() });
+
 const HourPackageView = z.object({
   hours: z.number().int(),
   kind: z.enum(["capacity", "yearly"]),
   startDate: z.string(),
   expiryDate: z.string().nullable(),
+  currentPeriod: PackagePeriodSchema.nullable(),
 });
 
 /** By type: fixed price, SLA and hours (maintenance, saas), positions (t_and_m); `{}` for none. */
@@ -62,7 +70,13 @@ export const TermsViewSchema = z.union([
   z.object({}),
 ]);
 
-/** The delivery terms of a project (specs/20261103-projects's contract shape, renamed): the dates and the nested terms. */
+/**
+ * The delivery terms of a project (specs/20261103-projects's contract shape, renamed): the dates and the nested terms.
+ *
+ * `asOf` is the Europe/Zurich business day the view was derived for, the same `today` that gives an hour package its
+ * `currentPeriod` (specs/20261112-project-hours AC-5.29, D-P7): derived on read, never stored, not part of the ETag, never an
+ * input. It is on every terms type, a time-and-material project's end date included, and is never `null` in a valid answer.
+ */
 export const TermsSchema = z.object({
   id: z.string(),
   type: ProjectTypeSchema,
@@ -70,6 +84,10 @@ export const TermsSchema = z.object({
   endDate: DateOnlyOrNull,
   terms: TermsViewSchema,
   version: z.number().int(),
+  asOf: z.string().openapi({
+    description: "The Europe/Zurich business day this view was derived for (YYYY-MM-DD): the day currentPeriod is of. Derived on read, never stored, never an input.",
+    example: "2026-11-27",
+  }),
 });
 
 // ─── Purchase order (output) ─────────────────────────────────────────────────

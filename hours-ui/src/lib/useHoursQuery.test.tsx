@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { deferred } from '../test-support/fakeApi'
+import { HoursApiError } from './errors'
 import { useHoursPages, useHoursQuery } from './useHoursQuery'
 
 afterEach(() => cleanup())
@@ -411,5 +412,49 @@ describe('useHoursPages (D48)', () => {
     unmount()
 
     expect(signals[1]!.aborted).toBe(true)
+  })
+})
+
+describe('useHoursPages: the linked meetings changed between pages (409 `deal_meetings_changed` / `project_meetings_changed`)', () => {
+  const conflict = (code: 'deal_meetings_changed' | 'project_meetings_changed') =>
+    new HoursApiError({ status: 409, title: 'Conflict', rawCode: code })
+
+  it.each(['deal_meetings_changed', 'project_meetings_changed'] as const)(
+    'a loadMore refused with %s starts the read over from its first page instead of mixing two readings',
+    async (code) => {
+      const fetchPage = vi.fn<(cursor: string | undefined, signal: AbortSignal) => Promise<Page>>()
+      fetchPage
+        .mockResolvedValueOnce(page(['a'], 'c2'))
+        .mockRejectedValueOnce(conflict(code))
+        .mockResolvedValueOnce(page(['a-new'], 'c9'))
+      const { result } = renderHook(() => useHoursPages('k', fetchPage))
+      await act(async () => undefined)
+
+      act(() => result.current.loadMore())
+      await act(async () => undefined)
+
+      // Not a failed "Load more" with the old page kept: the whole read restarted and, once it answers, is the new reading.
+      expect(fetchPage.mock.calls.map(([cursor]) => cursor)).toEqual([undefined, 'c2', undefined])
+      expect(result.current.moreFailed).toBe(false)
+      expect(result.current.first).toEqual({ status: 'loaded', data: page(['a-new'], 'c9') })
+      expect(result.current.more).toEqual([])
+      expect(result.current.hasMore).toBe(true)
+    },
+  )
+
+  it('any other 409 is an ordinary failed Load more: the pages stay and the same cursor is asked again', async () => {
+    const fetchPage = vi.fn<(cursor: string | undefined, signal: AbortSignal) => Promise<Page>>()
+    fetchPage
+      .mockResolvedValueOnce(page(['a'], 'c2'))
+      .mockRejectedValueOnce(new HoursApiError({ status: 409, title: 'Conflict', rawCode: 'name_taken' }))
+    const { result } = renderHook(() => useHoursPages('k', fetchPage))
+    await act(async () => undefined)
+
+    act(() => result.current.loadMore())
+    await act(async () => undefined)
+
+    expect(fetchPage).toHaveBeenCalledTimes(2)
+    expect(result.current.moreFailed).toBe(true)
+    expect(result.current.first).toEqual({ status: 'loaded', data: page(['a'], 'c2') })
   })
 })

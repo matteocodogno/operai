@@ -65,6 +65,7 @@ interface Item {
 const items = async (res: Response): Promise<Item[]> => ((await res.json()) as { items: Item[] }).items;
 
 const deal = (entityId: string) => ({ app: "crm", entityType: "deal", entityId });
+const project = (entityId: string) => ({ app: "projects", entityType: "project", entityId });
 
 /** A text meeting (the least a row needs), optionally linked to a host entity. */
 const make = (host?: { app: string; entityType: string; entityId: string; visible?: boolean }) =>
@@ -238,10 +239,135 @@ describe("GET /system/meetings/hosts?dealId= (AC-2.6, AC-4.11)", () => {
   });
 });
 
-describe("exactly one of ids and dealId (AC-4.11)", () => {
+describe("GET /system/meetings/hosts?projectId= (specs/20261112-project-hours AC-4.1, AC-4.2, AC-4.4, AC-4.8, AC-4.9)", () => {
+  const byId = (a: Item, b: Item) => a.id.localeCompare(b.id);
+
+  it("lists the meetings currently linked to the project, and no other: not another project, not a deal of the same id, not an unlinked meeting, not another host's or another projects entity of the same id", async () => {
+    const projectId = `${PREFIX}-project-a`;
+    const mine1 = await make(project(projectId));
+    const mine2 = await make({ ...project(projectId), visible: true });
+    await make(project(`${PREFIX}-project-other`));
+    await make(deal(projectId));
+    await make();
+    await make({ app: "testhost", entityType: "widget", entityId: projectId });
+    await make({ app: "projects", entityType: "task", entityId: projectId });
+    // Hosts are data: another app may host an entity type that is also called "project".
+    await make({ app: "testhost", entityType: "project", entityId: projectId });
+    const res = await asHours(`?projectId=${projectId}`);
+    expect(res.status).toBe(200);
+    expect((await items(res)).sort(byId)).toEqual(
+      [
+        { id: mine1.id, host: project(projectId) },
+        { id: mine2.id, host: project(projectId) },
+      ].sort(byId),
+    );
+  });
+
+  it("follows a relink (AC-4.2): to another project, to a deal, or to none, the meeting leaves the old project's list and joins only its new host's", async () => {
+    const [from, to, toDeal] = [`${PREFIX}-project-from`, `${PREFIX}-project-to`, `${PREFIX}-deal-moved-to`];
+    const moving = await make(project(from));
+    const staying = await make(project(from));
+    expect((await items(await asHours(`?projectId=${from}`))).map((i) => i.id).sort()).toEqual([moving.id, staying.id].sort());
+
+    // To another project.
+    await db.meeting.update({ where: { id: moving.id }, data: { hostEntityId: to } });
+    expect(await items(await asHours(`?projectId=${from}`))).toEqual([{ id: staying.id, host: project(from) }]);
+    expect(await items(await asHours(`?projectId=${to}`))).toEqual([{ id: moving.id, host: project(to) }]);
+
+    // To a deal: no longer any project's.
+    await db.meeting.update({ where: { id: moving.id }, data: { hostApp: "crm", hostEntityType: "deal", hostEntityId: toDeal } });
+    expect(await items(await asHours(`?projectId=${to}`))).toEqual([]);
+    expect(await items(await asHours(`?dealId=${toDeal}`))).toEqual([{ id: moving.id, host: deal(toDeal) }]);
+
+    // Back onto a project, then to none.
+    await db.meeting.update({ where: { id: moving.id }, data: { hostApp: "projects", hostEntityType: "project", hostEntityId: to } });
+    expect(await items(await asHours(`?projectId=${to}`))).toEqual([{ id: moving.id, host: project(to) }]);
+    await db.meeting.update({ where: { id: moving.id }, data: { hostApp: null, hostEntityType: null, hostEntityId: null } });
+    expect(await items(await asHours(`?projectId=${to}`))).toEqual([]);
+    expect(await items(await asHours(`?projectId=${from}`))).toEqual([{ id: staying.id, host: project(from) }]);
+  });
+
+  it("answers an empty list for a project with no meeting, and for an id that cannot name one (a NUL), never a 500", async () => {
+    const none = await asHours(`?projectId=${PREFIX}-project-none`);
+    expect(none.status).toBe(200);
+    expect(await none.json()).toEqual({ items: [] });
+    const nul = await asHours("?projectId=bad%00id");
+    expect(nul.status).toBe(200);
+    expect(await nul.json()).toEqual({ items: [] });
+  });
+
+  it("is not paged and not capped: every linked meeting comes back, however many (an answer too low is a wrong total, AC-4.9)", async () => {
+    const projectId = `${PREFIX}-project-many`;
+    await db.meeting.createMany({
+      data: Array.from({ length: 130 }, () => ({
+        title: TITLE_CANARY,
+        format: "online" as const,
+        startsAt: new Date("2026-11-10T09:00:00Z"),
+        language: "en" as const,
+        source: "text" as const,
+        creatorUserId: `${PREFIX}-creator`,
+        hostApp: "projects",
+        hostEntityType: "project",
+        hostEntityId: projectId,
+      })),
+    });
+    const found = await items(await asHours(`?projectId=${projectId}`));
+    expect(found).toHaveLength(130);
+    expect(new Set(found.map((i) => i.id)).size).toBe(130);
+    expect(found.every((i) => i.host?.app === "projects" && i.host.entityType === "project" && i.host.entityId === projectId)).toBe(true);
+  });
+
+  it("answers { id, host } and nothing else: no title, participant, duration or start, whoever the creator and whether or not host readers may open it", async () => {
+    const projectId = `${PREFIX}-project-leak`;
+    const linked = await make({ ...project(projectId), visible: true });
+    await db.meeting.update({ where: { id: linked.id }, data: { durationMs: 7_654_321 } });
+    await db.meetingParticipant.create({ data: { meetingId: linked.id, userId: `${PREFIX}-p2`, addedBy: `${PREFIX}-creator` } });
+    const res = await asHours(`?projectId=${projectId}`);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual({ items: [{ id: linked.id, host: project(projectId) }] });
+    for (const secret of [TITLE_CANARY, `${PREFIX}-creator`, `${PREFIX}-p2`, "2026-11-10", "startsAt", "7654321", "durationMs", "hostVisible"]) {
+      expect(text).not.toContain(secret);
+    }
+  });
+
+  it.each([
+    ["an empty projectId", "?projectId="],
+    ["a blank projectId", "?projectId=%20"],
+    ["a projectId over 64 characters", `?projectId=${"x".repeat(65)}`],
+    ["a repeated projectId", "?projectId=a&projectId=b"],
+  ])("refuses %s with 422", async (_label, query) => {
+    expect((await asHours(query)).status).toBe(422);
+  });
+
+  it("takes a projectId of exactly 64 characters", async () => {
+    const res = await asHours(`?projectId=${"x".repeat(64)}`);
+    expect(res.status).toBe(200);
+    expect(await items(res)).toEqual([]);
+  });
+
+  it("leaves the dealId filter alone: a meeting hosted by a project of the same id is not a deal's", async () => {
+    const sharedId = `${PREFIX}-same-id`;
+    const ofDeal = await make(deal(sharedId));
+    const ofProject = await make(project(sharedId));
+    await make({ app: "testhost", entityType: "deal", entityId: sharedId });
+    expect(await items(await asHours(`?dealId=${sharedId}`))).toEqual([{ id: ofDeal.id, host: deal(sharedId) }]);
+    expect(await items(await asHours(`?projectId=${sharedId}`))).toEqual([{ id: ofProject.id, host: project(sharedId) }]);
+  });
+
+  it("names a project-hosted meeting through ids= as it does any other: host { projects, project, id }", async () => {
+    const linked = await make(project(`${PREFIX}-project-ids`));
+    expect(await items(await asHours(`?ids=${linked.id}`))).toEqual([{ id: linked.id, host: project(`${PREFIX}-project-ids`) }]);
+  });
+});
+
+describe("exactly one of ids, dealId and projectId (AC-4.11, specs/20261112-project-hours AC-4.4)", () => {
   it.each([
     ["neither", ""],
-    ["both", "?ids=a&dealId=b"],
+    ["both ids and dealId", "?ids=a&dealId=b"],
+    ["both ids and projectId", "?ids=a&projectId=b"],
+    ["both dealId and projectId", "?dealId=a&projectId=b"],
+    ["all three", "?ids=a&dealId=b&projectId=c"],
   ])("%s is a 422 naming the filters, never an unfiltered or half-filtered answer", async (_label, query) => {
     const res = await asHours(query);
     expect(res.status).toBe(422);
@@ -287,6 +413,36 @@ describe("the credential: every failure is the same 401, byte for byte", () => {
   it("accepts a token that carries our scope among others", async () => {
     const res = await get("?ids=a", await serviceJwt({ scope: `notifications.push ${HOSTS_SCOPE}` }));
     expect(res.status).toBe(200);
+  });
+
+  it("a projectId query meets the same rules (specs/20261112-project-hours AC-4.1): any credential but hours-api's is the one 401, byte for byte, and hours-api's reads", async () => {
+    const reference = await (await get("?ids=a")).text();
+    expect(JSON.parse(reference)).toMatchObject({ status: 401, instance: PATH });
+    const failures: Array<[string, Response]> = [
+      ["no token", await get("?projectId=a")],
+      ["a user JWT", await get("?projectId=a", await serviceJwt({ sub: "user-1", aud: TEST_AUDIENCE, scope: null }))],
+      ["a user JWT carrying the scope claim", await get("?projectId=a", await serviceJwt({ sub: "user-1", aud: TEST_AUDIENCE }))],
+      ["another scope", await get("?projectId=a", await serviceJwt({ scope: "notifications.push" }))],
+      ["projects-api holding the scope", await get("?projectId=a", await serviceJwt({ sub: "system:projects-api" }))],
+      ["crm-api holding the scope", await get("?projectId=a", await serviceJwt({ sub: "system:crm-api" }))],
+      ["another audience", await get("?projectId=a", await serviceJwt({ aud: "someone-else" }))],
+      ["an expired token", await get("?projectId=a", await serviceJwt({ exp: Math.floor(Date.now() / 1000) - 60 }))],
+    ];
+    for (const [label, res] of failures) {
+      expect({ label, status: res.status }).toEqual({ label, status: 401 });
+      expect({ label, body: await res.text() }).toEqual({ label, body: reference });
+    }
+    const linked = await make(project(`${PREFIX}-project-cred`));
+    const ok = await get(`?projectId=${PREFIX}-project-cred`, await serviceJwt({ scope: `notifications.push ${HOSTS_SCOPE}` }));
+    expect(ok.status).toBe(200);
+    expect(await items(ok)).toEqual([{ id: linked.id, host: project(`${PREFIX}-project-cred`) }]);
+  });
+
+  it("is checked before a projectId query too: a bad credential with a bad or over-full query is a 401, never a 422 that tells it the query's shape", async () => {
+    for (const query of ["?projectId=", "?projectId=a&dealId=b", "?ids=a&projectId=b", `?projectId=${"x".repeat(65)}`]) {
+      expect({ query, status: (await get(query)).status }).toEqual({ query, status: 401 });
+      expect({ query, status: (await get(query, "not-a-jwt")).status }).toEqual({ query, status: 401 });
+    }
   });
 
   it("fails closed when SERVICE_AUDIENCE is not configured, even for an otherwise valid token", async () => {
@@ -340,6 +496,49 @@ describe("mounted in the assembled app, with the real default router (AC-2.6, AC
     });
   });
 
+  it("SERVICE_AUDIENCE set: hours-api's token reads a project's meetings; another client's token, a user JWT and another scope do not (specs/20261112-project-hours)", async () => {
+    const projectId = `${PREFIX}-p-mount`;
+    const linked = await make(project(projectId));
+    await configured(SERVICE_AUD, async () => {
+      const ok = await call(`?projectId=${projectId}`, await serviceJwt());
+      expect(ok.status).toBe(200);
+      expect(await items(ok)).toEqual([{ id: linked.id, host: project(projectId) }]);
+
+      const unauthorized = await (await call(`?projectId=${projectId}`)).text();
+      for (const token of [
+        await serviceJwt({ sub: "system:crm-api" }),
+        await serviceJwt({ sub: "user-1", aud: TEST_AUDIENCE, scope: null }),
+        await serviceJwt({ scope: "notifications.push" }),
+      ]) {
+        const res = await call(`?projectId=${projectId}`, token);
+        expect(res.status).toBe(401);
+        expect(await res.text()).toBe(unauthorized);
+      }
+    });
+  });
+
+  it("a projectId call logs the caller and no query string, project id or token (specs/20261112-project-hours)", async () => {
+    const projectId = `${PREFIX}-p-log`;
+    await make(project(projectId));
+    const log = spyOn(console, "log").mockImplementation(() => {});
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await configured(SERVICE_AUD, async () => {
+        const token = await serviceJwt();
+        expect((await call(`?projectId=${projectId}`, token)).status).toBe(200);
+        const lines = [...log.mock.calls, ...warn.mock.calls].map((args) => args.join(" "));
+        expect(lines.filter((l) => l.includes("caller="))).toEqual(["[system-auth] GET /system/meetings/hosts caller=system:hours-api"]);
+        expect(lines.filter((l) => /^GET \/system\/meetings\/hosts \d{3} \d+ms$/.test(l))).toHaveLength(1);
+        for (const line of lines) {
+          for (const secret of ["projectId=", projectId, token]) expect(line).not.toContain(secret);
+        }
+      });
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
   it("an accepted call logs the caller and no query string, an id or the token; a refused one logs no caller", async () => {
     const linked = await make(deal(`${PREFIX}-d-log`));
     const log = spyOn(console, "log").mockImplementation(() => {});
@@ -369,7 +568,13 @@ describe("mounted in the assembled app, with the real default router (AC-2.6, AC
   });
 
   it("is in the OpenAPI document, under System", async () => {
-    const doc = (await (await assembled.request("/openapi.json")).json()) as { paths: Record<string, { get?: { tags?: string[] } }> };
+    const doc = (await (await assembled.request("/openapi.json")).json()) as {
+      paths: Record<string, { get?: { tags?: string[]; parameters?: Array<{ name: string; in: string; required?: boolean }> } }>;
+    };
     expect(doc.paths["/system/meetings/hosts"]?.get?.tags).toEqual(["System"]);
+    // The three filters are documented, each optional on its own: the "exactly one" rule is the route's, not a required parameter.
+    const params = doc.paths["/system/meetings/hosts"]?.get?.parameters ?? [];
+    expect(params.map((p) => `${p.in}:${p.name}`).sort()).toEqual(["query:dealId", "query:ids", "query:projectId"]);
+    expect(params.some((p) => p.required === true)).toBe(false);
   });
 });

@@ -127,6 +127,24 @@ describe("env-doctor resolver", () => {
     expect(findings.some((f) => f.level === "error" && f.message.includes('lacks the "host-notices.send" scope'))).toBe(true);
   });
 
+  // specs/20261112-meeting-hours T1 done-when, against the SHIPPED templates: meetings-api's registry entry holds `meeting-hours-notices.send`
+  // (hours-api's notices route verifies it) and meetings-api's template carries HOURS_API_URL, an internal call on hours-api's own port.
+  test("the committed templates fail when meetings-api's registry entry loses meeting-hours-notices.send", () => {
+    const r = loadTemplateSuite("production");
+    expect(r.suite.auth!.SERVICE_CLIENTS).toContain("notifications.push host-notices.send meeting-hours-notices.send");
+    r.suite.auth!.SERVICE_CLIENTS = r.suite.auth!.SERVICE_CLIENTS!.replace(" meeting-hours-notices.send", "");
+    const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
+    expect(findings.some((f) => f.level === "error" && f.message.includes('lacks the "meeting-hours-notices.send" scope'))).toBe(true);
+  });
+
+  test("the committed meetings-api template calls hours-api over private networking, and fails without it in production", () => {
+    const r = loadTemplateSuite("production");
+    expect(r.suite["meetings-api"]!.HOURS_API_URL).toBe("http://${{hours-api.RAILWAY_PRIVATE_DOMAIN}}:${{hours-api.PORT}}");
+    delete r.suite["meetings-api"]!.HOURS_API_URL;
+    const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
+    expect(findings.some((f) => f.level === "error" && f.scope === "meetings-api" && f.message.includes("HOURS_API_URL is missing"))).toBe(true);
+  });
+
   // specs/20261117-legal-entities T12 done-when, against the SHIPPED templates (AC-3.2): `legal-entities:read` on crm-api's entry and a
   // new `letterhead-api` client, with the same shared secret reference on both sides.
   describe("the legal-entity registry read (specs/20261117-legal-entities, T12)", () => {

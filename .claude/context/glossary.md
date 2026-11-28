@@ -203,8 +203,8 @@
   total or in the offer's price. _Avoid:_ optional line (confused with optional block).
 
 ### Time tracking (specs/20261112-time-tracking)
-- **Time entry**: one person's own declaration that they spent a duration, on one day, on
-  one thing — a project, a deal, a meeting, or no entity (then with a category). Not an
+- **Time entry**: one person's own declaration — or recorded for them from a meeting (an
+  **Automatic entry**) — that they spent a duration, on one day, on one thing — a project, a deal, a meeting, or no entity (then with a category). Not an
   activity, but may point at one. _Avoid:_ timesheet row, worklog, booking.
 - **Category** (time tracking): what a time entry on no entity is about (training, talk
   preparation, administration, …), from a list an admin manages. Not the inventory's
@@ -213,18 +213,79 @@
   two lists an admin manages (one for projects, one for deals). _Avoid:_ task type, service.
 - **Contractual day**: 8 h 24 min, from 42 hours a week, Monday to Friday. Nothing checks a
   day against it in specs/20261112-time-tracking.
-- **Suggested entry**: a time entry Operai offers a person from a Meetings meeting they took
-  part in; it counts for nothing until the person confirms it (specs/20261112-meeting-hours). _Avoid:_ proposal
-  (ProposAI's word), draft entry.
-- **Consumption**: the hours recorded on a project set against what its terms sold — the hour
+- **Automatic entry**: a time entry Operai records for a person on a Meetings meeting they
+  created or took part in, once its duration is known (rounded to 30 minutes); the person's own
+  from the moment it exists, and, until they change it, it follows the meeting
+  (specs/20261112-meeting-hours). It stays an automatic entry when its person records it on something else;
+  its "From meeting" mark shows only while it is recorded on a meeting (D67). _Avoid:_ suggested entry (the
+  superseded design), proposal (ProposAI's word), draft entry.
+- **Untouched**: said of an **Automatic entry** its person has not changed since Operai recorded it. Any edit its
+  person saves is a change, whether or not the values differ (saving the stored values again counts; Operai does
+  not compare values, A39). Reading it, or its meeting being relinked to another deal, is not a change. Only an
+  untouched entry follows its meeting. _Avoid:_ unedited, pristine.
+- **Block** (meeting hours): the record that a person must never again get an **Automatic entry** on one meeting,
+  because they deleted theirs or already had an entry of their own on it when its duration became known. Not the
+  CRM offer wizard's **Block choice**. _Avoid:_ tombstone, ban.
+- **Hours fact**: one of the three things about a meeting its **Automatic entries** are built from — when it
+  started, how long it lasted, and which Operai users took part (creator included). A change of title, content or
+  external participants is not an hours fact. _Avoid:_ meeting data.
+- **Hours notice**: the message Meetings sends to Hours when a meeting's **Hours facts** change or the meeting is
+  deleted; it names the meeting and a version and carries the facts as they are when it is sent, never a title
+  or content. Not a **Host notice**. _Avoid:_ event, sync.
+- **Held duration** / **Measured duration**: the duration a recorded or uploaded meeting holds before its audio is
+  processed (the sum of the pieces the browser reported, or what an uploaded file says of itself) / the length
+  of its audio as Operai measures it when processing it. The measured one replaces the held one when they differ
+  materially (D63, A42). _Avoid:_ real length, actual duration, claimed duration.
+- **Hours on a project**: the hours recorded on the project itself plus the hours recorded on the
+  meetings linked to it now; every figure about a project's hours means these, as a deal's hours
+  include its linked meetings' (specs/20261112-project-hours D78).
+- **Consumption**: the **Hours on a project** set against what its terms sold — the hour
   package, the max effort and estimated man-days, or the positions' planned man-days
   (specs/20261112-project-hours). _Avoid:_ burn, usage.
 - **Man-day**: 8 hours, in every comparison with what was sold — not the **Contractual day**.
 - **Package period**: for a yearly hour package, each 12 months from its start date; for a
   capacity package, from its start date to its expiry. Unused hours never carry over.
+- **Consumption block**: the part of a project's page that shows its **Consumption** and, since
+  2026-11-27, its **Signals** (specs/20261112-project-hours). The only place a signal is drawn.
+  _Avoid:_ progress card, burn-down.
+- **Reference** (of a consumption): what the **Consumed percentage** is a share of — an hour
+  package's hours, a fixed price's max effort, or the total of a time-and-material project's
+  positions' planned man-days. A fixed price's estimated man-days is only a mark on the bar,
+  never the reference. _Avoid:_ budget (money), baseline, quota.
+- **Consumed percentage**: the **Hours on a project** a consumption counts (an hour package's
+  current period only) as a share of the **Reference**, rounded down to a whole number (119 h 30
+  of 120 h reads 99 %) and shown as it is beyond 100 %. _Avoid:_ usage percentage, burn rate,
+  utilisation.
+- **State** (of a consumption): what the consumption block says about the consumed percentage —
+  *on track* (below 80 % of the reference), *close to the limit* (80 % to below 100 %) or *over*
+  (100 % and more; said as *limit reached* at exactly 100 % and *over the limit* above it),
+  decided on the exact hours, never on the rounded percentage. Not a project's own state
+  (planned, active, on hold, closed, cancelled). _Avoid:_ status, health, RAG.
+- **Excess** (of a consumption): the hours or man-days recorded beyond the **Reference**, always
+  a positive figure headed "Over by" — an hour package's hours over its package in the current
+  period, a fixed price's or time-and-material project's man-days over its max effort or planned
+  man-days (one decimal, "less than 0.1 man-day" rather than 0.0). There is none at exactly the
+  reference. _Avoid:_ overrun, deficit, negative hours left.
+- **Level**: the two degrees of attention a **State** or a **Date signal** can carry — the milder
+  (close to the limit; a date that is near) and the graver (over; a date that has passed); on
+  track carries none. _Avoid:_ severity, priority.
+- **Time elapsed**: how much of a span of days has gone by, today not counted, as a whole number
+  of percent — 0 % up to the first day, 100 % only from the day after the last; shown for a
+  package period with an end and for a fixed price from its start date to its deadline.
+  _Avoid:_ progress, schedule percentage.
+- **Pace line**: the one line of the consumption block that states the **Consumed percentage**
+  and, where there is one, the **Time elapsed** ("used 40 % of the hours with 50 % of the period
+  elapsed"); it judges nothing and forecasts nothing. _Avoid:_ burn rate, forecast.
+- **Date signal**: what the consumption block says about a terms' end date or a fixed price's
+  deadline — that it has passed (graver level, with the number of days) or is near (30 days or
+  fewer ahead, the day itself included; milder level); a date's own day is today and has not
+  passed. _Avoid:_ overdue (a task not done by its due date), deadline alert.
+- **Signal**: anything the consumption block says beyond its figures — a state, the excess, the
+  time elapsed or a date signal; drawn on the project page only, creating no task and no
+  notification. Not an **Alert**. _Avoid:_ warning, notification.
 - **Alert**: a project task Operai creates when a project reaches a moment that needs a
-  decision (a package threshold, an end date, a deadline, idle hours). _Avoid:_ warning,
-  reminder, notification (a notification is how notify-api tells a person).
+  decision (a package threshold, an end date, a deadline, idle hours). Not a **Signal**.
+  _Avoid:_ warning, reminder, notification (a notification is how notify-api tells a person).
 
 ### Teams (specs/20261126-teams)
 - **Team**: a named group of Operai users managed by administrators in Admin; it grants no

@@ -17,6 +17,7 @@ import { entry } from './strings/entry'
 import { everyone } from './strings/everyone'
 import { exportStrings } from './strings/export'
 import { filters } from './strings/filters'
+import { hostHours } from './strings/hostHours'
 import { myHours } from './strings/myHours'
 import { names } from './strings/names'
 import { recordHours } from './strings/recordHours'
@@ -39,6 +40,7 @@ export const en = {
   settings: settings.en,
   table: table.en,
   recordHours: recordHours.en,
+  hostHours: hostHours.en,
 }
 
 /** The Italian catalog: typed as the English, so a missing key does not compile. */
@@ -56,6 +58,7 @@ export const it: typeof en = {
   settings: settings.it,
   table: table.it,
   recordHours: recordHours.it,
+  hostHours: hostHours.it,
 }
 
 /** The catalog for the person's language, resolved once by @operai/ui (`resolveLocale`). */

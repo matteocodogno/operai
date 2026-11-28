@@ -5,10 +5,11 @@
  * loaded through a dynamic `import()` from `HoursExport`'s `build` — the heavy dependency stays in a lazy
  * chunk, never in the page's.
  *
- * One sheet, a header row, then one row per entry in the order given (the list's), nine columns: Day (a date
+ * One sheet, a header row, then one row per entry in the order given (the list's), ten columns: Day (a date
  * cell), Person, Hours (a NUMBER, `minutes / 60`, so the column sums — AC-4.9's "2 h 30" is the screen, D39),
  * On (the kind of work), Name, Counts for deal (the deal the hours count for, D40, so Hours summed by it equals
- * the by-deal totals), Category or work type, Activity and Note.
+ * the by-deal totals), Counts for project (the project the hours count for, so Hours summed by it equals the
+ * by-project totals — specs/20261112-project-hours AC-4.6), Category or work type, Activity and Note.
  *
  * The file carries no id, and no name the viewer may not read: a name is written only for `visibility:
  * "visible"`, and anything else is a word of the catalog — the same words as on screen (AC-4.10). Every cell of
@@ -19,7 +20,8 @@
  */
 import ExcelJS from 'exceljs'
 import type { en } from '../strings'
-import type { EntryOn, MeetingDeal, Person, TimeEntryView, Visibility } from './hoursApi.types'
+import type { EntryOn, MeetingDeal, MeetingProject, Person, TimeEntryView, Visibility } from './hoursApi.types'
+import { meetingProjectOf } from './meetingProject'
 
 /** Every word the file needs, in the viewer's language: the headers and the placeholders. */
 export type HoursWorkbookCopy = {
@@ -31,6 +33,7 @@ export type HoursWorkbookCopy = {
     on: string
     name: string
     countsForDeal: string
+    countsForProject: string
     categoryOrWorkType: string
     activity: string
     note: string
@@ -42,7 +45,7 @@ export type HoursWorkbookCopy = {
   hidden: string
   /** In place of a name whose owner did not answer. */
   unavailable: string
-  /** In place of the deal a meeting counts for, when that could not be asked. */
+  /** In place of the deal or the project a meeting counts for, when that could not be asked. */
   unknown: string
 }
 
@@ -62,7 +65,7 @@ const HOURS_FORMAT = '0.0'
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
 
 /** The columns' widths, in characters, in the order of the sheet. */
-const WIDTHS = [12, 24, 8, 12, 30, 30, 26, 30, 50] as const
+const WIDTHS = [12, 24, 8, 12, 30, 30, 30, 26, 30, 50] as const
 
 /** A `YYYY-MM-DD` as a UTC-midnight `Date`, so every time zone writes the same calendar day; anything else stays text. */
 const dayCell = (day: string): Date | string => {
@@ -115,6 +118,25 @@ const meetingDealCell = (deal: MeetingDeal, copy: HoursWorkbookCopy): string | n
 }
 
 /**
+ * The project a meeting's hours count for (specs/20261112-project-hours AC-4.6, AC-4.7), the deal's twin: its name for a project the
+ * viewer may read, a placeholder for one they may not, one whose owner did not answer, or one that could not be asked; empty for a
+ * meeting linked to none, and for one from an hours-api that sends no `project` (read as none, `meetingProjectOf`). The project's
+ * visibility is the viewer's access to the PROJECT, never to the meeting. No id is ever read.
+ */
+const meetingProjectCell = (project: MeetingProject, copy: HoursWorkbookCopy): string | null => {
+  switch (project.state) {
+    case 'none':
+      return null
+    case 'unknown':
+      return copy.unknown
+    case 'linked':
+      return project.visibility === 'visible'
+        ? nameOf('visible', project.label, copy)
+        : nameOf(project.visibility, null, copy)
+  }
+}
+
+/**
  * The work type of an entry on a project or a deal, or the category of other work — the name as typed (AC-3.8),
  * with no "(retired)" suffix: a column that is summed or filtered by name must not split one item in two.
  */
@@ -132,6 +154,18 @@ const countsForDealCell = (on: EntryOn, copy: HoursWorkbookCopy): string | null 
       return nameOf(on.visibility, on.label, copy)
     case 'meeting':
       return meetingDealCell(on.deal, copy)
+    default:
+      return null
+  }
+}
+
+/** The project the hours count for: an entry on a project, that project; on a meeting, its project; anything else, none (the deal's rule). */
+const countsForProjectCell = (on: EntryOn, copy: HoursWorkbookCopy): string | null => {
+  switch (on.type) {
+    case 'project':
+      return nameOf(on.visibility, on.label, copy)
+    case 'meeting':
+      return meetingProjectCell(meetingProjectOf(on), copy)
     default:
       return null
   }
@@ -159,6 +193,7 @@ export const buildHoursWorkbook = (items: readonly TimeEntryView[], copy: HoursW
     copy.columns.on,
     copy.columns.name,
     copy.columns.countsForDeal,
+    copy.columns.countsForProject,
     copy.columns.categoryOrWorkType,
     copy.columns.activity,
     copy.columns.note,
@@ -175,12 +210,13 @@ export const buildHoursWorkbook = (items: readonly TimeEntryView[], copy: HoursW
     row.getCell(4).value = copy.on[entry.on.type]
     row.getCell(5).value = nameCell(entry.on, copy)
     row.getCell(6).value = countsForDealCell(entry.on, copy)
-    row.getCell(7).value = categoryOrWorkTypeCell(entry)
-    row.getCell(8).value = activityCell(entry.activity, copy)
+    row.getCell(7).value = countsForProjectCell(entry.on, copy)
+    row.getCell(8).value = categoryOrWorkTypeCell(entry)
+    row.getCell(9).value = activityCell(entry.activity, copy)
     // The full note; a break inside it shows as one (the cell wraps).
     if (entry.note !== null && entry.note !== '') {
-      row.getCell(9).value = entry.note
-      row.getCell(9).alignment = { wrapText: true, vertical: 'top' }
+      row.getCell(10).value = entry.note
+      row.getCell(10).alignment = { wrapText: true, vertical: 'top' }
     }
   })
 

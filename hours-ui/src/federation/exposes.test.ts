@@ -7,9 +7,11 @@ import { REMOTE_VERSION } from '../version'
 /**
  * The federation contract the shell depends on (specs/20261112-time-tracking tasks.md T22/T23, plan §
  * Components, ADR 20260803-suite-version-generated-file-federated-export, 20261112-hours-ui-ungated-remote): the remote is named `hours`, serves on the pinned port 5184, and exposes
- * exactly the three entries the shell imports, `./App`, `./RecordHours` (the Record hours button the project page, the
+ * exactly the four entries the shell imports, `./App`, `./RecordHours` (the Record hours button the project page, the
  * deal page and the task rows embed through the shell's `hours.recordHours` extension, specs/20261116-record-hours-in-place
- * T2, ADR 20261116-record-hours-widget-through-the-host-extension-seam) and `./version`. A rename here silently breaks
+ * T2, ADR 20261116-record-hours-widget-through-the-host-extension-seam), `./HostHours` (the read panel of a record's hours the
+ * project page and the deal page embed through `hours.hostHours`, specs/20261112-project-hours T13, ADR
+ * 20261126-a-figure-set-against-another-owners-figure-…) and `./version`. A rename here silently breaks
  * the shell at runtime (a dynamic import of a missing export), so the table is asserted against the
  * config source, and every exposed file must exist. The shell's own `remoteVersionSpecifiers` test
  * (T23) reads the same file but cannot see this side of `./RecordHours`: this test is where it is pinned.
@@ -20,6 +22,7 @@ const config = readFileSync(path.join(ROOT, 'vite.config.ts'), 'utf-8')
 const EXPOSES: Record<string, string> = {
   './App': './src/App.tsx',
   './RecordHours': './src/RecordHours.tsx',
+  './HostHours': './src/HostHours.tsx',
   './version': './src/version.ts',
 }
 
@@ -33,10 +36,10 @@ describe('vite.config.ts federation contract', () => {
     expect(existsSync(path.join(ROOT, file))).toBe(true)
   })
 
-  it('exposes nothing else (the screens are one entry: the whole hours screen; the one button is the other)', () => {
+  it('exposes nothing else (the screens are one entry: the whole hours screen; the button and the panel are the other two)', () => {
     const block = /exposes: \{([^}]*)\}/.exec(config)?.[1] ?? ''
     const exposed = [...block.matchAll(/'(\.\/[^']+)':/g)].map((match) => match[1]).sort()
-    expect(exposed).toEqual(['./App', './RecordHours', './version'])
+    expect(exposed).toEqual(['./App', './HostHours', './RecordHours', './version'])
     expect(exposed).toEqual(Object.keys(EXPOSES).sort())
   })
 

@@ -876,3 +876,70 @@ describe('MeetingPage: polling a meeting that is still changing (F9)', () => {
     expect(reads()).toBe(before)
   })
 })
+
+// specs/20261112-meeting-hours AC-3.8 (T15 writes the measured duration, T16 pins the screen's half), A43; design F5, S5, G7.
+// meetings-api corrects a recorded or uploaded meeting's duration in `prepare_audio`, BEFORE the meeting leaves `processing`,
+// so the page that is already polling it replaces the Duration line in place. The line reads whatever the meeting view returns
+// (`DetailsCard`), and nothing is built for it: no note, no earlier figure, no live region.
+describe('MeetingPage: the Duration line follows a corrected duration (AC-3.8, A43; design F5, S5)', () => {
+  const advance = async (ms: number) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+  }
+
+  /** What the Details card says, row by row, as `[term, value]`: the same shape whatever the facts are. */
+  const facts = () =>
+    Array.from(screen.getByTestId('meetings-details-card').querySelectorAll('dl > div')).map((row) => [
+      row.querySelector('dt')!.textContent,
+      row.querySelector('dd')!.textContent,
+    ])
+  const detailsCard = () => within(screen.getByTestId('meetings-details-card'))
+
+  it('a processing meeting polled twice: the second answer carries another durationMs, the line shows it and nothing else on the card changes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    // A recording that claimed 3 h, still in `processing` while its audio is measured (the plan's example: measured at 10 min).
+    const held = readyMeeting({
+      status: 'processing',
+      stage: 'preparing',
+      summaryCount: 0,
+      durationMs: 10_800_000,
+      can: CAN_NONE,
+    })
+    let current: Meeting = held
+    const api = serve(() => current)
+    const reads = () => api.mock.calls.filter(([url]) => new URL(String(url)).pathname === '/meetings/m1').length
+
+    await loaded()
+    const readsAtLoad = reads()
+    expect(detailsCard().getByText('03:00:00')).not.toBeNull()
+    expect(screen.getByTestId('meetings-processing-panel')).not.toBeNull()
+    const beforeCorrection = facts()
+    expect(beforeCorrection.map(([term]) => term)).toContain(en.meeting.details.facts.duration)
+
+    // First poll: the audio has not been measured yet, the same answer. The line and the card stay as they were.
+    await advance(5_000)
+    expect(reads()).toBeGreaterThan(readsAtLoad)
+    expect(detailsCard().getByText('03:00:00')).not.toBeNull()
+    expect(facts()).toEqual(beforeCorrection)
+
+    // Second poll: `prepare_audio` has corrected the duration, and the meeting has not left `processing`
+    // (it is on to transcribing: the status panel moves, the Details card does not need to).
+    current = { ...held, durationMs: 600_000, stage: 'transcribing' }
+    await advance(10_000)
+    expect(reads()).toBeGreaterThanOrEqual(readsAtLoad + 2)
+
+    expect(detailsCard().getByText('00:10:00')).not.toBeNull()
+    expect(detailsCard().queryByText('03:00:00')).toBeNull()
+    // The same rows, in the same order, with only the Duration value replaced: no note, no earlier figure, no new fact.
+    expect(facts()).toEqual(
+      beforeCorrection.map(([term, value]) =>
+        term === en.meeting.details.facts.duration ? [term, '00:10:00'] : [term, value],
+      ),
+    )
+    // ...and the page is as it was: still the one processing panel (now on its next stage), and the page's own polling goes on.
+    expect(screen.getByTestId('meetings-processing-panel').textContent).toContain(
+      en.meeting.panels.processing.stages.transcribing,
+    )
+  })
+})

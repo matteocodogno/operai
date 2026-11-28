@@ -33,6 +33,8 @@ const en = {
       name: 'Name',
       /** The deal the hours count for: an entry on a deal, or on a meeting linked to one (D40). */
       countsForDeal: 'Counts for deal',
+      /** The project the hours count for: an entry on a project, or on a meeting linked to one (specs/20261112-project-hours AC-4.6). */
+      countsForProject: 'Counts for project',
       categoryOrWorkType: 'Category or work type',
       activity: 'Activity',
       note: 'Note',
@@ -55,6 +57,7 @@ const it: typeof en = {
       on: 'Su',
       name: 'Nome',
       countsForDeal: "Conta per l'opportunità",
+      countsForProject: 'Conta per il progetto',
       categoryOrWorkType: 'Categoria o tipo di lavoro',
       activity: 'Attività',
       note: 'Nota',

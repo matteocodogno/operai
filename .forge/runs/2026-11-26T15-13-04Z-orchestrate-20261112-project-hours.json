@@ -1,0 +1,341 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.61.0",
+  "run_id": "2026-11-26T15-13-04Z-orchestrate-20261112-project-hours",
+  "command": "orchestrate",
+  "feature": "20261112-project-hours",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "pipeline": "feature (US-1–US-4: a record's hours, consumption, a meeting linked to a project)",
+  "note": "Written retroactively on 2026-11-27 (after the run ended with eval PASS at 79dd3970 and before the US-5 re-opening's own trace), reconstructed from git history, decisions.md, qe-report.md passes 1–3 and eval-report.md; the run's trace had not been written at its end. Times are the first and last commits of the run (author dates).",
+  "started": "2026-11-26T15:13:04Z",
+  "finished": "2026-11-27T09:50:10Z",
+  "agents": [
+    {
+      "agent": "product-owner",
+      "artifact": "spec.md re-opened for D78–D79 (a meeting linked to a project counts for it)",
+      "outcome": "completed",
+      "gate": "approved by the owner 2026-11-26"
+    },
+    {
+      "agent": "architect",
+      "artifact": "plan.md",
+      "outcome": "completed",
+      "gate": "approved by the owner 2026-11-26"
+    },
+    {
+      "agent": "designer",
+      "artifact": "design.md (D80: one Hours card per page)",
+      "outcome": "completed"
+    },
+    {
+      "agent": "adr-writer",
+      "artifact": "ADR 20261126 record-hours summary; ADR 20261126 figure composed by the screen; amendments of 20261112 time bookability and 20261116 record hours widget",
+      "outcome": "completed",
+      "commits": [
+        "d598e47b"
+      ]
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T5"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "0b2af7a8"
+      ]
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T2",
+        "T3"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "f6f3b53d",
+        "70e58273"
+      ],
+      "worktree": "isolated"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T1",
+        "T4"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "8f45c57c",
+        "3d4e48a7"
+      ],
+      "worktree": "isolated"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T14",
+        "T15",
+        "T17"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "2a22f74c",
+        "014a40ed",
+        "9e884282"
+      ],
+      "worktree": "isolated"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T10",
+        "T11"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "e6bc2845",
+        "0ca04847"
+      ],
+      "worktree": "isolated"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T6",
+        "T7"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "b3a090ad",
+        "313b7856"
+      ],
+      "worktree": "isolated"
+    },
+    {
+      "agent": "architect",
+      "artifact": "plan.md amended for currentPeriod in the terms view (T3 drift)",
+      "outcome": "completed",
+      "commits": [
+        "b50325c3"
+      ]
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T12"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "7bb236d7"
+      ],
+      "worktree": "isolated"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T16"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "d986fd20"
+      ],
+      "worktree": "isolated"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T13"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "6df8e569"
+      ],
+      "worktree": "isolated"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T8",
+        "T9"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "5d620770",
+        "60805102"
+      ]
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T21"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "c3165664"
+      ]
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T19"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "49bc0be5"
+      ]
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T18"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "50b662c9"
+      ]
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "PASS",
+      "notes": "one low (summary ?people=0), follow-up outside the feature"
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "qe-report.md pass 1",
+      "outcome": "FAIL",
+      "commits": [
+        "75947f28",
+        "95c3d470",
+        "117bdadf"
+      ]
+    },
+    {
+      "agent": "designer",
+      "artifact": "design.md QE D1 (no 'refreshed' status after a 409)",
+      "outcome": "completed",
+      "commits": [
+        "9cbf00ad"
+      ]
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "qe-report.md pass 2",
+      "outcome": "FAIL",
+      "commits": [
+        "1f9672f2"
+      ]
+    },
+    {
+      "agent": "designer",
+      "artifact": "design.md QE D3 (table view restarts on a 409)",
+      "outcome": "completed",
+      "commits": [
+        "043ab194"
+      ]
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "qe-report.md pass 3",
+      "outcome": "PASS",
+      "commits": [
+        "2166b8e7",
+        "fb82ddae"
+      ]
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "eval-report.md",
+      "outcome": "PASS",
+      "score": 80.0,
+      "commits": [
+        "79dd3970"
+      ]
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "backend-dev",
+      "artifact": "plan.md",
+      "summary": "T3: currentPeriod belongs in the terms view (toTermsView), not only GET /projects/{id}; plan amended, tasks re-synced",
+      "resolved": true
+    },
+    {
+      "agent": "frontend-dev",
+      "artifact": "spec.md / ledger",
+      "summary": "an open-ended capacity package compared up to the page's Zurich day goes stale across midnight; owner accepted it (D85, A52, R8), later widened to every case of a stale day",
+      "resolved": true
+    },
+    {
+      "agent": "frontend-dev",
+      "artifact": "tasks.md",
+      "summary": "hours-ui export refused under a project filter did not switch to the refusal as for a deal; T21 added",
+      "resolved": true
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "plan.md",
+      "summary": "Counts for project is the export's 7th of 10 columns",
+      "resolved": true
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "design.md",
+      "summary": "QE D1: the design promised a 'refreshed' status after a 409 between pages; dropped",
+      "resolved": true
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "design.md",
+      "summary": "QE D3: the design said the table view cannot restart on a 409; corrected",
+      "resolved": true
+    }
+  ],
+  "collision_events": [],
+  "env_faults": [
+    {
+      "agent": "frontend-dev",
+      "class": "carry-in",
+      "detail": "estimai-ui node_modules absent in a worktree for the shell integration test",
+      "resolved_by": "verified green in the main tree"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "database",
+      "detail": "T18 blocked: dev databases behind main (projects-api tenderDealId, crm company.kind 500s)",
+      "resolved_by": "owner approved mise run db:migrate; it also applied 10 refund-api migrations, two destructive, disclosed to the owner"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "external service",
+      "detail": "accounting-api and notify-api not running; e2e global setup refused",
+      "resolved_by": "E2E_SKIP_ACCOUNTING_SEED=1 E2E_SKIP_REFUND_ACCOUNTING_RELEASE=1 (these specs never touch Refund/Accounting)"
+    }
+  ],
+  "verdicts": {
+    "qe": "PASS",
+    "security": "PASS",
+    "eval": "PASS"
+  },
+  "fix_rounds": {
+    "used": 2,
+    "cap": 2,
+    "extensions": []
+  },
+  "security": {
+    "matched_rules": [
+      "always_at_tier:production"
+    ],
+    "dispatched": true,
+    "notes": [
+      "low: GET /time-entries/summary ?people=0 (follow-up outside the feature)"
+    ]
+  },
+  "result": "partial",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null,
+  "result_note": "The pipeline ran through eval PASS; /wellforge:done was not run because the owner re-opened the spec for US-5 the same day (66a6d077). The close is the US-5 run's."
+}

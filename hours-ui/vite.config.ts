@@ -4,10 +4,12 @@ import { federation } from '@module-federation/vite'
 import { readFileSync } from 'node:fs'
 
 // specs/20261112-time-tracking: hours-ui — the Hours screens as a federated REMOTE (ADR 20260709-suite-frontend-module-federation, ADR 20261112-hours-ui-ungated-remote),
-// modelled on projects-ui/vite.config.ts. Three exposed modules: `./App` (the UNGATED hours screens,
+// modelled on projects-ui/vite.config.ts. Four exposed modules: `./App` (the UNGATED hours screens,
 // mounted at the shell's own `/hours/*` route — it is not a TOOLS entry), `./RecordHours` (the Record hours button the
 // project page, the deal page and the task rows of projects-ui and crm-ui embed through the shell's `hours.recordHours`
-// extension; specs/20261116-record-hours-in-place, ADR 20261116-record-hours-widget-through-the-host-extension-seam) and
+// extension; specs/20261116-record-hours-in-place, ADR 20261116-record-hours-widget-through-the-host-extension-seam),
+// `./HostHours` (the read panel of a project's or a deal's hours, a total and a closed breakdown, that the same pages embed through
+// `hours.hostHours`; specs/20261112-project-hours, ADR 20261126-a-figure-set-against-another-owners-figure-…) and
 // `./version` (ADR 20260803-suite-version-generated-file-federated-export, the About modal). `requiredVersion` for every shared singleton is read from this package's own
 // dependency ranges so the graph cannot drift.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
@@ -42,6 +44,7 @@ export default defineConfig({
       exposes: {
         './App': './src/App.tsx',
         './RecordHours': './src/RecordHours.tsx',
+        './HostHours': './src/HostHours.tsx',
         './version': './src/version.ts',
       },
       remotes: {

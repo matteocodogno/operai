@@ -201,7 +201,9 @@ describe('Record hours on the project page — who is offered it (AC-1.1, AC-1.2
   it('offers no hours action besides Record hours: one widget, and the page has no Edit or Delete of hours (AC-4.4)', async () => {
     await renderProject(projectDetail({ projectManager: ADA }))
     expect(new Set(seam.calls.map((call) => call.name))).toEqual(new Set(['hours.recordHours']))
-    expect(seam.others.filter((name) => name.startsWith('hours.'))).toEqual([])
+    // The one other hours extension is the Hours card's READ panel (specs/20261112-project-hours): it shows the total,
+    // it records, edits and deletes nothing — never a second action.
+    expect(new Set(seam.others.filter((name) => name.startsWith('hours.')))).toEqual(new Set(['hours.hostHours']))
     expect(screen.getAllByTestId('widget-record-hours')).toHaveLength(1)
   })
 })

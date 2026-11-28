@@ -68,6 +68,9 @@ declare module 'shell/extensions' {
       activityName: string
       placement: 'page' | 'row'
     }
+    // The hours of a record (specs/20261112-project-hours, plan D-P4): hours-ui's read panel, the total recorded and a
+    // closed breakdown per work type and, when the server allows it, per person. Two plain strings in, nothing back.
+    'hours.hostHours': { on: 'project' | 'deal'; targetId: string }
   }
 
   export function HostExtension<K extends keyof ExtensionProps>(props: {

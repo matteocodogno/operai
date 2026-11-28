@@ -62,6 +62,7 @@ describe("an entry on no entity", () => {
         on: { type: "none", category: { id: SEED.categories.administration, name: "Administration", retired: false } },
         workType: null,
         activity: null,
+        origin: "person",
         createdAt: entry.createdAt.toISOString(),
         updatedAt: entry.updatedAt.toISOString(),
       },
@@ -369,12 +370,242 @@ describe("an entry on a meeting", () => {
   });
 });
 
+describe("who wrote an entry: `origin` (specs/20261112-meeting-hours, AC-2.3)", () => {
+  it("is `meeting` for an automatic entry and `person` for every other one, whatever it is on", async () => {
+    hosts.meetings.add({ id: "m1", title: "Kick-off", creator: ALICE });
+    const automatic = await makeMeetingEntry("m1", { automatic: "untouched" });
+    const typed = await makeMeetingEntry("m2");
+    const project = await makeProjectEntry("p1");
+    const none = await makeNoEntityEntry();
+
+    const { items } = await viewAs();
+
+    expect(Object.fromEntries(items.map((item) => [item.id, item.origin]))).toEqual({
+      [automatic.id]: "meeting",
+      [typed.id]: "person",
+      [project.id]: "person",
+      [none.id]: "person",
+    });
+  });
+
+  it("stays `meeting` once its person changed the entry or moved it off the meeting: the mark is about who wrote it, not where it is", async () => {
+    const touched = await makeMeetingEntry("m1", { automatic: "touched", minutes: 90 });
+    const moved = await makeProjectEntry("p1", { userId: PERSONAS.bob.sub });
+    await db.timeEntry.update({ where: { id: moved.id }, data: { origin: "meeting", sourceMeetingId: "m2" } });
+
+    const { items } = await viewAs("holder");
+
+    expect(Object.fromEntries(items.map((item) => [item.id, item.origin]))).toEqual({ [touched.id]: "meeting", [moved.id]: "meeting" });
+  });
+
+  it("is the same for every viewer, a holder of read-all or a stranger included: it says nothing about the meeting", async () => {
+    await makeMeetingEntry("m-private", { automatic: "untouched", userId: ALICE });
+
+    for (const viewer of ["alice", "bob", "admin", "holder"] as const) expect((await viewAs(viewer)).items[0]?.origin).toBe("meeting");
+  });
+
+  it("never lets what drives Operai's writes out: no `followsMeeting`, no `sourceMeetingId`, not even `null`", async () => {
+    await makeMeetingEntry("m1", { automatic: "untouched" });
+    await makeMeetingEntry("m2", { automatic: "touched" });
+
+    const { items } = await viewAs();
+
+    expect(items).toHaveLength(2);
+    expect(JSON.stringify(items)).not.toMatch(/followsMeeting|sourceMeetingId/);
+  });
+
+  it("is required by the strict schema, and only `person` or `meeting`", () => {
+    const view = (origin: unknown) => ({
+      id: "e1",
+      day: "2026-11-02",
+      minutes: 60,
+      note: null,
+      person: { id: ALICE, name: "Alice", status: "active" },
+      on: { type: "none", category: { id: "tc-training", name: "Training", retired: false } },
+      workType: null,
+      activity: null,
+      ...(origin === undefined ? {} : { origin }),
+      createdAt: "2026-11-02T08:00:00.000Z",
+      updatedAt: "2026-11-02T08:00:00.000Z",
+    });
+
+    expect(TimeEntryViewSchema.safeParse(view("person")).success).toBe(true);
+    expect(TimeEntryViewSchema.safeParse(view("meeting")).success).toBe(true);
+    for (const bad of [undefined, null, "system", "Person", "", 1, true]) expect({ bad, ok: TimeEntryViewSchema.safeParse(view(bad)).success }).toEqual({ bad, ok: false });
+  });
+});
+
 /** `on.deal` of the meeting entry at `index`. */
 function dealOfMeeting(views: { items: readonly { on: { type: string } }[] }, index = 0): Record<string, unknown> {
   const on = views.items[index]?.on as { type: string; deal?: Record<string, unknown> } | undefined;
   if (on?.type !== "meeting" || on.deal === undefined) throw new Error(`item ${index} is not a meeting entry`);
   return on.deal;
 }
+
+/** `on.project` of the meeting entry at `index`. */
+function projectOfMeeting(views: { items: readonly { on: { type: string } }[] }, index = 0): Record<string, unknown> {
+  const on = views.items[index]?.on as { type: string; project?: Record<string, unknown> } | undefined;
+  if (on?.type !== "meeting" || on.project === undefined) throw new Error(`item ${index} is not a meeting entry with a project`);
+  return on.project;
+}
+
+// The project twin of "the deal a meeting entry counts for" (specs/20261112-project-hours T7, AC-4.7, AC-4.10, D44, D78).
+describe("the project a meeting entry counts for (AC-4.7, AC-4.10)", () => {
+  it("is the project's id, name and link when the viewer may read the project, and the meeting's deal is none: a meeting has one host", async () => {
+    hosts.meetings.add({ id: "m1", title: "Kick-off", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+    await makeMeetingEntry("m1");
+
+    const views = await viewAs();
+
+    expect(projectOfMeeting(views)).toEqual({ state: "linked", visibility: "visible", id: "p1", label: "Atlas", href: "/projects/p1" });
+    expect(dealOfMeeting(views)).toEqual({ state: "none" });
+    expect(views.unavailable).toEqual([]);
+  });
+
+  it("is a deal's meeting that is linked to no project: at most one of `on.deal` and `on.project` is linked", async () => {
+    hosts.meetings.add({ id: "m-deal", creator: ALICE, dealId: "d1" });
+    hosts.meetings.add({ id: "m-project", creator: ALICE, projectId: "p1" });
+    hosts.crm.setDeal("d1", { label: "Acme renewal" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+    await makeMeetingEntry("m-deal");
+    await makeMeetingEntry("m-project");
+
+    const views = await viewAs();
+
+    expect([dealOfMeeting(views, 0).state, projectOfMeeting(views, 0).state]).toEqual(["linked", "none"]);
+    expect([dealOfMeeting(views, 1).state, projectOfMeeting(views, 1).state]).toEqual(["none", "linked"]);
+  });
+
+  it("has no id key at all when the viewer may not read the project, the minutes and the meeting's own title intact", async () => {
+    hosts.meetings.add({ id: "m1", title: "Kick-off", creator: ALICE, projectId: "secret-project-id" });
+    hosts.projects.setProject("secret-project-id", { label: "Secret project name" });
+    hosts.projects.setReader(ALICE, false);
+    await makeMeetingEntry("m1", { minutes: 120 });
+
+    const views = await viewAs();
+
+    const project = projectOfMeeting(views);
+    expect(project).toEqual({ state: "linked", visibility: "hidden" });
+    expect("id" in project).toBe(false);
+    expect(views.items[0]).toMatchObject({ minutes: 120, on: { type: "meeting", label: "Kick-off", visibility: "visible" } });
+    expect(JSON.stringify(views)).not.toContain("secret-project-id");
+    expect(JSON.stringify(views)).not.toContain("Secret project name");
+    expect(views.unavailable).toEqual([]);
+  });
+
+  it("is a project projects-api does not hold, read exactly like one the viewer may not read", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "no-such-project" });
+    await makeMeetingEntry("m1");
+
+    expect(projectOfMeeting(await viewAs())).toEqual({ state: "linked", visibility: "hidden" });
+  });
+
+  it("is independent of the viewer's access to the meeting: a viewer who did not take part still learns the project they may read", async () => {
+    hosts.meetings.add({ id: "m-theirs", title: "Board only", creator: PERSONAS.bob.sub, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+    await makeMeetingEntry("m-theirs");
+
+    const views = await viewAs("alice");
+
+    expect(views.items[0]?.on).toMatchObject({ type: "meeting", label: null, href: null, visibility: "hidden" });
+    expect(projectOfMeeting(views)).toEqual({ state: "linked", visibility: "visible", id: "p1", label: "Atlas", href: "/projects/p1" });
+    expect(JSON.stringify(views)).not.toContain("Board only");
+  });
+
+  it("is none for an unlinked meeting and for one that no longer exists", async () => {
+    hosts.meetings.add({ id: "m-free", creator: ALICE });
+    await makeMeetingEntry("m-free");
+    await makeMeetingEntry("m-deleted");
+
+    const views = await viewAs();
+
+    expect(projectOfMeeting(views, 0)).toEqual({ state: "none" });
+    expect(projectOfMeeting(views, 1)).toEqual({ state: "none" });
+    expect(views.unavailable).toEqual([]);
+  });
+
+  it("is unknown when the system route does not answer: `meeting-projects` is named with `meeting-deals`, and the entry, its minutes and its title stay (AC-4.10)", async () => {
+    hosts.meetings.add({ id: "m1", title: "Kick-off", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+    await makeMeetingEntry("m1", { minutes: 150 });
+    hosts.fail("meetings.system-hosts", { status: 500 });
+
+    const views = await viewAs();
+
+    expect(projectOfMeeting(views)).toEqual({ state: "unknown" });
+    expect(dealOfMeeting(views)).toEqual({ state: "unknown" });
+    expect(views.unavailable).toEqual(["meeting-deals", "meeting-projects"]);
+    expect(views.items[0]).toMatchObject({ minutes: 150, on: { type: "meeting", label: "Kick-off", visibility: "visible" } });
+  });
+
+  it("is linked and unavailable when projects-api does not answer, and `projects` is named", async () => {
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p1" });
+    hosts.projects.setProject("p1", { label: "Atlas" });
+    await makeMeetingEntry("m1");
+    hosts.fail("projects.resolve", { status: 503 });
+
+    const views = await viewAs();
+
+    expect(projectOfMeeting(views)).toEqual({ state: "linked", visibility: "unavailable" });
+    expect(views.unavailable).toEqual(["projects"]);
+  });
+
+  it("is a project the viewer cannot name when the meeting is linked to a stored project id outside the id rule, with the page's other projects intact", async () => {
+    hosts.meetings.add({ id: "m-odd", creator: ALICE, host: { app: "projects", entityType: "project", entityId: "x".repeat(65) } });
+    hosts.meetings.add({ id: "m-fine", creator: ALICE, projectId: "p-fine" });
+    hosts.projects.setProject("p-fine", { label: "Fine project" });
+    hosts.projects.setProject("p-direct", { label: "Direct project" });
+    await makeMeetingEntry("m-odd");
+    await makeMeetingEntry("m-fine");
+    await makeProjectEntry("p-direct");
+
+    const views = await viewAs();
+
+    expect(projectOfMeeting(views, 0)).toEqual({ state: "linked", visibility: "hidden" });
+    expect(projectOfMeeting(views, 1)).toMatchObject({ visibility: "visible", label: "Fine project" });
+    expect(views.items[2]?.on).toMatchObject({ type: "project", label: "Direct project", visibility: "visible" });
+    expect(views.unavailable).toEqual([]);
+  });
+
+  it("goes out with the project entries' projects in ONE projects-api resolve, as the viewer, and makes ONE call to the system route for both", async () => {
+    hosts.projects.setProject("p-direct", { label: "Direct" });
+    hosts.projects.setProject("p-via-meeting", { label: "Via meeting" });
+    hosts.crm.setDeal("d-via-meeting", { label: "Deal via meeting" });
+    hosts.meetings.add({ id: "m1", creator: ALICE, projectId: "p-via-meeting" });
+    hosts.meetings.add({ id: "m2", creator: ALICE, dealId: "d-via-meeting" });
+    await makeProjectEntry("p-direct");
+    await makeMeetingEntry("m1");
+    await makeMeetingEntry("m2");
+
+    const views = await viewAs();
+
+    const calls = hosts.callsTo("projects.resolve");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.authorization).toBe(await bearerOf("alice"));
+    expect([...(calls[0]?.body as { ids: string[] }).ids].sort()).toEqual(["p-direct", "p-via-meeting"]);
+    expect(hosts.callsTo("meetings.system-hosts")).toHaveLength(1);
+    expect(views.items[0]?.on).toMatchObject({ type: "project", label: "Direct" });
+    expect(projectOfMeeting(views, 1)).toMatchObject({ label: "Via meeting" });
+    // Each owner only for its own: the deal's meeting is not a project, the project's meeting not a deal.
+    expect(hosts.callsTo("crm.resolve").flatMap((call) => (call.body as { ids: string[] }).ids)).toEqual(["d-via-meeting"]);
+  });
+
+  it("never lets the id or name of a project the viewer may not read out of ANOTHER person's meeting entry, for any viewer (D44)", async () => {
+    hosts.projects.setProject("secret-project", { label: "Secret project name" });
+    hosts.projects.setReader("user-bob", false);
+    hosts.projects.setReader("user-carol", false);
+    hosts.meetings.add({ id: "m1", title: "Board only", creator: ALICE, participants: [PERSONAS.bob.sub], projectId: "secret-project" });
+    await makeMeetingEntry("m1", { userId: ALICE });
+
+    for (const viewer of ["bob", "carol"] as const) {
+      const views = await viewAs(viewer);
+      expect(projectOfMeeting(views)).toEqual({ state: "linked", visibility: "hidden" });
+      expect(JSON.stringify(views)).not.toContain("secret-project");
+      expect(JSON.stringify(views)).not.toContain("Secret project name");
+    }
+  });
+});
 
 describe("the deal a meeting entry counts for (AC-2.6, AC-4.10)", () => {
   it("is the deal's id, name and link when the viewer may read the deal", async () => {
@@ -438,7 +669,8 @@ describe("the deal a meeting entry counts for (AC-2.6, AC-4.10)", () => {
     const views = await viewAs();
 
     expect(dealOfMeeting(views)).toEqual({ state: "unknown" });
-    expect(views.unavailable).toEqual(["meeting-deals"]);
+    // The entry view also says the meeting's project, from the same read: the deal and the project are unknown together (specs/20261112-project-hours AC-4.10).
+    expect(views.unavailable).toEqual(["meeting-deals", "meeting-projects"]);
     expect(views.items[0]).toMatchObject({ minutes: 150, on: { type: "meeting", label: "Kick-off", visibility: "visible" } });
   });
 
@@ -657,6 +889,7 @@ describe("the wire shape (plan § Views)", () => {
     hosts.meetings.add({ id: "m-linked", title: "Kick-off", creator: ALICE, dealId: "d2" });
     hosts.meetings.add({ id: "m-free", title: "Retro", creator: ALICE, dealId: null });
     hosts.meetings.add({ id: "m-odd", title: "Odd", creator: ALICE, host: { app: "crm", entityType: "deal", entityId: "x".repeat(65) } });
+    hosts.meetings.add({ id: "m-project", title: "Project call", creator: ALICE, projectId: "p1" });
     hosts.activities.add({ id: "a-task", subject: "Wire the login", project: "p1" });
     hosts.activities.add({ id: "a-call", subject: "Discovery call", type: "call", deal: "d1" });
     await makeProjectEntry("p1", { activityId: "a-task", workTypeId: SEED.workTypes.project.analysis, note: "Pairing" });
@@ -666,6 +899,7 @@ describe("the wire shape (plan § Views)", () => {
     await makeMeetingEntry("m-linked");
     await makeMeetingEntry("m-free");
     await makeMeetingEntry("m-odd");
+    await makeMeetingEntry("m-project");
     await makeMeetingEntry("m-gone");
     await makeNoEntityEntry(SEED.categories.other, { note: "Offsite" });
   }
@@ -687,11 +921,13 @@ describe("the wire shape (plan § Views)", () => {
     const everythingDown = await viewAs("alice");
 
     for (const views of [allReadable, nothingReadable, everythingDown]) {
-      expect(views.items).toHaveLength(9);
+      expect(views.items).toHaveLength(10);
       for (const item of views.items) expect(() => TimeEntryViewSchema.parse(item)).not.toThrow();
-      for (const source of views.unavailable) expect(["projects", "crm", "activities", "meetings", "meeting-deals", "identities"]).toContain(source);
+      for (const source of views.unavailable) {
+        expect(["projects", "crm", "activities", "meetings", "meeting-deals", "meeting-projects", "identities"]).toContain(source);
+      }
     }
-    expect(everythingDown.unavailable).toEqual(["projects", "crm", "activities", "meetings", "meeting-deals", "identities"]);
+    expect(everythingDown.unavailable).toEqual(["projects", "crm", "activities", "meetings", "meeting-deals", "meeting-projects", "identities"]);
   });
 
   it("names a visible thing and nothing else: a label and a link exactly when visible, a subject only when its activity is visible", async () => {
@@ -710,6 +946,12 @@ describe("the wire shape (plan § Views)", () => {
           expect("id" in on.deal).toBe(on.deal.visibility === "visible");
           if (on.deal.visibility === "visible") expect(on.deal.href).toMatch(/^\/crm\/deals\/[^/]+$/);
         }
+        if (on.type === "meeting" && on.project.state === "linked") {
+          expect("id" in on.project).toBe(on.project.visibility === "visible");
+          if (on.project.visibility === "visible") expect(on.project.href).toMatch(/^\/projects\/[^/]+$/);
+        }
+        // A meeting has one host: never both a deal and a project.
+        if (on.type === "meeting") expect([on.deal.state, on.project.state].filter((state) => state === "linked").length).toBeLessThanOrEqual(1);
         if (activity !== null) expect(activity.subject !== null).toBe(activity.visibility === "visible");
       }
     }
@@ -718,15 +960,16 @@ describe("the wire shape (plan § Views)", () => {
   it("drops a deal id from a view that may not carry one, and the schema refuses to carry one", () => {
     const hiddenWithId = { state: "linked", visibility: "hidden", id: "d1" };
     const visibleWithoutId = { state: "linked", visibility: "visible", label: "Acme", href: "/crm/deals/d1" };
-    const meetingEntry = (deal: unknown) => ({
+    const meetingEntry = (deal: unknown, project: unknown = { state: "none" }) => ({
       id: "e1",
       day: "2026-11-02",
       minutes: 60,
       note: null,
       person: { id: ALICE, name: "Alice", status: "active" },
-      on: { type: "meeting", id: "m1", label: null, href: null, visibility: "hidden", deal },
+      on: { type: "meeting", id: "m1", label: null, href: null, visibility: "hidden", deal, project },
       workType: null,
       activity: null,
+      origin: "person",
       createdAt: "2026-11-02T08:00:00.000Z",
       updatedAt: "2026-11-02T08:00:00.000Z",
     });
@@ -735,6 +978,41 @@ describe("the wire shape (plan § Views)", () => {
     expect(TimeEntryViewSchema.safeParse(meetingEntry(hiddenWithId)).success).toBe(false);
     expect(TimeEntryViewSchema.safeParse(meetingEntry(visibleWithoutId)).success).toBe(false);
     expect(TimeEntryViewSchema.safeParse(meetingEntry({ state: "none", id: "d1" })).success).toBe(false);
+  });
+
+  // The project a meeting counts for is the deal's twin on the wire (specs/20261112-project-hours AC-4.7): the same four states, the same refusals, and it is required.
+  it("drops a project id from a view that may not carry one, refuses any other member, and requires `on.project` on a meeting", () => {
+    const meetingEntry = (project: unknown, withProject = true) => ({
+      id: "e1",
+      day: "2026-11-02",
+      minutes: 60,
+      note: null,
+      person: { id: ALICE, name: "Alice", status: "active" },
+      on: { type: "meeting", id: "m1", label: null, href: null, visibility: "hidden", deal: { state: "none" }, ...(withProject ? { project } : {}) },
+      workType: null,
+      activity: null,
+      origin: "person",
+      createdAt: "2026-11-02T08:00:00.000Z",
+      updatedAt: "2026-11-02T08:00:00.000Z",
+    });
+    const ok = (project: unknown) => TimeEntryViewSchema.safeParse(meetingEntry(project)).success;
+
+    expect(ok({ state: "linked", visibility: "visible", id: "p1", label: "Atlas", href: "/projects/p1" })).toBe(true);
+    expect(ok({ state: "linked", visibility: "hidden" })).toBe(true);
+    expect(ok({ state: "linked", visibility: "unavailable" })).toBe(true);
+    expect(ok({ state: "none" })).toBe(true);
+    expect(ok({ state: "unknown" })).toBe(true);
+    // A project a viewer may not read carries no id, label or href; one they may read carries all three.
+    expect(ok({ state: "linked", visibility: "hidden", id: "p1" })).toBe(false);
+    expect(ok({ state: "linked", visibility: "hidden", label: "Atlas" })).toBe(false);
+    expect(ok({ state: "linked", visibility: "unavailable", href: "/projects/p1" })).toBe(false);
+    expect(ok({ state: "linked", visibility: "visible", label: "Atlas", href: "/projects/p1" })).toBe(false);
+    expect(ok({ state: "none", id: "p1" })).toBe(false);
+    expect(ok({ state: "unknown", id: "p1" })).toBe(false);
+    expect(ok({ state: "linked", visibility: "gone" })).toBe(false);
+    // Strict: a meeting view without its project is not the contract (hours-api always says it), and neither is an unknown member on `on`.
+    expect(TimeEntryViewSchema.safeParse(meetingEntry(undefined, false)).success).toBe(false);
+    expect(TimeEntryViewSchema.safeParse({ ...meetingEntry({ state: "none" }), on: { ...meetingEntry({ state: "none" }).on, projectId: "p1" } }).success).toBe(false);
   });
 
   it("can be documented: a route returning it generates an OpenAPI document that names the view and says what a hidden deal does not carry", () => {
@@ -869,13 +1147,14 @@ describe("the id rule (D44, owasp-report.md F1): the id of a record the viewer m
       on,
       workType: null,
       activity,
+      origin: "person",
       createdAt: "2026-11-02T08:00:00.000Z",
       updatedAt: "2026-11-02T08:00:00.000Z",
     });
     const entity = (type: string, extra: object = {}) => ({ type, id: null, label: null, href: null, visibility: "hidden", ...extra });
     const withoutId = (on: object) => ({ ...on, id: undefined });
 
-    for (const on of [entity("project"), entity("deal"), entity("meeting", { deal: { state: "none" } })]) {
+    for (const on of [entity("project"), entity("deal"), entity("meeting", { deal: { state: "none" }, project: { state: "none" } })]) {
       expect(TimeEntryViewSchema.safeParse(view(on, null)).success).toBe(true);
       expect(TimeEntryViewSchema.safeParse(view(withoutId(on), null)).success).toBe(false);
     }

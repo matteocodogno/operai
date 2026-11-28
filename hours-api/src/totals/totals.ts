@@ -53,19 +53,51 @@ function placeEntity(tally: Tally, label: EntityLabel, id: string, minutes: numb
 }
 
 /**
- * One group per project the viewer can read, read from projects-api as the viewer; every project they cannot read is
- * ONE `hidden` group, every one whose owner did not answer ONE `unavailable` group (AC-4.7, AC-4.10); the entries
- * that are not on a project (a deal, a meeting, no entity) are `none`.
+ * One group per project the viewer can read, read from projects-api as the viewer: the entries on the project PLUS the entries on the meetings
+ * linked to it NOW (specs/20261112-project-hours AC-4.1, AC-4.5, D78), so a relinked meeting's hours move with it (nothing about the project is
+ * stored on an entry). The deal's twin, `byDeal` below: a project and a meeting's project pass through the same read of the viewer's access
+ * (AC-4.7, AC-4.10), the link being read with hours-api's own credential, so it is named only to a viewer who may read the project it names. What
+ * they may not read is ONE `hidden` group, what projects-api did not answer ONE `unavailable` group.
+ *
+ * A meeting whose current project could not be read (`meeting-projects` did not answer) is `project-unknown`, and stays counted: a total never
+ * loses entries. `none` is what is on no project: a deal or no-entity entry, a meeting linked to no project (to a deal, to another host, to
+ * nothing), or one meetings-api no longer holds.
  */
 async function byProject(where: Prisma.TimeEntryWhereInput, authorization: string): Promise<TotalsAnswer> {
-  const rows = await db.timeEntry.groupBy({ by: ["projectId"], where, _sum: { minutes: true } });
-  const labels = await resolveLabels(authorization, { projectIds: rows.flatMap((row) => (row.projectId === null ? [] : [row.projectId])) });
+  const rows = await db.timeEntry.groupBy({ by: ["projectId", "meetingId"], where, _sum: { minutes: true } });
+  // The title of a meeting is not needed, only its project: `meetingProjectIds`, never `meetingIds`.
+  const labels = await resolveLabels(authorization, {
+    projectIds: rows.flatMap((row) => (row.projectId === null ? [] : [row.projectId])),
+    meetingProjectIds: rows.flatMap((row) => (row.meetingId === null ? [] : [row.meetingId])),
+  });
   const tally = new Tally();
   for (const row of rows) {
-    if (row.projectId === null) tally.addBucket("none", sumOf(row));
-    else placeEntity(tally, labels.project(row.projectId), row.projectId, sumOf(row));
+    const minutes = sumOf(row);
+    if (row.projectId !== null) {
+      placeEntity(tally, labels.project(row.projectId), row.projectId, minutes);
+    } else if (row.meetingId !== null) {
+      const project = labels.meetingProject(row.meetingId);
+      switch (project.state) {
+        case "linked":
+          if (project.visibility === "visible") tally.addKeyed({ key: project.id, label: project.label }, minutes);
+          else tally.addBucket(project.visibility, minutes);
+          break;
+        case "unknown":
+          tally.addBucket("project-unknown", minutes);
+          break;
+        case "none":
+          tally.addBucket("none", minutes);
+          break;
+      }
+    } else {
+      tally.addBucket("none", minutes);
+    }
   }
-  return { totalMinutes: tally.totalMinutes, groups: tally.groups(byMinutesThenLabel, ["hidden", "unavailable", "none"]), unavailable: labels.unavailable };
+  return {
+    totalMinutes: tally.totalMinutes,
+    groups: tally.groups(byMinutesThenLabel, ["hidden", "unavailable", "project-unknown", "none"]),
+    unavailable: labels.unavailable,
+  };
 }
 
 /**

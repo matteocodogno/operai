@@ -33,6 +33,52 @@ describe("resolveDeals", () => {
       label: "Acme renewal",
       href: "/crm/deals/d1",
       involved: ["user-owner", "user-tech"],
+      // Not scripted: the fake's default, an id no test calls as.
+      ownerUserId: "user-deal-owner",
+    });
+  });
+
+  // specs/20261112-project-hours T6, AC-2.4: the owner states WHO owns the deal, beside who is involved in it.
+  describe("ownerUserId", () => {
+    it("answers the owner crm-api states, apart from the people involved", async () => {
+      hosts.crm.setDeal("d1", { label: "Acme renewal", involved: ["user-owner", "user-tech"], ownerUserId: "user-owner" });
+      expect((await ok(["d1"])).get("d1")).toMatchObject({ state: "open", ownerUserId: "user-owner", involved: ["user-owner", "user-tech"] });
+    });
+
+    it("answers an owner who is not among those involved as stated: the two are separate facts", async () => {
+      hosts.crm.setDeal("d1", { label: "Acme renewal", involved: ["user-tech"], ownerUserId: "user-owner" });
+      expect((await ok(["d1"])).get("d1")).toMatchObject({ ownerUserId: "user-owner", involved: ["user-tech"] });
+    });
+
+    it("answers `undefined` for a crm-api that predates it, and still answers: not stated is not an owner and not a failure", async () => {
+      hosts.crm.setDeal("d1", { label: "Acme renewal", involved: ["user-alice"], ownerUserId: "user-owner" });
+      hosts.crm.legacyOwner = true;
+      const deal = (await ok(["d1"])).get("d1");
+      expect(deal).toMatchObject({ state: "open", involved: ["user-alice"] });
+      expect(deal).toHaveProperty("ownerUserId", undefined);
+    });
+
+    it("is each deal's own in a batch", async () => {
+      hosts.crm.setDeal("d1", { label: "One", involved: [], ownerUserId: "user-a" });
+      hosts.crm.setDeal("d2", { label: "Two", involved: [], ownerUserId: "user-b" });
+      const items = await ok(["d1", "d2", "d3"]);
+      expect([items.get("d1"), items.get("d2"), items.get("d3")].map((deal) => (deal?.state === "open" ? deal.ownerUserId : "missing"))).toEqual([
+        "user-a",
+        "user-b",
+        "missing",
+      ]);
+    });
+
+    it.each([
+      ["null: a deal always has an owner", null],
+      ["a number", 7],
+      ["an empty string", ""],
+      ["an object", { id: "user-owner" }],
+    ])("answers `unavailable` for an owner that is %s: a contract break, never an owner and never a quiet nobody", async (_label, ownerUserId) => {
+      hosts.fail("crm.resolve", {
+        body: { reader: true, items: [{ id: "d1", state: "open", writable: true, label: "Acme", href: "/crm/deals/d1", may: { write: true, manage: true }, involved: [], ownerUserId }] },
+      });
+      expect(await resolveDeals(ALICE, ["d1"])).toEqual({ state: "unavailable" });
     });
   });
 
